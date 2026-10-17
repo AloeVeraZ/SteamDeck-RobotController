@@ -15,7 +15,8 @@ function snapshot(){return {...state,robots:library?.list(currentNetwork?.ssid),
 function update(patch={}){Object.assign(state,patch);emit('state',snapshot());}
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
-function hardware(){let model=process.platform==='win32'?'Windows desktop':process.platform==='darwin'?'Mac':'Linux desktop';if(process.platform==='linux'){try{const s=fs.readFileSync('/sys/class/dmi/id/product_name','utf8').trim();if(/jupiter/i.test(s))model='Steam Deck LCD';else if(/galileo/i.test(s))model='Steam Deck OLED';}catch{}}const d=screen.getDisplayMatching(win.getBounds());return {model,platform:process.platform,display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
+function deviceModel(){if(process.env.DECK_DEVICE_MODEL)return process.env.DECK_DEVICE_MODEL;let model=process.platform==='win32'?'Windows desktop':process.platform==='darwin'?'Mac':'Linux desktop';if(process.platform==='linux'){try{const s=fs.readFileSync('/sys/class/dmi/id/product_name','utf8').trim();if(/jupiter/i.test(s))model='Steam Deck LCD';else if(/galileo/i.test(s))model='Steam Deck OLED';}catch{}}return model;}
+function hardware(){const model=deviceModel(),d=screen.getDisplayMatching(win.getBounds());return {model,platform:process.platform,display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function closeManager(){
   const view=managerView,proxy=managerProxy;managerView=null;managerProxy=null;
@@ -112,7 +113,7 @@ async function openManager(){
   update({manager:true});fitView();void view.webContents.loadURL(localUrl);return true;
 }
 ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents&&bridge instanceof FtcSocket&&bytes instanceof Uint8Array)bridge.send(bytes);});
-ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||''};});
+ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',steamDeck:deviceModel().startsWith('Steam Deck')};});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 handle('manager-close',closeManager);
 // An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and

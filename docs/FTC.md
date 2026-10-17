@@ -53,7 +53,8 @@ desktops, stacked on narrow windows like the phone app.
 | ••• menu | Restart Robot, Program & Manage, Camera Stream, Gamepad assignment, About |
 
 - **Gamepads:** like the FTC Driver Station, press **START + A** to make a gamepad User 1
-  (`gamepad1`) or **START + B** for User 2 (`gamepad2`). On Steam Deck, START is the ☰ button.
+  (`gamepad1`) or **START + B** for User 2 (`gamepad2`). On a Steam Deck, the built-in controls
+  become User 1 automatically; a second controller still uses START + B (START is the ☰ button).
   Inputs are sent only after assignment, and only while the Driver Station is visible and
   focused. Opening Settings, a dialog, or another window sends the gamepads back to rest.
 - **Auto-transition:** when an Autonomous op mode with `autoTransition` stops, its TeleOp is

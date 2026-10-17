@@ -5,7 +5,7 @@
 const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_SECONDS=30;
 const host=window.ftcHost;
 let session=null,info={name:'FTC Robot',host:'',ssid:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0,minVolts=null,dsBattery=null;
-const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();
+const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();let deckAssigned=null;
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.hidden=true;},Math.max(1500,ms));}
@@ -143,6 +143,13 @@ function inputsLive(){return inputsOn&&!document.hidden&&document.hasFocus();}
 function pollGamepads(){
   if(!session)return;const pads=[...(navigator.getGamepads?.()||[])].filter(p=>p&&p.connected),present=new Set(pads.map(p=>p.index));
   for(const u of [1,2])if(users[u]!==null&&!present.has(users[u])){users[u]=null;session.setGamepad(u,null);toast(`User ${u} gamepad disconnected`);}
+  if(deckAssigned!==null&&!present.has(deckAssigned))deckAssigned=null;
+  // Steam Deck: its built-in controls become User 1 without START + A. Valve's controller (vendor 28de, or the first
+  // pad when Steam Input renames it) is chosen once; START + A / START + B still reassign, and a reconnect repeats it.
+  if(info.steamDeck&&deckAssigned===null&&users[1]===null&&pads.length){
+    const deck=pads.find(p=>/28de|valve|steam deck/i.test(p.id))||pads[0];
+    if(deck.index!==users[2]){users[1]=deck.index;deckAssigned=deck.index;if(deck.buttons.some(b=>b.pressed))held.add(deck.index);toast('Steam Deck controls are User 1',2500);}
+  }
   for(const p of pads){
     const pressed=i=>!!p.buttons[i]?.pressed;
     if(inputsLive()&&pressed(9)&&(pressed(0)||pressed(1))){

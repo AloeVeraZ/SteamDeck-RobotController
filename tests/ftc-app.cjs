@@ -13,7 +13,7 @@ class Cdp{constructor(url){this.ws=new WebSocket(url);this.id=0;this.cbs=new Map
 async function targets(){return (await fetch('http://127.0.0.1:9333/json/list')).json();}
 (async()=>{
   const robot=await startUdpRobot({address:'127.0.0.2'}),data=fs.mkdtempSync(path.join(os.tmpdir(),'deck-e2e-')),out=path.join(root,'test-results','ftc');fs.mkdirSync(out,{recursive:true});
-  const launch=()=>spawn(process.env.DECK_ELECTRON||path.join(root,'.cache/runtime-win32-x64-44.8.0/electron.exe'),[root,'--remote-debugging-port=9333'],{env:(()=>{const e={...process.env,DECK_DATA_DIR:data};delete e.ELECTRON_RUN_AS_NODE;return e;})(),stdio:'ignore'});
+  const launch=()=>spawn(process.env.DECK_ELECTRON||path.join(root,'.cache/runtime-win32-x64-44.8.0/electron.exe'),[root,'--remote-debugging-port=9333'],{env:(()=>{const e={...process.env,DECK_DATA_DIR:data,DECK_DEVICE_MODEL:'Steam Deck LCD'};delete e.ELECTRON_RUN_AS_NODE;return e;})(),stdio:'ignore'});
   let app=launch();
   try{
     const launcherT=await until(async()=>(await targets()).find(t=>t.url.endsWith('ui/index.html')),15000,'launcher');const L=new Cdp(launcherT.webSocketDebuggerUrl);await L.ready;
@@ -21,6 +21,11 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
     await L.eval(`window.deck.open({url:'127.0.0.2',name:'Practice Bot'})`);
     const dsT=await until(async()=>(await targets()).find(t=>t.url.includes('ui/ftc/index.html')),10000,'driver station view');const D=new Cdp(dsT.webSocketDebuggerUrl);await D.ready;
     await until(()=>D.eval(`document.querySelector('#link-text').textContent==='Robot Connected'&&document.querySelector('#config').textContent==='competition'`),8000,'DS connected');
+    // On a Steam Deck the built-in controls become User 1 without START + A; the other pad stays unassigned.
+    await D.eval(`(()=>{const b=p=>({pressed:p,value:p?1:0}),pad=(id,index,y)=>({id,index,connected:true,mapping:'standard',axes:[0,y,0,0],buttons:Array.from({length:17},()=>b(false))});const pads=[pad('Steam Deck Controller (Vendor: 28de Product: 1205)',0,-0.5),pad('Xbox Wireless Controller (Vendor: 045e)',1,0.25)];navigator.getGamepads=()=>pads;})()`);
+    await until(()=>robot.sim.gamepads[1]?.id===1,5000,'Steam Deck pad sent as User 1');if(robot.sim.gamepads[2]&&robot.sim.gamepads[2].id!==-2)throw Error('second pad was assigned without START + B');
+    console.log('Steam Deck controls as User 1:',await D.eval("document.querySelector('#pad-1').className"),'left_stick_y',robot.sim.gamepads[1].left_stick_y);
+    await D.eval('delete navigator.getGamepads');
     console.log('launcher state:',JSON.stringify(await L.eval('({kind:state.kind,title:state.title,url:state.url,robot:state.robot?.kind})')));
     console.log('DS:',await D.eval(`[...document.querySelectorAll('#ds-name,#link-text,#network,#ping,#volts,#volts-min,#config,#ds-battery-text')].map(e=>e.textContent).join(' | ')`));
     await D.eval(`document.querySelector('#teleop-list').click();[...document.querySelectorAll('#picker-list button')].find(b=>b.textContent.startsWith('Field Centric')).click();`);await wait(200);await D.eval(`document.querySelector('#main-action').click()`);

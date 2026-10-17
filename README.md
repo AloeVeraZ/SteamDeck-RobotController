@@ -35,13 +35,13 @@ the launcher does not invent second-controller robot controls.
 
 ## Downloads and setup
 
-The `dist` folder contains version **2.4.1** packages:
+The `dist` folder contains version **2.4.2** packages:
 
 | Platform | Package | Install |
 | --- | --- | --- |
-| Steam Deck / Linux x64 | `DeckDriverStation-2.4.1-SteamDeck.run` | Run `bash DeckDriverStation-2.4.1-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
-| Windows x64 | `DeckDriverStation-2.4.1-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
-| Apple Silicon Mac | `DeckDriverStation-2.4.1-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
+| Steam Deck / Linux x64 | `DeckDriverStation-2.4.2-SteamDeck.run` | Run `bash DeckDriverStation-2.4.2-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
+| Windows x64 | `DeckDriverStation-2.4.2-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
+| Apple Silicon Mac | `DeckDriverStation-2.4.2-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
 
 The Apple Silicon package is not Apple-notarized; approval may be required in Privacy &
 Security. See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md),

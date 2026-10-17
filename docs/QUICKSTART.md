@@ -2,9 +2,9 @@
 
 ## Steam Deck LCD / OLED and Linux x64
 
-1. Download `DeckDriverStation-2.4.1-SteamDeck.run` onto the Deck.
+1. Download `DeckDriverStation-2.4.2-SteamDeck.run` onto the Deck.
 2. In Desktop Mode, open a terminal in your Downloads folder.
-3. Run `bash DeckDriverStation-2.4.1-SteamDeck.run`. It verifies its payload and creates desktop and application-menu shortcuts. The tar archive remains available for portable use.
+3. Run `bash DeckDriverStation-2.4.2-SteamDeck.run`. It verifies its payload and creates desktop and application-menu shortcuts. The tar archive remains available for portable use.
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
@@ -17,10 +17,10 @@ for docked displays and display scaling. The installer includes its own runtime.
 
 ## Windows
 
-Download and double-click **DeckDriverStation-2.4.1-Windows-Setup.exe**.
+Download and double-click **DeckDriverStation-2.4.2-Windows-Setup.exe**.
 It installs per-user with no administrator account, a robot icon, desktop and Start
 menu shortcuts, and an entry in Installed apps. For a silent terminal install, run
-`.\DeckDriverStation-2.4.1-Windows-Setup.exe /S`. The portable ZIP also includes
+`.\DeckDriverStation-2.4.2-Windows-Setup.exe /S`. The portable ZIP also includes
 **DeckDriverStation.exe** and **Install-Windows.cmd**.
 Keep the complete `app` and `runtime` folders together. No administrator account
 or separate Node installation is required. Unsigned personal software may be

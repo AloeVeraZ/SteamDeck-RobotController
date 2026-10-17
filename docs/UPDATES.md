@@ -4,7 +4,7 @@ Open **⋮ → Updates**. The larger popup shows the installed version, saved ch
 repository. Switch between Main (stable) and Testing (experimental) in its dropdown.
 Entering Testing requires accepting an experimental-features warning. The choice
 is saved outside the installation and survives restarts and updates. **Check for updates** reads GitHub Releases over HTTPS. Testing builds
-use prereleases named `testing-v2.4.1`; stable builds use `v2.4.1` and channel `main`.
+use prereleases named `testing-v2.4.2`; stable builds use `v2.4.2` and channel `main`.
 The newest release in that channel must have the asset for this device. The app
 can return to an older Main version.
 

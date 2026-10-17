@@ -25,7 +25,7 @@ const server=http.createServer(async(req,res)=>{
     const kind=(saved?.url===url&&saved.kind)||((await probeFtc(host)).ftc?'ftc':'web');let localUrl;
     if(kind==='ftc'){ftc=await new FtcSocket(host).open();ftc.onPacket(b=>{const line='data: '+Buffer.from(b).toString('base64')+'\n\n';for(const c of ftcClients)c.write(line);});localUrl='/ftc/index.html';}
     else{bridge=new RobotProxy(url);localUrl=await bridge.start();}
-    const robot=library.upsert({...p,url,kind},{opened:true});ftcInfo={name:robot.name,host,ssid:network.ssid||''};Object.assign(state,{page:'drive',url,title:robot.name,robot,kind});result={opened:true,localUrl};
+    const robot=library.upsert({...p,url,kind},{opened:true});ftcInfo={name:robot.name,host,ssid:network.ssid||'',steamDeck:process.env.DECK_PREVIEW_STEAMDECK==='1'};Object.assign(state,{page:'drive',url,title:robot.name,robot,kind});result={opened:true,localUrl};
    }else if(method==='close'){await close();result=snapshot();}
    else if(method==='page'){if(args[0]==='settings')await close();state.page=args[0];result=snapshot();}
    else if(method==='save')result=library.upsert(args[0]);else if(method==='remove'){library.remove(args[0]);result={ok:true};}
