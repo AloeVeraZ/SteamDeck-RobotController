@@ -10,7 +10,7 @@ def sources():
         for f in (ROOT/directory).rglob('*'):
             if f.is_file():yield f,f.relative_to(ROOT).as_posix()
 def main():
-    names=[f'DeckDriverStation-{VERSION}-SteamDeck.tar.gz',f'DeckDriverStation-{VERSION}-Windows.zip',f'DeckDriverStation-{VERSION}-macOS-arm64.zip',f'DeckDriverStation-{VERSION}-macOS-x64.zip',f'DeckDriverStation-{VERSION}-Android.apk']
+    names=[f'DeckDriverStation-{VERSION}-SteamDeck.tar.gz',f'DeckDriverStation-{VERSION}-Windows.zip',f'DeckDriverStation-{VERSION}-macOS-arm64.zip',f'DeckDriverStation-{VERSION}-Android.apk']
     sums=[]
     for name in names:
         file=OUT/name

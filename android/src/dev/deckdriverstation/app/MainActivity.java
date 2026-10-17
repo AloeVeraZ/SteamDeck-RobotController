@@ -35,6 +35,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     private boolean settings=true,failed=false;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private InputManager inputManager;
+    private AppUpdates appUpdates;
     private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private GradientDrawable background(int color){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(9));return d;}
     private LinearLayout column(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.VERTICAL);return l;}
@@ -48,7 +49,7 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(dp(12),dp(6),dp(12),dp(6));top.setBackgroundColor(PANEL);
         ImageView icon=new ImageView(this);icon.setImageResource(R.drawable.robot);top.addView(icon,new LinearLayout.LayoutParams(dp(34),dp(34)));
         Button drive=button("Drive",()->show(false)),config=button("Settings",()->show(true));LinearLayout.LayoutParams nav=new LinearLayout.LayoutParams(0,dp(44),1);nav.leftMargin=dp(8);top.addView(drive,nav);top.addView(config,new LinearLayout.LayoutParams(0,dp(44),1));
-        Button more=button("⋮",()->{});more.setOnClickListener(v->{PopupMenu menu=new PopupMenu(this,more);menu.getMenu().add("Wi-Fi settings").setOnMenuItemClickListener(i->{wifiSettings();return true;});menu.getMenu().add("Saved robots").setOnMenuItemClickListener(i->{show(true);libraryRows.requestFocus();return true;});menu.getMenu().add("Close robot").setOnMenuItemClickListener(i->{closeRobot();return true;});menu.show();});top.addView(more,new LinearLayout.LayoutParams(dp(42),dp(44)));root.addView(top);
+        Button more=button("⋮",()->{});more.setOnClickListener(v->{PopupMenu menu=new PopupMenu(this,more);menu.getMenu().add("Updates").setOnMenuItemClickListener(i->{closeRobot();try{if(appUpdates==null)appUpdates=new AppUpdates(this);appUpdates.show();}catch(Exception e){message(e.getMessage());}return true;});menu.getMenu().add("Saved robots").setOnMenuItemClickListener(i->{show(true);libraryRows.requestFocus();return true;});menu.getMenu().add("Toggle fullscreen").setOnMenuItemClickListener(i->{int flags=View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;root.setSystemUiVisibility(root.getSystemUiVisibility()==0?flags:0);return true;});menu.getMenu().add("Exit app").setOnMenuItemClickListener(i->{closeRobot();finish();return true;});menu.show();});top.addView(more,new LinearLayout.LayoutParams(dp(42),dp(44)));root.addView(top);
         controllers=text("Controller 1: waiting    •    Controller 2: not connected",10,MUTED);controllers.setPadding(dp(14),dp(7),dp(10),dp(7));root.addView(controllers);
         body=column();root.addView(body,new LinearLayout.LayoutParams(-1,0,1));buildSettings();buildDrive();inputManager=(InputManager)getSystemService(INPUT_SERVICE);inputManager.registerInputDeviceListener(this,handler);updateControllers();show(true);
     }

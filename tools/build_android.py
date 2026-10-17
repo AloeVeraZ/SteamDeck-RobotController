@@ -1,6 +1,6 @@
 """Build and sign the standalone Android APK with Android SDK tools (no Gradle deps)."""
 from pathlib import Path
-import hashlib,json,os,subprocess,zipfile
+import hashlib,json,os,subprocess,zipfile,xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'dist'
 def run(args,env):
@@ -16,6 +16,11 @@ def build():
     src=ROOT/'android';resources=stage/'resources.zip';base=stage/'base.apk'
     run([tools/('aapt2'+ext),'compile','--dir',src/'res','-o',resources],env)
     run([tools/('aapt2'+ext),'link','-o',base,'--manifest',src/'AndroidManifest.xml','-I',android,'--java',generated,resources],env)
+    meta=json.loads((ROOT/'package.json').read_text());manifest=ET.parse(src/'AndroidManifest.xml').getroot()
+    if manifest.attrib['{http://schemas.android.com/apk/res/android}versionName']!=meta['version']:raise RuntimeError('Android and desktop versions must match')
+    repo=meta['repository']['url'].removeprefix('https://github.com/').removesuffix('.git')
+    config=generated/'dev/deckdriverstation/app/AppVersion.java';config.parent.mkdir(parents=True,exist_ok=True)
+    config.write_text('package dev.deckdriverstation.app; final class AppVersion { static final String CHANNEL='+json.dumps(meta['updateChannel'])+'; static final String REPOSITORY='+json.dumps(repo)+'; }')
     files=[*src.joinpath('src').rglob('*.java'),*generated.rglob('*.java')]
     run([java/('javac'+ext),'-encoding','UTF-8','-source','17','-target','17','-classpath',android,'-d',classes,*files],env)
     run([java/('java'+ext),'-cp',tools/'lib'/'d8.jar','com.android.tools.r8.D8','--min-api','26','--lib',android,'--output',dex,*classes.rglob('*.class')],env)
@@ -24,9 +29,10 @@ def build():
         for entry in source.infolist():dest.writestr(entry,source.read(entry.filename))
         for entry in dex.glob('*.dex'):dest.write(entry,entry.name)
     aligned=stage/'aligned.apk';run([tools/('zipalign'+ext),'-f','4',unsigned,aligned],env)
-    key=ROOT/'.cache'/'android-build'/'personal-signing.p12';key.parent.mkdir(parents=True,exist_ok=True)
+    if os.environ.get('CI') and not os.environ.get('DECK_ANDROID_KEYSTORE'):raise RuntimeError('CI must use the existing Android signing key; refusing to generate a replacement key')
+    key=Path(os.environ['DECK_ANDROID_KEYSTORE']) if os.environ.get('DECK_ANDROID_KEYSTORE') else ROOT/'.cache'/'android-build'/'personal-signing.p12';key.parent.mkdir(parents=True,exist_ok=True)
     if not key.exists():run([java/('keytool'+ext),'-genkeypair','-keystore',key,'-storepass','android','-keypass','android','-alias','deckdriverstation','-keyalg','RSA','-keysize','3072','-validity','10000','-dname','CN=Deck Driver Station Personal Build'],env)
-    output=OUT/'DeckDriverStation-2.0.0-Android.apk';signer=tools/'lib'/'apksigner.jar'
+    version=json.loads((ROOT/'package.json').read_text())['version'];output=OUT/f'DeckDriverStation-{version}-Android.apk';signer=tools/'lib'/'apksigner.jar'
     run([java/('java'+ext),'-jar',signer,'sign','--ks',key,'--ks-pass','pass:android','--ks-key-alias','deckdriverstation','--out',output,aligned],env)
     run([java/('java'+ext),'-jar',signer,'verify','--verbose',output],env)
     run([tools/('aapt2'+ext),'dump','badging',output],env)

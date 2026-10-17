@@ -2,7 +2,7 @@
 
 ## Steam Deck LCD / OLED and Linux x64
 
-1. Transfer `DeckDriverStation-2.0.0-SteamDeck.tar.gz` to the Deck.
+1. Transfer `DeckDriverStation-2.1.0-SteamDeck.tar.gz` to the Deck.
 2. In Desktop Mode, extract the archive. Open a terminal in that folder.
 3. Run `bash install.sh`. It creates desktop and application-menu shortcuts.
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
@@ -17,7 +17,7 @@ for docked displays and display scaling. The installer includes its own runtime.
 
 ## Windows
 
-Extract `DeckDriverStation-2.0.0-Windows.zip`. Double-click **Install-Windows.cmd**
+Extract `DeckDriverStation-2.1.0-Windows.zip`. Double-click **Install-Windows.cmd**
 to install per-user and create Start-menu and desktop shortcuts. Or use
 **Launch-Windows.cmd** to run directly from the extracted folder.
 Keep the complete `app` and `runtime` folders together. No administrator account
@@ -26,7 +26,7 @@ subject to your Windows application policies.
 
 ## Mac
 
-Choose **arm64** for Apple Silicon or **x64** for Intel. Extract the ZIP and run
+Use the **arm64** build for Apple Silicon. Extract the ZIP and run
 **Install-Mac.command**. It copies the app into `~/Applications`, ad-hoc signs it
 using macOS's `codesign`, and creates a desktop link when one is not present.
 
@@ -37,7 +37,7 @@ Local-network access may require macOS's normal permission prompt.
 
 ## Android
 
-Transfer and open **DeckDriverStation-2.0.0-Android.apk** on Android 8 or newer.
+Transfer and open **DeckDriverStation-2.1.0-Android.apk** on Android 8 or newer.
 Approve installation from the file manager/browser you selected. The APK is a
 signed personal build, not a Play Store release.
 
@@ -95,6 +95,12 @@ The robot's firmware must stop stale commands when a client or network disappear
 Keep the robot's normal physical stop/power controls available.
 
 ## Saved data and updates
+
+Use **⋮ → Updates → Check for updates**. This build follows testing releases
+from GitHub. **Download update** verifies the package; **Install & restart**
+updates an installed desktop app. Android opens its system installer and asks
+for approval. Saved robot data is retained. No update is available until a
+release is published. [Release setup](UPDATES.md).
 
 Desktop settings normally live in Electron's **Deck Driver Station** user-data
 directory: `~/.config` on Linux, `%APPDATA%` on Windows, and

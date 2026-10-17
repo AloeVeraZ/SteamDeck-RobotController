@@ -26,17 +26,16 @@ the launcher does not invent second-controller robot controls.
 
 ## Downloads and setup
 
-The `dist` folder contains version **2.0.0** packages:
+The `dist` folder contains version **2.1.0** packages:
 
 | Platform | Package | Install |
 | --- | --- | --- |
-| Steam Deck / Linux x64 | `DeckDriverStation-2.0.0-SteamDeck.tar.gz` | Extract; run `bash install.sh`. Creates application-menu and desktop shortcuts. |
-| Windows x64 | `DeckDriverStation-2.0.0-Windows.zip` | Extract; run `Install-Windows.cmd`. Creates Start-menu and desktop shortcuts. `Launch-Windows.cmd` runs it portably. |
-| Apple Silicon Mac | `DeckDriverStation-2.0.0-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
-| Intel Mac | `DeckDriverStation-2.0.0-macOS-x64.zip` | Same Mac installation. |
-| Android 8+ | `DeckDriverStation-2.0.0-Android.apk` | Install the signed personal-build APK; Android asks permission to install from your chosen source. |
+| Steam Deck / Linux x64 | `DeckDriverStation-2.1.0-SteamDeck.tar.gz` | Extract; run `bash install.sh`. Creates application-menu and desktop shortcuts. |
+| Windows x64 | `DeckDriverStation-2.1.0-Windows.zip` | Extract; run `Install-Windows.cmd`. Creates Start-menu and desktop shortcuts. `Launch-Windows.cmd` runs it portably. |
+| Apple Silicon Mac | `DeckDriverStation-2.1.0-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
+| Android 8+ | `DeckDriverStation-2.1.0-Android.apk` | Install the signed personal-build APK; Android asks permission to install from your chosen source. |
 
-The Mac packages are not Apple-notarized; approval may be required in Privacy &
+The Apple Silicon package is not Apple-notarized; approval may be required in Privacy &
 Security. See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md),
 and [validation and remaining device checks](docs/VALIDATION.md).
 
@@ -60,6 +59,15 @@ No launcher can provide a hardware emergency stop for an arbitrary robot website
 
 ## Development
 
+Use **⋮ → Updates** to check the GitHub repository, download a verified update,
+then **Install & restart**. This build follows the **testing** release channel.
+Checks distinguish no published release, current version, available version, and
+network/access errors. A robot hotspot without internet cannot check GitHub.
+See [update and release setup](docs/UPDATES.md).
+
+Local branches `main` and `testing` exist; changes and commits belong on `testing`.
+Nothing is pushed until explicitly authorized. The GitHub repository is initially empty.
+
 ```bash
 npm install
 npm start
@@ -72,7 +80,7 @@ native HTTP authentication dialog require the installed app.
 
 ```bash
 python3 tools/icons.py                 # Pillow; rasterize the existing robot SVG design
-python3 tools/package.py --target all  # Linux, Windows, Apple Silicon, Intel Mac
+python3 tools/package.py --target all  # Linux, Windows, Apple Silicon
 python3 tools/build_android.py         # JAVA_HOME / ANDROID_HOME, or local paths.json
 ```
 

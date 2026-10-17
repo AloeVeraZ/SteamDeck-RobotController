@@ -2,7 +2,10 @@
 const path=require('node:path'),fs=require('node:fs'),assert=require('node:assert/strict'),http=require('node:http');const {_electron}=require(process.env.DECK_PLAYWRIGHT||'playwright');
 const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.mkdirSync(out,{recursive:true});
 (async()=>{
+  let releaseMode='empty';const updateBytes=Buffer.from('update download fixture'),updateHash=require('node:crypto').createHash('sha256').update(updateBytes).digest('hex');
   const actions=[];const server=http.createServer(async(req,res)=>{
+    if(req.url==='/releases'){res.setHeader('Content-Type','application/json');if(releaseMode==='error'){res.writeHead(403);res.end('{}');return;}const version=releaseMode==='current'?'2.1.0':'2.2.0';res.end(JSON.stringify(releaseMode==='empty'?[]:[{tag_name:'testing-v'+version,prerelease:true,draft:false,body:'Update fixture release notes',assets:[{name:`DeckDriverStation-${version}-Windows.zip`,state:'uploaded',size:updateBytes.length,digest:'sha256:'+updateHash,browser_download_url:`https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/testing-v${version}/DeckDriverStation-${version}-Windows.zip`}]}]));return;}
+    if(req.url==='/update-download'){res.end(updateBytes);return;}
     if(req.url==='/protected'&&req.headers.authorization!=='Basic '+Buffer.from('driver:secret-password').toString('base64')){res.writeHead(401,{'WWW-Authenticate':'Basic realm="Robot sign-in"'});res.end('Sign in');return;}
     if(req.url==='/robot-action'){let body='';for await(const chunk of req)body+=chunk;actions.push(body);res.end('{"ok":true}');return;}
     res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Original Robot Dashboard</title><h1 id="original">The actual robot interface</h1><button id="init">Initialize on robot</button><button id="teleop">Teleop</button><button id="auto">Autonomous</button><script>document.querySelector("#init").onclick=()=>fetch("/robot-action",{method:"POST",body:"robot-initialize"});</script>');
@@ -29,8 +32,18 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.
     await page.locator('#robot-url').fill(target+'/protected');await page.locator('#robot-name').fill('Password robot');await page.locator('#open-robot').click();await page.locator('#auth-dialog').waitFor({state:'visible'});await page.locator('#auth-username').fill('driver');await page.locator('#auth-password').fill('secret-password');await page.locator('#auth-form button[type=submit]').click();await page.waitForFunction(()=>state.robot?.name==='Password robot'&&!state.loading);
     assert.ok(!fs.readFileSync(path.join(data,'robots.json'),'utf8').includes('secret-password'));
     await page.locator('#settings-tab').click();await page.locator('.saved-row').filter({hasText:'Original Robot Dashboard'}).locator('.secondary').click();await page.waitForFunction(()=>state.page==='drive'&&!state.loading);assert.deepEqual(errors,[]);
+    // Only the test process changes the network transport; production UI has no such hook.
+    await app.evaluate(({app},target)=>{const req=process.getBuiltinModule('node:module').createRequire(app.getAppPath()+'/package.json');const {Updater}=req('./src/updater.cjs'),original=Updater.prototype.response;Updater.prototype.response=function(url,timeout){this.fetcher=(_url,options)=>fetch(target+(url.includes('api.github.com')?'/releases':'/update-download'),options);return original.call(this,url,timeout);};},target);
+    await page.locator('#more').click();await page.locator('#menu-updates').click();await page.locator('#update-dialog').waitFor({state:'visible'});assert.equal(await page.locator('#update-repository').inputValue(),'AloeVeraZ/SteamDeck-RobotController');
+    assert.equal(app.context().pages().filter(p=>p!==page&&p.url().startsWith('http:')).length,0,'update dialog left robot connection active');
+    await page.locator('#update-check').click();await page.waitForFunction(()=>document.querySelector('#update-status').textContent.includes('No testing releases'));
+    releaseMode='current';await page.locator('#update-check').click();await page.waitForFunction(()=>document.querySelector('#update-status').textContent.includes('up to date'));
+    releaseMode='error';await page.locator('#update-check').click();await page.waitForFunction(()=>document.querySelector('#update-status').textContent.includes('rate limit'));
+    releaseMode='available';await page.locator('#update-check').click();await page.locator('#update-download').waitFor({state:'visible'});await page.locator('#update-download').click();await page.locator('#update-install').waitFor({state:'visible'});assert.match(await page.locator('#update-status').textContent(),/Download verified/);
+    await page.locator('#update-install').click();await page.waitForFunction(()=>document.querySelector('#update-status').textContent.includes('development copy'));
+    await page.screenshot({path:path.join(out,'updates.png'),fullPage:true,scale:'css'});await page.locator('#update-close').click();assert.deepEqual(errors,[]);
     await app.close();app=null;
     app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});const second=await app.firstWindow();await second.waitForFunction(()=>state.robots.length===2);
-    console.log('PASS: LCD/4K/portrait layouts; original robot HTML; secure Gamepad context; isolated robot renderer; no launcher initialization; robot-owned action; native HTTP sign-in; saved title/address/network; one-click reopen; persistence after restart.');
+    console.log('PASS: LCD/4K/portrait layouts; original robot HTML; secure Gamepad context; isolated renderer; robot-owned action; native HTTP sign-in; saved addresses; persistence; Updates menu/modal; unpublished/current/available/error states; verified download; development install protection.');
   }finally{if(app)await app.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

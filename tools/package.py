@@ -44,7 +44,7 @@ def linux():
         for src,relative in app_files():t.add(src,arcname=name+'/app/'+relative,filter=permissions)
         for script in ('launch.sh','install.sh'):
             data=(ROOT/'packaging'/script).read_text().replace('\r\n','\n').encode();e=tarfile.TarInfo(name+'/'+script);e.mode=0o755;e.size=len(data);t.addfile(e,io.BytesIO(data))
-        for doc in ('QUICKSTART.md','COMPATIBILITY.md','VALIDATION.md'):t.add(ROOT/'docs'/doc,arcname=name+'/'+doc,filter=permissions)
+        for doc in ('QUICKSTART.md','COMPATIBILITY.md','VALIDATION.md','UPDATES.md'):t.add(ROOT/'docs'/doc,arcname=name+'/'+doc,filter=permissions)
     with tarfile.open(file) as t:
         assert t.getmember(name+'/runtime/electron').mode&stat.S_IXUSR
         assert t.getmember(name+'/install.sh').mode&stat.S_IXUSR
@@ -57,6 +57,7 @@ def windows():
         for src,relative in app_files():z.write(src,name+'/app/'+relative)
         for script in ('Install-Windows.ps1','Install-Windows.cmd','Launch-Windows.cmd'):z.write(ROOT/'packaging'/script,name+'/'+script)
         z.write(ROOT/'docs'/'QUICKSTART.md',name+'/QUICKSTART.md')
+        z.write(ROOT/'docs'/'UPDATES.md',name+'/UPDATES.md')
     finish(file)
 def mac(arch):
     archive=runtime_archive('darwin-'+arch);bundle='Deck Driver Station.app';file=OUT/f'DeckDriverStation-{VERSION}-macOS-{arch}.zip'
@@ -71,17 +72,17 @@ def mac(arch):
         for src,relative in app_files():
             info=zipfile.ZipInfo(bundle+'/Contents/Resources/app/'+relative);info.create_system=3;info.external_attr=0o100644<<16;info.compress_type=zipfile.ZIP_DEFLATED;z.writestr(info,src.read_bytes())
         z.write(ROOT/'ui'/'icon.icns',bundle+'/Contents/Resources/deck.icns');z.write(ROOT/'docs'/'QUICKSTART.md','QUICKSTART.md')
+        z.write(ROOT/'docs'/'UPDATES.md','UPDATES.md')
         info=zipfile.ZipInfo('Install-Mac.command');info.create_system=3;info.external_attr=0o100755<<16;info.compress_type=zipfile.ZIP_DEFLATED;z.writestr(info,(ROOT/'packaging'/'Install-Mac.command').read_text().replace('\r\n','\n'))
     with zipfile.ZipFile(file) as z:
         assert z.getinfo(bundle+'/Contents/MacOS/Electron').external_attr>>16&0o111
         assert plistlib.loads(z.read(bundle+'/Contents/Info.plist'))['CFBundleIdentifier']=='dev.deckdriverstation.app'
     finish(file)
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--target',choices=['steamdeck','windows','macos-arm64','macos-x64','all'],default='steamdeck');p.add_argument('--runtime-only',choices=['linux-x64','win32-x64']);p.add_argument('--fetch-only',choices=['darwin-arm64','darwin-x64']);args=p.parse_args();OUT.mkdir(exist_ok=True)
+    p=argparse.ArgumentParser();p.add_argument('--target',choices=['steamdeck','windows','macos-arm64','all'],default='steamdeck');p.add_argument('--runtime-only',choices=['linux-x64','win32-x64']);p.add_argument('--fetch-only',choices=['darwin-arm64']);args=p.parse_args();OUT.mkdir(exist_ok=True)
     if args.runtime_only:print(runtime(args.runtime_only));return
     if args.fetch_only:print(runtime_archive(args.fetch_only));return
     if args.target in ('steamdeck','all'):linux()
     if args.target in ('windows','all'):windows()
     if args.target in ('macos-arm64','all'):mac('arm64')
-    if args.target in ('macos-x64','all'):mac('x64')
 if __name__=='__main__':main()

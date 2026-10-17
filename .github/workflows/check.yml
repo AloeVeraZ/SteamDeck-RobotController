@@ -15,12 +15,13 @@ jobs:
           python-version: '3.12'
       - run: node --test tests/*.test.cjs
       - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
+      - run: mkdir -p test-results && bash tests/update-linux.sh
   desktop:
     needs: verify
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [steamdeck, windows, macos-arm64, macos-x64]
+        target: [steamdeck, windows, macos-arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

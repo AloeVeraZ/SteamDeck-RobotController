@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source_dir="$1"; destination="$2"; app_pid="$3"; platform="$4"; stage="$5"
+[[ "$source_dir" == "$stage/extracted/"* && -d "$destination" ]] || exit 1
+for ((i=0;i<120;i++)); do kill -0 "$app_pid" 2>/dev/null || break; sleep .5; done
+if kill -0 "$app_pid" 2>/dev/null; then echo 'App did not exit; update cancelled'; exit 1; fi
+if [[ "$platform" == darwin ]]; then
+  /usr/bin/codesign --force --deep --sign - "$source_dir"
+  mv -- "$destination" "$stage/previous.app"
+  if ! mv -- "$source_dir" "$destination"; then mv -- "$stage/previous.app" "$destination"; exit 1; fi
+  /usr/bin/open "$destination"
+else
+  [[ -f "$destination/app/package.json" && -f "$source_dir/launch.sh" ]] || exit 1
+  mkdir -- "$stage/previous"
+  moved=(); installed=()
+  rollback() {
+    for item in "${installed[@]}"; do mv -- "$destination/$item" "$stage/failed-$item"; done
+    for item in "${moved[@]}"; do mv -- "$stage/previous/$item" "$destination/$item"; done
+  }
+  trap rollback ERR
+  for item in app runtime launch.sh; do
+    mv -- "$destination/$item" "$stage/previous/$item"; moved+=("$item")
+    mv -- "$source_dir/$item" "$destination/$item"; installed+=("$item")
+  done
+  trap - ERR
+  "$destination/launch.sh" >/dev/null 2>&1 &
+fi
