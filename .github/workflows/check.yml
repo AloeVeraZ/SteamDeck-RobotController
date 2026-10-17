@@ -1,0 +1,33 @@
+name: Check and package desktop apps
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: node --test tests/*.test.cjs
+      - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
+  desktop:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [steamdeck, windows, macos-arm64, macos-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 tools/package.py --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-installer
+          path: dist/*
