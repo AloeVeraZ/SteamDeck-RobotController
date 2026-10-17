@@ -30,4 +30,18 @@ async function probeFtc(host,{timeout=1500}={}){
     const ping=()=>socket.send(Robocol.encodePeerDiscovery({seq:seq++}));ping();const timer=setInterval(ping,300),limit=setTimeout(()=>finish({ftc:false}),timeout);
   });
 }
-module.exports={FtcSocket,probeFtc};
+// FTC robots sit at fixed addresses on their own Wi-Fi: Control Hub 192.168.43.1, RC phone (Wi-Fi Direct) 192.168.49.1.
+const FTC_ADDRESSES=['192.168.43.1','192.168.49.1'];
+// Asks several addresses at once; resolves with the first one whose Robot Controller answers, or null.
+async function findFtc(hosts=FTC_ADDRESSES,{timeout=1500}={}){
+  const socket=dgram.createSocket('udp4');
+  try{await new Promise((ok,fail)=>{socket.once('error',fail);socket.bind(Robocol.PORT,'0.0.0.0',()=>{socket.off('error',fail);ok();});});}catch{try{socket.close();}catch{}return null;}
+  socket.on('error',()=>{});const targets=new Set(hosts);let seq=1;
+  return new Promise(done=>{
+    let finished=false;const finish=host=>{if(finished)return;finished=true;clearInterval(timer);clearTimeout(limit);try{socket.close(()=>done(host));}catch{done(host);}};
+    socket.on('message',(msg,from)=>{if(from.port!==Robocol.PORT||!targets.has(from.address))return;try{if(Robocol.decode(new Uint8Array(msg)).type===Robocol.Msg.PEER_DISCOVERY)finish(from.address);}catch{}});
+    const ping=()=>{const d=Robocol.encodePeerDiscovery({seq:seq++});for(const h of targets)socket.send(d,Robocol.PORT,h,()=>{});};ping();
+    const timer=setInterval(ping,300),limit=setTimeout(()=>finish(null),timeout);
+  });
+}
+module.exports={FtcSocket,probeFtc,findFtc,FTC_ADDRESSES};

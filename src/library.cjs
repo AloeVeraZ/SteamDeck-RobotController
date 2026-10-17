@@ -27,7 +27,7 @@ class Library {
     const url=normalizeUrl(input.url),ssid=cleanSsid(input.ssid),typed=String(input.name||'').trim().slice(0,90);
     const old=input.id?this.get(input.id):this.data.robots.find(p=>p.url===url&&p.ssid===ssid);
     // A typed name always wins over the website title; echoing back an automatic name keeps it automatic.
-    const explicit=!!typed&&!(old?.autoName&&typed===old.name),kind=['web','ftc'].includes(input.kind)?input.kind:old?.url===url?old.kind:undefined;
+    const explicit=!!typed&&!(old?.autoName&&typed===old.name),kind=['web','ftc'].includes(input.kind)?input.kind:input.kind==='auto'?undefined:old?.url===url?old.kind:undefined;
     const p={id:old?.id||randomUUID(),name:explicit?typed:title.slice(0,90)||old?.name||ssid||new URL(url).hostname,url,ssid,autoName:!explicit,createdAt:old?.createdAt||Date.now(),lastOpened:opened?Date.now():old?.lastOpened||0};
     if(kind)p.kind=kind;
     this.data.robots=this.data.robots.filter(p2=>p2.id!==p.id);this.data.robots.push(p);if(opened)this.data.lastId=p.id;this.save();return p;

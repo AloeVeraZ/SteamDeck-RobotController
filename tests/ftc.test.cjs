@@ -73,3 +73,9 @@ test('UDP transport detects and drives a Robot Controller on port 20884',async t
 });
 
 test('website robots are not mistaken for FTC robots',async()=>{assert.equal((await probeFtc('127.0.0.3',{timeout:300})).ftc,false);});
+
+test('a robot is found at the fixed FTC addresses without typing an IP',async t=>{
+  const {findFtc,FTC_ADDRESSES}=require('../src/ftc.cjs');assert.deepEqual(FTC_ADDRESSES,['192.168.43.1','192.168.49.1']);
+  let robot;try{robot=await startUdpRobot({address:'127.0.0.2'});}catch(e){t.skip('127.0.0.2 loopback is unavailable: '+e.message);return;}t.after(()=>robot.close());
+  assert.equal(await findFtc(['127.0.0.3','127.0.0.2']),'127.0.0.2');assert.equal(await findFtc(['127.0.0.3'],{timeout:300}),null);
+});

@@ -1,7 +1,7 @@
 'use strict';
 const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
-const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc}=require('./ftc.cjs');
+const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc,FTC_ADDRESSES}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
@@ -51,7 +51,8 @@ async function openRobot(input){
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
     await closeRobot();
     // FTC Robot Controllers answer Robocol discovery on UDP 20884 and get the Driver Station; everything else is a website.
-    let kind=saved?.url===target.url?saved.kind:undefined;
+    // The Settings "FTC robot" box forces the Driver Station; unticked ("auto") detects again.
+    let kind=input.kind==='ftc'?'ftc':input.kind==='auto'?undefined:saved?.url===target.url?saved.kind:undefined;
     if(!kind){update({page:'drive',loading:true,url:target.url,title:target.name||'Looking for robot',robot:saved||null,error:''});kind=(await probeFtc(new URL(target.url).hostname)).ftc?'ftc':'web';}
     if(kind==='ftc')return await openFtc(target,ssid);
     const proxy=new RobotProxy(target.url),localUrl=await proxy.start();bridge=proxy;
@@ -109,10 +110,30 @@ async function openManager(){
   update({manager:true});fitView();void view.webContents.loadURL(localUrl);return true;
 }
 ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents&&bridge instanceof FtcSocket&&bytes instanceof Uint8Array)bridge.send(bytes);});
-ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address};});
+ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||''};});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 handle('manager-close',closeManager);
-handle('bootstrap',async()=>{await refreshNetwork();return {state:snapshot(),hardware:hardware()};});handle('open',openRobot);handle('close',closeRobot);
+// Like the FTC Driver Station: on a robot's Wi-Fi, find its Robot Controller at the fixed FTC addresses and connect,
+// no IP needed. Retries while the network looks like an FTC one (the hub's Wi-Fi starts before its app);
+// closing the robot stops auto-connect until the network changes or "Find FTC robot" is pressed.
+const auto={ssid:null,dismissed:false,tried:false,busy:false};
+const looksFtc=ssid=>/(^|[-_ ])RC$|^FTC|^DIRECT-/i.test(ssid);
+async function autoFind({force=false}={}){
+  const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false,tried:false});if(force)auto.dismissed=false;
+  if(auto.busy||robotView||opening||network.busy||!library||(!ssid&&!force))return;
+  const savedFtc=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');
+  if(!force&&(auto.dismissed||(auto.tried&&!looksFtc(ssid)&&!savedFtc.length)))return;
+  auto.busy=true;auto.tried=true;update({finding:true});
+  try{
+    const host=await findFtc([...new Set([...savedFtc.map(r=>new URL(r.url).hostname),...FTC_ADDRESSES])]);
+    if(host&&!robotView&&!opening&&(currentNetwork?.ssid||'')===ssid){
+      const match=library.list(ssid).find(r=>r.ssid===ssid&&new URL(r.url).hostname===host);
+      auto.busy=false;update({finding:false});await openRobot(match?{id:match.id,kind:'ftc'}:{url:host,name:ssid||'FTC Robot',kind:'ftc'});
+    }else if(force&&!host)emit('notice',`No FTC robot answered on ${ssid||'this network'}. Join the robot’s Wi-Fi (usually named like 1234-RC).`);
+  }catch(e){emit('notice',e.message);}finally{auto.busy=false;update({finding:false});}
+}
+handle('find-ftc',()=>autoFind({force:true}));
+handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoFind(),300);return {state:snapshot(),hardware:hardware()};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
 handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');update({page});fitView();return snapshot();});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});update();return robot;});handle('remove',id=>{library.remove(id);update();});
@@ -144,6 +165,6 @@ app.whenReady().then(()=>{
   const d=screen.getPrimaryDisplay().workAreaSize;
   win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#11171b',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
   Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
-  pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork();},5000);pollTimer.unref();
+  pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoFind());},5000);pollTimer.unref();
 });
 let closing=false;app.on('before-quit',e=>{if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());

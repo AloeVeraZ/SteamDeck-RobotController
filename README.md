@@ -9,7 +9,8 @@ The app works with two kinds of robots, detected automatically when an address i
 - **Robots with their own website** (ESP32, Raspberry Pi, MotionModule…): Drive shows the
   robot's real page. The launcher does not implement motor controls or replace its
   teleop/autonomous interface.
-- **FTC robots** (REV Control Hub or Robot Controller phone): Drive shows a built-in FTC
+- **FTC robots** (REV Control Hub or Robot Controller phone): join the robot's Wi-Fi and Drive
+  connects by itself, with no IP to type. It shows a built-in FTC
   Driver Station with op mode selection, INIT/START/STOP, telemetry, and two gamepads,
   speaking the FTC SDK's own network protocol. See [FTC robots](docs/FTC.md).
 

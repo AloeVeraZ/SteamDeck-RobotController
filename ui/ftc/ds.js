@@ -4,7 +4,7 @@
 (()=>{
 const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_SECONDS=30;
 const host=window.ftcHost;
-let session=null,info={name:'FTC Robot',host:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0;
+let session=null,info={name:'FTC Robot',host:'',ssid:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0,minVolts=null,dsBattery=null;
 const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
@@ -12,7 +12,8 @@ function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.h
 function showDialog(title,text){const d=$('#ds-dialog');$('#dialog-title').textContent=title;$('#dialog-text').textContent=text;if(!d.open)d.showModal();}
 function opMode(name){return session?.state.opModes.find(m=>m.name===name)||null;}
 function flavorOf(m){return m?.flavor==='AUTONOMOUS'?'auto':m?.flavor==='TELEOP'?'teleop':'';}
-const STATUS={UNKNOWN:'Unknown',NOT_STARTED:'Not started',INIT:'Init',RUNNING:'Running',STOPPED:'Stopped',EMERGENCY_STOP:'Emergency stop'};
+// The Driver Station takes its name from the robot's network: 9999-C-RC pairs with 9999-C-DS.
+function dsName(){const m=/^(.*?)[-_ ]?RC$/i.exec(info.ssid||'');return m&&m[1]?`${m[1]}-DS`:'Driver Station';}
 
 // ---- Rendering ---------------------------------------------------------------------------
 function queueRender(){if(renderQueued)return;renderQueued=true;setTimeout(()=>{renderQueued=false;render();},0);}
@@ -20,36 +21,41 @@ function render(){
   const s=session.state,connected=s.connection==='connected',busy=s.opModeState!=='stopped';
   if(s.activeOpMode!==STOP&&selected?.name!==s.activeOpMode){selected=opMode(s.activeOpMode)||{name:s.activeOpMode};}
   if(selected&&s.opModes.length&&!busy&&!opMode(selected.name))selected=null;
-  $('#link-dot').className='ds-dot'+(connected?' live':['rejected','incompatible'].includes(s.connection)?' bad':'');
-  $('#link-text').textContent=connected?`Connected · ${info.host}${s.robot?.sdk?` · SDK ${s.robot.sdk}`:''}`:s.connection==='rejected'?'Another Driver Station is connected':`Searching · ${info.host}`;
-  $('#ping').textContent=connected&&s.ping!==null?`${s.ping} ms`:'—';
-  const v=s.battery?.volts,volts=$('#volts');volts.textContent=Number.isFinite(v)?`${v.toFixed(2)} V`:'— V';volts.className='volts'+(Number.isFinite(v)?v>=12?' good':v>=11?' caution':' danger':'');
-  const rc=s.rcBattery;$('#rc-battery-stat').hidden=!(rc&&Number.isFinite(rc.percent));if(rc)$('#rc-battery').textContent=`${Math.round(rc.percent)}%${rc.charging?' +':''}`;
-  const overlay=$('#link-overlay');overlay.hidden=connected;overlay.classList.toggle('bad',['rejected','incompatible'].includes(s.connection));
-  if(!connected){
-    const [title,text]=s.connection==='rejected'?['Another Driver Station is connected','This robot is already paired with a different Driver Station. Close that Driver Station app and this one connects automatically.']
-      :s.connection==='incompatible'?['Robot Controller is not supported',`This robot reports Robocol version ${s.robot?.robocol}. Update the robot to a current FTC SDK release.`]
-      :['Searching for robot…',`Looking for an FTC Robot Controller at ${info.host||'the saved address'}. Make sure this device is on the robot’s Wi-Fi network; a Control Hub is usually 192.168.43.1.`];
-    $('#overlay-title').textContent=title;$('#overlay-text').textContent=text;
-  }
-  const m=selected?opMode(selected.name)||selected:null,flavor=flavorOf(m);
-  $('#opmode-label').textContent=m?m.name:'Select an Op Mode';const small=$('#opmode-flavor');small.textContent=flavor==='auto'?'Autonomous':flavor==='teleop'?'TeleOp':'Op Mode';small.className=flavor;
+  const bad=['rejected','incompatible'].includes(s.connection);
+  $('#link-banner').className='banner '+(connected?'connected':bad?'bad':'searching');
+  $('#link-text').textContent=connected?'Robot Connected':s.connection==='rejected'?'Another DS Connected':s.connection==='incompatible'?'Robot Not Supported':'Searching for Robot';
+  $('#network').textContent=info.ssid||info.host||'—';
+  $('#ping').textContent=connected&&s.ping!==null?`${s.ping}ms`:'No Heartbeat';$('#signal').classList.toggle('on',connected);
+  const v=s.battery?.volts,tile=$('#volts-tile'),known=Number.isFinite(v);
+  if(known)minVolts=minVolts===null?v:Math.min(minVolts,v);
+  tile.className='tile volts'+(known?v>=12?'':v>=11?' caution':' danger':' none');
+  $('#volts').textContent=known?`${v.toFixed(2)} V`:connected&&s.battery?'No sensor':'';$('#volts-min').textContent=minVolts!==null?`( ${minVolts.toFixed(2)} V )`:'';
+  const rc=s.rcBattery;$('#rc-battery').hidden=!(rc&&Number.isFinite(rc.percent));if(rc)$('#rc-battery').textContent=`RC: ${rc.percent.toFixed(1)}%`;
+  const m=selected?opMode(selected.name)||selected:null;
+  $('#opmode-label').textContent=m?m.name:'Select Op Mode';$('#opmode-hint').hidden=!!m;$('#opmode-name').classList.toggle('chosen',!!m);
   for(const id of ['#auto-list','#teleop-list','#opmode-name'])$(id).disabled=!connected||busy;
   const go=$('#main-action'),state=s.opModeState,kind=state==='running'?'stop':state==='init'?'start':'init';
-  go.className=`ds-go ${kind}${s.pendingAction?' waiting':''}`;$('#main-label').textContent=kind.toUpperCase();
+  go.className=`go ${kind}${s.pendingAction?' waiting':''}`;$('#main-label').textContent='INIT';go.setAttribute('aria-label',kind.toUpperCase());
   go.disabled=!connected||(kind==='init'&&!m);$('#abort').hidden=state!=='init'||!connected;
-  const timer=$('#timer'),counting=countdown!==null;timer.hidden=!(flavor==='auto'||counting);timer.className='ds-timer'+(counting?' counting':timerOn?' on':'');
-  $('#timer-text').textContent=counting?String(Math.max(0,Math.ceil((timerEnd-Date.now())/1000))):String(AUTO_SECONDS);timer.disabled=state==='running';
-  const status=$('#robot-status');status.textContent=STATUS[s.robotState]||s.robotState;status.className=s.robotState==='RUNNING'?'running':s.robotState==='INIT'?'init':s.robotState==='EMERGENCY_STOP'?'estop':'';
-  $('#active-opmode').textContent=s.activeOpMode===STOP?'None':`${s.activeOpMode}${state==='init'?' (init)':''}`;
-  $('#config').textContent=s.activeConfig?`${s.activeConfig.name||'No configuration'}${s.activeConfig.dirty?' (unsaved)':''}`:'—';
-  const sys=$('#system-message');sys.hidden=!(s.systemError||s.systemWarning);sys.textContent=s.systemError||s.systemWarning;sys.className='ds-system '+(s.systemError?'error':'warning');
+  const counting=countdown!==null,timer=$('#timer');timer.className='stopwatch'+(counting?' counting':timerOn?'':' off');
+  $('#timer-text').textContent=counting?String(Math.max(0,Math.ceil((timerEnd-Date.now())/1000))):'';
+  $('#timer-switch').checked=timerOn;$('#timer-switch').disabled=state==='running';
+  $('#config').textContent=s.activeConfig?.name?`${s.activeConfig.name}${s.activeConfig.dirty?' *':''}`:'<No Config Set>';
+  const name=s.activeOpMode===STOP?'':s.activeOpMode;
+  $('#status-line').textContent=!connected?(s.connection==='rejected'?'Status : Another Driver Station is connected to this robot':`Status : Looking for robot at ${info.host||'its address'}`)
+    :s.robotState==='EMERGENCY_STOP'?'Status : EMERGENCY STOP':state==='running'?`Status : Running ${name}`:state==='init'?`Status : Initialized ${name}`:'Status : Robot is stopped';
+  const sys=$('#system-message');sys.hidden=!(s.systemError||s.systemWarning);sys.textContent=s.systemError||s.systemWarning;sys.className='system '+(s.systemError?'error':'warning');
   if(s.telemetry.updated!==lastTelemetry)renderTelemetry(s.telemetry);
-  watchTransitions(s);
+  renderPractice();watchTransitions(s);
+}
+function renderBattery(){
+  const text=$('#ds-battery-text'),fill=$('#ds-battery-fill');
+  if(!dsBattery){text.textContent='DS: —';fill.style.width='0';return;}
+  text.textContent=`DS: ${Math.round(dsBattery.level*100)}%`;fill.style.width=`${Math.round(dsBattery.level*100)}%`;
 }
 function renderTelemetry(t){
-  lastTelemetry=t.updated;const box=$('#telemetry');box.className='ds-lines'+(t.format==='MONOSPACE'?' monospace':'');
-  if(!t.lines.length){box.replaceChildren(el('span','empty',session.state.opModeState==='stopped'?'Telemetry from the active op mode appears here.':'No telemetry yet.'));return;}
+  lastTelemetry=t.updated;const box=$('#telemetry');box.className='lines'+(t.format==='MONOSPACE'?' monospace':'');
+  if(!t.lines.length){box.replaceChildren();return;}
   box.replaceChildren(...t.lines.map(line=>{const row=el('div');if(t.format==='HTML')row.append(...safeHtml(line));else row.textContent=line;return row;}));
 }
 // HTML telemetry: rebuild an allow-listed subset as DOM nodes; no attributes but a validated color.
@@ -72,6 +78,40 @@ function watchTransitions(s){
 }
 function startCountdown(){stopCountdown();timerEnd=Date.now()+AUTO_SECONDS*1000;countdown=setInterval(()=>{if(Date.now()>=timerEnd){stopCountdown();session.stopOpMode();toast('Autonomous period ended');}queueRender();},200);}
 function stopCountdown(){if(countdown!==null){clearInterval(countdown);countdown=null;}}
+
+// ---- Practice timer: a match clock independent of op modes (30 s Auto, 8 s transition, 2:00 TeleOp) ----
+let practice=null,audio=null;
+const fmt=sec=>{sec=Math.max(0,Math.ceil(sec));return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;};
+function tone(freq,ms,gain=.22,type='square'){try{audio||=new AudioContext();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.value=freq;g.gain.value=gain;o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+ms/1000);}catch{}}
+const cue={beep:()=>tone(880,150),start:()=>tone(1320,700,.25,'sawtooth'),end:()=>tone(196,1000,.3,'sawtooth'),endgame:()=>{tone(660,200);setTimeout(()=>tone(990,380),230);}};
+const PRACTICE_STARTS=[['auto','Autonomous','3 s lead-in, then the full match'],['transition','Auto → TeleOp Transition','8 s to pick up controllers, then TeleOp'],['teleop','TeleOp','2:00 driver-controlled period'],['endgame','Endgame','The last 30 seconds']];
+function startPractice(from){
+  stopPractice(false);const [phase,seconds]={auto:['lead',3],transition:['transition',8],teleop:['teleop',120],endgame:['teleop',30]}[from];
+  practice={phase,end:Date.now()+seconds*1000,last:from==='endgame'?30:null};if(phase==='teleop')(from==='endgame'?cue.endgame:cue.start)();
+  practice.ticker=setInterval(tickPractice,100);tickPractice();
+}
+function tickPractice(){
+  const p=practice;if(!p)return;const left=(p.end-Date.now())/1000,whole=Math.ceil(left);
+  if(whole!==p.last){p.last=whole;if((p.phase==='lead'||p.phase==='transition')&&whole>=1&&whole<=3)cue.beep();if(p.phase==='teleop'&&whole===30)cue.endgame();}
+  if(left<=0){
+    const next={lead:['auto',30,cue.start],auto:['transition',8,cue.end],transition:['teleop',120,cue.start]}[p.phase];
+    if(next){Object.assign(p,{phase:next[0],end:Date.now()+next[1]*1000,last:null});next[2]();}else{cue.end();stopPractice(false);toast('Practice match over');}
+  }
+  renderPractice();
+}
+function stopPractice(show=true){if(practice)clearInterval(practice.ticker);practice=null;if(show)renderPractice();}
+function renderPractice(){
+  const p=practice;let time=150,label='';
+  if(p){const left=Math.max(0,(p.end-Date.now())/1000);
+    if(p.phase==='lead')label=`Starting in ${Math.ceil(left)}`;else if(p.phase==='auto'){time=left+120;label='Autonomous';}
+    else if(p.phase==='transition'){time=120;label=`Pick up controllers · ${Math.ceil(left)}`;}else{time=left;label=left<=30?'Endgame':'TeleOp';}}
+  $('#practice-time').textContent=fmt(time);$('#practice-phase').textContent=label;$('#practice-icon').className=p?'stop':'play';
+  $('.practice').classList.toggle('running',!!p);$('#practice-play').setAttribute('aria-label',p?'Stop practice timer':'Start practice timer');
+}
+function choosePractice(){
+  const items=PRACTICE_STARTS.map(([id,title,detail])=>{const b=el('button');b.append(el('span','',title),el('small','',detail));b.onclick=()=>{closePicker();startPractice(id);};return b;});
+  $('#picker-title').textContent='Start practice timer at';$('#picker-list').replaceChildren(...items);$('#picker').hidden=false;$('#picker-list button')?.focus();
+}
 
 // ---- Op mode selection and control ---------------------------------------------------------
 function openPicker(flavor){
@@ -144,6 +184,8 @@ $('#opmode-name').onclick=()=>openPicker(selected?.flavor==='AUTONOMOUS'?'AUTONO
 $('#picker-close').onclick=closePicker;$('#picker').onclick=e=>{if(e.target.id==='picker')closePicker();};
 $('#main-action').onclick=mainAction;$('#abort').onclick=stop;
 $('#timer').onclick=()=>{if(countdown===null){timerOn=!timerOn;queueRender();}};
+$('#timer-switch').onchange=()=>{timerOn=$('#timer-switch').checked;queueRender();};
+$('#practice-play').onclick=()=>practice?stopPractice():choosePractice();
 $('#dialog-ok').onclick=()=>$('#ds-dialog').close();
 $('#pad-1').onclick=$('#pad-2').onclick=()=>$('#menu-gamepads').click();
 document.addEventListener('keydown',e=>{
@@ -153,9 +195,10 @@ document.addEventListener('keydown',e=>{
 });
 
 async function boot(){
-  if(!host){$('#overlay-title').textContent='Driver Station bridge unavailable';$('#overlay-text').textContent='Open this robot from Deck Driver Station Settings.';$('#link-overlay').classList.add('bad');return;}
+  if(!host){$('#link-text').textContent='Driver Station Unavailable';$('#link-banner').className='banner bad';$('#status-line').textContent='Status : Open this robot from Deck Driver Station Settings.';return;}
   try{info={...info,...await host.info()};}catch{}
-  $('#robot-name').textContent=info.name||'FTC Robot';document.title=`${info.name||'FTC Robot'} · Driver Station`;
+  $('#ds-name').textContent=dsName();document.title=`${info.name||'FTC Robot'} · ${dsName()}`;
+  try{const b=await navigator.getBattery?.();if(b){dsBattery=b;for(const e of ['levelchange','chargingchange'])b.addEventListener(e,renderBattery);}}catch{}renderBattery();
   session=new R.DriverStation({send:bytes=>host.send(bytes)});host.onPacket(bytes=>session.receive(bytes));
   host.onActive?.(on=>{inputsOn=on;pollGamepads();});
   session.on('state',queueRender);

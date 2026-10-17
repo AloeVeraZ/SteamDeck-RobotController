@@ -1,13 +1,30 @@
 # FTC robots (REV Control Hub / Robot Controller)
 
-Deck Driver Station includes its own FTC Driver Station. Open an FTC robot the same way as
-any other robot: join its Wi-Fi in **Settings**, enter its address (a Control Hub is usually
-`192.168.43.1`), and press **Open robot**. No robot type is chosen.
+Deck Driver Station includes its own FTC Driver Station. It is used only for FTC robots;
+your other robots keep opening their own website.
+
+## Connecting: just join the robot's Wi-Fi
+
+Like the FTC Driver Station app, no IP address is needed. FTC robots always sit at a fixed
+address on their own network: a Control Hub is `192.168.43.1` on its Wi-Fi (named like
+`1234-RC`), and a Robot Controller phone using Wi-Fi Direct is `192.168.49.1`.
+
+1. In Settings, join the robot's Wi-Fi.
+2. The app looks for a Robot Controller at those addresses and opens the Driver Station in
+   Drive by itself; the banner turns green: **Robot Connected**.
+
+While the network looks like an FTC one (`…-RC`, `FTC…`, `DIRECT-…`), the app keeps looking
+every few seconds, because a Control Hub's Wi-Fi comes up before its software is ready.
+Closing the robot stops the automatic connection until the network changes. **Find FTC robot**
+on the Drive welcome screen searches again on demand.
+
+You can also save an FTC robot in Settings: tick **FTC robot**. The address may be left blank;
+it defaults to `192.168.43.1`. Unticked, the app detects the robot type automatically.
 
 ## How the app tells robots apart
 
-When an address is opened for the first time, the app sends an FTC *peer discovery* message
-to UDP port 20884. A Robot Controller always answers it, so:
+When an address is opened for the first time without the FTC box ticked, the app sends an FTC
+*peer discovery* message to UDP port 20884. A Robot Controller always answers it, so:
 
 - **Answer received** → the robot is saved as **FTC** and the Driver Station opens in Drive.
 - **No answer within 1.5 s** → the robot is saved as a **Website** and its own page opens.
@@ -18,14 +35,21 @@ robot; the op mode list, telemetry, and controls come from the robot over the ne
 
 ## The Driver Station
 
+The screen follows the REV Driver Hub layout: dark red panels, side by side on the Deck and
+desktops, stacked on narrow windows like the phone app.
+
 | Area | What it does |
 | --- | --- |
-| Top bar | Robot name, connection, ping, robot battery voltage (green / yellow below 12 V / red below 11 V), User 1 and User 2 gamepads, ⋮ menu |
-| ◀ Auto / TeleOp ▶ | Lists the robot's Autonomous or TeleOp op modes, grouped like the FTC Driver Station |
-| INIT → START → STOP | One large button walks through the op mode lifecycle; the small ■ button aborts INIT |
-| 30 s timer | Shown for Autonomous op modes; on by default, stops the op mode after 30 s. Tap to toggle |
-| Telemetry | The op mode's telemetry (classic, monospace, and HTML display formats), plus robot errors and warnings |
-| ⋮ menu | Restart Robot, Program & Manage, Camera Stream, Gamepad assignment, About |
+| Top bar | Driver Station name (`9999-C-DS` for robot network `9999-C-RC`), **Robot Connected** banner, Network, Ping, signal, User 1 / User 2 gamepads, ••• menu |
+| Practice Timer | 2:30 match clock with ▶: start at Autonomous (3 s lead-in), the Auto → TeleOp transition (8 s), TeleOp (2:00), or Endgame (last 30 s). Beeps mark each change. It runs independently of op modes |
+| Config tile | The robot's active configuration, or `<No Config Set>` |
+| ▼ Select Op Mode ▼ | Left ▼ lists Autonomous op modes, right ▼ lists TeleOp, grouped like the FTC Driver Station |
+| INIT → START → STOP | The white circle walks through the op mode lifecycle; the small ■ button aborts INIT |
+| Stopwatch and switch | Autonomous 30 s timer: on by default for Autonomous, stops the op mode after 30 s |
+| DS battery | This device's battery, when it has one |
+| Robot battery | Voltage now and the lowest seen (green; yellow below 12 V; red below 11 V); a phone Robot Controller's battery is also shown |
+| Status | `Robot is stopped` / `Initialized …` / `Running …`, robot errors and warnings, then the op mode's telemetry (classic, monospace, and HTML formats) |
+| ••• menu | Restart Robot, Program & Manage, Camera Stream, Gamepad assignment, About |
 
 - **Gamepads:** like the FTC Driver Station, press **START + A** to make a gamepad User 1
   (`gamepad1`) or **START + B** for User 2 (`gamepad2`). On Steam Deck, START is the ☰ button.

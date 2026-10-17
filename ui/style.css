@@ -21,3 +21,8 @@ select{font:inherit;color:inherit;background:#152128;border:1px solid #4c646a;bo
 .robot-grid::-webkit-scrollbar,.wifi-list::-webkit-scrollbar{width:10px}
 .robot-grid::-webkit-scrollbar-thumb,.wifi-list::-webkit-scrollbar-thumb{background:#4b6862;border-radius:6px;border:2px solid #1b252b}
 .robot-grid::-webkit-scrollbar-track,.wifi-list::-webkit-scrollbar-track{background:#121b20;border-radius:6px}
+.check-row{display:flex;gap:12px;align-items:flex-start;margin:16px 0 0;padding:12px 14px;border:1px solid #415660;border-radius:8px;background:#121d23;cursor:pointer;font-size:11px;color:#9fb5b8;line-height:1.5}
+.check-row input{width:20px;height:20px;min-height:0;margin:1px 0 0;padding:0;flex-shrink:0;accent-color:#aaf1ca}
+.check-row b{display:block;color:#e5f5ee;font-size:12px;margin-bottom:2px}
+.welcome-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+.welcome-actions .primary{margin:0}

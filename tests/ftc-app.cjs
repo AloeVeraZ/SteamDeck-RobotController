@@ -19,9 +19,9 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
     await until(()=>L.eval('typeof state==="object"&&!!document.querySelector("#wifi-summary")'),10000,'launcher ready');
     await L.eval(`window.deck.open({url:'127.0.0.2',name:'Practice Bot'})`);
     const dsT=await until(async()=>(await targets()).find(t=>t.url.includes('ui/ftc/index.html')),10000,'driver station view');const D=new Cdp(dsT.webSocketDebuggerUrl);await D.ready;
-    await until(()=>D.eval(`document.querySelector('#link-text').textContent.startsWith('Connected')&&document.querySelector('#config').textContent==='competition'`),8000,'DS connected');
+    await until(()=>D.eval(`document.querySelector('#link-text').textContent==='Robot Connected'&&document.querySelector('#config').textContent==='competition'`),8000,'DS connected');
     console.log('launcher state:',JSON.stringify(await L.eval('({kind:state.kind,title:state.title,url:state.url,robot:state.robot?.kind})')));
-    console.log('DS:',await D.eval(`[...document.querySelectorAll('#robot-name,#link-text,#volts,#ping')].map(e=>e.textContent).join(' | ')`));
+    console.log('DS:',await D.eval(`[...document.querySelectorAll('#ds-name,#link-text,#network,#ping,#volts,#volts-min,#config,#ds-battery-text')].map(e=>e.textContent).join(' | ')`));
     await D.eval(`document.querySelector('#teleop-list').click();[...document.querySelectorAll('#picker-list button')].find(b=>b.textContent.startsWith('Field Centric')).click();`);await wait(200);await D.eval(`document.querySelector('#main-action').click()`);
     await until(()=>robot.sim.opState==='init',5000,'robot init');
     await D.eval(`document.querySelector('#main-action').click()`);await until(()=>robot.sim.opState==='running',5000,'robot running');
