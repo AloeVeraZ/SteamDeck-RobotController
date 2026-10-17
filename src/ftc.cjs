@@ -34,8 +34,10 @@ async function probeFtc(host,{timeout=1500}={}){
 const FTC_ADDRESSES=['192.168.43.1','192.168.49.1'];
 // Asks several addresses at once; resolves with the first one whose Robot Controller answers, or null.
 async function findFtc(hosts=FTC_ADDRESSES,{timeout=1500}={}){
-  const socket=dgram.createSocket('udp4');
-  try{await new Promise((ok,fail)=>{socket.once('error',fail);socket.bind(Robocol.PORT,'0.0.0.0',()=>{socket.off('error',fail);ok();});});}catch{try{socket.close();}catch{}return null;}
+  // Listen on the interface that routes to the robot (as FtcSocket does): Linux refuses a wildcard bind
+  // on 20884 while any other address holds that port.
+  const local=hosts.length?await localAddressFor(hosts[0]):'0.0.0.0',socket=dgram.createSocket('udp4');
+  try{await new Promise((ok,fail)=>{socket.once('error',fail);socket.bind(Robocol.PORT,local,()=>{socket.off('error',fail);ok();});});}catch{try{socket.close();}catch{}return null;}
   socket.on('error',()=>{});const targets=new Set(hosts);let seq=1;
   return new Promise(done=>{
     let finished=false;const finish=host=>{if(finished)return;finished=true;clearInterval(timer);clearTimeout(limit);try{socket.close(()=>done(host));}catch{done(host);}};
