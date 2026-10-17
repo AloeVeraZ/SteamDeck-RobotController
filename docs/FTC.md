@@ -3,27 +3,28 @@
 Deck Driver Station includes its own FTC Driver Station. It is used only for FTC robots;
 your other robots keep opening their own website.
 
-## Connecting: just join the robot's Wi-Fi
+## Setting up an FTC robot once
 
-Like the FTC Driver Station app, no IP address is needed. FTC robots always sit at a fixed
-address on their own network: a Control Hub is `192.168.43.1` on its Wi-Fi (named like
-`1234-RC`), and a Robot Controller phone using Wi-Fi Direct is `192.168.49.1`.
+FTC robots make their own Wi-Fi network (named like `1234-RC`) and always sit at a fixed
+address on it: a Control Hub is `192.168.43.1`, and a Robot Controller phone using Wi-Fi
+Direct is `192.168.49.1`.
 
 1. In Settings, join the robot's Wi-Fi.
-2. The app looks for a Robot Controller at those addresses and opens the Driver Station in
-   Drive by itself; the banner turns green: **Robot Connected**.
+2. Tick **FTC robot**. The address may be left blank; it defaults to `192.168.43.1`.
+3. Press **Open robot**. Drive shows the Driver Station; the banner turns green:
+   **Robot Connected**.
 
-While the network looks like an FTC one (`…-RC`, `FTC…`, `DIRECT-…`), the app keeps looking
-every few seconds, because a Control Hub's Wi-Fi comes up before its software is ready.
-Closing the robot stops the automatic connection until the network changes. **Find FTC robot**
-on the Drive welcome screen searches again on demand.
+## After that: just join its Wi-Fi
 
-You can also save an FTC robot in Settings: tick **FTC robot**. The address may be left blank;
-it defaults to `192.168.43.1`. Unticked, the app detects the robot type automatically.
+Like the FTC Driver Station app, a saved FTC robot needs nothing else. The moment this device
+joins that robot's Wi-Fi again, the app switches to Drive and connects. Because a Control Hub's
+Wi-Fi comes up before its software is ready, the app keeps checking every few seconds until the
+robot answers. Closing the robot stops the automatic connection until the network changes.
 
 ## How the app tells robots apart
 
-When an address is opened for the first time without the FTC box ticked, the app sends an FTC
+The **FTC robot** box decides it directly. When it is left unticked and an address is opened
+for the first time, the app sends an FTC
 *peer discovery* message to UDP port 20884. A Robot Controller always answers it, so:
 
 - **Answer received** → the robot is saved as **FTC** and the Driver Station opens in Drive.

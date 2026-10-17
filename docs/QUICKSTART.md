@@ -2,9 +2,9 @@
 
 ## Steam Deck LCD / OLED and Linux x64
 
-1. Download `DeckDriverStation-2.4.0-SteamDeck.run` onto the Deck.
+1. Download `DeckDriverStation-2.4.1-SteamDeck.run` onto the Deck.
 2. In Desktop Mode, open a terminal in your Downloads folder.
-3. Run `bash DeckDriverStation-2.4.0-SteamDeck.run`. It verifies its payload and creates desktop and application-menu shortcuts. The tar archive remains available for portable use.
+3. Run `bash DeckDriverStation-2.4.1-SteamDeck.run`. It verifies its payload and creates desktop and application-menu shortcuts. The tar archive remains available for portable use.
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
@@ -17,10 +17,10 @@ for docked displays and display scaling. The installer includes its own runtime.
 
 ## Windows
 
-Download and double-click **DeckDriverStation-2.4.0-Windows-Setup.exe**.
+Download and double-click **DeckDriverStation-2.4.1-Windows-Setup.exe**.
 It installs per-user with no administrator account, a robot icon, desktop and Start
 menu shortcuts, and an entry in Installed apps. For a silent terminal install, run
-`.\DeckDriverStation-2.4.0-Windows-Setup.exe /S`. The portable ZIP also includes
+`.\DeckDriverStation-2.4.1-Windows-Setup.exe /S`. The portable ZIP also includes
 **DeckDriverStation.exe** and **Install-Windows.cmd**.
 Keep the complete `app` and `runtime` folders together. No administrator account
 or separate Node installation is required. Unsigned personal software may be
@@ -106,3 +106,11 @@ Close the old app before rerunning an installer. Version-one saved custom robots
 and edited addresses migrate to generic website entries. Remove the installed application
 and its shortcuts to uninstall; remove the user-data directory separately if you
 also want to discard the saved robot library.
+
+## Windows: reinstalling over a sandboxed copy
+
+If the desktop shortcut shows a blank page icon, the app was installed by a sandboxed program
+(for example an AI coding app) into that program's private folder. Close Deck Driver Station,
+then double-click **DeckDriverStation-<version>-Windows-Setup.exe** in File Explorer. It installs
+to the normal location and replaces the shortcuts; on first start the app brings over the robot
+list saved by the sandboxed copy.

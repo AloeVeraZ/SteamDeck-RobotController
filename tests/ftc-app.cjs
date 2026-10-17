@@ -13,7 +13,8 @@ class Cdp{constructor(url){this.ws=new WebSocket(url);this.id=0;this.cbs=new Map
 async function targets(){return (await fetch('http://127.0.0.1:9333/json/list')).json();}
 (async()=>{
   const robot=await startUdpRobot({address:'127.0.0.2'}),data=fs.mkdtempSync(path.join(os.tmpdir(),'deck-e2e-')),out=path.join(root,'test-results','ftc');fs.mkdirSync(out,{recursive:true});
-  const app=spawn(process.env.DECK_ELECTRON||path.join(root,'.cache/runtime-win32-x64-44.8.0/electron.exe'),[root,'--remote-debugging-port=9333'],{env:(()=>{const e={...process.env,DECK_DATA_DIR:data};delete e.ELECTRON_RUN_AS_NODE;return e;})(),stdio:'ignore'});
+  const launch=()=>spawn(process.env.DECK_ELECTRON||path.join(root,'.cache/runtime-win32-x64-44.8.0/electron.exe'),[root,'--remote-debugging-port=9333'],{env:(()=>{const e={...process.env,DECK_DATA_DIR:data};delete e.ELECTRON_RUN_AS_NODE;return e;})(),stdio:'ignore'});
+  let app=launch();
   try{
     const launcherT=await until(async()=>(await targets()).find(t=>t.url.endsWith('ui/index.html')),15000,'launcher');const L=new Cdp(launcherT.webSocketDebuggerUrl);await L.ready;
     await until(()=>L.eval('typeof state==="object"&&!!document.querySelector("#wifi-summary")'),10000,'launcher ready');
@@ -37,6 +38,13 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
     const saved=JSON.parse(fs.readFileSync(path.join(data,'robots.json'),'utf8')).robots;console.log('saved:',JSON.stringify(saved.map(r=>({name:r.name,url:r.url,kind:r.kind}))));
     // Reopen from the library: no probe needed, straight to the station.
     await L.eval(`window.deck.open({id:${JSON.stringify(saved[0].id)}})`);await until(async()=>(await targets()).some(t=>t.url.includes('ui/ftc/index.html')),5000,'reopen');
+    // A robot saved as FTC opens by itself on its Wi-Fi, but not again after the driver closes it.
+    const ssid=await L.eval('wifi.ssid||""');
+    if(ssid){
+      await L.eval(`document.querySelector('#close-page').click()`);await wait(6500);if((await targets()).some(t=>t.url.includes('ui/ftc/index.html')))throw Error('closed FTC robot reopened by itself');
+      app.kill();await wait(1500);app=launch();
+      await until(async()=>(await targets()).some(t=>t.url.includes('ui/ftc/index.html')),15000,'automatic open of saved FTC robot');console.log('saved FTC robot opened automatically on',ssid);
+    }else console.log('No Wi-Fi network: automatic open not checked');
     console.log('PASS');
   }catch(e){console.error('FAIL',e.message);process.exitCode=1;}
   finally{app.kill();await robot.close();}

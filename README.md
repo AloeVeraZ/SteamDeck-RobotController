@@ -9,8 +9,8 @@ The app works with two kinds of robots, detected automatically when an address i
 - **Robots with their own website** (ESP32, Raspberry Pi, MotionModule…): Drive shows the
   robot's real page. The launcher does not implement motor controls or replace its
   teleop/autonomous interface.
-- **FTC robots** (REV Control Hub or Robot Controller phone): join the robot's Wi-Fi and Drive
-  connects by itself, with no IP to type. It shows a built-in FTC
+- **FTC robots** (REV Control Hub or Robot Controller phone): save it once with **FTC robot** ticked;
+  after that, joining its Wi-Fi opens Drive by itself. It shows a built-in FTC
   Driver Station with op mode selection, INIT/START/STOP, telemetry, and two gamepads,
   speaking the FTC SDK's own network protocol. See [FTC robots](docs/FTC.md).
 
@@ -35,13 +35,13 @@ the launcher does not invent second-controller robot controls.
 
 ## Downloads and setup
 
-The `dist` folder contains version **2.4.0** packages:
+The `dist` folder contains version **2.4.1** packages:
 
 | Platform | Package | Install |
 | --- | --- | --- |
-| Steam Deck / Linux x64 | `DeckDriverStation-2.4.0-SteamDeck.run` | Run `bash DeckDriverStation-2.4.0-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
-| Windows x64 | `DeckDriverStation-2.4.0-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
-| Apple Silicon Mac | `DeckDriverStation-2.4.0-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
+| Steam Deck / Linux x64 | `DeckDriverStation-2.4.1-SteamDeck.run` | Run `bash DeckDriverStation-2.4.1-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
+| Windows x64 | `DeckDriverStation-2.4.1-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
+| Apple Silicon Mac | `DeckDriverStation-2.4.1-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
 
 The Apple Silicon package is not Apple-notarized; approval may be required in Privacy &
 Security. See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md),

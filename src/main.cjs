@@ -1,7 +1,7 @@
 'use strict';
 const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
-const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc,FTC_ADDRESSES}=require('./ftc.cjs');
+const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
@@ -49,6 +49,8 @@ async function openRobot(input){
     const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)};
     const wifi=await refreshNetwork(),ssid=cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:wifi.ssid);
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
+    // The automatic FTC check holds UDP 20884 for up to 1.5 s; let it finish first.
+    for(let i=0;auto.busy&&i<40;i++)await delay(50);
     await closeRobot();
     // FTC Robot Controllers answer Robocol discovery on UDP 20884 and get the Driver Station; everything else is a website.
     // The Settings "FTC robot" box forces the Driver Station; unticked ("auto") detects again.
@@ -113,32 +115,26 @@ ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents
 ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||''};});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 handle('manager-close',closeManager);
-// Like the FTC Driver Station: on a robot's Wi-Fi, find its Robot Controller at the fixed FTC addresses and connect,
-// no IP needed. Retries while the network looks like an FTC one (the hub's Wi-Fi starts before its app);
-// closing the robot stops auto-connect until the network changes or "Find FTC robot" is pressed.
-const auto={ssid:null,dismissed:false,tried:false,busy:false};
-const looksFtc=ssid=>/(^|[-_ ])RC$|^FTC|^DIRECT-/i.test(ssid);
-async function autoFind({force=false}={}){
-  const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false,tried:false});if(force)auto.dismissed=false;
-  if(auto.busy||robotView||opening||network.busy||!library||(!ssid&&!force))return;
-  const savedFtc=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');
-  if(!force&&(auto.dismissed||(auto.tried&&!looksFtc(ssid)&&!savedFtc.length)))return;
-  auto.busy=true;auto.tried=true;update({finding:true});
+// An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and
+// its Driver Station as soon as the Robot Controller answers. Retries every poll (the hub's Wi-Fi starts before
+// its software); closing the robot stops this until the network changes.
+const auto={ssid:null,dismissed:false,busy:false};
+async function autoOpenFtc(){
+  const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false});
+  if(auto.busy||auto.dismissed||robotView||opening||network.busy||!library||!ssid)return;
+  const saved=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');if(!saved.length)return;
+  auto.busy=true;
   try{
-    const host=await findFtc([...new Set([...savedFtc.map(r=>new URL(r.url).hostname),...FTC_ADDRESSES])]);
-    if(host&&!robotView&&!opening&&(currentNetwork?.ssid||'')===ssid){
-      const match=library.list(ssid).find(r=>r.ssid===ssid&&new URL(r.url).hostname===host);
-      auto.busy=false;update({finding:false});await openRobot(match?{id:match.id,kind:'ftc'}:{url:host,name:ssid||'FTC Robot',kind:'ftc'});
-    }else if(force&&!host)emit('notice',`No FTC robot answered on ${ssid||'this network'}. Join the robot’s Wi-Fi (usually named like 1234-RC).`);
-  }catch(e){emit('notice',e.message);}finally{auto.busy=false;update({finding:false});}
+    const host=await findFtc([...new Set(saved.map(r=>new URL(r.url).hostname))]);const robot=saved.find(r=>new URL(r.url).hostname===host);
+    if(robot&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
+  }catch(e){emit('notice',e.message);}finally{auto.busy=false;}
 }
-handle('find-ftc',()=>autoFind({force:true}));
-handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoFind(),300);return {state:snapshot(),hardware:hardware()};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
+handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware()};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
 handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');update({page});fitView();return snapshot();});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
-handle('join',async(ssid,password)=>{await closeRobot();let info;try{info=await network.join(ssid,password);}catch(e){if(e.code==='NEEDS_PASSWORD')return {needsPassword:true,ssid,message:e.message};throw e;}currentNetwork=info;emit('network',info);update();return info;});
+handle('join',async(ssid,password)=>{await closeRobot();let info;try{info=await network.join(ssid,password);}catch(e){if(e.code==='NEEDS_PASSWORD')return {needsPassword:true,ssid,message:e.message};throw e;}currentNetwork=info;emit('network',info);update();setTimeout(()=>void autoOpenFtc(),500);return info;});
 handle('system-wifi',async()=>{
   await closeRobot();if(process.platform==='win32')return shell.openExternal('ms-settings:network-wifi');
   if(process.platform==='darwin')return shell.openExternal('x-apple.systempreferences:com.apple.wifi-settings-extension');
@@ -159,12 +155,24 @@ handle('update-install',async()=>{if(!updater.downloaded)throw Error('Download a
 app.on('login',(event,contents,details,info,callback)=>{
   if(contents!==robotView?.webContents)return;event.preventDefault();if(auth)auth.callback();auth={id:randomUUID(),callback};robotView.setVisible(false);emit('auth',{id:auth.id,host:active?.url||'',realm:info.realm||'',retry:!details.firstAuthAttempt});
 });
+// A copy installed by a sandboxed Windows app (a packaged agent or shell) keeps its data inside that app's
+// LocalCache, out of Explorer's reach. On the first start of a normal install, bring that robot list along.
+function recoverSandboxedLibrary(dir){
+  if(process.platform!=='win32'||process.env.DECK_DATA_DIR||fs.existsSync(path.join(dir,'robots.json'))||!process.env.LOCALAPPDATA)return;
+  try{
+    const packages=path.join(process.env.LOCALAPPDATA,'Packages');let best=null;
+    for(const name of fs.readdirSync(packages)){const folder=path.join(packages,name,'LocalCache','Roaming',app.getName());try{const t=fs.statSync(path.join(folder,'robots.json')).mtimeMs;if(!best||t>best.t)best={folder,t};}catch{}}
+    if(!best)return;fs.mkdirSync(dir,{recursive:true});
+    for(const file of ['robots.json','update-settings.json'])if(fs.existsSync(path.join(best.folder,file))&&!fs.existsSync(path.join(dir,file)))fs.copyFileSync(path.join(best.folder,file),path.join(dir,file));
+  }catch{}
+}
 app.whenReady().then(()=>{
+  recoverSandboxedLibrary(app.getPath('userData'));
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
   win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#11171b',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
   Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
-  pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoFind());},5000);pollTimer.unref();
+  pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });
 let closing=false;app.on('before-quit',e=>{if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());
