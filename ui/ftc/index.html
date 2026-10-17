@@ -1,0 +1,48 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><title>FTC Driver Station</title><link rel="stylesheet" href="ds.css"></head>
+<body>
+<header class="ds-bar">
+  <div class="ds-link"><i id="link-dot" class="ds-dot"></i><div><strong id="robot-name">FTC Robot</strong><small id="link-text">Searching for robot…</small></div></div>
+  <div class="ds-stat"><small>Ping</small><b id="ping">—</b></div>
+  <div class="ds-stat"><small>Robot battery</small><b id="volts" class="volts">— V</b></div>
+  <div class="ds-stat" id="rc-battery-stat" hidden><small>Controller</small><b id="rc-battery">—</b></div>
+  <div class="ds-pads" aria-label="Gamepad users">
+    <button id="pad-1" class="ds-pad" title="Press START + A on a gamepad to make it User 1"><svg viewBox="0 0 48 30" aria-hidden="true"><path d="M13 3h22c6 0 10 5 11 12l1 7c.4 4-2 6-5 6-2.4 0-4-1.6-5.5-3.8L34 20H14l-2.5 4.2C10 26.4 8.4 28 6 28c-3 0-5.4-2-5-6l1-7C3 8 7 3 13 3Z"/></svg><span>User 1</span></button>
+    <button id="pad-2" class="ds-pad" title="Press START + B on a gamepad to make it User 2"><svg viewBox="0 0 48 30" aria-hidden="true"><path d="M13 3h22c6 0 10 5 11 12l1 7c.4 4-2 6-5 6-2.4 0-4-1.6-5.5-3.8L34 20H14l-2.5 4.2C10 26.4 8.4 28 6 28c-3 0-5.4-2-5-6l1-7C3 8 7 3 13 3Z"/></svg><span>User 2</span></button>
+  </div>
+  <button id="ds-more" class="ds-more" aria-label="Driver Station menu" aria-expanded="false">⋮</button>
+  <div id="ds-menu" class="ds-menu" hidden>
+    <button id="menu-restart">Restart Robot</button><button id="menu-manage">Program &amp; Manage</button><button id="menu-camera">Camera Stream</button><button id="menu-gamepads">Gamepad assignment</button><button id="menu-about">About</button>
+  </div>
+</header>
+<main class="ds-main">
+  <section class="ds-control" aria-label="Op mode control">
+    <div class="ds-opmode">
+      <button id="auto-list" class="ds-list auto" aria-label="Autonomous op modes"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 4 7 12l8.5 8z"/></svg><span>Auto</span></button>
+      <button id="opmode-name" class="ds-name"><small id="opmode-flavor">Op Mode</small><span id="opmode-label">Select an Op Mode</span></button>
+      <button id="teleop-list" class="ds-list teleop" aria-label="TeleOp op modes"><span>TeleOp</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 4 17 12l-8.5 8z"/></svg></button>
+    </div>
+    <div class="ds-actions">
+      <button id="timer" class="ds-timer" title="Autonomous 30 second timer" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2.5h5"/></svg><span id="timer-text">30</span></button>
+      <button id="main-action" class="ds-go init" disabled><span id="main-icon" class="ds-go-icon" aria-hidden="true"></span><b id="main-label">INIT</b></button>
+      <button id="abort" class="ds-abort" title="Stop" aria-label="Stop op mode" hidden><i></i></button>
+    </div>
+    <dl class="ds-facts">
+      <div><dt>Robot status</dt><dd id="robot-status">Unknown</dd></div>
+      <div><dt>Op mode</dt><dd id="active-opmode">None</dd></div>
+      <div><dt>Configuration</dt><dd id="config">—</dd></div>
+    </dl>
+  </section>
+  <section class="ds-telemetry" aria-label="Telemetry">
+    <div class="ds-telemetry-head"><span>Telemetry</span><button id="camera-close" class="ds-text" hidden>Close camera</button></div>
+    <p id="system-message" class="ds-system" hidden></p>
+    <div id="telemetry" class="ds-lines" aria-live="polite"></div>
+    <figure id="camera" class="ds-camera" hidden><img id="camera-image" alt="Robot camera frame"><figcaption>Tap the image for a new frame</figcaption></figure>
+  </section>
+</main>
+<section id="assign-hint" class="ds-assign" hidden><b>Gamepad connected</b><span>Press <kbd>START</kbd> + <kbd>A</kbd> for User 1 or <kbd>START</kbd> + <kbd>B</kbd> for User 2</span></section>
+<section id="link-overlay" class="ds-overlay"><div class="ds-spinner"></div><h2 id="overlay-title">Searching for robot…</h2><p id="overlay-text"></p></section>
+<div id="picker" class="ds-picker" hidden><div class="ds-picker-card" role="dialog" aria-labelledby="picker-title"><div class="ds-picker-head"><h2 id="picker-title">Op Modes</h2><button id="picker-close" class="ds-text">Close</button></div><div id="picker-list" class="ds-picker-list" role="listbox"></div></div></div>
+<dialog id="ds-dialog"><h2 id="dialog-title"></h2><pre id="dialog-text"></pre><div class="ds-dialog-actions"><button id="dialog-ok" class="ds-primary">OK</button></div></dialog>
+<div id="progress" class="ds-progress" hidden><span id="progress-text"></span><progress id="progress-bar"></progress></div>
+<div id="ds-toast" class="ds-toast" role="status" hidden></div>
+<script src="robocol.js"></script><script src="ds.js"></script></body></html>

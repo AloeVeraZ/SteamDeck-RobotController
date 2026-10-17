@@ -35,8 +35,9 @@ compatible running website in this checkout. Bookmark a real robot URL if one
 exists on the hardware; the project name alone cannot provide a web server.
 
 No robot repositories or firmware were changed for this revision. A robot that
-only exposes Bluetooth, raw TCP, ROS, or an official native FTC/FRC protocol needs
-its own web interface before it can be used through a browser launcher.
+only exposes Bluetooth, raw TCP, ROS, or the FRC protocol needs its own web
+interface before it can be used through this launcher. FTC robots are the exception:
+the built-in FTC Driver Station speaks their protocol directly (see [FTC robots](FTC.md)).
 
 ## Browser behavior
 
@@ -59,5 +60,7 @@ SSIDs. Multiple robots on the home LAN can use separate IP addresses. Only the
 robot's own firmware determines whether it broadcasts a hotspot and joins home
 Wi-Fi simultaneously.
 
-It is not an official FTC Driver Station, and opening an FTC controller's
-configuration website does not implement FTC gamepad driving protocols.
+FTC Control Hubs and Robot Controller phones are detected automatically and open the
+built-in FTC Driver Station instead of a website; their configuration website stays
+available from **⋮ → Program & Manage**. The FTC mode is an independent implementation
+and is not an official or competition-certified FTC Driver Station.

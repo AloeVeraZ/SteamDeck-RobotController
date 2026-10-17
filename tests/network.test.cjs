@@ -17,3 +17,12 @@ test('new secure networks require a password before creating a connection',async
 });
 test('Windows scan lists SSIDs once and keeps strongest access point',async()=>{const n=new Network({platform:'win32',runner:async()=>({stdout:'SSID 1 : Robot\n    Signal : 95%\n    Authentication : WPA2-Personal\nSSID 2 : Robot\n    Signal : 40%\nSSID 3 : Home\n    Signal : 60%'})});assert.deepEqual((await n.scan()).map(r=>r.ssid),['Robot','Home']);});
 test('Windows can create an open robot hotspot profile without a password',async()=>{let profile='',file;const n=new Network({platform:'win32',runner:async(_f,args)=>{if(args.includes('networks'))return {stdout:'SSID 1 : OpenRobot\n    Authentication : Open'};if(args.includes('add')){file=args.find(s=>s.startsWith('filename=')).slice(9);profile=fs.readFileSync(file,'utf8');}if(args.includes('interfaces'))return {stdout:'    SSID : OpenRobot'};return {stdout:'Success'};}});await n.joinWindows('OpenRobot','');assert.match(profile,/<authentication>open<\/authentication>/);assert.match(profile,/<encryption>none<\/encryption>/);assert.ok(!profile.includes('sharedKey'));assert.equal(fs.existsSync(file),false);});
+test('Windows asks for a fresh Wi-Fi scan so networks other than the connected one appear',async()=>{
+  let netsh=0,rescans=0;const lists=['SSID 1 : Home\n    Signal : 99%','SSID 1 : Home\n    Signal : 99%\nSSID 2 : 1234-RC\n    Signal : 70%\n    Authentication : WPA2-Personal'];
+  const n=new Network({platform:'win32',sleep:async()=>{},runner:async(file,args)=>{if(file==='powershell.exe'){assert.ok(args.at(-1).endsWith('wifi-scan.ps1'));rescans++;return {stdout:'1'};}netsh++;return {stdout:lists[Math.min(netsh-1,1)]};}});
+  assert.deepEqual((await n.scan()).map(r=>r.ssid),['Home','1234-RC']);assert.equal(rescans,1);
+});
+test('Windows location privacy blocks are explained instead of showing an empty list',async()=>{
+  const n=new Network({platform:'win32',sleep:async()=>{},runner:async file=>({stdout:file==='powershell.exe'?'0':'Network shell commands need location permission to access WLAN information.'})});
+  await assert.rejects(n.scan(),/Location/);
+});

@@ -27,8 +27,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     private LinearLayout root,body,settingsContent,driveContent,libraryRows;
     private TextView address,controllers,wifiText,networkBinding;
     private EditText urlInput,nameInput,searchInput;
-    private WebView browser;
-    private RobotProxy proxy;
+    private WebView browser,manager;
+    private RobotProxy proxy,managerProxy;
+    private FtcBridge ftc;
+    private int openToken=0;
     private JSONArray robots=new JSONArray();
     private JSONObject active,pending;
     private String editId="",lastSsid="";
@@ -61,9 +63,10 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         LinearLayout buttons=new LinearLayout(this);Button open=button("Open robot ↗",()->{try{openRobot(form());}catch(Exception e){message(e.getMessage());}});open.setTextColor(BG);open.setBackground(background(GREEN));buttons.addView(open,new LinearLayout.LayoutParams(0,dp(46),1));Button save=button("Save address",()->{try{upsert(form(),false,"");renderLibrary();message("Robot saved on this device.");}catch(Exception e){message(e.getMessage());}});LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,dp(46),1);right.leftMargin=dp(10);buttons.addView(save,right);settingsContent.addView(buttons);space(settingsContent,24);
         settingsContent.addView(text("YOUR SAVED ROBOTS",12,GREEN));searchInput=field(settingsContent,"Find a robot","Name, IP address, or Wi-Fi network");searchInput.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void onTextChanged(CharSequence s,int a,int b,int c){renderLibrary();}public void afterTextChanged(android.text.Editable s){}});libraryRows=column();settingsContent.addView(libraryRows);space(settingsContent,18);settingsContent.addView(text("Initialization, teleop, and autonomous stay in the robot website. Website login credentials are not saved in this address list.",11,MUTED));body.addView(scroll,new LinearLayout.LayoutParams(-1,-1));renderLibrary();
     }
-    private void buildDrive(){driveContent=column();LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setPadding(dp(8),0,dp(8),0);toolbar.setBackgroundColor(PANEL);Button reload=button("↻",()->{if(browser!=null)browser.reload();});toolbar.addView(reload,new LinearLayout.LayoutParams(dp(42),dp(44)));address=text("No robot open",11,MUTED);address.setSingleLine(true);toolbar.addView(address,new LinearLayout.LayoutParams(0,dp(44),1));toolbar.addView(button("Close",this::closeRobot),new LinearLayout.LayoutParams(dp(65),dp(44)));driveContent.addView(toolbar);body.addView(driveContent,new LinearLayout.LayoutParams(-1,-1));}
+    private void buildDrive(){driveContent=column();LinearLayout toolbar=new LinearLayout(this);toolbar.setGravity(Gravity.CENTER_VERTICAL);toolbar.setPadding(dp(8),0,dp(8),0);toolbar.setBackgroundColor(PANEL);Button reload=button("↻",()->{if(browser!=null)browser.reload();});toolbar.addView(reload,new LinearLayout.LayoutParams(dp(42),dp(44)));address=text("No robot open",11,MUTED);address.setSingleLine(true);toolbar.addView(address,new LinearLayout.LayoutParams(0,dp(44),1));toolbar.addView(button("Close",()->{if(manager!=null)closeManager();else closeRobot();}),new LinearLayout.LayoutParams(dp(65),dp(44)));driveContent.addView(toolbar);body.addView(driveContent,new LinearLayout.LayoutParams(-1,-1));}
     private void emptyDrive(){while(driveContent.getChildCount()>1)driveContent.removeViewAt(1);TextView empty=text("Open a saved robot from Settings to load its own controls.",17,MUTED);empty.setGravity(Gravity.CENTER);empty.setPadding(dp(30),dp(30),dp(30),dp(30));driveContent.addView(empty,new LinearLayout.LayoutParams(-1,0,1));}
-    private void show(boolean config){settings=config;if(config)closeRobot();for(int i=0;i<body.getChildCount();i++){View child=body.getChildAt(i);child.setVisibility((child==driveContent?!config:config)?View.VISIBLE:View.GONE);}if(config){refreshWifi();renderLibrary();}else if(browser==null)emptyDrive();}
+    // Settings hides the open robot without closing it; an FTC station releases gamepads while hidden.
+    private void show(boolean config){settings=config;if(ftc!=null)ftc.setActive(!config&&manager==null);for(int i=0;i<body.getChildCount();i++){View child=body.getChildAt(i);child.setVisibility((child==driveContent?!config:config)?View.VISIBLE:View.GONE);}if(config){refreshWifi();renderLibrary();}else if(browser==null)emptyDrive();}
     private String ssid(){try{if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)!=PackageManager.PERMISSION_GRANTED)return "";WifiManager manager=(WifiManager)getApplicationContext().getSystemService(WIFI_SERVICE);String s=manager.getConnectionInfo().getSSID();if(s==null||s.equals("<unknown ssid>"))return "";return s.replaceAll("^\"|\"$","");}catch(Exception e){return "";}}
     private void refreshWifi(){lastSsid=ssid();if(wifiText!=null)wifiText.setText(lastSsid.isEmpty()?"SSID is unavailable. Connect using Android’s Wi-Fi panel; allow precise location to read the connected network.":"Connected to "+lastSsid);if(networkBinding!=null)networkBinding.setText("Wi-Fi: "+(lastSsid.isEmpty()?"Not available":lastSsid));}
     private void wifiSettings(){closeRobot();startActivity(new Intent(Build.VERSION.SDK_INT>=29?Settings.Panel.ACTION_WIFI:Settings.ACTION_WIFI_SETTINGS));}
@@ -71,11 +74,47 @@ public final class MainActivity extends Activity implements InputManager.InputDe
     private JSONObject upsert(JSONObject data,boolean opened,String title) throws Exception {
         String id=data.optString("id"),url=data.getString("url"),network=data.optString("ssid"),name=data.optString("name");JSONObject old=null;JSONArray next=new JSONArray();
         for(int i=0;i<robots.length();i++){JSONObject r=robots.getJSONObject(i);if((!id.isEmpty()&&id.equals(r.optString("id")))||(id.isEmpty()&&url.equals(r.optString("url"))&&network.equals(r.optString("ssid"))))old=r;else next.put(r);}
-        JSONObject p=new JSONObject();p.put("id",old==null?UUID.randomUUID().toString():old.getString("id"));p.put("url",url);p.put("ssid",network);p.put("name",!name.isEmpty()?name:!title.isEmpty()?title:old!=null?old.optString("name"):!network.isEmpty()?network:URI.create(url).getHost());p.put("lastOpened",opened?System.currentTimeMillis():old==null?0:old.optLong("lastOpened"));next.put(p);robots=next;getPreferences(0).edit().putString("robots",robots.toString()).apply();return p;
+        JSONObject p=new JSONObject();p.put("id",old==null?UUID.randomUUID().toString():old.getString("id"));p.put("url",url);p.put("ssid",network);p.put("name",!name.isEmpty()?name:!title.isEmpty()?title:old!=null?old.optString("name"):!network.isEmpty()?network:URI.create(url).getHost());p.put("lastOpened",opened?System.currentTimeMillis():old==null?0:old.optLong("lastOpened"));
+        String kind=data.optString("kind");if(kind.equals("ftc")||kind.equals("web"))p.put("kind",kind);else if(old!=null&&url.equals(old.optString("url"))&&old.has("kind"))p.put("kind",old.optString("kind"));next.put(p);robots=next;getPreferences(0).edit().putString("robots",robots.toString()).apply();return p;
     }
     private void openRobot(JSONObject robot) throws Exception {
         String network=robot.optString("ssid"),current=ssid();if(!network.isEmpty()&&!current.isEmpty()&&!network.equals(current)){pending=robot;message("Connect to "+network+". The robot opens when its network is detected.");wifiSettings();return;}
-        closeRobot();pending=null;active=robot;proxy=new RobotProxy(robot.getString("url"),network);final RobotProxy openedProxy=proxy;final JSONObject openedRobot=robot;show(false);
+        closeRobot();pending=null;
+        // FTC Robot Controllers answer Robocol discovery and get the Driver Station; other robots open their website.
+        String kind=robot.optString("kind");
+        if(kind.isEmpty()){final int token=openToken;final String host=URI.create(robot.getString("url")).getHost();show(false);address.setText("Looking for robot at "+host);
+            new Thread(()->{boolean isFtc=FtcBridge.probe(host,1500);runOnUiThread(()->{if(token!=openToken)return;try{robot.put("kind",isFtc?"ftc":"web");if(isFtc)openFtc(robot);else openWeb(robot);}catch(Exception e){message(e.getMessage());}});}).start();return;}
+        if(kind.equals("ftc"))openFtc(robot);else openWeb(robot);
+    }
+    private void openFtc(JSONObject robot) throws Exception {
+        final int token=openToken;final String host=URI.create(robot.getString("url")).getHost(),name=robot.optString("name").isEmpty()?host:robot.optString("name");show(false);address.setText("Connecting to FTC robot "+host);
+        new Thread(()->{try{FtcBridge bridge=new FtcBridge(host,name,this::programAndManage);runOnUiThread(()->{if(token!=openToken){bridge.close();return;}showFtc(robot,bridge,host);});}catch(Exception e){runOnUiThread(()->message(e.getMessage()));}}).start();
+    }
+    private void showFtc(JSONObject robot,FtcBridge bridge,String host){
+        try{robot.put("kind","ftc");active=upsert(robot,true,"");renderLibrary();}catch(Exception e){message(e.getMessage());}
+        ftc=bridge;while(driveContent.getChildCount()>1)driveContent.removeViewAt(1);browser=new WebView(this);browser.setBackgroundColor(BG);
+        WebSettings s=browser.getSettings();s.setJavaScriptEnabled(true);s.setDomStorageEnabled(true);s.setAllowFileAccess(false);s.setAllowContentAccess(false);
+        browser.addJavascriptInterface(bridge,"DeckFtcNative");browser.setWebChromeClient(new WebChromeClient());
+        browser.setWebViewClient(new WebViewClient(){@Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return true;}});
+        bridge.attach(browser);driveContent.addView(browser,new LinearLayout.LayoutParams(-1,0,1));browser.loadUrl("file:///android_asset/ftc/index.html");browser.requestFocus();
+        address.setText("FTC Driver Station · "+host);bridge.setActive(!settings);
+    }
+    /** Program & Manage: the Robot Controller's web interface on port 8080, shown over the Driver Station. */
+    private void programAndManage(){
+        if(ftc==null||active==null)return;
+        try{closeManager();String host=URI.create(active.getString("url")).getHost();managerProxy=new RobotProxy("http://"+host+":8080/",active.optString("ssid"));final RobotProxy owner=managerProxy;
+            manager=new WebView(this);manager.getSettings().setJavaScriptEnabled(true);manager.getSettings().setDomStorageEnabled(true);manager.getSettings().setAllowFileAccess(false);manager.getSettings().setAllowContentAccess(false);
+            manager.setWebViewClient(new WebViewClient(){@Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){return !owner.owns(request.getUrl().toString());}});
+            if(browser!=null)browser.setVisibility(View.GONE);ftc.setActive(false);driveContent.addView(manager,new LinearLayout.LayoutParams(-1,0,1));manager.loadUrl(owner.startUrl());address.setText("Program & Manage · "+host);
+        }catch(Exception e){message(e.getMessage());}
+    }
+    private void closeManager(){
+        if(manager!=null){driveContent.removeView(manager);manager.destroy();manager=null;}if(managerProxy!=null){managerProxy.close();managerProxy=null;}
+        if(browser!=null){browser.setVisibility(View.VISIBLE);browser.requestFocus();}if(ftc!=null){ftc.setActive(!settings);try{address.setText("FTC Driver Station · "+URI.create(active.getString("url")).getHost());}catch(Exception ignored){}}
+    }
+    private void openWeb(JSONObject robot) throws Exception {
+        String network=robot.optString("ssid");
+        active=robot;proxy=new RobotProxy(robot.getString("url"),network);final RobotProxy openedProxy=proxy;final JSONObject openedRobot=robot;show(false);
         while(driveContent.getChildCount()>1)driveContent.removeViewAt(1);browser=new WebView(this);browser.setBackgroundColor(BG);browser.getSettings().setJavaScriptEnabled(true);browser.getSettings().setDomStorageEnabled(true);browser.getSettings().setAllowFileAccess(false);browser.getSettings().setAllowContentAccess(false);browser.getSettings().setBuiltInZoomControls(true);browser.getSettings().setDisplayZoomControls(false);CookieManager.getInstance().setAcceptCookie(true);CookieManager.getInstance().setAcceptThirdPartyCookies(browser,false);
         browser.setWebChromeClient(new WebChromeClient());browser.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){String u=request.getUrl().toString();if(openedProxy.owns(u))return false;String local=openedProxy.localUrl(u);if(local!=null)view.loadUrl(local);else message("Open that website address from Settings.");return true;}
@@ -90,13 +129,21 @@ public final class MainActivity extends Activity implements InputManager.InputDe
         for(JSONObject r:entries){LinearLayout card=column();card.setPadding(dp(14),dp(14),dp(14),dp(14));card.setBackground(background(PANEL));card.addView(text(r.optString("name"),17,TEXT));card.addView(text(r.optString("url"),12,MUTED));card.addView(text(r.optString("ssid","Any network"),11,GREEN));space(card,8);LinearLayout actions=new LinearLayout(this);actions.addView(button("Open ↗",()->{try{openRobot(r);}catch(Exception e){message(e.getMessage());}}),new LinearLayout.LayoutParams(0,dp(44),1));actions.addView(button("Edit",()->{editId=r.optString("id");urlInput.setText(r.optString("url"));nameInput.setText(r.optString("name"));show(true);}),new LinearLayout.LayoutParams(0,dp(44),1));actions.addView(button("Delete",()->{JSONArray keep=new JSONArray();for(int i=0;i<robots.length();i++){JSONObject p=robots.optJSONObject(i);if(!p.optString("id").equals(r.optString("id")))keep.put(p);}robots=keep;getPreferences(0).edit().putString("robots",robots.toString()).apply();renderLibrary();}),new LinearLayout.LayoutParams(0,dp(44),1));card.addView(actions);libraryRows.addView(card);space(libraryRows,10);}
         if(entries.isEmpty())libraryRows.addView(text("Open a robot website to save its name, URL, and network here.",12,MUTED));
     }
-    private void closeRobot(){if(browser!=null){browser.stopLoading();driveContent.removeView(browser);browser.destroy();browser=null;}if(proxy!=null){proxy.close();proxy=null;}active=null;if(address!=null)address.setText("No robot open");if(!settings&&driveContent!=null)emptyDrive();}
+    private void closeRobot(){openToken++;closeManager();
+        // The FTC page sends STOP for an active op mode before its socket and WebView close.
+        if(ftc!=null){ftc.close();ftc=null;if(browser!=null){final WebView station=browser;browser=null;driveContent.removeView(station);handler.postDelayed(station::destroy,400);}}
+        if(browser!=null){browser.stopLoading();driveContent.removeView(browser);browser.destroy();browser=null;}if(proxy!=null){proxy.close();proxy=null;}active=null;if(address!=null)address.setText("No robot open");if(!settings&&driveContent!=null)emptyDrive();}
     private void updateControllers(){List<String> names=new ArrayList<>();for(int id:InputDevice.getDeviceIds()){InputDevice d=InputDevice.getDevice(id);if(d!=null&&((d.getSources()&InputDevice.SOURCE_GAMEPAD)==InputDevice.SOURCE_GAMEPAD||(d.getSources()&InputDevice.SOURCE_JOYSTICK)==InputDevice.SOURCE_JOYSTICK))if(names.size()<2)names.add(d.getName());}controllers.setText("1: "+(names.size()>0?names.get(0):"No controller")+"    •    2: "+(names.size()>1?names.get(1):"Not connected"));}
     private void message(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     @Override protected void onResume(){super.onResume();refreshWifi();if(pending!=null&&pending.optString("ssid").equals(ssid()))try{openRobot(pending);}catch(Exception e){message(e.getMessage());}}
     @Override protected void onPause(){super.onPause();closeRobot();}
     @Override protected void onDestroy(){closeRobot();if(inputManager!=null)inputManager.unregisterInputDeviceListener(this);super.onDestroy();}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);refreshWifi();if(code==7)wifiSettings();}
-    @Override public void onBackPressed(){if(browser!=null&&browser.canGoBack())browser.goBack();else if(!settings)show(true);else super.onBackPressed();}
+    // Controller input belongs to the FTC Driver Station page (its Gamepad API), not to Android navigation.
+    private static boolean gamepad(int source){return (source&InputDevice.SOURCE_GAMEPAD)==InputDevice.SOURCE_GAMEPAD||(source&InputDevice.SOURCE_JOYSTICK)==InputDevice.SOURCE_JOYSTICK;}
+    private boolean stationInput(){return ftc!=null&&browser!=null&&manager==null&&!settings;}
+    @Override public boolean dispatchKeyEvent(KeyEvent e){if(stationInput()&&gamepad(e.getSource())){browser.dispatchKeyEvent(e);return true;}return super.dispatchKeyEvent(e);}
+    @Override public boolean dispatchGenericMotionEvent(MotionEvent e){if(stationInput()&&gamepad(e.getSource())){browser.dispatchGenericMotionEvent(e);return true;}return super.dispatchGenericMotionEvent(e);}
+    @Override public void onBackPressed(){if(manager!=null&&manager.canGoBack())manager.goBack();else if(manager!=null)closeManager();else if(ftc==null&&browser!=null&&browser.canGoBack())browser.goBack();else if(!settings)show(true);else super.onBackPressed();}
     public void onInputDeviceAdded(int id){updateControllers();}public void onInputDeviceRemoved(int id){updateControllers();}public void onInputDeviceChanged(int id){updateControllers();}
 }

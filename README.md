@@ -1,23 +1,31 @@
 # Deck Driver Station 2
 
-An app for opening your robots' **existing websites** on Steam Deck, Linux,
-Windows, Mac, and Android. The robot icon is preserved. There are two main views:
-**Drive** (the actual robot website) and **Settings** (Wi-Fi and saved addresses).
+An app for driving your robots from Steam Deck, Linux, Windows, Mac, and Android.
+The robot icon is preserved. There are two main views: **Drive** (the robot's
+controls) and **Settings** (Wi-Fi and saved addresses).
 
-The launcher does not implement motor controls, initialize the robot, or replace
-its teleop/autonomous interface. It connects to the network and website you choose.
+The app works with two kinds of robots, detected automatically when an address is opened:
+
+- **Robots with their own website** (ESP32, Raspberry Pi, MotionModule…): Drive shows the
+  robot's real page. The launcher does not implement motor controls or replace its
+  teleop/autonomous interface.
+- **FTC robots** (REV Control Hub or Robot Controller phone): Drive shows a built-in FTC
+  Driver Station with op mode selection, INIT/START/STOP, telemetry, and two gamepads,
+  speaking the FTC SDK's own network protocol. See [FTC robots](docs/FTC.md).
 
 ## The workflow
 
 1. Open the app from its shortcut or Steam's non-Steam library.
 2. If Wi-Fi isn't connected, Settings opens with the connection controls.
 3. Choose Wi-Fi, enter a robot IP/hostname/URL, optionally enter a friendly name,
-   and press **Open robot**. No robot type or protocol selection is required.
-4. Use the robot's real page. HTTP sign-in challenges prompt for credentials;
-   website login forms appear normally inside the page.
+   and press **Open robot**. No robot type or protocol selection is required; a typed
+   name always replaces the website title.
+4. Use the robot's real page, or the FTC Driver Station for an FTC robot. HTTP sign-in
+   challenges prompt for credentials; website login forms appear inside the page.
 5. The name, final URL, Wi-Fi association, and last-opened time are kept in the
    saved list. Reopen with **Open**. Desktop platforms first try saved OS Wi-Fi
    credentials when switching networks; a password prompt appears if needed.
+   Settings also shows every robot saved for the current Wi-Fi as a grid of cards.
 
 Two controller indicators appear in the header. On Deck, controller one is the
 built-in gamepad when it is the first connected gamepad. A second Bluetooth/USB
@@ -53,8 +61,10 @@ restrictions still work. Robot browser cookies are isolated by network/address.
 Robot passwords are never stored in the address JSON. The app does not bypass
 invalid HTTPS certificates. Wi-Fi passwords are handled by the OS/network service.
 
-Opening Settings, changing networks, or closing the robot closes its browser
-view and transport. The robot's own stop/watchdog behavior remains authoritative.
+Opening Settings hides the robot without disconnecting it; Drive shows it again.
+Changing networks, opening Updates, or closing the robot closes its view and
+transport (an FTC robot is sent STOP first). The robot's own stop/watchdog
+behavior remains authoritative.
 No launcher can provide a hardware emergency stop for an arbitrary robot website.
 
 ## Development
@@ -99,9 +109,13 @@ tests use `DECK_ELECTRON` and `DECK_PLAYWRIGHT` paths with `node tests/ui.cjs`.
 | `src/library.cjs` | Saved website/network associations and v1 data migration |
 | `src/network.cjs` | Platform Wi-Fi connection helpers |
 | `src/robot-proxy.cjs` | Single-target streaming loopback transport |
+| `src/ftc.cjs`, `src/ftc-preload.cjs` | FTC detection and UDP 20884 bridge for the Driver Station page |
+| `ui/ftc/` | FTC Driver Station page and Robocol protocol (shared by desktop and Android) |
+| `tools/ftc-sim.cjs` | Simulated FTC Control Hub for tests and previews |
 | `ui/` | Drive/Settings shell and original robot icon |
 | `android/` | Native Android host, WebView, saved library, Java loopback bridge |
 | `packaging/` | Per-user installers and shortcuts |
 
-The FTC Driver Station is a layout/workflow reference, not an implemented control
-protocol or competition certification: [FIRST reference](https://ftc-docs.firstinspires.org/en/latest/control_hard_compon/ds_components/index.html).
+The FTC Driver Station is an independent implementation of the FTC SDK's Robocol
+protocol, written from the published SDK sources. It is not REV or FIRST software and
+is not competition-certified: [FIRST reference](https://ftc-docs.firstinspires.org/en/latest/control_hard_compon/ds_components/index.html).

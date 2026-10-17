@@ -5,7 +5,7 @@ function splitEscaped(line){const out=[];let value='',escaped=false;for(const c 
 const xml=s=>String(s).replace(/[<>&'\"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;',"'":'&apos;','"':'&quot;'}[c]));
 function wifiError(message,code='NETWORK_ERROR'){const e=Error(message);e.code=code;return e;}
 class Network {
-  constructor({platform=process.platform,runner=nativeRun}={}){this.platform=platform;this.runner=runner;this.busy=false;}
+  constructor({platform=process.platform,runner=nativeRun,sleep=ms=>new Promise(r=>setTimeout(r,ms))}={}){this.platform=platform;this.runner=runner;this.sleep=sleep;this.busy=false;}
   async run(file,args,timeout=5000){return (await this.runner(file,args,{timeout,maxBuffer:500000,windowsHide:true,env:{...process.env,LC_ALL:'C',LANG:'C'}})).stdout.trim();}
   async status(){
     try{
@@ -32,15 +32,23 @@ class Network {
       const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
     }
     if(this.platform==='win32'){
-      const raw=await this.run('netsh',['wlan','show','networks','mode=bssid']);const entries=[];let item;
-      for(const line of raw.split('\n')){const m=line.match(/^SSID \d+\s*:\s*(.*)/);if(m){item={ssid:m[1].trim(),signal:0,security:'',active:false};if(item.ssid)entries.push(item);}else if(item){const n=line.match(/Signal\s*:\s*(\d+)/);if(n)item.signal=Number(n[1]);const a=line.match(/Authentication\s*:\s*(.*)/);if(a)item.security=a[1].trim();}}
-      const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
+      // netsh only reports Windows' cached scan, which often holds just the connected network; request a fresh scan first.
+      const fresh=await this.run('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'wifi-scan.ps1')],15000).then(out=>Number(out)>0).catch(()=>false);
+      let list=await this.windowsNetworks();
+      for(let i=0,stable=0;fresh&&i<6&&stable<2;i++){await this.sleep(800);const next=await this.windowsNetworks();stable=i>=2&&next.length===list.length?stable+1:0;list=next;}
+      return list;
     }
     if(this.platform==='darwin'){
       const script=`ObjC.import('CoreWLAN'); const iface=$.CWWiFiClient.sharedWiFiClient.interface; if(!iface)throw Error('No Wi-Fi interface'); const error=Ref(); const result=iface.scanForNetworksWithSSIDError(null,error); if(!result)throw Error('macOS could not scan Wi-Fi. Use system Wi-Fi settings and allow location access if requested.'); const list=result.allObjects.js.map(n=>({ssid:ObjC.unwrap(n.ssid)||'',signal:Number(n.rssiValue),security:n.supportsSecurity(0)?'':'Secured'})).filter(n=>n.ssid); JSON.stringify(list);`;
       const entries=JSON.parse(await this.run('/usr/bin/osascript',['-l','JavaScript','-e',script],25000));const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
     }
     return [];
+  }
+  async windowsNetworks(){
+    const raw=await this.run('netsh',['wlan','show','networks','mode=bssid']);const entries=[];let item;
+    for(const line of raw.split('\n')){const m=line.match(/^SSID \d+\s*:\s*(.*)/);if(m){item={ssid:m[1].trim(),signal:0,security:'',active:false};if(item.ssid)entries.push(item);}else if(item){const n=line.match(/Signal\s*:\s*(\d+)/);if(n)item.signal=Number(n[1]);const a=line.match(/Authentication\s*:\s*(.*)/);if(a)item.security=a[1].trim();}}
+    if(!entries.length&&/location/i.test(raw))throw wifiError('Windows needs Location access to list Wi-Fi networks. Turn on Settings › Privacy & security › Location and “Let desktop apps access your location”.','SYSTEM_WIFI');
+    const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
   }
   async join(ssid,password=''){
     ssid=cleanSsid(ssid);if(!ssid)throw wifiError('Choose a Wi-Fi network.');if(typeof password!=='string'||/[\r\n\0]/.test(password)||password.length>128)throw wifiError('Invalid Wi-Fi password.');
@@ -73,7 +81,7 @@ class Network {
     }else{try{await this.run('nmcli',['--wait','30','connection','up','uuid',uuid,'ifname',current.device],35000);}catch{throw wifiError('This saved network needs its Wi-Fi password.','NEEDS_PASSWORD');}}
   }
   async joinWindows(ssid,password){
-    const ap=(await this.scan().catch(()=>[])).find(n=>n.ssid===ssid),open=ap?.security==='Open';
+    const ap=(await this.windowsNetworks().catch(()=>[])).find(n=>n.ssid===ssid),open=ap?.security==='Open';
     if(password||open){
       if(password&&/enterprise|802\.1x/i.test(ap?.security||''))throw wifiError('Set up this enterprise network in system Wi-Fi settings.','SYSTEM_WIFI');
       const dir=await fs.mkdtemp(path.join(os.tmpdir(),'deck-wifi-')),file=path.join(dir,'network.xml');

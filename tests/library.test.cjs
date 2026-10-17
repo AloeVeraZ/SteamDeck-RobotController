@@ -20,3 +20,14 @@ test('passwords are not saved as robot data',t=>{
 test('version-one custom profiles migrate into generic saved websites',t=>{
   const file=setup(t);fs.writeFileSync(file,JSON.stringify({addresses:{pushbot:['http://pushbot.local']},custom:[{name:'Custom',ssid:'Home',addresses:['robot.local:8080']}]}));const lib=new Library(file);assert.equal(lib.list().length,2);assert.ok(lib.list().some(r=>r.name==='Custom'));assert.equal(JSON.parse(fs.readFileSync(file)).version,2);
 });
+test('a typed name overrides the website title on every reopen; clearing it returns to the title',t=>{
+  const lib=new Library(setup(t)),auto=lib.upsert({url:'robot.local',ssid:'Home'},{opened:true,title:'Dashboard v1'});
+  assert.equal(lib.upsert({...auto},{opened:true,title:'Dashboard v2'}).name,'Dashboard v2');
+  const named=lib.upsert({id:auto.id,url:'robot.local',name:'Big Zippy',ssid:'Home'});assert.equal(named.autoName,false);
+  assert.equal(lib.upsert({...named},{opened:true,title:'Dashboard v3'}).name,'Big Zippy');lib.updateTitle(named.id,'Login');assert.equal(lib.get(named.id).name,'Big Zippy');
+  assert.equal(lib.upsert({id:named.id,url:'robot.local',name:'',ssid:'Home'},{opened:true,title:'Dashboard v4'}).name,'Dashboard v4');
+});
+test('the robot type is remembered for its address and reset when the address changes',t=>{
+  const lib=new Library(setup(t)),p=lib.upsert({url:'192.168.43.1',ssid:'1234-RC',kind:'ftc'});assert.equal(lib.upsert({id:p.id,url:'192.168.43.1',ssid:'1234-RC'}).kind,'ftc');
+  assert.equal(lib.upsert({id:p.id,url:'192.168.4.1',ssid:'1234-RC'}).kind,undefined);assert.equal(lib.upsert({url:'robot.local',kind:'bogus'}).kind,undefined);
+});

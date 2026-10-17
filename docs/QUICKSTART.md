@@ -56,12 +56,15 @@ WebView and the robot page; two attached gamepad names are displayed.
 
 **Settings → Wi-Fi → robot address → Open robot.** Enter an IP such as
 `192.168.4.1`, a hostname such as `pushbot.local`, or a full URL including a port
-or path. No robot protocol or type is selected. Names can be left blank; desktop
-builds take the robot website's title after it opens.
+or path. No robot protocol or type is selected: an FTC Control Hub (usually
+`192.168.43.1`) is recognized and opens the [FTC Driver Station](FTC.md); any other
+address opens the robot's website. Names can be left blank; desktop builds take the
+robot website's title after it opens. A name you type always overrides that title.
 
 The app caches the robot name, final address, associated Wi-Fi, and last-opened
 time. Saved entries can be searched, edited, deleted, and opened. Entries on the
-current network appear first. Robots on different hotspots can share the same
+current network appear first, and Settings shows them as a grid of cards under the
+connection steps; the grid wraps into rows and scrolls when it fills. Robots on different hotspots can share the same
 `192.168.4.1` address without overwriting one another.
 
 In desktop Settings, open the Wi-Fi dropdown, select a nearby network, and press
@@ -74,7 +77,9 @@ needed. If a password is needed, the app prompts for it and then opens the robot
 Linux uses NetworkManager, Windows uses saved WLAN profiles, and macOS uses the
 system network service. Enterprise Wi-Fi or restrictive system permissions may
 require **System Wi-Fi settings**. macOS scan APIs and Windows SSID visibility
-vary with OS permissions; a manually entered network association remains useful.
+vary with OS permissions. On Windows the app asks for a fresh scan each time the
+list opens, so it takes a few seconds; Windows 11 may require Location access for
+desktop apps before it reveals nearby networks.
 
 For website authentication, ordinary login forms appear within the robot page.
 HTTP authentication challenges open a username/password prompt. Robot passwords
@@ -83,7 +88,8 @@ can retain website sessions; HTTP authentication may ask again after reopening.
 
 ## Drive view and controllers
 
-The page displayed is served by your robot. **Initialize, Teleop, Auto, Enable,
+For an FTC robot, Drive shows the built-in [FTC Driver Station](FTC.md). Otherwise,
+the page displayed is served by your robot. **Initialize, Teleop, Auto, Enable,
 STOP, mechanisms, and camera controls belong to that page.** The launcher sends
 none of those commands on its own. Header controls only reload, navigate back,
 close the page, or open the three-dot settings menu.
@@ -94,7 +100,8 @@ Bluetooth/USB controller pairing is handled by the OS. The robot website decides
 which gamepad index it reads and whether it implements a second controller;
 this app does not add an operator-two mapping to firmware that lacks one.
 
-Opening Settings closes the robot page, and changing Wi-Fi closes its transport.
+Opening Settings hides the robot without disconnecting it; press Drive to return.
+Changing Wi-Fi or closing the robot closes its transport (FTC robots are sent STOP).
 The robot's firmware must stop stale commands when a client or network disappears.
 Keep the robot's normal physical stop/power controls available.
 

@@ -25,7 +25,7 @@ Validated in this Windows development environment:
   no initialization or robot control command itself. The real HTTP auth prompt
   accepts credentials. Saved website title/address/network records survive app
   restart and reopen from the saved list.
-- Settings closes the remote view, and the three-dot menu remains usable above
+- Settings hides (does not close) the robot view, and the three-dot menu remains usable above
   the native child view. Responsive layouts have no horizontal overflow at LCD
   Deck, 4K, and phone window sizes.
 - Android Java sources compile against Android SDK 35. The personal APK passes
@@ -46,3 +46,27 @@ installed end to end. Windows replacement is exercised with local fixtures;
 SteamOS/macOS updater execution and Android installer handoff need device tests.
 
 Version 2.2 adds native UI checks for scanned Wi-Fi selection, Connect, password prompts, dropdown collapse, automatic network association, a larger update popup, and Main/Testing confirmation. Unit checks verify channel persistence and desktop return to an older Main release. Windows setup and the app launcher embed the robot icon; the Linux single-file installer verifies its included archive.
+
+## FTC Driver Station
+
+Validated in this Windows development environment against a simulated Control Hub
+(`tools/ftc-sim.cjs`), which implements the Robot Controller side from the FTC SDK 11.0 sources:
+
+- Byte layouts of peer discovery, heartbeat, gamepad (version 5), command, and telemetry
+  packets; discovery, op mode list, active configuration, INIT/START/STOP, gamepad delivery,
+  synthetic release gamepads, command retry and duplicate suppression, auto-transition,
+  disconnect and reconnect, rejection by a robot with another station, Robocol version
+  matching, camera frames, toasts, and telemetry formats (`tests/ftc.test.cjs`).
+- Real UDP on port 20884, detection versus a non-FTC address, and the port-in-use error.
+- The desktop app (`tests/ftc-app.cjs`): an address is detected and saved as FTC, the
+  Driver Station connects (ping and battery shown), an op mode inits and runs on the robot,
+  Settings keeps it connected and running, heartbeats continue, Close robot sends STOP,
+  and a saved FTC robot reopens without detection.
+- The Driver Station screen at 1280×800 in the browser preview: op mode lists, the 30 s
+  autonomous timer, auto-transition, and the camera stream.
+- The Android APK builds with the Driver Station page packaged as an asset.
+- Windows Wi-Fi listing: a fresh scan raised the visible networks on this PC from 1 to 20.
+
+Not validated: a physical Control Hub or Robot Controller phone, real gamepads sending
+input to a robot (Steam Deck controls, Bluetooth controllers), Android WebView gamepad
+input and the Android FTC bridge on a device, and SteamOS/macOS UDP behavior.

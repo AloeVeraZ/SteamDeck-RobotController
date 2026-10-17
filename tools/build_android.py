@@ -1,6 +1,6 @@
 """Build and sign the standalone Android APK with Android SDK tools (no Gradle deps)."""
 from pathlib import Path
-import hashlib,json,os,subprocess,zipfile,xml.etree.ElementTree as ET
+import hashlib,json,os,shutil,subprocess,zipfile,xml.etree.ElementTree as ET
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'dist'
 def run(args,env):
@@ -15,7 +15,8 @@ def build():
     for folder in (stage,generated,classes,dex,OUT):folder.mkdir(parents=True,exist_ok=True)
     src=ROOT/'android';resources=stage/'resources.zip';base=stage/'base.apk'
     run([tools/('aapt2'+ext),'compile','--dir',src/'res','-o',resources],env)
-    run([tools/('aapt2'+ext),'link','-o',base,'--manifest',src/'AndroidManifest.xml','-I',android,'--java',generated,resources],env)
+    assets=stage/'assets';shutil.rmtree(assets,ignore_errors=True);shutil.copytree(ROOT/'ui'/'ftc',assets/'ftc')  # shared FTC Driver Station page
+    run([tools/('aapt2'+ext),'link','-o',base,'--manifest',src/'AndroidManifest.xml','-I',android,'-A',assets,'--java',generated,resources],env)
     meta=json.loads((ROOT/'package.json').read_text());manifest=ET.parse(src/'AndroidManifest.xml').getroot()
     if manifest.attrib['{http://schemas.android.com/apk/res/android}versionName']!=meta['version']:raise RuntimeError('Android and desktop versions must match')
     repo=meta['repository']['url'].removeprefix('https://github.com/').removesuffix('.git')
