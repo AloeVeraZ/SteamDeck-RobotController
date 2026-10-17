@@ -70,7 +70,7 @@ No launcher can provide a hardware emergency stop for an arbitrary robot website
 ## Development
 
 Use **⋮ → Updates** to check the GitHub repository, download a verified update,
-then **Install & restart**. This build follows the **testing** release channel.
+then **Install & restart**. Builds from `main` follow the **Main** (stable) channel; builds from `testing` follow **Testing**.
 Checks distinguish no published release, current version, available version, and
 network/access errors. A robot hotspot without internet cannot check GitHub.
 See [update and release setup](docs/UPDATES.md).

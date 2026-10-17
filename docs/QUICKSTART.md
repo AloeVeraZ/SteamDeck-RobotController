@@ -92,7 +92,7 @@ Keep the robot's normal physical stop/power controls available.
 
 ## Saved data and updates
 
-Use **⋮ → Updates → Check for updates**. This build follows testing releases
+Use **⋮ → Updates → Check for updates**. Stable builds follow Main releases (Testing builds follow testing releases)
 from GitHub. **Download update** verifies the package; **Install & restart**
 updates the installed app. Saved robot data is retained. No update is available until a
 release is published. [Release setup](UPDATES.md).
