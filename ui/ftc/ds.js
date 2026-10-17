@@ -1,20 +1,12 @@
 'use strict';
 // FTC Driver Station screen. Talks Robocol through `ftcHost`, a datagram bridge to the one robot
-// chosen in Settings (Electron preload, Android WebView interface, or the browser preview).
+// chosen in Settings (Electron preload, or the browser preview).
 (()=>{
 const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_SECONDS=30;
-const host=window.ftcHost||androidHost();
+const host=window.ftcHost;
 let session=null,info={name:'FTC Robot',host:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0;
 const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();
 
-function androidHost(){
-  const native=window.DeckFtcNative;if(!native)return null;const packets=new Set(),actives=new Set();
-  const toBytes=b64=>{const s=atob(b64),out=new Uint8Array(s.length);for(let i=0;i<s.length;i++)out[i]=s.charCodeAt(i);return out;};
-  const toBase64=bytes=>{let s='';for(const b of bytes)s+=String.fromCharCode(b);return btoa(s);};
-  window.__deckFtcPacket=b64=>{const bytes=toBytes(b64);for(const fn of packets)fn(bytes);};
-  window.__deckFtcActive=on=>{for(const fn of actives)fn(!!on);};
-  return {info:async()=>JSON.parse(native.info()),send:bytes=>native.send(toBase64(bytes)),onPacket:fn=>{packets.add(fn);return()=>packets.delete(fn);},onActive:fn=>{actives.add(fn);return()=>actives.delete(fn);},programAndManage:async()=>native.programAndManage()};
-}
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.hidden=true;},Math.max(1500,ms));}
 function showDialog(title,text){const d=$('#ds-dialog');$('#dialog-title').textContent=title;$('#dialog-text').textContent=text;if(!d.open)d.showModal();}

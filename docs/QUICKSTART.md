@@ -37,21 +37,6 @@ use **System Settings → Privacy & Security → Open Anyway** for this app. The
 installer does not disable Gatekeeper or change global security settings.
 Local-network access may require macOS's normal permission prompt.
 
-## Android
-
-Transfer and open **DeckDriverStation-2.3.0-Android.apk** on Android 8 or newer.
-Approve installation from the file manager/browser you selected. The APK is a
-signed personal build, not a Play Store release.
-
-Use **Settings → Choose Wi-Fi network** to open Android's native list of nearby networks. Android handles network selection
-and passwords through its own approval flow. The picker asks for the precise location permission Android uses to reveal SSIDs; location services may also need to be enabled. The robot association is read-only and follows the connected network. A saved robot on a different known network opens the Wi-Fi panel
-and can open automatically when its SSID is detected after returning.
-
-The Android app uses the same robot mark and Drive/Settings concept, a native
-WebView, local saved addresses, and native HTTP sign-in prompts. It closes the
-robot view when backgrounded. Controller support depends on the installed Android
-WebView and the robot page; two attached gamepad names are displayed.
-
 ## Daily workflow
 
 **Settings → Wi-Fi → robot address → Open robot.** Enter an IP such as
@@ -109,18 +94,15 @@ Keep the robot's normal physical stop/power controls available.
 
 Use **⋮ → Updates → Check for updates**. This build follows testing releases
 from GitHub. **Download update** verifies the package; **Install & restart**
-updates an installed desktop app. Android opens its system installer and asks
-for approval. Saved robot data is retained. No update is available until a
+updates the installed app. Saved robot data is retained. No update is available until a
 release is published. [Release setup](UPDATES.md).
 
 Desktop settings normally live in Electron's **Deck Driver Station** user-data
 directory: `~/.config` on Linux, `%APPDATA%` on Windows, and
 `~/Library/Application Support` on Mac. `robots.json` stores bookmarks and SSIDs,
-not passwords. Android uses the app's private preferences; its manifest disables
-cloud backup of that data.
+not passwords.
 
 Close the old app before rerunning an installer. Version-one saved custom robots
-and edited addresses migrate to generic website entries. On Android, retain the
-same signing key when rebuilding an update APK. Remove the installed application
+and edited addresses migrate to generic website entries. Remove the installed application
 and its shortcuts to uninstall; remove the user-data directory separately if you
 also want to discard the saved robot library.

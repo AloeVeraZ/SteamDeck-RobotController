@@ -1,7 +1,7 @@
 'use strict';
 // FTC Robocol: the UDP protocol between an FTC Driver Station and a Robot Controller
 // (Control Hub or RC phone). Independent implementation of the documented wire format;
-// shared by the desktop renderer, Android WebView, Node tests, and the robot simulator.
+// shared by the desktop renderer, the browser preview, Node tests, and the robot simulator.
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory();else root.Robocol=factory();})(typeof self!=='undefined'?self:this,function(){
 const PORT=20884,HEADER=5,VERSION=124,STOP_OP_MODE='$Stop$Robot$';
 const Msg={EMPTY:0,HEARTBEAT:1,GAMEPAD:2,PEER_DISCOVERY:3,COMMAND:4,TELEMETRY:5,KEEPALIVE:6};

@@ -10,7 +10,7 @@ def sources():
         for f in (ROOT/directory).rglob('*'):
             if f.is_file():yield f,f.relative_to(ROOT).as_posix()
 def main():
-    names=[f'DeckDriverStation-{VERSION}-SteamDeck.tar.gz',f'DeckDriverStation-{VERSION}-Windows.zip',f'DeckDriverStation-{VERSION}-macOS-arm64.zip',f'DeckDriverStation-{VERSION}-Android.apk']
+    names=[f'DeckDriverStation-{VERSION}-SteamDeck.tar.gz',f'DeckDriverStation-{VERSION}-Windows.zip',f'DeckDriverStation-{VERSION}-macOS-arm64.zip']
     sums=[]
     for name in names:
         file=OUT/name
@@ -35,10 +35,6 @@ def main():
                     info=plistlib.loads(archive.read('Deck Driver Station.app/Contents/Info.plist'))
                     assert info['CFBundleIdentifier']=='dev.deckdriverstation.app'
                 else:assert archive.read(f'DeckDriverStation-{VERSION}-Windows/runtime/electron.exe')[:2]==b'MZ'
-        else:
-            with zipfile.ZipFile(file) as archive:
-                assert archive.read('classes.dex')[:4]==b'dex\n'
-                assert archive.read('AndroidManifest.xml')
         print('Verified: '+name,flush=True)
     for suffix in ('SteamDeck.run','Windows-Setup.exe'):
         file=OUT/f'DeckDriverStation-{VERSION}-{suffix}'

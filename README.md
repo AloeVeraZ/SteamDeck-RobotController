@@ -1,6 +1,6 @@
 # Deck Driver Station 2
 
-An app for driving your robots from Steam Deck, Linux, Windows, Mac, and Android.
+An app for driving your robots from Steam Deck, Linux, Windows, and Mac.
 The robot icon is preserved. There are two main views: **Drive** (the robot's
 controls) and **Settings** (Wi-Fi and saved addresses).
 
@@ -41,7 +41,6 @@ The `dist` folder contains version **2.3.0** packages:
 | Steam Deck / Linux x64 | `DeckDriverStation-2.3.0-SteamDeck.run` | Run `bash DeckDriverStation-2.3.0-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
 | Windows x64 | `DeckDriverStation-2.3.0-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
 | Apple Silicon Mac | `DeckDriverStation-2.3.0-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
-| Android 8+ | `DeckDriverStation-2.3.0-Android.apk` | Install the signed personal-build APK; Android asks permission to install from your chosen source. |
 
 The Apple Silicon package is not Apple-notarized; approval may be required in Privacy &
 Security. See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md),
@@ -53,9 +52,9 @@ Many robots serve plain HTTP. Chromium restricts browser gamepad access on an
 ordinary insecure IP origin. The desktop app transparently streams the selected
 robot's HTTP, API, camera, and same-port WebSocket traffic through loopback. The
 robot still supplies the HTML, JavaScript, controls, sessions, and safety behavior.
-Android has a corresponding native Java bridge. Nothing is hosted in the cloud.
+Nothing is hosted in the cloud.
 
-Robot content runs without Node, desktop IPC, or an Android JavaScript interface.
+Robot content runs without Node or desktop IPC.
 The desktop uses a separate sandboxed WebContentsView, so robots with frame
 restrictions still work. Robot browser cookies are isolated by network/address.
 Robot passwords are never stored in the address JSON. The app does not bypass
@@ -91,16 +90,10 @@ native HTTP authentication dialog require the installed app.
 ```bash
 python3 tools/icons.py                 # Pillow; rasterize the existing robot SVG design
 python3 tools/package.py --target all  # Linux, Windows, Apple Silicon
-python3 tools/build_android.py         # JAVA_HOME / ANDROID_HOME, or local paths.json
 ```
 
 The desktop builder verifies official Electron runtime checksums. It preserves
-Mac executable/symlink metadata and Linux executable bits. Android is compiled
-with SDK 35 and signed with a local personal-build key in `.cache/android-build`.
-Keep that key to install later APK updates with the same signing identity.
-
-`tools/android_toolchain.py` prepares verified, workspace-local Windows JDK/SDK
-dependencies if needed; it does not modify system PATH. Native desktop integration
+Mac executable/symlink metadata and Linux executable bits. Native desktop integration
 tests use `DECK_ELECTRON` and `DECK_PLAYWRIGHT` paths with `node tests/ui.cjs`.
 
 | Code | Purpose |
@@ -110,10 +103,9 @@ tests use `DECK_ELECTRON` and `DECK_PLAYWRIGHT` paths with `node tests/ui.cjs`.
 | `src/network.cjs` | Platform Wi-Fi connection helpers |
 | `src/robot-proxy.cjs` | Single-target streaming loopback transport |
 | `src/ftc.cjs`, `src/ftc-preload.cjs` | FTC detection and UDP 20884 bridge for the Driver Station page |
-| `ui/ftc/` | FTC Driver Station page and Robocol protocol (shared by desktop and Android) |
+| `ui/ftc/` | FTC Driver Station page and Robocol protocol (desktop app and browser preview) |
 | `tools/ftc-sim.cjs` | Simulated FTC Control Hub for tests and previews |
 | `ui/` | Drive/Settings shell and original robot icon |
-| `android/` | Native Android host, WebView, saved library, Java loopback bridge |
 | `packaging/` | Per-user installers and shortcuts |
 
 The FTC Driver Station is an independent implementation of the FTC SDK's Robocol

@@ -51,8 +51,8 @@ The bridge provides a loopback secure context for browser gamepad access and
 keeps robot web content away from the app's privileged settings. It does not
 rewrite the robot's control software. Pages with unusual hardcoded origins,
 different-port browser policies, proprietary browser extensions, WebRTC, or
-self-signed HTTPS may still need testing or robot-side adjustments. Android's
-WebView implementation and OS Wi-Fi permissions also vary by device.
+self-signed HTTPS may still need testing or robot-side adjustments. OS Wi-Fi
+permissions also vary by device.
 
 The app uses one selected robot website and one Wi-Fi connection at a time.
 Multiple saved entries may share a hotspot IP but associate it with different

@@ -28,22 +28,16 @@ Validated in this Windows development environment:
 - Settings hides (does not close) the robot view, and the three-dot menu remains usable above
   the native child view. Responsive layouts have no horizontal overflow at LCD
   Deck, 4K, and phone window sizes.
-- Android Java sources compile against Android SDK 35. The personal APK passes
-  Android's signature verification. A JVM smoke test runs the actual Android
-  bridge against a real HTTP server: original HTML, POST requests, URL mapping,
-  and separate cookie hostnames for different robot networks pass.
 - Desktop bundle builds verify upstream Electron SHA-256 checksums and check
   executable permissions, macOS bundle metadata, and app entry points. The Mac
   installer performs local ad-hoc signing because the app is not notarized.
 
 Not validated here: physical Steam Deck hardware, SteamOS NetworkManager policy,
-real robot motion, Bluetooth controller pairing, Mac execution/signing on a Mac,
-or Android installation/UI/gamepad behavior on a phone or emulator. The Android
-APK is build-verified; it is not a claim of physical-device validation. Robot
+real robot motion, Bluetooth controller pairing, or Mac execution/signing on a Mac. Robot
 control behavior and watchdogs remain the robot website/firmware's responsibility.
 No GitHub release has been published and no production release download has been
 installed end to end. Windows replacement is exercised with local fixtures;
-SteamOS/macOS updater execution and Android installer handoff need device tests.
+SteamOS/macOS updater execution needs device tests.
 
 Version 2.2 adds native UI checks for scanned Wi-Fi selection, Connect, password prompts, dropdown collapse, automatic network association, a larger update popup, and Main/Testing confirmation. Unit checks verify channel persistence and desktop return to an older Main release. Windows setup and the app launcher embed the robot icon; the Linux single-file installer verifies its included archive.
 
@@ -64,9 +58,7 @@ Validated in this Windows development environment against a simulated Control Hu
   and a saved FTC robot reopens without detection.
 - The Driver Station screen at 1280×800 in the browser preview: op mode lists, the 30 s
   autonomous timer, auto-transition, and the camera stream.
-- The Android APK builds with the Driver Station page packaged as an asset.
 - Windows Wi-Fi listing: a fresh scan raised the visible networks on this PC from 1 to 20.
 
 Not validated: a physical Control Hub or Robot Controller phone, real gamepads sending
-input to a robot (Steam Deck controls, Bluetooth controllers), Android WebView gamepad
-input and the Android FTC bridge on a device, and SteamOS/macOS UDP behavior.
+input to a robot (Steam Deck controls, Bluetooth controllers), and SteamOS/macOS UDP behavior.
