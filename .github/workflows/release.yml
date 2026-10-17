@@ -42,7 +42,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y p7zip-full
+        if: matrix.target == 'windows'
       - run: python3 tools/package.py --target ${{ matrix.target }}
+        env:
+          PYTHONUTF8: '1'
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}

@@ -1,6 +1,6 @@
 """Portable Linux, Windows, and macOS bundles, using verified Electron runtimes."""
 from __future__ import annotations
-import argparse,hashlib,io,json,os,plistlib,shutil,stat,tarfile,urllib.request,zipfile
+import argparse,hashlib,io,json,os,plistlib,shutil,stat,tarfile,urllib.request,zipfile,subprocess
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 META=json.loads((ROOT/'package.json').read_text());VERSION=META['version'];ELECTRON=META['devDependencies']['electron']
@@ -35,6 +35,22 @@ def app_files():
 def finish(file):
     with file.open('rb') as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
     file.with_name(file.name+'.sha256').write_text(f'{digest}  {file.name}\n');print('Ready: '+str(file),flush=True)
+
+def nsis():
+    archive=CACHE/'nsis-3.0.4.1.7z';download('https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-3.0.4.1/nsis-3.0.4.1.7z',archive)
+    if hashlib.sha256(archive.read_bytes()).hexdigest()!='9877df902530f96357d13a7a31ae2b9df67f48b11ffc9a1700a7c961574ec5fa':raise RuntimeError('NSIS checksum mismatch')
+    folder=CACHE/'nsis-3.0.4.1';binary=folder/('makensis.exe' if os.name=='nt' else 'linux/makensis')
+    if not binary.exists():
+        folder.mkdir(exist_ok=True)
+        if os.name=='nt':subprocess.run(['tar','-xf',str(archive),'-C',str(folder)],check=True)
+        else:subprocess.run(['7z','x',str(archive),'-o'+str(folder),'-y'],check=True,stdout=subprocess.DEVNULL)
+    if os.name!='nt':binary.chmod(0o755)
+    return binary,folder
+
+def compile_nsis(script,**definitions):
+    binary,folder=nsis();prefix='/D' if os.name=='nt' else '-D'
+    command=[str(binary),'/V2' if os.name=='nt' else '-V2',*[prefix+k+'='+str(v) for k,v in definitions.items()],str(ROOT/'packaging'/script)]
+    subprocess.run(command,env={**os.environ,'NSISDIR':str(folder)},check=True)
 def linux():
     source=runtime('linux-x64');name=f'DeckDriverStation-{VERSION}-SteamDeck';file=OUT/(name+'.tar.gz')
     def permissions(e):
@@ -49,16 +65,42 @@ def linux():
         assert t.getmember(name+'/runtime/electron').mode&stat.S_IXUSR
         assert t.getmember(name+'/install.sh').mode&stat.S_IXUSR
     finish(file)
+    with file.open('rb') as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
+    installer=OUT/f'DeckDriverStation-{VERSION}-SteamDeck.run'
+    header='''#!/usr/bin/env bash
+set -euo pipefail
+stage="$(mktemp -d "${TMPDIR:-/tmp}/deck-driver-install.XXXXXX")"
+cleanup() { [[ "$stage" == "${TMPDIR:-/tmp}/deck-driver-install."* ]] && rm -rf -- "$stage"; }
+trap cleanup EXIT
+line=$(awk '/^__ARCHIVE_BELOW__$/ { print NR+1; exit }' "$0")
+tail -n +"$line" "$0" > "$stage/package.tar.gz"
+printf '%s  %s\\n' '@HASH@' "$stage/package.tar.gz" | sha256sum -c -
+tar -xzf "$stage/package.tar.gz" -C "$stage"
+bash "$stage/@NAME@/install.sh"
+exit 0
+__ARCHIVE_BELOW__
+'''.replace('@HASH@',digest).replace('@NAME@',name)
+    with installer.open('wb') as out,file.open('rb') as source_file:out.write(header.encode());shutil.copyfileobj(source_file,out)
+    installer.chmod(0o755);finish(installer)
 def windows():
     archive=runtime_archive('win32-x64');name=f'DeckDriverStation-{VERSION}-Windows';file=OUT/(name+'.zip')
+    payload=CACHE/('windows-'+VERSION)/name;payload.mkdir(parents=True,exist_ok=True)
+    shutil.copytree(runtime('win32-x64'),payload/'runtime',dirs_exist_ok=True)
+    for src,relative in app_files():
+        destination=payload/'app'/relative;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(src,destination)
+    compile_nsis('Launcher.nsi',OUTPUT=payload/'DeckDriverStation.exe',ICON=ROOT/'ui/icon.ico',VERSION=VERSION)
     with zipfile.ZipFile(file,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
         with zipfile.ZipFile(archive) as source:
             for e in source.infolist():z.writestr(name+'/runtime/'+e.filename,source.read(e.filename))
         for src,relative in app_files():z.write(src,name+'/app/'+relative)
+        z.write(payload/'DeckDriverStation.exe',name+'/DeckDriverStation.exe')
         for script in ('Install-Windows.ps1','Install-Windows.cmd','Launch-Windows.cmd'):z.write(ROOT/'packaging'/script,name+'/'+script)
         z.write(ROOT/'docs'/'QUICKSTART.md',name+'/QUICKSTART.md')
         z.write(ROOT/'docs'/'UPDATES.md',name+'/UPDATES.md')
     finish(file)
+    setup=OUT/f'DeckDriverStation-{VERSION}-Windows-Setup.exe'
+    compile_nsis('Setup.nsi',OUTPUT=setup,ICON=ROOT/'ui/icon.ico',VERSION=VERSION,PAYLOAD=payload)
+    finish(setup)
 def mac(arch):
     archive=runtime_archive('darwin-'+arch);bundle='Deck Driver Station.app';file=OUT/f'DeckDriverStation-{VERSION}-macOS-{arch}.zip'
     with zipfile.ZipFile(file,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:

@@ -34,7 +34,11 @@ class Network {
     if(this.platform==='win32'){
       const raw=await this.run('netsh',['wlan','show','networks','mode=bssid']);const entries=[];let item;
       for(const line of raw.split('\n')){const m=line.match(/^SSID \d+\s*:\s*(.*)/);if(m){item={ssid:m[1].trim(),signal:0,security:'',active:false};if(item.ssid)entries.push(item);}else if(item){const n=line.match(/Signal\s*:\s*(\d+)/);if(n)item.signal=Number(n[1]);const a=line.match(/Authentication\s*:\s*(.*)/);if(a)item.security=a[1].trim();}}
-      return entries;
+      const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
+    }
+    if(this.platform==='darwin'){
+      const script=`ObjC.import('CoreWLAN'); const iface=$.CWWiFiClient.sharedWiFiClient.interface; if(!iface)throw Error('No Wi-Fi interface'); const error=Ref(); const result=iface.scanForNetworksWithSSIDError(null,error); if(!result)throw Error('macOS could not scan Wi-Fi. Use system Wi-Fi settings and allow location access if requested.'); const list=result.allObjects.js.map(n=>({ssid:ObjC.unwrap(n.ssid)||'',signal:Number(n.rssiValue),security:n.supportsSecurity(0)?'':'Secured'})).filter(n=>n.ssid); JSON.stringify(list);`;
+      const entries=JSON.parse(await this.run('/usr/bin/osascript',['-l','JavaScript','-e',script],25000));const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
     }
     return [];
   }
@@ -69,9 +73,13 @@ class Network {
     }else{try{await this.run('nmcli',['--wait','30','connection','up','uuid',uuid,'ifname',current.device],35000);}catch{throw wifiError('This saved network needs its Wi-Fi password.','NEEDS_PASSWORD');}}
   }
   async joinWindows(ssid,password){
-    if(password){
+    const ap=(await this.scan().catch(()=>[])).find(n=>n.ssid===ssid),open=ap?.security==='Open';
+    if(password||open){
+      if(password&&/enterprise|802\.1x/i.test(ap?.security||''))throw wifiError('Set up this enterprise network in system Wi-Fi settings.','SYSTEM_WIFI');
       const dir=await fs.mkdtemp(path.join(os.tmpdir(),'deck-wifi-')),file=path.join(dir,'network.xml');
-      const body=`<?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1"><name>${xml(ssid)}</name><SSIDConfig><SSID><name>${xml(ssid)}</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>manual</connectionMode><MSM><security><authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption><sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>${xml(password)}</keyMaterial></sharedKey></security></MSM></WLANProfile>`;
+      const authentication=open?'open':/WPA3/i.test(ap?.security||'')?'WPA3SAE':'WPA2PSK';
+      const key=open?'':`<sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>${xml(password)}</keyMaterial></sharedKey>`;
+      const body=`<?xml version="1.0"?><WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1"><name>${xml(ssid)}</name><SSIDConfig><SSID><name>${xml(ssid)}</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>manual</connectionMode><MSM><security><authEncryption><authentication>${authentication}</authentication><encryption>${open?'none':'AES'}</encryption><useOneX>false</useOneX></authEncryption>${key}</security></MSM></WLANProfile>`;
       try{await fs.writeFile(file,body,{mode:0o600});await this.run('netsh',['wlan','add','profile',`filename=${file}`,'user=current']);}finally{await fs.unlink(file).catch(()=>{});await fs.rmdir(dir).catch(()=>{});}
     }
     const out=await this.run('netsh',['wlan','connect',`name=${ssid}`,`ssid=${ssid}`],10000);if(/not found|failed|error|not available/i.test(out))throw wifiError('Join this network in system Wi-Fi settings or enter its password.','NEEDS_PASSWORD');

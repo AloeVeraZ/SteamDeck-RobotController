@@ -2,9 +2,9 @@
 
 ## Steam Deck LCD / OLED and Linux x64
 
-1. Transfer `DeckDriverStation-2.1.0-SteamDeck.tar.gz` to the Deck.
-2. In Desktop Mode, extract the archive. Open a terminal in that folder.
-3. Run `bash install.sh`. It creates desktop and application-menu shortcuts.
+1. Download `DeckDriverStation-2.2.0-SteamDeck.run` onto the Deck.
+2. In Desktop Mode, open a terminal in your Downloads folder.
+3. Run `bash DeckDriverStation-2.2.0-SteamDeck.run`. It verifies its payload and creates desktop and application-menu shortcuts. The tar archive remains available for portable use.
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
@@ -17,9 +17,11 @@ for docked displays and display scaling. The installer includes its own runtime.
 
 ## Windows
 
-Extract `DeckDriverStation-2.1.0-Windows.zip`. Double-click **Install-Windows.cmd**
-to install per-user and create Start-menu and desktop shortcuts. Or use
-**Launch-Windows.cmd** to run directly from the extracted folder.
+Download and double-click **DeckDriverStation-2.2.0-Windows-Setup.exe**.
+It installs per-user with no administrator account, a robot icon, desktop and Start
+menu shortcuts, and an entry in Installed apps. For a silent terminal install, run
+`.\DeckDriverStation-2.2.0-Windows-Setup.exe /S`. The portable ZIP also includes
+**DeckDriverStation.exe** and **Install-Windows.cmd**.
 Keep the complete `app` and `runtime` folders together. No administrator account
 or separate Node installation is required. Unsigned personal software may be
 subject to your Windows application policies.
@@ -37,15 +39,12 @@ Local-network access may require macOS's normal permission prompt.
 
 ## Android
 
-Transfer and open **DeckDriverStation-2.1.0-Android.apk** on Android 8 or newer.
+Transfer and open **DeckDriverStation-2.2.0-Android.apk** on Android 8 or newer.
 Approve installation from the file manager/browser you selected. The APK is a
 signed personal build, not a Play Store release.
 
-Use Settings to open Android's Wi-Fi panel. Android handles network selection
-and passwords through its own approval flow. **Read current network name** asks
-for the location permission Android uses to reveal SSIDs; location services may
-also need to be enabled. You can enter the association manually if SSID access
-is unavailable. A saved robot on a different known network opens the Wi-Fi panel
+Use **Settings → Choose Wi-Fi network** to open Android's native list of nearby networks. Android handles network selection
+and passwords through its own approval flow. The picker asks for the precise location permission Android uses to reveal SSIDs; location services may also need to be enabled. The robot association is read-only and follows the connected network. A saved robot on a different known network opens the Wi-Fi panel
 and can open automatically when its SSID is detected after returning.
 
 The Android app uses the same robot mark and Drive/Settings concept, a native
@@ -64,6 +63,11 @@ The app caches the robot name, final address, associated Wi-Fi, and last-opened
 time. Saved entries can be searched, edited, deleted, and opened. Entries on the
 current network appear first. Robots on different hotspots can share the same
 `192.168.4.1` address without overwriting one another.
+
+In desktop Settings, open the Wi-Fi dropdown, select a nearby network, and press
+**Connect**. Saved credentials are tried first; enter a password if requested.
+The dropdown closes after connecting. The robot form associates its address with
+the current network automatically; there is no editable associated-SSID field.
 
 On desktop, **Open** first tries OS-saved credentials when a network switch is
 needed. If a password is needed, the app prompts for it and then opens the robot.

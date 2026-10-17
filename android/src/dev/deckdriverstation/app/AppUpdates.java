@@ -25,14 +25,20 @@ final class AppUpdates {
     private TextView status;
     private Button check,download,install;
     private EditText repository;
+    private Spinner channels;
+    private String channel;
+    private boolean updatingSpinner;
     private File apk;
-    AppUpdates(Activity activity) throws Exception {this.activity=activity;current=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionName;}
+    AppUpdates(Activity activity) throws Exception {this.activity=activity;current=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionName;channel=activity.getPreferences(0).getString("updateChannel",AppVersion.CHANNEL);}
     void show(){
         if(dialog!=null&&dialog.isShowing())return;
         if(busy){Toast.makeText(activity,"An update operation is still running.",Toast.LENGTH_SHORT).show();return;}
         release=null;asset=null;apk=null;
         LinearLayout layout=new LinearLayout(activity);layout.setOrientation(LinearLayout.VERTICAL);int padding=(int)(20*activity.getResources().getDisplayMetrics().density);layout.setPadding(padding,padding,padding,padding);
-        TextView info=new TextView(activity);info.setText("Installed "+current+" · "+AppVersion.CHANNEL+" channel\nGitHub repository");layout.addView(info);
+        TextView info=new TextView(activity);info.setText("Installed "+current+" · "+AppVersion.CHANNEL+"\nUpdate channel");layout.addView(info);
+        channels=new Spinner(activity);channels.setAdapter(new ArrayAdapter<String>(activity,android.R.layout.simple_spinner_dropdown_item,new String[]{"Main — stable","Testing — experimental"}));channels.setSelection(channel.equals("main")?0:1);layout.addView(channels);
+        channels.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> parent){}public void onItemSelected(android.widget.AdapterView<?> parent,android.view.View view,int position,long id){if(updatingSpinner)return;String choice=position==0?"main":"testing";if(choice.equals(channel))return;if(choice.equals("testing")){new AlertDialog.Builder(activity).setTitle("Use experimental updates?").setMessage("Testing may contain unfinished features and bugs. Saved robots and Wi-Fi settings are kept.").setPositiveButton("Use Testing",(d,w)->saveChannel("testing")).setNegativeButton("Stay on Main",(d,w)->resetChannel()).setOnCancelListener(d->resetChannel()).show();}else saveChannel(choice);}});
+        TextView repoLabel=new TextView(activity);repoLabel.setText("GitHub repository");layout.addView(repoLabel);
         repository=new EditText(activity);repository.setSingleLine(true);repository.setText(activity.getPreferences(0).getString("updateRepository",repo));layout.addView(repository);
         status=new TextView(activity);status.setText("Check for a published update. Internet is required.");layout.addView(status);
         check=new Button(activity);check.setText("Check for updates");layout.addView(check);
@@ -40,10 +46,12 @@ final class AppUpdates {
         install=new Button(activity);install.setText("Install update");install.setVisibility(8);layout.addView(install);
         check.setOnClickListener(v->{String input=repository.getText().toString().trim().replaceFirst("^https://github.com/","").replaceFirst("\\.git$","").replaceFirst("/$","");if(!input.matches("[\\w-]+/[\\w.-]+")){status.setText("Enter owner/repository.");return;}repo=input;activity.getPreferences(0).edit().putString("updateRepository",repo).apply();download.setVisibility(8);install.setVisibility(8);release=null;asset=null;work(this::checkRelease);});
         download.setOnClickListener(v->work(this::download));install.setOnClickListener(v->{try{install();}catch(Exception e){status.setText(e.getMessage());}});
-        dialog=new AlertDialog.Builder(activity).setTitle("App updates · GitHub").setView(layout).setNegativeButton("Close",(d,w)->{}).create();dialog.show();
+        ScrollView scroll=new ScrollView(activity);scroll.addView(layout);dialog=new AlertDialog.Builder(activity).setTitle("App updates · GitHub").setView(scroll).setNegativeButton("Close",(d,w)->{}).create();dialog.show();int width=activity.getResources().getDisplayMetrics().widthPixels;dialog.getWindow().setLayout(Math.min((int)(800*activity.getResources().getDisplayMetrics().density),width-padding),android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
     }
+    private void resetChannel(){updatingSpinner=true;channels.setSelection(channel.equals("main")?0:1);updatingSpinner=false;}
+    private void saveChannel(String choice){channel=choice;activity.getPreferences(0).edit().putString("updateChannel",choice).apply();release=null;asset=null;apk=null;download.setVisibility(8);install.setVisibility(8);status.setText("Channel saved. Check for a published "+channel+" release.");}
     private interface Action {String run() throws Exception;}
-    private void work(Action action){busy=true;check.setEnabled(false);download.setEnabled(false);install.setEnabled(false);repository.setEnabled(false);status.setText("Working…");new Thread(()->{String message;try{message=action.run();}catch(Exception e){message=e.getMessage()==null?e.toString():e.getMessage();}final String result=message;activity.runOnUiThread(()->{busy=false;if(activity.isDestroyed())return;status.setText(result);check.setEnabled(true);download.setEnabled(true);install.setEnabled(true);repository.setEnabled(true);download.setVisibility(asset!=null&&apk==null?0:8);install.setVisibility(apk!=null?0:8);});},"App update").start();}
+    private void work(Action action){busy=true;channels.setEnabled(false);check.setEnabled(false);download.setEnabled(false);install.setEnabled(false);repository.setEnabled(false);status.setText("Working…");new Thread(()->{String message;try{message=action.run();}catch(Exception e){message=e.getMessage()==null?e.toString():e.getMessage();}final String result=message;activity.runOnUiThread(()->{busy=false;if(activity.isDestroyed())return;status.setText(result);channels.setEnabled(true);check.setEnabled(true);download.setEnabled(true);install.setEnabled(true);repository.setEnabled(true);download.setVisibility(asset!=null&&apk==null?0:8);install.setVisibility(apk!=null?0:8);});},"App update").start();}
     private HttpURLConnection connect(String address) throws Exception {
         URL url=new URL(address);
         for(int redirects=0;redirects<6;redirects++){
@@ -57,10 +65,11 @@ final class AppUpdates {
     private String read(String url) throws Exception {HttpURLConnection c=connect(url);try(InputStream in=c.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1){if(out.size()+n>8*1024*1024)throw new IOException("GitHub response too large.");out.write(b,0,n);}return out.toString("UTF-8");}finally{c.disconnect();}}
     private static int compare(String a,String b){String[] x=a.split("\\."),y=b.split("\\.");for(int i=0;i<3;i++){int d=Integer.compare(Integer.parseInt(x[i]),Integer.parseInt(y[i]));if(d!=0)return d;}return 0;}
     private String checkRelease() throws Exception {
-        apk=null;version="";boolean testing=AppVersion.CHANNEL.equals("testing");Pattern tag=Pattern.compile((testing?"^testing-v":"^v")+"(\\d+\\.\\d+\\.\\d+)$");
+        apk=null;version="";boolean testing=channel.equals("testing");Pattern tag=Pattern.compile((testing?"^testing-v":"^v")+"(\\d+\\.\\d+\\.\\d+)$");
         for(int page=1;page<=5;page++){JSONArray list=new JSONArray(read("https://api.github.com/repos/"+repo+"/releases?per_page=100&page="+page));for(int i=0;i<list.length();i++){JSONObject r=list.getJSONObject(i);Matcher m=tag.matcher(r.optString("tag_name"));if(r.optBoolean("draft")||r.optBoolean("prerelease")!=testing||!m.matches())continue;String v=m.group(1);if(version.isEmpty()||compare(v,version)>0){release=r;version=v;}}if(list.length()<100)break;}
-        if(release==null)return "No "+AppVersion.CHANNEL+" releases have been published yet.";
-        if(compare(version,current)<=0)return "You’re up to date. Latest "+AppVersion.CHANNEL+" release: "+version;
+        if(release==null)return "No "+channel+" releases have been published yet.";
+        if(!channel.equals(AppVersion.CHANNEL)&&compare(version,current)<0)return "The latest "+channel+" APK is older than this app. Android does not allow installing it over a newer version. This channel is saved; wait for a newer release to keep all app data.";
+        if(channel.equals(AppVersion.CHANNEL)&&compare(version,current)<=0)return "You’re up to date. Latest "+channel+" release: "+version;
         String name="DeckDriverStation-"+version+"-Android.apk";JSONArray assets=release.getJSONArray("assets");for(int i=0;i<assets.length();i++){JSONObject a=assets.getJSONObject(i);if(name.equals(a.optString("name"))&&"uploaded".equals(a.optString("state"))){validateUrl(a.getString("browser_download_url"));asset=a;break;}}
         if(asset==null)throw new IOException("Release "+version+" has no Android APK yet.");return "Version "+version+" is available.";
     }

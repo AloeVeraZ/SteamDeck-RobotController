@@ -31,5 +31,13 @@ try {
     foreach ($item in $moved) { Move-Item -LiteralPath (Join-Path $backup $item) -Destination $destination }
     throw
 }
+if (Test-Path -LiteralPath (Join-Path $source 'DeckDriverStation.exe')) {
+    Copy-Item -LiteralPath (Join-Path $source 'DeckDriverStation.exe') -Destination $destination -Force
+}
+$uninstallKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DeckDriverStation'
+if ((Test-Path -LiteralPath $uninstallKey) -and (Get-ItemProperty -LiteralPath $uninstallKey).InstallLocation -eq $destination) {
+    $installedVersion=(Get-Content -LiteralPath (Join-Path $destination 'app/package.json') -Raw | ConvertFrom-Json).version
+    Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value $installedVersion
+}
 Start-Process -FilePath (Join-Path $destination 'runtime/electron.exe') -ArgumentList ('"'+(Join-Path $destination 'app')+'"') -WorkingDirectory $destination -WindowStyle Hidden
 Write-Output 'Update installed; restarted application'

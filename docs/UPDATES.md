@@ -1,9 +1,14 @@
 # App updates and branches
 
-Open **⋮ → Updates**. The popup shows the installed version, channel, and GitHub
-repository. **Check for updates** reads GitHub Releases over HTTPS. Testing builds
+Open **⋮ → Updates**. The larger popup shows the installed version, saved channel, and GitHub
+repository. Switch between Main (stable) and Testing (experimental) in its dropdown.
+Entering Testing requires accepting an experimental-features warning. The choice
+is saved outside the installation and survives restarts and updates. **Check for updates** reads GitHub Releases over HTTPS. Testing builds
 use prereleases named `testing-v2.2.0`; stable builds use `v2.2.0` and channel `main`.
-The newest release in that channel must have the asset for this device.
+The newest release in that channel must have the asset for this device. Desktop
+can return to an older Main version. Android retains the selected channel but
+blocks downgrades through the system installer; wait for a newer release on that
+channel to retain all data.
 
 An empty repository or missing channel releases says **No testing releases have
 been published yet**. Errors and unpublished releases never say “up to date.”

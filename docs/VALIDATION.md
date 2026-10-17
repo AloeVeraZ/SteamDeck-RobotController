@@ -1,8 +1,8 @@
-# Version 2.1 validation
+# Version 2.2 validation
 
 Validated in this Windows development environment:
 
-- 24 Node tests covering bookmark persistence/migration, same-IP/different-SSID
+- 28 Node tests covering bookmark persistence/migration, same-IP/different-SSID
   records, name preservation, URL validation, password exclusion, NetworkManager
   parsing and connection commands, private temporary password files, original
   HTML/API pass-through, POST actions, cookies, authentication challenges,
@@ -44,3 +44,5 @@ control behavior and watchdogs remain the robot website/firmware's responsibilit
 No GitHub release has been published and no production release download has been
 installed end to end. Windows replacement is exercised with local fixtures;
 SteamOS/macOS updater execution and Android installer handoff need device tests.
+
+Version 2.2 adds native UI checks for scanned Wi-Fi selection, Connect, password prompts, dropdown collapse, automatic network association, a larger update popup, and Main/Testing confirmation. Unit checks verify channel persistence and desktop return to an older Main release. Windows setup and the app launcher embed the robot icon; the Linux single-file installer verifies its included archive.

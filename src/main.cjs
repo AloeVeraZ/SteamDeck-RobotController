@@ -30,7 +30,7 @@ async function openRobot(input){
   if(opening)throw Error('A robot connection is already opening.');opening=true;
   try{
     const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)};
-    const wifi=await refreshNetwork(),ssid=cleanSsid(target.ssid||wifi.ssid);
+    const wifi=await refreshNetwork(),ssid=cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:wifi.ssid);
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
     await closeRobot();const proxy=new RobotProxy(target.url),localUrl=await proxy.start();bridge=proxy;
     const identity=createHash('sha256').update(`${ssid}\0${new URL(target.url).origin}`).digest('hex');
@@ -63,9 +63,9 @@ async function openRobot(input){
 }
 handle('bootstrap',async()=>{await refreshNetwork();return {state:snapshot(),hardware:hardware()};});handle('open',openRobot);handle('close',closeRobot);
 handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page==='settings')await closeRobot();update({page});fitView();return snapshot();});
-handle('save',input=>{const robot=library.upsert(input);update();return robot;});handle('remove',id=>{library.remove(id);update();});
+handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
-handle('join',async(ssid,password)=>{await closeRobot();const info=await network.join(ssid,password);currentNetwork=info;emit('network',info);update();return info;});
+handle('join',async(ssid,password)=>{await closeRobot();let info;try{info=await network.join(ssid,password);}catch(e){if(e.code==='NEEDS_PASSWORD')return {needsPassword:true,ssid,message:e.message};throw e;}currentNetwork=info;emit('network',info);update();return info;});
 handle('system-wifi',async()=>{
   await closeRobot();if(process.platform==='win32')return shell.openExternal('ms-settings:network-wifi');
   if(process.platform==='darwin')return shell.openExternal('x-apple.systempreferences:com.apple.wifi-settings-extension');
@@ -79,6 +79,7 @@ handle('auth',({id,username,password,cancel})=>{if(!auth||auth.id!==id)throw Err
 handle('fullscreen',()=>win.setFullScreen(!win.isFullScreen()));handle('quit',()=>app.quit());
 handle('update-info',async()=>{await closeRobot();return updater.info();});
 handle('update-check',repo=>updater.check(repo));
+handle('update-channel',(channel,confirmed)=>updater.setChannel(channel,confirmed));
 handle('update-download',()=>updater.download());
 handle('update-folder',async()=>{if(!updater.downloaded)throw Error('Download an update first.');shell.showItemInFolder(updater.downloaded.file);});
 handle('update-install',async()=>{if(!updater.downloaded)throw Error('Download an update first.');await closeRobot();const prepared=await prepareInstall(updater.downloaded,{appPath:app.getAppPath(),executable:process.execPath});await launchInstall(prepared);setTimeout(()=>app.quit(),200);return {restarting:true};});
