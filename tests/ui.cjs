@@ -9,7 +9,9 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.
     if(req.url==='/protected'&&req.headers.authorization!=='Basic '+Buffer.from('driver:secret-password').toString('base64')){res.writeHead(401,{'WWW-Authenticate':'Basic realm="Robot sign-in"'});res.end('Sign in');return;}
     if(req.url==='/robot-action'){let body='';for await(const chunk of req)body+=chunk;actions.push(body);res.end('{"ok":true}');return;}
     res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Original Robot Dashboard</title><h1 id="original">The actual robot interface</h1><button id="init">Initialize on robot</button><button id="teleop">Teleop</button><button id="auto">Autonomous</button><script>document.querySelector("#init").onclick=()=>fetch("/robot-action",{method:"POST",body:"robot-initialize"});</script>');
-  });await new Promise(r=>server.listen(0,'127.0.0.1',r));const target=`http://127.0.0.1:${server.address().port}`;
+  // Keep the simulated robot separate from the station's loopback interface:
+  // a discovery probe aimed at the station itself can receive its own UDP packet.
+  });await new Promise(r=>server.listen(0,'127.0.0.2',r));const target=`http://127.0.0.2:${server.address().port}`;
   const data=path.join(out,'data-'+Date.now());let app;
   try{
     app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});
