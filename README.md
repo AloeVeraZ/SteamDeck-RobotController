@@ -1,5 +1,57 @@
 # Deck Driver Station 2
 
+## ⬇️ Download
+
+**Install Main first.** Pick a download below or paste one command into your terminal.
+The commands always install the latest stable Main release; Testing is never selected during installation.
+Keep the same terminal command for future installs and updates—no version number needs editing.
+
+| Device | Download Main 2.4.2 | Open it |
+| --- | --- | --- |
+| **Steam Deck LCD / OLED** | **[⬇ Download for Steam Deck](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-SteamDeck.run)** | Desktop Mode → Konsole: `bash ~/Downloads/DeckDriverStation-2.4.2-SteamDeck.run` |
+| **Windows x64** | **[⬇ Download Windows installer](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-Windows-Setup.exe)** | Double-click the downloaded installer. |
+| **Apple Silicon Mac** | **[⬇ Download for Apple Silicon](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-macOS-arm64.zip)** | Extract, then open `Install-Mac.command`. |
+
+The installer creates the app shortcuts and preserves saved robots and settings.
+After installation, open **⋮ → Updates** to switch to **Testing**. Accept the experimental
+warning to use it; switch back to **Main** from the same menu whenever you want.
+
+### Steam Deck (or Linux x64)
+
+In Desktop Mode, open **Konsole** and paste:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash
+```
+
+This downloads and verifies the current Main installer, then installs it. No laptop download server is needed.
+
+### Windows
+
+Open **PowerShell** and paste:
+
+```powershell
+irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 | iex
+```
+
+The command downloads and verifies the current Main installer, installs it, and opens the app.
+
+### Mac (Apple Silicon)
+
+Open **Terminal** and paste:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash
+```
+
+The command downloads and verifies the current Main package, then runs its installer.
+
+No administrator account is required. The one-line commands check the download's SHA-256
+checksum first. After installing, use **⋮ → Updates** inside the app to stay current.
+All versions are on the [Releases page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases).
+
+---
+
 An app for driving your robots from Steam Deck, Linux, Windows, and Mac.
 The robot icon is preserved. There are two main views: **Drive** (the robot's
 controls) and **Settings** (Wi-Fi and saved addresses).
@@ -33,9 +85,9 @@ built-in gamepad when it is the first connected gamepad. A second Bluetooth/USB
 controller can be shown. The robot website retains its own controller assignments;
 the launcher does not invent second-controller robot controls.
 
-## Downloads and setup
+## Package details
 
-The `dist` folder contains version **2.4.2** packages:
+Each release (and a local `dist` build) contains version-numbered packages, plus version-free copies used by the links above:
 
 | Platform | Package | Install |
 | --- | --- | --- |
@@ -70,13 +122,14 @@ No launcher can provide a hardware emergency stop for an arbitrary robot website
 ## Development
 
 Use **⋮ → Updates** to check the GitHub repository, download a verified update,
-then **Install & restart**. This build follows the **testing** release channel.
+then **Install & restart**. Builds from `main` follow the **Main** (stable) channel; builds from `testing` follow **Testing**.
 Checks distinguish no published release, current version, available version, and
 network/access errors. A robot hotspot without internet cannot check GitHub.
 See [update and release setup](docs/UPDATES.md).
 
-Local branches `main` and `testing` exist; changes and commits belong on `testing`.
-Nothing is pushed until explicitly authorized. The GitHub repository is initially empty.
+New work belongs on `testing`; approved changes merge into `main`.
+Public install commands always read Main and select its latest stable release.
+Testing remains available through the installed app's update-channel selector.
 
 ```bash
 npm install

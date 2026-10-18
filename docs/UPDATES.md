@@ -28,9 +28,12 @@ checkouts are protected from replacement. Apple Silicon updates are ad-hoc signe
 ## Publishing later
 
 The remote is `https://github.com/AloeVeraZ/SteamDeck-RobotController.git`.
-Only the empty repository has been created. No code, branch, tag, or release has
-been pushed. Local `main` points at the original v2.0 baseline; `testing` contains
-the new work. Keep committing to testing until promotion is requested.
+Main and Testing are published branches; Main 2.4.2 is a stable release. New work
+continues on Testing until promotion is requested. Initial install commands always
+read `main/install.sh` or `main/install.ps1` and resolve the newest stable release,
+so users can reuse the same command for future versions. No separate download
+website or laptop server is involved. After installation, users can choose Testing
+from **⋮ → Updates**, accept its warning, and return to Main whenever needed.
 
 After the user authorizes publication:
 
@@ -42,7 +45,7 @@ After the user authorizes publication:
    checksums as a prerelease only after every build succeeds. It never runs on
    a normal push. An already published version/tag must not be reused.
 4. Main publication requires an explicitly approved promotion and changing the
-   packaged update channel to main. Current packages intentionally follow testing.
+   packaged update channel to main. Testing builds keep their testing channel.
 
 GitHub branch changes alone are not installable releases. The updater never runs
 `git pull` against an installed app or pretends an unpublished commit is an update.

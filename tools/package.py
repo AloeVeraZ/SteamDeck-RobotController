@@ -34,7 +34,10 @@ def app_files():
             if file.is_file():yield file,file.relative_to(ROOT).as_posix()
 def finish(file):
     with file.open('rb') as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
-    file.with_name(file.name+'.sha256').write_text(f'{digest}  {file.name}\n');print('Ready: '+str(file),flush=True)
+    file.with_name(file.name+'.sha256').write_text(f'{digest}  {file.name}\n',newline='\n');print('Ready: '+str(file),flush=True)
+def latest(file):
+    # Version-free copy, so releases/latest/download/<name> links and the one-line installers never change.
+    alias=file.with_name(file.name.replace(f'-{VERSION}-','-'));shutil.copyfile(file,alias);finish(alias)
 
 def nsis():
     archive=CACHE/'nsis-3.0.4.1.7z';download('https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis-3.0.4.1/nsis-3.0.4.1.7z',archive)
@@ -81,7 +84,7 @@ exit 0
 __ARCHIVE_BELOW__
 '''.replace('@HASH@',digest).replace('@NAME@',name)
     with installer.open('wb') as out,file.open('rb') as source_file:out.write(header.encode());shutil.copyfileobj(source_file,out)
-    installer.chmod(0o755);finish(installer)
+    installer.chmod(0o755);finish(installer);latest(installer)
 def windows():
     archive=runtime_archive('win32-x64');name=f'DeckDriverStation-{VERSION}-Windows';file=OUT/(name+'.zip')
     payload=CACHE/('windows-'+VERSION)/name;payload.mkdir(parents=True,exist_ok=True)
@@ -100,7 +103,7 @@ def windows():
     finish(file)
     setup=OUT/f'DeckDriverStation-{VERSION}-Windows-Setup.exe'
     compile_nsis('Setup.nsi',OUTPUT=setup,ICON=ROOT/'ui/icon.ico',VERSION=VERSION,PAYLOAD=payload)
-    finish(setup)
+    finish(setup);latest(setup)
 def mac(arch):
     archive=runtime_archive('darwin-'+arch);bundle='Deck Driver Station.app';file=OUT/f'DeckDriverStation-{VERSION}-macOS-{arch}.zip'
     with zipfile.ZipFile(file,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
@@ -119,7 +122,7 @@ def mac(arch):
     with zipfile.ZipFile(file) as z:
         assert z.getinfo(bundle+'/Contents/MacOS/Electron').external_attr>>16&0o111
         assert plistlib.loads(z.read(bundle+'/Contents/Info.plist'))['CFBundleIdentifier']=='dev.deckdriverstation.app'
-    finish(file)
+    finish(file);latest(file)
 def main():
     p=argparse.ArgumentParser();p.add_argument('--target',choices=['steamdeck','windows','macos-arm64','all'],default='steamdeck');p.add_argument('--runtime-only',choices=['linux-x64','win32-x64']);p.add_argument('--fetch-only',choices=['darwin-arm64']);args=p.parse_args();OUT.mkdir(exist_ok=True)
     if args.runtime_only:print(runtime(args.runtime_only));return

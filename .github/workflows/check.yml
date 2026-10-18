@@ -16,6 +16,7 @@ jobs:
       - run: node --test tests/*.test.cjs
       - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
       - run: mkdir -p test-results && bash tests/update-linux.sh
+      - run: bash tests/install-bootstrap.sh
   desktop:
     needs: verify
     runs-on: ubuntu-latest
@@ -32,6 +33,8 @@ jobs:
       - run: python3 tools/package.py --target ${{ matrix.target }}
         env:
           PYTHONUTF8: '1'
+      - run: bash tests/installer-linux.sh
+        if: matrix.target == 'steamdeck'
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-installer

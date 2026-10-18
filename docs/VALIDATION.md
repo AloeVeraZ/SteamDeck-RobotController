@@ -1,5 +1,19 @@
 # Version 2.2 validation
 
+## GitHub installation (2.4.2)
+
+- The GitHub README provides Steam Deck, Windows, and Apple Silicon downloads and
+  one-line installers directly. A separate download website is not required.
+- Bootstrap installers resolve GitHub's latest stable release and use its versioned
+  assets and checksums; prerelease tags are refused. The app's existing Main/Testing
+  selector remains available after installation, including its experimental warning.
+- The real Steam Deck `.run` installs into an isolated directory, creates branded
+  desktop/application shortcuts, and preserves saved-data fixtures. This ran under
+  Git Bash with a scoped platform fixture, without executing the Linux runtime.
+  CI also runs this installer fixture on Linux.
+
+Physical Steam Deck installation and launch remain untested in this workspace.
+
 Validated in this Windows development environment:
 
 - 28 Node tests covering bookmark persistence/migration, same-IP/different-SSID
@@ -35,8 +49,8 @@ Validated in this Windows development environment:
 Not validated here: physical Steam Deck hardware, SteamOS NetworkManager policy,
 real robot motion, Bluetooth controller pairing, or Mac execution/signing on a Mac. Robot
 control behavior and watchdogs remain the robot website/firmware's responsibility.
-No GitHub release has been published and no production release download has been
-installed end to end. Windows replacement is exercised with local fixtures;
+Main 2.4.2 is published. Its Steam Deck and Windows installer downloads pass
+live checksum checks. Windows replacement is exercised with local fixtures;
 SteamOS/macOS updater execution needs device tests.
 
 Version 2.2 adds native UI checks for scanned Wi-Fi selection, Connect, password prompts, dropdown collapse, automatic network association, a larger update popup, and Main/Testing confirmation. Unit checks verify channel persistence and desktop return to an older Main release. Windows setup and the app launcher embed the robot icon; the Linux single-file installer verifies its included archive.
