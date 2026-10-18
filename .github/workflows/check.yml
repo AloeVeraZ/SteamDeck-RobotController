@@ -66,6 +66,8 @@ jobs:
           DECK_UI_LAYOUT_ONLY=1 xvfb-run -a node tests/ui.cjs
           xvfb-run -a node tests/controller-ui.cjs
           xvfb-run -a node tests/design-ui.cjs
+          xvfb-run -a node tests/robot-fullscreen.cjs
+          xvfb-run -a node tests/controller-compatibility.cjs
       - uses: actions/upload-artifact@v4
         if: matrix.target == 'steamdeck' && always()
         with:

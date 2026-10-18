@@ -13,7 +13,9 @@ if(window.top===window){
     const projected=()=>{
       const pads=getRaw();return [0,1,2,3].map(slot=>{
         const selected=slot<config.count?config.slots[slot]:null,p=selected&&pads.find(p=>p?.connected&&p.index===selected.index&&p.id===selected.id);if(!p)return null;
-        const rest=config.paused||config.capture||config.blocked.includes(`${p.index}:${p.id}`);
+        // Never guess raw DirectInput/HID indices. Chromium maps recognized
+        // USB/Bluetooth layouts to standard; raw devices remain diagnostic only.
+        const rest=p.mapping!=='standard'||config.paused||config.capture||config.blocked.includes(`${p.index}:${p.id}`);
         return new Proxy(p,{get:(target,property)=>property==='index'?slot:property==='axes'&&rest?Array.from(target.axes||[],()=>0):property==='buttons'&&rest?Array.from(target.buttons||[],b=>({pressed:false,touched:false,value:0})):Reflect.get(target,property,target)});
       });
     };

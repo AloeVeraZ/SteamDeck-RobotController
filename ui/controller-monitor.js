@@ -14,21 +14,23 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     const identity=window.DeckControllers.identity(pad,h);
     $('#controller-monitor-name').textContent=pad?identity.name:(slot===1&&h.builtInController?h.model+' controls · waiting for gamepad input':'No controller assigned');
     $('#controller-driver-name').textContent=pad?.id||'No driver reported';$('#controller-identity-note').textContent=identity.note;$('#controller-driver-details').hidden=!pad;
-    $('#controller-monitor-dot').className='dot'+(pad?' live':'');
+    $('#controller-monitor-dot').className='dot'+(pad?(pad.mapping==='standard'?' live':' error'):'');
     $('#controller-role').textContent=optional?'Standby':slot===1?'Default':'Second operator';
-    $('.controller-buttons-panel>.hint').textContent=pad&&pad.mapping!=='standard'?'Raw layout: indices and values are live; these reference button names may differ on this device.':'Standard gamepad names and indices. The robot defines their actions.';
-    $('#controller-monitor-state').textContent=pad?(reading?.pressed||reading?.axesActive?'Receiving stick or button input':captureMessage||'Connected · move the sticks and press buttons'):'Connect a controller, then press a button. Built-in controls must be in Gamepad Mode.';
+    const raw=pad&&pad.mapping!=='standard',labels=window.DeckControllers.buttonLabels(pad);
+    $('.controller-buttons-panel>.hint').textContent=raw?'Unmapped layout: raw values are shown for diagnosis. Robot inputs are held neutral. Select XInput or a Steam Input Gamepad layout, then reconnect.':'Standard positions and button indices. Labels follow the reported controller family; the robot defines their actions.';
+    $('#controller-monitor-state').textContent=raw?'Layout not mapped · robot inputs held neutral':pad?(reading?.pressed||reading?.axesActive?'Receiving stick or button input':captureMessage||'Connected · move the sticks and press buttons'):'Connect a controller, then press a button. Built-in controls must be in Gamepad Mode.';
     $('#controller-capture-status').hidden=!capturing;
     $('#controller-capture-status').textContent='Release buttons and center sticks, then press any button on the controller to assign it.';
     const axes=Array.from({length:4},(_,i)=>number(reading?.axes?.[i]));
-    axisNodes.forEach((node,i)=>node.textContent=axes[i].toFixed(2));
+    axisNodes.forEach((node,i)=>{node.textContent=axes[i].toFixed(2);node.parentElement.querySelector('span').textContent=raw?'Raw axis '+i:['Left X','Left Y','Right X','Right Y'][i];});
     const visual=$('#controller-visual svg'),travel=Number(visual.dataset.stickTravel);
     $('#stick-left-dot').setAttribute('transform',`translate(${axes[0]*travel} ${axes[1]*travel})`);
     $('#stick-right-dot').setAttribute('transform',`translate(${axes[2]*travel} ${axes[3]*travel})`);
     $('#plot-left-dot').setAttribute('transform',`translate(${axes[0]*44} ${axes[1]*44})`);
     $('#plot-right-dot').setAttribute('transform',`translate(${axes[2]*44} ${axes[3]*44})`);
     const buttons=names.map((_,i)=>{const b=reading?.buttons?.[i];return Math.max(0,number(typeof b==='object'?b.value:b));});
-    buttonNodes.forEach((node,i)=>{node.classList.toggle('pressed',buttons[i]>0.2);node.querySelector('output').textContent=buttons[i].toFixed(2);});
+    buttonNodes.forEach((node,i)=>{node.querySelector('span').textContent=labels[i];node.classList.toggle('pressed',buttons[i]>0.2);node.querySelector('output').textContent=buttons[i].toFixed(2);node.querySelector('output').setAttribute('aria-label',labels[i]+' value');});
+    for(const index of [0,1,2,3,4,5,6,7]){const text=visual.querySelector(`[data-pad-button="${index}"] text`);if(text)text.textContent=raw?String(index):({Cross:'×',Circle:'○',Square:'□',Triangle:'△'}[labels[index].split(' · ')[0]]||labels[index].split(' · ')[0]);}
     for(const node of document.querySelectorAll('[data-pad-button]'))node.classList.toggle('pressed',buttons[Number(node.dataset.padButton)]>0.2);
     const triggerHeight=Number(visual.dataset.triggerHeight),triggerBottom=Number(visual.dataset.triggerBottom);
     for(const [side,index] of [['left',6],['right',7]]){const fill=$('#trigger-'+side+'-fill');fill.setAttribute('height',String(buttons[index]*triggerHeight));fill.setAttribute('y',String(triggerBottom-buttons[index]*triggerHeight));}
@@ -43,11 +45,14 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     info=next;
     for(let i=0;i<2;i++){
       const pad=info.slots?.[i],identity=window.DeckControllers.identity(pad,hardware()),row=$('#controller-'+(i+1)),standby=i===1&&info.count===1;
-      row.hidden=false;row.classList.toggle('standby',standby);row.querySelector('small').textContent=pad?(standby?'Standby · ':'')+identity.name:standby?'Optional · USB / Bluetooth':'Set up gamepad input';
-      row.querySelector('.dot').className='dot'+(pad?' live':'');row.title='Test or assign controller '+(i+1)+(standby?' · optional for this robot':'');
+      row.hidden=false;row.classList.toggle('standby',standby);row.querySelector('small').textContent=pad?(pad.mapping!=='standard'?'Unmapped · ':standby?'Standby · ':'')+identity.name:standby?'Optional · USB / Bluetooth':'Set up gamepad input';
+      row.querySelector('.dot').className='dot'+(pad?(pad.mapping==='standard'?' live':' error'):'');row.title='Test or assign controller '+(i+1)+(standby?' · optional for this robot':'');
       $('#setup-controller-'+(i+1)+'-name').textContent=(pad?identity.name:null)||(i===0?(hardware().builtInController?hardware().model+' · automatic default':'First standard gamepad · automatic default'):'Connect a USB or Bluetooth controller');
     }
-    $('#input-notice').hidden=!(hardware().builtInController&&!info.slots?.[0]);
+    const unmapped=info.devices?.some(p=>p.mapping!=='standard');
+    $('#input-notice').hidden=!((hardware().builtInController||unmapped)&&!info.slots?.[0]);
+    $('#input-notice>span').textContent=unmapped&&!info.slots?.[0]?'Controller layout not mapped. Select XInput or Steam Input Gamepad mode.':'Controller 1 is waiting for gamepad input.';
+    if(unmapped&&!info.slots?.[0])$('#controller-1 small').textContent='Unmapped device · set up gamepad mode';
     if(dialog.open&&lastCapture&&!info.capture){const assigned=(info.assignment?.serial||0)>lastAssignment;captureMessage=assigned?'Assigned. Release buttons and center sticks, then test below.':'Assignment ended. Your previous selection is kept.';}
     lastCapture=info.capture;lastAssignment=info.assignment?.serial||0;renderMonitor();
   }

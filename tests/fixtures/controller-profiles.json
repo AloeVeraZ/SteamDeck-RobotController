@@ -1,0 +1,711 @@
+{
+  "description": "100 synthetic standard-Gamepad reports representing documented device IDs/modes. Not physical hardware tests, a popularity ranking, or proof of OS driver support.",
+  "sourceCommit": "afc57f0601ec757437e9e9fdc641a930a067aafb",
+  "sources": [
+    "https://raw.githubusercontent.com/chromium/chromium/afc57f0601ec757437e9e9fdc641a930a067aafb/device/gamepad/gamepad_id_list.h",
+    "https://raw.githubusercontent.com/chromium/chromium/afc57f0601ec757437e9e9fdc641a930a067aafb/device/gamepad/gamepad_id_list.cc",
+    "https://raw.githubusercontent.com/chromium/chromium/afc57f0601ec757437e9e9fdc641a930a067aafb/device/gamepad/gamepad_standard_mappings_linux.cc"
+  ],
+  "profiles": [
+    {
+      "name": "DragonRise Generic USB",
+      "vendor": "0079",
+      "product": "0006",
+      "basis": "Linux mapper: MapperDragonRiseGeneric",
+      "id": "DragonRise Generic USB (STANDARD GAMEPAD Vendor: 0079 Product: 0006)"
+    },
+    {
+      "name": "2Axes 8Keys Game Pad",
+      "vendor": "0079",
+      "product": "0011",
+      "basis": "Linux mapper: Mapper2Axes8Keys",
+      "id": "2Axes 8Keys Game Pad (STANDARD GAMEPAD Vendor: 0079 Product: 0011)"
+    },
+    {
+      "name": "HORIPAD for Nintendo Switch",
+      "vendor": "0f0d",
+      "product": "00c1",
+      "basis": "Linux mapper: MapperHoripadSwitch",
+      "id": "HORIPAD for Nintendo Switch (STANDARD GAMEPAD Vendor: 0f0d Product: 00c1)"
+    },
+    {
+      "name": "Xbox One S (Bluetooth)",
+      "vendor": "045e",
+      "product": "02e0",
+      "basis": "Linux mapper: MapperXboxOneS",
+      "id": "Xbox One S (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 02e0)"
+    },
+    {
+      "name": "Xbox One S (Bluetooth)",
+      "vendor": "045e",
+      "product": "02fd",
+      "basis": "Linux mapper: MapperXboxOneS2016Firmware",
+      "id": "Xbox One S (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 02fd)"
+    },
+    {
+      "name": "Xbox One Elite 2 (Bluetooth)",
+      "vendor": "045e",
+      "product": "0b05",
+      "basis": "Linux mapper: MapperXboxElite2Bluetooth",
+      "id": "Xbox One Elite 2 (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 0b05)"
+    },
+    {
+      "name": "Xbox Series X (Bluetooth)",
+      "vendor": "045e",
+      "product": "0b13",
+      "basis": "Linux mapper: MapperXboxSeriesXBluetooth",
+      "id": "Xbox Series X (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"
+    },
+    {
+      "name": "Xbox One S (Bluetooth)",
+      "vendor": "045e",
+      "product": "0b20",
+      "basis": "Linux mapper: MapperXboxBluetooth",
+      "id": "Xbox One S (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 0b20)"
+    },
+    {
+      "name": "Xbox Adaptive (Bluetooth)",
+      "vendor": "045e",
+      "product": "0b21",
+      "basis": "Linux mapper: MapperXboxBluetooth",
+      "id": "Xbox Adaptive (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 0b21)"
+    },
+    {
+      "name": "Xbox Elite Series 2 (Bluetooth)",
+      "vendor": "045e",
+      "product": "0b22",
+      "basis": "Linux mapper: MapperXboxBluetooth",
+      "id": "Xbox Elite Series 2 (Bluetooth) (STANDARD GAMEPAD Vendor: 045e Product: 0b22)"
+    },
+    {
+      "name": "Logitech F310 D-mode",
+      "vendor": "046d",
+      "product": "c216",
+      "basis": "Linux mapper: MapperLogitechDInput",
+      "id": "Logitech F310 D-mode (STANDARD GAMEPAD Vendor: 046d Product: c216)"
+    },
+    {
+      "name": "Logitech F510 D-mode",
+      "vendor": "046d",
+      "product": "c218",
+      "basis": "Linux mapper: MapperLogitechDInput",
+      "id": "Logitech F510 D-mode (STANDARD GAMEPAD Vendor: 046d Product: c218)"
+    },
+    {
+      "name": "Logitech F710 D-mode",
+      "vendor": "046d",
+      "product": "c219",
+      "basis": "Linux mapper: MapperLogitechDInput",
+      "id": "Logitech F710 D-mode (STANDARD GAMEPAD Vendor: 046d Product: c219)"
+    },
+    {
+      "name": "Samsung Gamepad EI-GP20",
+      "vendor": "04e8",
+      "product": "a000",
+      "basis": "Linux mapper: MapperSamsung_EI_GP20",
+      "id": "Samsung Gamepad EI-GP20 (STANDARD GAMEPAD Vendor: 04e8 Product: a000)"
+    },
+    {
+      "name": "Acer GC501 X-INPUT mode",
+      "vendor": "0502",
+      "product": "1304",
+      "basis": "Linux mapper: MapperAcer",
+      "id": "Acer GC501 X-INPUT mode (STANDARD GAMEPAD Vendor: 0502 Product: 1304)"
+    },
+    {
+      "name": "Acer Gaming Controller Nitro X-INPUT mode",
+      "vendor": "0502",
+      "product": "1305",
+      "basis": "Linux mapper: MapperAcer",
+      "id": "Acer Gaming Controller Nitro X-INPUT mode (STANDARD GAMEPAD Vendor: 0502 Product: 1305)"
+    },
+    {
+      "name": "Acer GC501 APP mode",
+      "vendor": "0502",
+      "product": "1316",
+      "basis": "Linux mapper: MapperAcerAppMode",
+      "id": "Acer GC501 APP mode (STANDARD GAMEPAD Vendor: 0502 Product: 1316)"
+    },
+    {
+      "name": "Acer Gaming Controller Nitro APP mode",
+      "vendor": "0502",
+      "product": "1317",
+      "basis": "Linux mapper: MapperAcerAppMode",
+      "id": "Acer Gaming Controller Nitro APP mode (STANDARD GAMEPAD Vendor: 0502 Product: 1317)"
+    },
+    {
+      "name": "Dualshock 3 / SIXAXIS",
+      "vendor": "054c",
+      "product": "0268",
+      "basis": "Linux mapper: MapperDualshock3SixAxis",
+      "id": "Dualshock 3 / SIXAXIS (STANDARD GAMEPAD Vendor: 054c Product: 0268)"
+    },
+    {
+      "name": "Playstation Dualshock 4",
+      "vendor": "054c",
+      "product": "05c4",
+      "basis": "Linux mapper: MapperDualshock4",
+      "id": "Playstation Dualshock 4 (STANDARD GAMEPAD Vendor: 054c Product: 05c4)"
+    },
+    {
+      "name": "Dualshock 4 (PS4 Slim)",
+      "vendor": "054c",
+      "product": "09cc",
+      "basis": "Linux mapper: MapperDualshock4",
+      "id": "Dualshock 4 (PS4 Slim) (STANDARD GAMEPAD Vendor: 054c Product: 09cc)"
+    },
+    {
+      "name": "Dualshock 4 USB receiver",
+      "vendor": "054c",
+      "product": "0ba0",
+      "basis": "Linux mapper: MapperDualshock4",
+      "id": "Dualshock 4 USB receiver (STANDARD GAMEPAD Vendor: 054c Product: 0ba0)"
+    },
+    {
+      "name": "DualSense",
+      "vendor": "054c",
+      "product": "0ce6",
+      "basis": "Linux mapper: MapperDualSense",
+      "id": "DualSense (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)"
+    },
+    {
+      "name": "DualSense Edge",
+      "vendor": "054c",
+      "product": "0df2",
+      "basis": "Linux mapper: MapperDualSense",
+      "id": "DualSense Edge (STANDARD GAMEPAD Vendor: 054c Product: 0df2)"
+    },
+    {
+      "name": "PlayStation Access",
+      "vendor": "054c",
+      "product": "0e5f",
+      "basis": "Linux mapper: MapperDualSense",
+      "id": "PlayStation Access (STANDARD GAMEPAD Vendor: 054c Product: 0e5f)"
+    },
+    {
+      "name": "Switch Joy-Con L",
+      "vendor": "057e",
+      "product": "2006",
+      "basis": "Linux mapper: MapperSwitchJoyCon",
+      "id": "Switch Joy-Con L (STANDARD GAMEPAD Vendor: 057e Product: 2006)"
+    },
+    {
+      "name": "Switch Joy-Con R",
+      "vendor": "057e",
+      "product": "2007",
+      "basis": "Linux mapper: MapperSwitchJoyCon",
+      "id": "Switch Joy-Con R (STANDARD GAMEPAD Vendor: 057e Product: 2007)"
+    },
+    {
+      "name": "Switch Pro Controller",
+      "vendor": "057e",
+      "product": "2009",
+      "basis": "Linux mapper: MapperSwitchPro",
+      "id": "Switch Pro Controller (STANDARD GAMEPAD Vendor: 057e Product: 2009)"
+    },
+    {
+      "name": "Switch Charging Grip",
+      "vendor": "057e",
+      "product": "200e",
+      "basis": "Linux mapper: MapperSwitchPro",
+      "id": "Switch Charging Grip (STANDARD GAMEPAD Vendor: 057e Product: 200e)"
+    },
+    {
+      "name": "iBuffalo Classic",
+      "vendor": "0583",
+      "product": "2060",
+      "basis": "Linux mapper: MapperIBuffalo",
+      "id": "iBuffalo Classic (STANDARD GAMEPAD Vendor: 0583 Product: 2060)"
+    },
+    {
+      "name": "SmartJoy PLUS Adapter",
+      "vendor": "0925",
+      "product": "0005",
+      "basis": "Linux mapper: MapperLakeviewResearch",
+      "id": "SmartJoy PLUS Adapter (STANDARD GAMEPAD Vendor: 0925 Product: 0005)"
+    },
+    {
+      "name": "WiseGroup MP-8866",
+      "vendor": "0925",
+      "product": "8866",
+      "basis": "Linux mapper: MapperLakeviewResearch",
+      "id": "WiseGroup MP-8866 (STANDARD GAMEPAD Vendor: 0925 Product: 8866)"
+    },
+    {
+      "name": "Nvidia Shield gamepad (2015)",
+      "vendor": "0955",
+      "product": "7210",
+      "basis": "Linux mapper: MapperNvShield",
+      "id": "Nvidia Shield gamepad (2015) (STANDARD GAMEPAD Vendor: 0955 Product: 7210)"
+    },
+    {
+      "name": "Nvidia Shield gamepad (2017)",
+      "vendor": "0955",
+      "product": "7214",
+      "basis": "Linux mapper: MapperNvShield2017",
+      "id": "Nvidia Shield gamepad (2017) (STANDARD GAMEPAD Vendor: 0955 Product: 7214)"
+    },
+    {
+      "name": "Nexus Player Controller",
+      "vendor": "0b05",
+      "product": "4500",
+      "basis": "Linux mapper: MapperADT1",
+      "id": "Nexus Player Controller (STANDARD GAMEPAD Vendor: 0b05 Product: 4500)"
+    },
+    {
+      "name": "XSkills Gamecube USB adapter",
+      "vendor": "0b43",
+      "product": "0005",
+      "basis": "Linux mapper: MapperXSkills",
+      "id": "XSkills Gamecube USB adapter (STANDARD GAMEPAD Vendor: 0b43 Product: 0005)"
+    },
+    {
+      "name": "XFXforce XGEAR PS2 Controller",
+      "vendor": "0e8f",
+      "product": "0003",
+      "basis": "Linux mapper: MapperXGEAR",
+      "id": "XFXforce XGEAR PS2 Controller (STANDARD GAMEPAD Vendor: 0e8f Product: 0003)"
+    },
+    {
+      "name": "Zeemote: SteelSeries FREE",
+      "vendor": "1038",
+      "product": "1412",
+      "basis": "Linux mapper: MapperSteelSeriesZeemote",
+      "id": "Zeemote: SteelSeries FREE (STANDARD GAMEPAD Vendor: 1038 Product: 1412)"
+    },
+    {
+      "name": "SteelSeries Stratus XL USB",
+      "vendor": "1038",
+      "product": "1418",
+      "basis": "Linux mapper: MapperSteelSeriesStratusXLUsb",
+      "id": "SteelSeries Stratus XL USB (STANDARD GAMEPAD Vendor: 1038 Product: 1418)"
+    },
+    {
+      "name": "SteelSeries Stratus XL Bluetooth",
+      "vendor": "0111",
+      "product": "1419",
+      "basis": "Linux mapper: MapperSteelSeriesStratusBt",
+      "id": "SteelSeries Stratus XL Bluetooth (STANDARD GAMEPAD Vendor: 0111 Product: 1419)"
+    },
+    {
+      "name": "SteelSeries Stratus Duo Bluetooth",
+      "vendor": "0111",
+      "product": "1431",
+      "basis": "Linux mapper: MapperSteelSeriesStratusBt",
+      "id": "SteelSeries Stratus Duo Bluetooth (STANDARD GAMEPAD Vendor: 0111 Product: 1431)"
+    },
+    {
+      "name": "SteelSeries Stratus+ Bluetooth",
+      "vendor": "0111",
+      "product": "1434",
+      "basis": "Linux mapper: MapperSteelSeriesStratusPlusBt",
+      "id": "SteelSeries Stratus+ Bluetooth (STANDARD GAMEPAD Vendor: 0111 Product: 1434)"
+    },
+    {
+      "name": "Razer Serval Controller",
+      "vendor": "1532",
+      "product": "0900",
+      "basis": "Linux mapper: MapperRazerServal",
+      "id": "Razer Serval Controller (STANDARD GAMEPAD Vendor: 1532 Product: 0900)"
+    },
+    {
+      "name": "ADT-1 Controller",
+      "vendor": "18d1",
+      "product": "2c40",
+      "basis": "Linux mapper: MapperADT1",
+      "id": "ADT-1 Controller (STANDARD GAMEPAD Vendor: 18d1 Product: 2c40)"
+    },
+    {
+      "name": "Stadia Controller",
+      "vendor": "18d1",
+      "product": "9400",
+      "basis": "Linux mapper: MapperStadiaController",
+      "id": "Stadia Controller (STANDARD GAMEPAD Vendor: 18d1 Product: 9400)"
+    },
+    {
+      "name": "Moga Pro Controller (HID mode)",
+      "vendor": "20d6",
+      "product": "6271",
+      "basis": "Linux mapper: MapperMoga",
+      "id": "Moga Pro Controller (HID mode) (STANDARD GAMEPAD Vendor: 20d6 Product: 6271)"
+    },
+    {
+      "name": "Moga 2 HID",
+      "vendor": "20d6",
+      "product": "89e5",
+      "basis": "Linux mapper: MapperMoga",
+      "id": "Moga 2 HID (STANDARD GAMEPAD Vendor: 20d6 Product: 89e5)"
+    },
+    {
+      "name": "OnLive Controller (Bluetooth)",
+      "vendor": "2378",
+      "product": "1008",
+      "basis": "Linux mapper: MapperOnLiveWireless",
+      "id": "OnLive Controller (Bluetooth) (STANDARD GAMEPAD Vendor: 2378 Product: 1008)"
+    },
+    {
+      "name": "OnLive Controller (Wired)",
+      "vendor": "2378",
+      "product": "100a",
+      "basis": "Linux mapper: MapperOnLiveWireless",
+      "id": "OnLive Controller (Wired) (STANDARD GAMEPAD Vendor: 2378 Product: 100a)"
+    },
+    {
+      "name": "OUYA Controller",
+      "vendor": "2836",
+      "product": "0001",
+      "basis": "Linux mapper: MapperOUYA",
+      "id": "OUYA Controller (STANDARD GAMEPAD Vendor: 2836 Product: 0001)"
+    },
+    {
+      "name": "SCUF Vantage, SCUF Vantage 2",
+      "vendor": "2e95",
+      "product": "7725",
+      "basis": "Linux mapper: MapperDualshock4",
+      "id": "SCUF Vantage, SCUF Vantage 2 (STANDARD GAMEPAD Vendor: 2e95 Product: 7725)"
+    },
+    {
+      "name": "Snakebyte iDroid:con",
+      "vendor": "0a5c",
+      "product": "8502",
+      "basis": "Linux mapper: MapperSnakebyteIDroidCon",
+      "id": "Snakebyte iDroid:con (STANDARD GAMEPAD Vendor: 0a5c Product: 8502)"
+    },
+    {
+      "name": "Elecom JC-U4013SBK (DirectInput mode)",
+      "vendor": "056e",
+      "product": "200f",
+      "basis": "Linux mapper: MapperElecomWiredDirectInput",
+      "id": "Elecom JC-U4013SBK (DirectInput mode) (STANDARD GAMEPAD Vendor: 056e Product: 200f)"
+    },
+    {
+      "name": "Elecom JC-U4113SBK (DirectInput mode)",
+      "vendor": "056e",
+      "product": "2010",
+      "basis": "Linux mapper: MapperElecomWirelessDirectInput",
+      "id": "Elecom JC-U4113SBK (DirectInput mode) (STANDARD GAMEPAD Vendor: 056e Product: 2010)"
+    },
+    {
+      "name": "Valve Steam Controller 2015",
+      "vendor": "28de",
+      "product": "1102",
+      "basis": "Linux mapper: MapperValve1",
+      "id": "Valve Steam Controller 2015 (STANDARD GAMEPAD Vendor: 28de Product: 1102)"
+    },
+    {
+      "name": "Valve Steam Controller 2015 (Wireless)",
+      "vendor": "28de",
+      "product": "1142",
+      "basis": "Linux mapper: MapperValve1",
+      "id": "Valve Steam Controller 2015 (Wireless) (STANDARD GAMEPAD Vendor: 28de Product: 1142)"
+    },
+    {
+      "name": "Valve Steam Deck",
+      "vendor": "28de",
+      "product": "1205",
+      "basis": "Linux mapper: MapperValve2",
+      "id": "Valve Steam Deck (STANDARD GAMEPAD Vendor: 28de Product: 1205)"
+    },
+    {
+      "name": "Valve Steam Controller 2026 (Wired)",
+      "vendor": "28de",
+      "product": "1302",
+      "basis": "Linux mapper: MapperValve2",
+      "id": "Valve Steam Controller 2026 (Wired) (STANDARD GAMEPAD Vendor: 28de Product: 1302)"
+    },
+    {
+      "name": "Valve Steam Controller 2026 (Bluetooth)",
+      "vendor": "28de",
+      "product": "1303",
+      "basis": "Linux mapper: MapperValve2",
+      "id": "Valve Steam Controller 2026 (Bluetooth) (STANDARD GAMEPAD Vendor: 28de Product: 1303)"
+    },
+    {
+      "name": "Valve Steam Controller 2026 (Wireless)",
+      "vendor": "28de",
+      "product": "1304",
+      "basis": "Linux mapper: MapperValve2",
+      "id": "Valve Steam Controller 2026 (Wireless) (STANDARD GAMEPAD Vendor: 28de Product: 1304)"
+    },
+    {
+      "name": "Valve Steam Controller 2026 (Steam Machine integrated wireless)",
+      "vendor": "28de",
+      "product": "1305",
+      "basis": "Linux mapper: MapperValve2",
+      "id": "Valve Steam Controller 2026 (Steam Machine integrated wireless) (STANDARD GAMEPAD Vendor: 28de Product: 1305)"
+    },
+    {
+      "name": "SteelSeries 1038:1430 (Xbox360 mode)",
+      "vendor": "1038",
+      "product": "1430",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "SteelSeries 1038:1430 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1038 Product: 1430)"
+    },
+    {
+      "name": "Razer 1532:0037 (Xbox360 mode)",
+      "vendor": "1532",
+      "product": "0037",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Razer 1532:0037 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1532 Product: 0037)"
+    },
+    {
+      "name": "Razer 1689:fd00 (Xbox360 mode)",
+      "vendor": "1689",
+      "product": "fd00",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Razer 1689:fd00 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1689 Product: fd00)"
+    },
+    {
+      "name": "Microsoft 045e:028e (Xbox360 mode)",
+      "vendor": "045e",
+      "product": "028e",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Microsoft 045e:028e (Xbox360 mode) (STANDARD GAMEPAD Vendor: 045e Product: 028e)"
+    },
+    {
+      "name": "Logitech 046d:c21d (Xbox360 mode)",
+      "vendor": "046d",
+      "product": "c21d",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Logitech 046d:c21d (Xbox360 mode) (STANDARD GAMEPAD Vendor: 046d Product: c21d)"
+    },
+    {
+      "name": "HORI 0f0d:000a (Xbox360 mode)",
+      "vendor": "0f0d",
+      "product": "000a",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "HORI 0f0d:000a (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0f0d Product: 000a)"
+    },
+    {
+      "name": "Mad Catz 0738:4716 (Xbox360 mode)",
+      "vendor": "0738",
+      "product": "4716",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Mad Catz 0738:4716 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0738 Product: 4716)"
+    },
+    {
+      "name": "PDP / Logic3 0e6f:0105 (Xbox360 mode)",
+      "vendor": "0e6f",
+      "product": "0105",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PDP / Logic3 0e6f:0105 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0e6f Product: 0105)"
+    },
+    {
+      "name": "PowerA 24c6:5000 (Xbox360 mode)",
+      "vendor": "24c6",
+      "product": "5000",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PowerA 24c6:5000 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 24c6 Product: 5000)"
+    },
+    {
+      "name": "8BitDo 2dc8:3106 (Xbox360 mode)",
+      "vendor": "2dc8",
+      "product": "3106",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "8BitDo 2dc8:3106 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 2dc8 Product: 3106)"
+    },
+    {
+      "name": "SteelSeries 1038:1431 (Xbox360 mode)",
+      "vendor": "1038",
+      "product": "1431",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "SteelSeries 1038:1431 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1038 Product: 1431)"
+    },
+    {
+      "name": "Razer 1532:0a00 (XboxOne mode)",
+      "vendor": "1532",
+      "product": "0a00",
+      "basis": "Chromium kXInputTypeXboxOne",
+      "id": "Razer 1532:0a00 (XboxOne mode) (STANDARD GAMEPAD Vendor: 1532 Product: 0a00)"
+    },
+    {
+      "name": "Razer 1689:fd01 (Xbox360 mode)",
+      "vendor": "1689",
+      "product": "fd01",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Razer 1689:fd01 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1689 Product: fd01)"
+    },
+    {
+      "name": "Microsoft 045e:0291 (Xbox360 mode)",
+      "vendor": "045e",
+      "product": "0291",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Microsoft 045e:0291 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 045e Product: 0291)"
+    },
+    {
+      "name": "Logitech 046d:c21e (Xbox360 mode)",
+      "vendor": "046d",
+      "product": "c21e",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Logitech 046d:c21e (Xbox360 mode) (STANDARD GAMEPAD Vendor: 046d Product: c21e)"
+    },
+    {
+      "name": "HORI 0f0d:000c (Xbox360 mode)",
+      "vendor": "0f0d",
+      "product": "000c",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "HORI 0f0d:000c (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0f0d Product: 000c)"
+    },
+    {
+      "name": "Mad Catz 0738:4718 (Xbox360 mode)",
+      "vendor": "0738",
+      "product": "4718",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Mad Catz 0738:4718 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0738 Product: 4718)"
+    },
+    {
+      "name": "PDP / Logic3 0e6f:0113 (Xbox360 mode)",
+      "vendor": "0e6f",
+      "product": "0113",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PDP / Logic3 0e6f:0113 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0e6f Product: 0113)"
+    },
+    {
+      "name": "PowerA 24c6:5300 (Xbox360 mode)",
+      "vendor": "24c6",
+      "product": "5300",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PowerA 24c6:5300 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 24c6 Product: 5300)"
+    },
+    {
+      "name": "SteelSeries 1038:1434 (Xbox360 mode)",
+      "vendor": "1038",
+      "product": "1434",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "SteelSeries 1038:1434 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1038 Product: 1434)"
+    },
+    {
+      "name": "Razer 1532:0a03 (XboxOne mode)",
+      "vendor": "1532",
+      "product": "0a03",
+      "basis": "Chromium kXInputTypeXboxOne",
+      "id": "Razer 1532:0a03 (XboxOne mode) (STANDARD GAMEPAD Vendor: 1532 Product: 0a03)"
+    },
+    {
+      "name": "Razer 1689:fe00 (Xbox360 mode)",
+      "vendor": "1689",
+      "product": "fe00",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Razer 1689:fe00 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 1689 Product: fe00)"
+    },
+    {
+      "name": "Microsoft 045e:02a0 (Xbox360 mode)",
+      "vendor": "045e",
+      "product": "02a0",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Microsoft 045e:02a0 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 045e Product: 02a0)"
+    },
+    {
+      "name": "Logitech 046d:c21f (Xbox360 mode)",
+      "vendor": "046d",
+      "product": "c21f",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Logitech 046d:c21f (Xbox360 mode) (STANDARD GAMEPAD Vendor: 046d Product: c21f)"
+    },
+    {
+      "name": "HORI 0f0d:000d (Xbox360 mode)",
+      "vendor": "0f0d",
+      "product": "000d",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "HORI 0f0d:000d (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0f0d Product: 000d)"
+    },
+    {
+      "name": "Mad Catz 0738:4726 (Xbox360 mode)",
+      "vendor": "0738",
+      "product": "4726",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Mad Catz 0738:4726 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0738 Product: 4726)"
+    },
+    {
+      "name": "PDP / Logic3 0e6f:011f (Xbox360 mode)",
+      "vendor": "0e6f",
+      "product": "011f",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PDP / Logic3 0e6f:011f (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0e6f Product: 011f)"
+    },
+    {
+      "name": "PowerA 24c6:5303 (Xbox360 mode)",
+      "vendor": "24c6",
+      "product": "5303",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PowerA 24c6:5303 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 24c6 Product: 5303)"
+    },
+    {
+      "name": "Microsoft 045e:02a1 (Xbox360 mode)",
+      "vendor": "045e",
+      "product": "02a1",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Microsoft 045e:02a1 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 045e Product: 02a1)"
+    },
+    {
+      "name": "Logitech 046d:c242 (Xbox360 mode)",
+      "vendor": "046d",
+      "product": "c242",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Logitech 046d:c242 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 046d Product: c242)"
+    },
+    {
+      "name": "HORI 0f0d:0016 (Xbox360 mode)",
+      "vendor": "0f0d",
+      "product": "0016",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "HORI 0f0d:0016 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0f0d Product: 0016)"
+    },
+    {
+      "name": "Mad Catz 0738:4728 (Xbox360 mode)",
+      "vendor": "0738",
+      "product": "4728",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Mad Catz 0738:4728 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0738 Product: 4728)"
+    },
+    {
+      "name": "PDP / Logic3 0e6f:0131 (Xbox360 mode)",
+      "vendor": "0e6f",
+      "product": "0131",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PDP / Logic3 0e6f:0131 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0e6f Product: 0131)"
+    },
+    {
+      "name": "PowerA 24c6:530a (Xbox360 mode)",
+      "vendor": "24c6",
+      "product": "530a",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PowerA 24c6:530a (Xbox360 mode) (STANDARD GAMEPAD Vendor: 24c6 Product: 530a)"
+    },
+    {
+      "name": "Microsoft 045e:02d1 (XboxOne mode)",
+      "vendor": "045e",
+      "product": "02d1",
+      "basis": "Chromium kXInputTypeXboxOne",
+      "id": "Microsoft 045e:02d1 (XboxOne mode) (STANDARD GAMEPAD Vendor: 045e Product: 02d1)"
+    },
+    {
+      "name": "Logitech 046d:caa3 (Xbox360 mode)",
+      "vendor": "046d",
+      "product": "caa3",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Logitech 046d:caa3 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 046d Product: caa3)"
+    },
+    {
+      "name": "HORI 0f0d:001b (Xbox360 mode)",
+      "vendor": "0f0d",
+      "product": "001b",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "HORI 0f0d:001b (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0f0d Product: 001b)"
+    },
+    {
+      "name": "Mad Catz 0738:4736 (Xbox360 mode)",
+      "vendor": "0738",
+      "product": "4736",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "Mad Catz 0738:4736 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0738 Product: 4736)"
+    },
+    {
+      "name": "PDP / Logic3 0e6f:0133 (Xbox360 mode)",
+      "vendor": "0e6f",
+      "product": "0133",
+      "basis": "Chromium kXInputTypeXbox360",
+      "id": "PDP / Logic3 0e6f:0133 (Xbox360 mode) (STANDARD GAMEPAD Vendor: 0e6f Product: 0133)"
+    }
+  ]
+}

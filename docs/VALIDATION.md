@@ -1,5 +1,26 @@
 # Validation
 
+## Testing 2.4.9: robot fullscreen and controller compatibility
+
+- 66 Node tests pass, including 100 source-documented synthetic standard controller
+  profiles across Linux/Windows/macOS host policies, unknown brands, reconnects,
+  conservative vendor/product naming, Nintendo positional labels and unmapped capture.
+- `tests/controller-compatibility.cjs` runs all 100 standardized reports through the
+  native Electron preload into a sandboxed robot page. It checks four axes, all 17
+  button values/press states, both logical slots, raw-layout suppression and reconnect.
+  The source catalog represents device modes; it is not a popularity ranking or a
+  physical hardware certification. See [controller support](CONTROLLERS.md).
+- `tests/robot-fullscreen.cjs` verifies viewport bounds, a separate topmost 40px exit
+  control, X/Escape/Settings/close restoration, preservation of existing whole-app
+  fullscreen, the same robot page token and controller forwarding. The native exit
+  control exposes only an exit capability and no settings or Node API. Toolbar sizing
+  includes Steam Deck LCD and portrait widths.
+- The existing controller visual, Settings/update/auth, FTC and actual MotionModule
+  checks continue to run. Linux CI runs both new native checks and packages all three
+  desktop targets. Windows execution uses fixtures, not a physical robot/controller.
+- Physical Steam Deck/Apple Silicon execution, Bluetooth pairing stability and the
+  OS driver's mapping of every catalog device remain unverified hardware checks.
+
 ## Testing 2.4.8: Hardware Tester layout and MotionModule styling
 
 - The controller setup uses one flat standard controller diagram with live stick

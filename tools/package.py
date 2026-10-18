@@ -29,6 +29,7 @@ def runtime(target):
     return dest
 def app_files():
     yield ROOT/'package.json','package.json'
+    yield ROOT/'docs'/'CHROMIUM-LICENSE.txt','licenses/CHROMIUM-GAMEPAD.txt'
     for folder in ('src','ui'):
         for file in sorted((ROOT/folder).rglob('*')):
             if file.is_file():yield file,file.relative_to(ROOT).as_posix()

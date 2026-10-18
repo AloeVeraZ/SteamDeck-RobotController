@@ -60,6 +60,16 @@ slot's pad swaps them. The assignment press is suppressed until buttons are rele
 sticks centered. **Use automatic assignment** restores the preferred built-in Controller 1.
 The test screen stays open until you close it and holds robot gamepad outputs at rest.
 
+Input support follows the actual **standard Gamepad layout** reported by Electron,
+without a brand allowlist. That includes recognized Logitech, Nintendo, PlayStation,
+Xbox and third-party USB/Bluetooth gamepads. Controller setup identifies the physical
+model only when the driver provides enough information. Nintendo and PlayStation
+button labels follow their physical positions; robot button indices stay standard.
+Unmapped devices are available for raw diagnostics, but their robot outputs stay neutral.
+Use a supported gamepad mode (Logitech **X**, or Steam Input **Gamepad**) and reconnect.
+See [controller support and limitations](docs/CONTROLLERS.md) and the
+[100-profile software regression catalog](docs/CONTROLLER-PROFILES.md).
+
 The live illustration follows [Hardware Tester's controller layout](https://hardwaretester.com/gamepad):
 one flat standard-input diagram, detached shoulders/triggers, offset sticks, and live
 stick-position plots. All 17 standard button indices and analog trigger levels remain visible.
@@ -74,6 +84,11 @@ when it needs a second operator. Slot assignment applies to the FTC station and 
 using the standard Gamepad API; a custom USB, Bluetooth, or proprietary robot protocol needs
 its own compatible integration. Browser gamepad visibility may require pressing a button first.
 Two identical controllers without distinct OS identities may need reassignment after reconnecting.
+
+The expand button between **Close robot** and the robot-view label opens **robot-only
+fullscreen**. Only a corner **×** remains. Click it or press **Esc** to restore the
+previous app view; the robot page and controller assignments remain open. The three-dot
+menu's **Toggle fullscreen** still controls the whole app independently.
 
 **Steam Deck desktop shortcut:** keep Steam running and hold **☰ Menu** until Gamepad Mode
 appears, then press **A**. In Desktop Mode, Steam can map sticks to the mouse and scroll;

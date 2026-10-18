@@ -16,15 +16,15 @@ class ControllerHub{
     for(const slot of [1,2])if(!this.pads.some(p=>p.index===this.assignments.users[slot]&&p.id===this.assignments.identities[slot])){this.assignments.users[slot]=null;this.assignments.identities[slot]=null;}
     this.tick();for(const p of this.pads)if(!p.pressed&&!p.axesActive)this.blocked.delete(key(p));
     if(this.capture){
-      for(const p of this.pads)if(!p.pressed&&!p.axesActive)this.capture.waiting.delete(key(p));
+      for(const p of this.pads)if(!p.pressed&&(p.mapping!=='standard'||!p.axesActive))this.capture.waiting.delete(key(p));
       const selected=this.pads.find(p=>p.pressed&&!this.capture.waiting.has(key(p)));
       if(selected){const slot=this.capture.slot;this.assignments.assign(slot,selected,{swap:true});this.assignment={slot,id:selected.id,serial:(this.assignment?.serial||0)+1};this.capture=null;for(const p of this.assignments.snapshot(this.pads))if(p)this.blocked.add(key(p));this.preferred=this.assignments.snapshot(this.pads);this.persist(this.preferred);}
     }
     for(const slot of [1,2])if(this.assignments.users[slot]===null){const wanted=this.preferred[slot-1],pad=wanted&&this.pads.find(p=>p.id===wanted.id&&p.index===wanted.index)||wanted&&this.pads.find(p=>p.id===wanted.id);if(pad&&this.assignments.users[3-slot]!==pad.index)this.assignments.assign(slot,pad);}
     this.assignments.sync(this.pads,this.hardware);
-    if(this.assignments.users[2]===null){const second=this.pads.find(p=>p.index!==this.assignments.users[1]);if(second)this.assignments.assign(2,second);}
+    if(this.assignments.users[2]===null){const second=this.pads.find(p=>p.mapping==='standard'&&p.index!==this.assignments.users[1]);if(second)this.assignments.assign(2,second);}
     const present=new Set(this.pads.map(key));for(const blocked of this.blocked)if(!present.has(blocked))this.blocked.delete(blocked);
   }
-  state(){const slots=this.assignments.snapshot(this.pads);return {count:this.count,slots,readings:slots.map(slot=>slot?this.pads.find(p=>key(p)===key(slot)):null),automatic:this.assignments.automaticUser1,capture:this.capture?{slot:this.capture.slot,deadline:this.capture.deadline}:null,blocked:[...this.blocked],assignment:this.assignment};}
+  state(){const slots=this.assignments.snapshot(this.pads);return {count:this.count,slots,devices:this.pads.map(({id,index,mapping})=>({id,index,mapping})),readings:slots.map(slot=>slot?this.pads.find(p=>key(p)===key(slot)):null),automatic:this.assignments.automaticUser1,capture:this.capture?{slot:this.capture.slot,deadline:this.capture.deadline}:null,blocked:[...this.blocked],assignment:this.assignment};}
 }
 module.exports={ControllerHub};

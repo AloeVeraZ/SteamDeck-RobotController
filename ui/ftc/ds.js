@@ -136,9 +136,9 @@ function stop(){stopCountdown();session.stopOpMode();queueRender();}
 
 // ---- Gamepads: shared driver-station controller slots ---------------------------------
 const dead=v=>{v=Math.max(-1,Math.min(1,Number(v)||0));return Math.abs(v)<0.05?0:v;};
-function gamepadType(id){return /054c|sony|dualshock|dualsense|wireless controller/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
+function gamepadType(id){return /054c|sony|dualshock|dualsense|\bps4\b/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
 function ftcPad(p,rest){
-  const base={id:p.index+1,gamepadType:gamepadType(p.id)};if(rest)return base;
+  const base={id:p.index+1,gamepadType:gamepadType(p.id)};if(rest||p.mapping!=='standard')return base;
   const on=i=>!!p.buttons[i]?.pressed,val=i=>Math.max(0,Math.min(1,p.buttons[i]?.value||0));
   return {...base,left_stick_x:dead(p.axes[0]),left_stick_y:dead(p.axes[1]),right_stick_x:dead(p.axes[2]),right_stick_y:dead(p.axes[3]),left_trigger:val(6),right_trigger:val(7),
     a:on(0),b:on(1),x:on(2),y:on(3),left_bumper:on(4),right_bumper:on(5),back:on(8),start:on(9),left_stick_button:on(10),right_stick_button:on(11),dpad_up:on(12),dpad_down:on(13),dpad_left:on(14),dpad_right:on(15),guide:on(16),touchpad:on(17)};
