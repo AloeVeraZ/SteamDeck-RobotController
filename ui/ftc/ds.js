@@ -142,7 +142,8 @@ function ftcPad(p,rest){
 function inputsLive(){return inputsOn&&!document.hidden&&document.hasFocus();}
 function pollGamepads(){
   if(!session)return;const pads=Array.from(navigator.getGamepads?.()||[]),count=window.__deckControllerInput?.state().count||info.controllerCount||1;
-  $('#pad-2').hidden=count<2;
+  $('#pad-2').hidden=false;$('#pad-2').classList.toggle('standby',count<2);
+  if(count<2)$('#pad-2').title='Controller 2 is on standby. Choose Two controllers in this robot’s Settings to send User 2 input.';
   for(const u of [1,2]){
     const p=u<=count?pads[u-1]:null,button=$('#pad-'+u),previous=users[u];users[u]=p?.connected?u-1:null;
     button.classList.toggle('assigned',users[u]!==null);

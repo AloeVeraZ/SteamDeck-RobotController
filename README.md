@@ -50,15 +50,26 @@ The app works with two kinds of robots, detected automatically when an address i
 
 Controller 1 is the default. Recognized built-in handheld controls are preferred; if the OS
 exposes an ordinary Xbox-style controller or an unknown handheld, its first standard gamepad
-is selected. Click a controller icon in the app header, then press any button on that pad to
-assign it. Selecting the pad in the other slot swaps them. The assignment press is suppressed
-until buttons are released and sticks centered.
+is selected. Both controller icons are always visible. Click one to open its live test screen:
+sticks, triggers, and buttons show their standard gamepad names, indices, and values.
+Choose **Assign/Reassign** and press any button on the desired pad. Selecting the other
+slot's pad swaps them. The assignment press is suppressed until buttons are released and
+sticks centered. **Use automatic assignment** restores the preferred built-in Controller 1.
+The test screen stays open until you close it and holds robot gamepad outputs at rest.
 
 Saved robots default to **one controller**. Choose **Two controllers** in that robot's Settings
 when it needs a second operator. Slot assignment applies to the FTC station and websites
 using the standard Gamepad API; a custom USB, Bluetooth, or proprietary robot protocol needs
 its own compatible integration. Browser gamepad visibility may require pressing a button first.
 Two identical controllers without distinct OS identities may need reassignment after reconnecting.
+
+**Steam Deck desktop shortcut:** keep Steam running and hold **☰ Menu** until Gamepad Mode
+appears, then press **A**. In Desktop Mode, Steam can map sticks to the mouse and scroll;
+the app needs gamepad input. Verify both sticks in the test screen before returning to Drive.
+For Gaming Mode, add the app to Steam and use a **Gamepad** layout with both sticks as joysticks.
+Windows/Linux handheld utilities and Steam Input layouts need the same gamepad output mode;
+external controllers pair through the OS. The app does not change system-wide desktop bindings.
+See [Steam Input's gamepad emulation documentation](https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices).
 
 The Apple Silicon package is not Apple-notarized; approval may be required in Privacy & Security.
 See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md), and

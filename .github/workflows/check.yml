@@ -51,7 +51,26 @@ jobs:
           for model in 'Steam Deck LCD' 'Steam Deck OLED' 'ROG Ally X' 'Lenovo Legion Go'; do
             DECK_TEST_MODEL="$model" xvfb-run -a node tests/ftc-app.cjs
           done
-          xvfb-run -a node tests/controller-app.cjs
+          for model in 'Steam Deck LCD' 'Windows handheld' 'Apple Silicon'; do
+            DECK_TEST_MODEL="$model" xvfb-run -a node tests/controller-app.cjs
+          done
+      - uses: actions/checkout@v4
+        if: matrix.target == 'steamdeck'
+        with:
+          repository: AloeVeraZ/MotionModule
+          ref: bbd8c33dadcd68256bb98e20437b02a0e99b3a0b
+          path: .cache/motionmodule-source
+          persist-credentials: false
+      - name: Check actual MotionModule driver station with simulated GPIO
+        if: matrix.target == 'steamdeck'
+        env:
+          DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          DECK_PYTHON: python3
+        run: |
+          python3 -m pip install --target .cache/motionmodule-test-deps 'Flask>=3.1,<4' 'smbus2>=0.5,<1' 'pyserial>=3.5,<4'
+          export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          export DECK_MOTIONMODULE_SOURCE="$PWD/.cache/motionmodule-source"
+          xvfb-run -a node tests/motionmodule-app.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-installer

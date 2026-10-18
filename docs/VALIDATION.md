@@ -1,5 +1,27 @@
 # Validation
 
+## Testing 2.4.5: live input setup and MotionModule
+
+- 58 Node tests cover controller policy, two persistent slots independent of the
+  robot's input count, bounded diagnostics, automatic built-in assignment reset,
+  persistence, transports, networking and updates.
+- Native input tests verify live stick/trigger/button displays, a test screen that
+  stays open after assignment, paused robot outputs during testing, one-controller
+  forwarding with Controller 2 on standby, and manual swapping. Diagnostics remain
+  in the trusted app UI. Robot pages receive only slot routing and pause state.
+- The actual MotionModule Flask app and `/driver-station` page are tested with
+  `MockGPIO`. Left-stick forward/strafe and right-stick rotation reach `/api/drive`
+  and change simulated motor outputs. Opening input setup stops the outputs;
+  MotionModule's configured D-pad stop button also stops them. No robot wiring or
+  firmware changes are needed. CI pins MotionModule commit
+  `bbd8c33dadcd68256bb98e20437b02a0e99b3a0b` for this integration test.
+- Native UI layouts are checked on LCD, desktop, 4K and portrait windows. The input
+  test screen includes Steam Deck desktop-mode guidance and generic built-in/USB/
+  Bluetooth gamepad guidance for supported Linux, Windows and Apple Silicon builds.
+- Mouse/scroll emulation comes from the OS or Steam Input layout. This release
+  explains the required gamepad mode; it does not silently change desktop mappings.
+  Physical Steam Deck/Mac execution and Bluetooth pairing still need device checks.
+
 ## Testing 2.4.4: installation and controller slots
 
 - The GitHub README has three install entries. Steam Deck/Linux and Apple Silicon

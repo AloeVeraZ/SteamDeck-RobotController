@@ -52,13 +52,14 @@ desktops, stacked on narrow windows like the phone app.
 | Status | `Robot is stopped` / `Initialized …` / `Running …`, robot errors and warnings, then the op mode's telemetry (classic, monospace, and HTML formats) |
 | ••• menu | Restart Robot, Program & Manage, Camera Stream, Gamepad assignment, About |
 
-- **Gamepads (Testing 2.4.4):** Controller 1 (`gamepad1`) defaults to recognized built-in
+- **Gamepads (Testing 2.4.5):** Controller 1 (`gamepad1`) defaults to recognized built-in
   handheld controls, or the OS's first standard gamepad. This also works on ordinary
-  computers and unknown handhelds. Click Controller 1 in the app header, then press
-  any button on the desired pad to override it. Manual choices are saved.
+  computers and unknown handhelds. Both header slots stay visible. Click a slot to
+  test its sticks, triggers and buttons; choose **Assign/Reassign**, then press a button
+  to select a pad. The test screen stays open until **Done**. Manual choices are saved.
   Each saved robot defaults to one controller. Select **Two controllers** in its
-  Settings to enable Controller 2 (`gamepad2`); click its icon and press a button to
-  assign it. Choosing the other slot's pad swaps the two. Assignment presses stay
+  Settings to send Controller 2 (`gamepad2`) to the robot; it can be assigned on standby
+  beforehand. Choosing the other slot's pad swaps the two. Assignment presses stay
   neutral until buttons are released and sticks centered.
   Inputs are sent only while the Driver Station is visible and
   focused. Opening Settings, a dialog, or another window sends the gamepads back to rest.

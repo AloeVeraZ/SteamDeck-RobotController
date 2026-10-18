@@ -28,22 +28,25 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
     const controllerName=/ROG/i.test(model)?'ROG Ally Controller':/Legion/i.test(model)?'Lenovo Legion Go Controller':'Steam Deck Controller (Vendor: 28de Product: 1205)';
     const make=(id,index,y=0,pressed=false)=>({id,index,connected:true,mapping:'standard',axes:[0,y,0,0],buttons:Array.from({length:17},(_,i)=>({pressed:pressed&&i===0,value:pressed&&i===0?1:0}))});
     const pads=[make('Xbox Wireless Controller',0),null,make(controllerName,2)];
-    async function feed(){const capture=await L.eval('window.deck.controllerInfo().then(s=>!!s.capture)');for(const c of capture?[D,L]:[L,D])await c.eval('window.__deckGamepadTest.set('+JSON.stringify(pads)+')');}
+    async function feed(){const capture=await L.eval('window.deck.controllerInfo().then(s=>!!s.capture||s.paused)');for(const c of capture?[D,L]:[L,D])await c.eval('window.__deckGamepadTest.set('+JSON.stringify(pads)+')');}
     await until(()=>D.eval('!!window.__deckGamepadTest'),5000,'shared gamepad preload');
     await D.eval("Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});document.hasFocus=()=>true");
     await feed();pads[0].axes[1]=0.25;pads[2].axes[1]=-0.5;await feed();
     await until(()=>robot.sim.gamepads[1]?.id===1&&robot.sim.gamepads[1]?.left_stick_y===-0.5,5000,model+' built-in axes as logical User 1');
     assert.ok(!robot.sim.gamepads[2]||robot.sim.gamepads[2].id===-2,'one-controller robot forwarded User 2');
     assert.equal((await L.eval('window.deck.controllers()'))[0].index,2);
-    assert.equal(await L.eval('document.querySelector("#controller-2").hidden'),true);
+    assert.equal(await L.eval('document.querySelector("#controller-2").hidden'),false);
+    assert.equal(await D.eval('document.querySelector("#pad-2").hidden'),false);
     await L.eval('window.deck.save({...state.robot,controllerCount:2})');await feed();
     await until(()=>robot.sim.gamepads[2]?.id===2&&robot.sim.gamepads[2]?.left_stick_y===0.25,5000,'two-controller robot enabled User 2');
     assert.equal(await L.eval('document.querySelector("#controller-2").hidden'),false);
     await L.eval('document.querySelector("#controller-1").click()');
     await until(()=>L.eval('document.querySelector("#controller-dialog").open'),3000,'assignment prompt');
+    await L.eval('document.querySelector("#controller-assign").click()');
     pads[0]=make(pads[0].id,0);pads[2]=make(controllerName,2);await feed();
     pads[0]=make(pads[0].id,0,0,true);await feed();
-    await until(async()=>!(await L.eval('document.querySelector("#controller-dialog").open')),3000,'assignment accepted');
+    await until(()=>L.eval('window.deck.controllerInfo().then(s=>!s.capture&&s.slots[0].index===0)'),3000,'assignment accepted');
+    assert.equal(await L.eval('document.querySelector("#controller-dialog").open'),true);await L.eval('document.querySelector("#controller-done").click()');
     await until(()=>robot.sim.gamepads[1]?.left_stick_y===0&&!robot.sim.gamepads[1]?.a,5000,'assignment press suppressed');
     assert.deepEqual((await L.eval('window.deck.controllers()')).map(p=>p.index),[0,2]);
     pads[0]=make(pads[0].id,0);await feed();pads[0].axes[1]=0.25;pads[2].axes[1]=-0.5;await feed();

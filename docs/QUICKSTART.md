@@ -21,12 +21,21 @@ releases. Close the app before running an installer again; saved data is kept se
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
-5. Select **Gamepad With Joystick Trackpad** and leave Proton disabled. Use
+5. Select a **Gamepad** template with both sticks set to joysticks and leave Proton disabled. Use
    **Steam + X** to type in text fields.
 
 The app runs natively without root or changes to SteamOS's read-only system.
 The LCD and OLED Decks both have 1280×800 built-in screens; the app also resizes
 for docked displays and display scaling. The installer includes its own runtime.
+
+### Desktop shortcut: sticks scroll or move the mouse
+
+Keep Steam running. Hold the Deck's **☰ Menu** button until Gamepad Mode appears,
+then press **A**. Click **Controller 1** in this app to see its live test screen.
+Left X/Y should follow the left stick; Right X/Y should follow the right stick.
+If the default desktop layout was customized, restore it in Steam's Controller →
+Desktop Layout settings, or launch this app through Steam with a Gamepad layout.
+The app cannot turn mouse/scroll events back into the original joystick positions.
 
 ## Windows
 
@@ -93,10 +102,11 @@ none of those commands on its own. Header controls only reload, navigate back,
 close the page, or open the three-dot settings menu.
 
 Controller 1 defaults to recognized built-in handheld controls, with the first
-standard gamepad as a fallback on other devices. Click its icon, then press any
-button on the desired controller to assign it. Saved robots default to one controller;
-select **Two controllers** in that robot's Settings for a second operator. Clicking
-the other controller's icon and pressing a button swaps assignments. The assignment
+standard gamepad as a fallback on other devices. Both slots stay visible. Click an
+icon for the live test screen, then use **Assign/Reassign** to choose a pad. The test
+screen stays open after assignment, and **Done** returns to Drive. Saved robots default to one controller;
+select **Two controllers** in that robot's Settings for a second operator. Controller 2
+can be assigned on standby before it is needed. Choosing the other assigned pad swaps slots. The assignment
 press is consumed until buttons are released and sticks centered. Manual preferences
 are saved in `controller-settings.json` in the user-data directory.
 Bluetooth/USB pairing is handled by the OS. Standard Gamepad API websites receive

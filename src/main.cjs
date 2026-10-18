@@ -4,7 +4,7 @@ const fs=require('node:fs'),path=require('node:path');const {execFile}=require('
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
-const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='';
+const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
 const controllerSessions=new WeakSet(),controllerArguments=process.env.DECK_CONTROLLER_TEST==='1'?['--deck-controller-fixtures']:[];
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
@@ -18,15 +18,19 @@ function snapshot(){return {...state,robots:library?.list(currentNetwork?.ssid),
 function update(patch={}){Object.assign(state,patch);emit('state',snapshot());}
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
-function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
+function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 function controllerState(){return {...(controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]}),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView};}
+function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused}=value;return {count,slots,capture,blocked,paused};}
 function sendControllers(force=false){
   if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
-  emit('controller-state',value);for(const view of [win,robotView])try{view?.webContents.send('controller-config',value);}catch{}
+  emit('controller-state',value);
+  // Raw diagnostics stay in the trusted app UI. Robot pages need only slot
+  // routing and pause state, not the test screen's other-controller readings.
+  const config=inputConfig(value),routing=JSON.stringify(config);if(force||routing!==lastInputConfig){lastInputConfig=routing;for(const view of [win,robotView])try{view?.webContents.send('controller-config',config);}catch{}}
 }
 function controllerSession(session){if(!controllerSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'controller-preload.cjs')});controllerSessions.add(session);}}
 function controllerSender(e){return e.sender===win?.webContents||e.sender===robotView?.webContents;}
-ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',controllerState());});
+ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',inputConfig());});
 ipcMain.on('controller-input',(e,pads)=>{
   if(!controllerHub||!controllerSender(e)||e.senderFrame!==e.sender.mainFrame)return;
   const rootInput=!robotView||!!controllerHub.capture||state.page!=='drive'||overlay||!!auth||!!managerView;
@@ -168,6 +172,7 @@ handle('overlay',visible=>{const previous=overlay;overlay=!!visible;fitView();if
 handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',async()=>{const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();});
 handle('controllers',()=>controllerHub.state().slots);
 handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
+handle('controller-automatic',()=>{controllerHub.automatic();sendControllers(true);return controllerState();});
 handle('auth',({id,username,password,cancel})=>{if(!auth||auth.id!==id)throw Error('This sign-in prompt expired.');const pending=auth;auth=null;if(cancel)pending.callback();else pending.callback(String(username||'').slice(0,256),String(password||'').slice(0,1024));fitView();});
 handle('fullscreen',()=>win.setFullScreen(!win.isFullScreen()));handle('quit',()=>app.quit());
 handle('update-info',async()=>{await closeRobot();return updater.info();});
