@@ -8,7 +8,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
  try{
   const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof state==='object'&&!!window.__deckGamepadTest);
   await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[-0.55,-0.8,0.75,0.35],buttons:Array.from({length:17},(_,i)=>({pressed:[0,4,6].includes(i),value:[0,4].includes(i)?1:i===6?0.65:0}))}]));
-  await page.waitForFunction(()=>document.querySelector('#controller-1 small').textContent.includes('Steam Deck Controller'));
+  await page.waitForFunction(()=>document.querySelector('#controller-1 small').textContent.includes('Steam Deck LCD controls'));
   await page.locator('#controller-1').click();await page.locator('#controller-dialog').waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#controller-axis-1').textContent==='-0.80');
   const window=await app.browserWindow(page);
@@ -19,7 +19,40 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
    await page.screenshot({path:path.join(out,'input-test-'+name+'.png'),scale:'css'});
   }
   assert.equal(await page.locator('.input-button.pressed').count(),3);assert.equal(await page.locator('#controller-axis-2').textContent(),'0.75');
-  assert.equal(await page.locator('#controller-2').getAttribute('hidden'),null);await page.locator('#controller-done').click();await page.locator('#controller-dialog').waitFor({state:'hidden'});
+  assert.equal(await page.locator('#controller-2').getAttribute('hidden'),null);
+  assert.equal(await page.locator('#controller-mode-title').textContent(),'Steam Deck · Desktop shortcut');
+  await window.evaluate(w=>w.setContentSize(1280,800));
+  for(const [id,name,art] of [['Microsoft X-Box 360 pad 0','Generic controller','generic'],['DualSense Wireless Controller','DualSense controller','playstation'],['Xbox One Wireless Controller','Xbox One controller','xbox']]){
+   await page.evaluate(id=>window.__deckGamepadTest.set([{id,index:0,mapping:'standard',connected:true,axes:[-.55,-.8,.75,.35],buttons:Array.from({length:17},(_,i)=>({pressed:[0,4,6].includes(i),value:[0,4].includes(i)?1:i===6?.65:0}))}]),id);
+   await page.waitForFunction(name=>document.querySelector('#controller-monitor-name').textContent===name,name);
+   assert.equal(await page.locator('#controller-visual svg').getAttribute('data-device-view'),art);
+   assert.equal(await page.locator('#controller-driver-name').textContent(),id);
+   assert.equal(await page.locator('#controller-1 small').textContent(),name);
+   assert.equal(await page.locator('#setup-controller-1-name').textContent(),name);
+   assert.deepEqual((await page.locator('[data-pad-button]').evaluateAll(nodes=>nodes.map(n=>Number(n.dataset.padButton)))).sort((a,b)=>a-b),Array.from({length:17},(_,i)=>i));
+   assert.equal(await page.locator('[data-pad-button].pressed').count(),3);
+   assert.equal(await page.locator('#trigger-left-fill').getAttribute('width'),'61.75');
+   assert.equal(await page.locator('#trigger-right-fill').getAttribute('width'),'0');
+   assert.equal(await page.locator('#stick-left-dot').getAttribute('transform'),'translate(-8.8 -12.8)');
+   assert.equal(await page.locator('#stick-right-dot').getAttribute('transform'),'translate(12 5.6)');
+   const done=await page.locator('#controller-done').boundingBox();assert.ok(done.y+done.height<=800,art+' illustration pushes exit off LCD');
+   await page.screenshot({path:path.join(out,'input-test-'+art+'.png'),scale:'css'});
+  }
+  await page.locator('#controller-driver-details summary').click();await page.locator('#controller-driver-name').waitFor({state:'visible'});
+  await page.locator('#controller-done').click();await page.locator('#controller-dialog').waitFor({state:'hidden'});
   assert.deepEqual(errors,[]);console.log('PASS: live visual sticks/buttons/triggers, persistent test screen, both slots visible, LCD/desktop/portrait controller layouts, no page errors.');
  }finally{await app.close();}
+ for(const model of ['Windows desktop','ROG Ally','Mac']){
+  const other=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...env,DECK_DEVICE_MODEL:model,DECK_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'deck-controller-host-'))}});
+  try{
+   const page=await other.firstWindow();await page.waitForFunction(()=>typeof state==='object'&&!!window.__deckGamepadTest);
+   // Even a controller reporting Steam Deck cannot turn a Windows/Mac host into one.
+   await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[0,0,0,0],buttons:Array.from({length:17},()=>({pressed:false,value:0}))}]));
+   await page.waitForFunction(()=>document.querySelector('#controller-1 small').textContent==='Steam Deck controls');
+   await page.locator('#controller-1').click();await page.locator('#controller-dialog').waitFor({state:'visible'});
+   assert.equal(await page.locator('#controller-mode-title').textContent(),'Gamepad input · built-in or external',model);
+   assert.ok(!(await page.locator('#controller-mode-copy').textContent()).includes('Keep Steam running'),model);
+  }finally{await other.close();}
+ }
+ console.log('PASS: conservative model names, raw driver details, correct standard visual mappings, Steam Deck desktop instructions absent on Windows/ROG Ally/Mac hosts.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

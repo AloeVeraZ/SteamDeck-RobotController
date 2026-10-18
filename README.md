@@ -57,6 +57,13 @@ slot's pad swaps them. The assignment press is suppressed until buttons are rele
 sticks centered. **Use automatic assignment** restores the preferred built-in Controller 1.
 The test screen stays open until you close it and holds robot gamepad outputs at rest.
 
+The live illustration uses standard gamepad indices, with a Steam Deck or PlayStation-style
+view when the reported product identifies it. Known model names appear throughout setup;
+ambiguous Xbox/XInput or virtual drivers display **Generic controller**. **Driver details**
+keeps the original OS identifier available. A Steam Deck host alone cannot prove that an
+Xbox-compatible input is its built-in controller. Steam Deck desktop-shortcut guidance
+appears only on detected Steam Deck hardware when launched outside Steam.
+
 Saved robots default to **one controller**. Choose **Two controllers** in that robot's Settings
 when it needs a second operator. Slot assignment applies to the FTC station and websites
 using the standard Gamepad API; a custom USB, Bluetooth, or proprietary robot protocol needs

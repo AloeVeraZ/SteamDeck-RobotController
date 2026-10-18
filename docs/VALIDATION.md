@@ -1,5 +1,21 @@
 # Validation
 
+## Testing 2.4.6: controller illustration and identity
+
+- 61 Node tests pass, including conservative physical-model naming, virtual Xbox
+  fallback on Steam Deck, and preservation of raw assignment identities.
+- Native Electron UI checks cover live standard button indices 0–16, independent
+  trigger levels and stick movement, model changes after reconnecting, original
+  driver details, and LCD/desktop/portrait sizing. Both controller slots remain visible.
+- Hardware profiles verify that Steam Deck desktop-shortcut guidance appears on
+  Steam Deck and stays absent on Windows desktop, ROG Ally and Mac, even when an
+  attached controller reports a Steam Deck product name. These are simulated host
+  profiles on Windows; they do not substitute for physical handheld/Mac execution.
+- The native Gamepad API integration test passes for built-in Controller 1,
+  external Controller 2, swapping, saved preferences, assignment-press suppression,
+  paused robot inputs during setup and renderer isolation. Transport and Wi-Fi
+  behavior are unchanged.
+
 ## Testing 2.4.5: live input setup and MotionModule
 
 - 58 Node tests cover controller policy, two persistent slots independent of the

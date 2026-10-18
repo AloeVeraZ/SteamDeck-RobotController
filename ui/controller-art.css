@@ -1,0 +1,64 @@
+/* Device surface, bevels and input feedback are local SVG/CSS, usable offline. */
+#controller-visual{padding:2px 0 8px;background:radial-gradient(ellipse at 50% 65%,#43656821,transparent 68%);border-radius:10px}
+#controller-visual svg.device-illustration{display:block;width:100%;max-height:252px;overflow:visible}
+.device-illustration .device-shell{fill:url(#shell);stroke:#8895a259;stroke-width:1.4}
+.device-illustration .device-face{fill:url(#face);stroke:#81909a32;stroke-width:1}
+.device-illustration .silver-shell{fill:url(#silver);stroke:#d3d9df99}
+.device-illustration .shell-seam{fill:none;stroke:#a3b4c22b;stroke-width:1}
+.device-illustration .grip-texture{fill:url(#grip-grain)}
+.device-illustration .center-inlay{fill:#1a2029;stroke:#56637055;stroke-width:1}
+.device-illustration .status-light{stroke:#b1f1d2;stroke-width:3;stroke-linecap:round;opacity:.75}
+.device-illustration .device-key{filter:url(#key-shadow)}
+.device-illustration .key-rim{fill:#080d14;stroke:#67748188;stroke-width:1}
+.device-illustration .cap-base{fill:url(#keycap);stroke:#a4b3c535;stroke-width:.7}
+.device-illustration .key-shine,.device-illustration .stick-shine{fill:none;stroke:#d8e4f334;stroke-width:1;stroke-linecap:round}
+.device-illustration .device-key text{font:600 14px system-ui,sans-serif;fill:#e5edf6;text-anchor:middle;pointer-events:none}
+.device-illustration .face-a text{fill:#90d0ad}.device-illustration .face-b text{fill:#e9999d}.device-illustration .face-x text{fill:#92b6e1}.device-illustration .face-y text{fill:#dccb8f}
+.device-illustration .device-key.pressed .cap-base,.device-illustration .deck-system.pressed .cap-base{fill:#b6efcb;stroke:#e8fff2;stroke-width:1.2}
+.device-illustration .device-key.pressed text,.device-illustration .deck-system.pressed text{fill:#15352a}
+.device-illustration .stick-bezel{fill:#111821;stroke:#a1afbc66;stroke-width:1}
+.device-illustration .stick-well{fill:url(#well)}
+.device-illustration .stick-gate{fill:none;stroke:#8398a35c;stroke-width:1}
+.device-illustration .gate-ticks{stroke:#b0c2cc60;stroke-width:1}
+.device-illustration .stick-stem{fill:#030810;opacity:.85}
+.device-illustration .stick-cap{fill:url(#cap);stroke:#82919a;stroke-width:1.2}
+.device-illustration .stick-texture{fill:none;stroke:#1c2531;stroke-width:2;stroke-dasharray:1 2}
+.device-illustration .device-stick.pressed .stick-cap{fill:#8ac5ab;stroke:#d7fbe5}
+.device-illustration .device-stick.pressed .stick-texture{stroke:#375e52}
+.device-illustration .dpad-bed{fill:#0b111a;stroke:#85919b70;stroke-width:1.1}
+.device-illustration .dpad-face{fill:url(#keycap);stroke:#657481;stroke-width:1}
+.device-illustration .dpad-hit{fill:#293440;stroke:#9cabb818;stroke-width:.6}
+.device-illustration .dpad-arrow{fill:none;stroke:#bac8d38c;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.device-illustration .dpad-pivot{fill:#34404b;stroke:#6b798544;stroke-width:1}
+.device-illustration .pressed>.dpad-hit{fill:#b6efcb;stroke:#e9fff4}
+.device-illustration .pressed>.dpad-arrow{stroke:#24483a}
+.device-illustration .shoulder-rim{fill:#080e17;stroke:#8c9ba68c;stroke-width:1}
+.device-illustration .shoulder-face{fill:url(#keycap);stroke:#aab6c333;stroke-width:.7}
+.device-illustration .device-shoulder text{font:600 11px system-ui,sans-serif;letter-spacing:1px;fill:#bbcbd7;text-anchor:middle;pointer-events:none}
+.device-illustration .analog-trigger-fill{fill:url(#trigger);opacity:.9}
+.device-illustration .device-shoulder.pressed .shoulder-rim{stroke:#b1efcf;stroke-width:1.5}
+.device-illustration .device-shoulder.pressed text{fill:#f0fff6}
+.device-illustration .screen-bezel{fill:#090d13;stroke:#74808b80;stroke-width:1.1}
+.device-illustration .screen-glass{fill:url(#glass);stroke:#8ab8c036;stroke-width:.8}
+.device-illustration .screen-reflection{fill:#e1f9ff;opacity:.025}
+.device-illustration .screen-kicker{font:500 10px system-ui,sans-serif;letter-spacing:2.1px;fill:#a7ccd1;text-anchor:middle}
+.device-illustration .screen-label{font:500 9px system-ui,sans-serif;letter-spacing:1.3px;fill:#779da7;text-anchor:middle}
+.device-illustration .screen-scope>circle:first-child{fill:#0c1a22;stroke:#507680;stroke-width:.8}
+.device-illustration .screen-scope path{fill:none;stroke:#42616c;stroke-width:.6}
+.device-illustration .scope-inner{fill:none;stroke:#263f4a;stroke-width:.7;stroke-dasharray:2 3}
+.device-illustration .scope-point{fill:#b4f2d6;stroke:#d6fff0;stroke-width:.6}
+.device-illustration .trackpad-rim{fill:#121921;stroke:#7c8b953a;stroke-width:1}
+.device-illustration .trackpad{fill:#2d3540;stroke:#71828d4a;stroke-width:.7}
+.device-illustration .speaker-slits{fill:none;stroke:#070d15;stroke-width:2;stroke-linecap:round}
+.device-illustration .deck-system text{font:600 8px system-ui,sans-serif;letter-spacing:.6px;fill:#bbc6ce;text-anchor:middle}
+.device-illustration .system-unmapped rect{fill:#202a35;stroke:#a4b3c535;stroke-width:.7}
+.device-illustration .system-unmapped text{fill:#7b8b96}
+.device-illustration .sony-touchpad{fill:#1a222e;stroke:#677b935c;stroke-width:1.2}
+.device-illustration .sony-led{fill:none;stroke:#78adf3;stroke-width:2.5;opacity:.8}
+.device-illustration .device-view-caption{font:500 9px system-ui,sans-serif;letter-spacing:1.7px;fill:#869da9;text-anchor:middle}
+.controller-identity{position:relative}#controller-driver-details{font-size:11px;margin:0}
+#controller-driver-details summary{position:absolute;right:99px;top:16px;font-size:11px;color:#99b4bd;cursor:pointer}
+#controller-driver-details[open] summary{color:var(--accent)}#controller-driver-details code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,monospace;color:#b6c5cf;padding:12px 0 3px}
+#controller-driver-details p{font-size:11px;max-width:580px;margin:3px 0 0;color:#90a9b3}
+@media(max-width:800px){#controller-visual svg.device-illustration{max-height:260px}}
+@media(max-width:540px){#controller-visual svg.device-illustration{max-height:210px}#controller-driver-details summary{position:static;margin-top:7px}#controller-driver-details p{font-size:11px}}
