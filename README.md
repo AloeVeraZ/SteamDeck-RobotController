@@ -72,7 +72,8 @@ robot's HTTP, API, camera, and same-port WebSocket traffic through loopback. The
 robot still supplies the HTML, JavaScript, controls, sessions, and safety behavior.
 Nothing is hosted in the cloud.
 
-Robot content runs without Node or desktop IPC.
+Robot content has no Node access or desktop settings API. A narrow data-only
+input bridge supplies controller slots; assignment stays in the app's UI.
 The desktop uses a separate sandboxed WebContentsView, so robots with frame
 restrictions still work. Robot browser cookies are isolated by network/address.
 Robot passwords are never stored in the address JSON. The app does not bypass

@@ -1,4 +1,4 @@
-# Version 2.2 validation
+# Validation
 
 ## Testing 2.4.4: installation and controller slots
 
@@ -64,7 +64,7 @@ Validated in this Windows development environment:
   A real Windows helper test extracts a fixture archive, waits for its launcher
   to exit, replaces files, retains a previous-version backup, restarts a harmless
   fixture executable, and preserves separate saved data.
-  A live GitHub API check confirms the new empty repository has no releases.
+  Empty-repository responses were checked before the first release was published.
   The Linux helper passes replacement, backup, restart and forced-failure rollback
   shell fixtures under Git Bash; this does not substitute for a SteamOS run.
 - Native Electron: the selected original robot webpage appears in a separate
