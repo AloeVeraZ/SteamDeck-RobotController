@@ -222,7 +222,7 @@ handle('update-download',()=>updater.download());
 handle('update-folder',async()=>{if(!updater.downloaded)throw Error('Download an update first.');shell.showItemInFolder(updater.downloaded.file);});
 handle('update-install',async()=>{if(!updater.downloaded)throw Error('Download an update first.');await closeRobot();const prepared=await prepareInstall(updater.downloaded,{appPath:app.getAppPath(),executable:process.execPath});await launchInstall(prepared);setTimeout(()=>app.quit(),200);return {restarting:true};});
 app.on('login',(event,contents,details,info,callback)=>{
-  if(contents!==robotView?.webContents)return;event.preventDefault();if(auth)auth.callback();auth={id:randomUUID(),callback};robotView.setVisible(false);emit('auth',{id:auth.id,host:active?.url||'',realm:info.realm||'',retry:!details.firstAuthAttempt});
+  if(contents!==robotView?.webContents)return;event.preventDefault();if(auth)auth.callback();auth={id:randomUUID(),callback};robotKeyboard?.hide({focus:false});robotView.setVisible(false);emit('auth',{id:auth.id,host:active?.url||'',realm:info.realm||'',retry:!details.firstAuthAttempt});
   void setRobotFullscreen(false);
 });
 // A copy installed by a sandboxed Windows app (a packaged agent or shell) keeps its data inside that app's

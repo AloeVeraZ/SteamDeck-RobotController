@@ -1,5 +1,14 @@
 # Validation
 
+## Testing 2.4.11: touch keyboard authentication handoff
+
+- A robot's background HTTP authentication challenge now hides its native keyboard
+  before the app's sign-in dialog appears, including when leaving robot fullscreen.
+- The native touch regression first reproduces the overlapping-keyboard failure,
+  then verifies the native surface is hidden and completes username/password entry
+  in the app dialog using only on-screen keys. Controller outputs stay neutral.
+- The 67 Node tests and the existing touch/controller/robot/package checks are retained.
+
 ## Testing 2.4.10: touch-first dashboard and robot-only gamepads
 
 - 67 Node tests cover the existing behavior and the restricted touch-keyboard action

@@ -48,6 +48,8 @@ is exposed. Steam Deck LCD remains the primary 1280×800 layout.
 `tests/touch-ui.cjs` uses native Electron with real Chromium touch dispatch: tap menus,
 swipe Wi-Fi lists, enter an address without a physical keyboard, type a masked Wi-Fi
 password with Shift/Symbols, and edit/submit a robot password with the isolated keyboard.
+It also interrupts robot typing with an HTTP authentication challenge, checks that the
+native surface clears away, then completes the app's sign-in dialog with on-screen keys.
 It checks target sizes, field visibility, handheld mouse-emulated taps, gamepad pause
 and neutral-release behavior, live diagnostics, fullscreen, built-in C1/external C2,
 and an empty dashboard gamepad enumeration. Networking and controllers are fixtures;
