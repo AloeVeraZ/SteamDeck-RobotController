@@ -23,6 +23,8 @@ Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/Ste
 An app for driving your robots from Steam Deck, Linux, Windows, and Mac.
 The robot icon is preserved. There are two main views: **Drive** (the robot's
 controls) and **Settings** (Wi-Fi and saved addresses).
+The shared dark theme uses neutral surfaces, blue actions and distinct connection,
+warning and stop states. See the [design audit and scope](docs/DESIGN.md).
 
 The app works with two kinds of robots, detected automatically when an address is opened:
 

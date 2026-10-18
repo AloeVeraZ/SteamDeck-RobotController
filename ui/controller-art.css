@@ -1,5 +1,5 @@
 /* Device surface, bevels and input feedback are local SVG/CSS, usable offline. */
-#controller-visual{padding:2px 0 8px;background:radial-gradient(ellipse at 50% 65%,#43656821,transparent 68%);border-radius:10px}
+#controller-visual{padding:2px 0 8px}
 #controller-visual svg.device-illustration{display:block;width:100%;max-height:252px;overflow:visible}
 .device-illustration .device-shell{fill:url(#shell);stroke:#8895a259;stroke-width:1.4}
 .device-illustration .device-face{fill:url(#face);stroke:#81909a32;stroke-width:1}
@@ -57,8 +57,8 @@
 .device-illustration .sony-led{fill:none;stroke:#78adf3;stroke-width:2.5;opacity:.8}
 .device-illustration .device-view-caption{font:500 9px system-ui,sans-serif;letter-spacing:1.7px;fill:#869da9;text-anchor:middle}
 .controller-identity{position:relative}#controller-driver-details{font-size:11px;margin:0}
-#controller-driver-details summary{position:absolute;right:99px;top:16px;font-size:11px;color:#99b4bd;cursor:pointer}
+#controller-driver-details summary{position:absolute;right:99px;top:16px;font-size:11px;color:var(--muted);cursor:pointer}
 #controller-driver-details[open] summary{color:var(--accent)}#controller-driver-details code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,monospace;color:#b6c5cf;padding:12px 0 3px}
-#controller-driver-details p{font-size:11px;max-width:580px;margin:3px 0 0;color:#90a9b3}
+#controller-driver-details p{font-size:11px;max-width:580px;margin:3px 0 0;color:var(--muted)}
 @media(max-width:800px){#controller-visual svg.device-illustration{max-height:260px}}
 @media(max-width:540px){#controller-visual svg.device-illustration{max-height:210px}#controller-driver-details summary{position:static;margin-top:7px}#controller-driver-details p{font-size:11px}}

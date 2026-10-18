@@ -54,6 +54,24 @@ jobs:
           for model in 'Steam Deck LCD' 'Windows handheld' 'Apple Silicon'; do
             DECK_TEST_MODEL="$model" xvfb-run -a node tests/controller-app.cjs
           done
+      - name: Check redesigned controller and FTC layouts in Linux Electron
+        if: matrix.target == 'steamdeck'
+        env:
+          DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm install --prefix .cache/ui-check --no-save playwright@1.62.1
+          export DECK_PLAYWRIGHT="$PWD/.cache/ui-check/node_modules/playwright"
+          export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          xvfb-run -a node tests/controller-ui.cjs
+          xvfb-run -a node tests/design-ui.cjs
+      - uses: actions/upload-artifact@v4
+        if: matrix.target == 'steamdeck' && always()
+        with:
+          name: driver-station-ui-checks
+          path: |
+            test-results/controllers/*.png
+            test-results/design/*.png
       - uses: actions/checkout@v4
         if: matrix.target == 'steamdeck'
         with:

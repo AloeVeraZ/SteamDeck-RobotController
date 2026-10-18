@@ -1,5 +1,23 @@
 # Validation
 
+## Testing 2.4.7: cohesive driver station presentation
+
+- 62 Node tests include a new HTTP check that every app/FTC script and stylesheet
+  referenced by the local preview is actually served.
+- Native app checks cover Settings at LCD, 1366×768, 1920×1080, 4K and portrait
+  sizes, non-overlapping header controls, a visible primary setup action at LCD
+  and laptop sizes, keyboard dismissal and navigation state. Wi-Fi switching,
+  HTTP sign-in, persistence, updates and the original robot HTML still pass.
+- Native UDP FTC checks cover INIT/START/STOP, control swapping, Settings keeping
+  the robot connected, a visible and labelled STOP at LCD/laptop/desktop sizes,
+  low voltage and connection loss disabling the controls. The test screenshots
+  use an explicit simulator, never product-generated placeholder telemetry.
+- Controller diagnostics keep their live standard mappings and Deck-only help.
+  CI runs the controller and FTC visual checks in Linux Electron and retains
+  screenshots. See [design audit and scope](DESIGN.md).
+- Execution on physical Steam Deck and Apple Silicon hardware remains unverified
+  here. Existing robot control/communication logic is unchanged.
+
 ## Testing 2.4.6: controller illustration and identity
 
 - 61 Node tests pass, including conservative physical-model naming, virtual Xbox

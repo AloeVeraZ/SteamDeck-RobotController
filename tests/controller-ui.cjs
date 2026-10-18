@@ -4,7 +4,8 @@ const {_electron}=require(process.env.DECK_PLAYWRIGHT||'playwright');
 const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controllers');fs.mkdirSync(out,{recursive:true});
 (async()=>{
  const env={...process.env,DECK_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'deck-controller-ui-')),DECK_DEVICE_MODEL:'Steam Deck LCD',DECK_CONTROLLER_TEST:'1',DECK_HEADLESS:'1'};delete env.ELECTRON_RUN_AS_NODE;
- const app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env});
+ const args=[root,...(env.DECK_ELECTRON_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[])];
+ const app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args,env});
  try{
   const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof state==='object'&&!!window.__deckGamepadTest);
   await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[-0.55,-0.8,0.75,0.35],buttons:Array.from({length:17},(_,i)=>({pressed:[0,4,6].includes(i),value:[0,4].includes(i)?1:i===6?0.65:0}))}]));
@@ -43,7 +44,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
   assert.deepEqual(errors,[]);console.log('PASS: live visual sticks/buttons/triggers, persistent test screen, both slots visible, LCD/desktop/portrait controller layouts, no page errors.');
  }finally{await app.close();}
  for(const model of ['Windows desktop','ROG Ally','Mac']){
-  const other=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...env,DECK_DEVICE_MODEL:model,DECK_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'deck-controller-host-'))}});
+  const other=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args,env:{...env,DECK_DEVICE_MODEL:model,DECK_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'deck-controller-host-'))}});
   try{
    const page=await other.firstWindow();await page.waitForFunction(()=>typeof state==='object'&&!!window.__deckGamepadTest);
    // Even a controller reporting Steam Deck cannot turn a Windows/Mac host into one.

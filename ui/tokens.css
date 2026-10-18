@@ -1,0 +1,41 @@
+/* Shared app and FTC presentation tokens. Everything is local for offline robots. */
+:root {
+  color-scheme: dark;
+  --bg: #0e1116;
+  --surface: #191e26;
+  --raised: #202731;
+  --well: #12171e;
+  --line: #303945;
+  --line-strong: #465365;
+  --text: #edf1f7;
+  --muted: #a3aebd;
+  --quiet: #8996a7;
+  --accent: #5b9dff;
+  --accent-text: #a8cbff;
+  --accent-bg: #1b2d47;
+  --connected: #49d49e;
+  --connected-bg: #172e27;
+  --warning: #f1c16b;
+  --warning-bg: #332a1c;
+  --danger: #ff929c;
+  --danger-bg: #382128;
+  --radius: 8px;
+  --space: 16px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --shadow: 0 12px 40px #0006;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .45; }
+button, a, input, select, summary { -webkit-tap-highlight-color: transparent; }
+:where(button, a, input, select, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+::selection { background: #31598b; color: #fff; }
+@media (prefers-reduced-motion: no-preference) {
+  button, a, input, select { transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

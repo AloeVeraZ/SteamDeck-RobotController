@@ -22,6 +22,8 @@ function render(){
   if(s.activeOpMode!==STOP&&selected?.name!==s.activeOpMode){selected=opMode(s.activeOpMode)||{name:s.activeOpMode};}
   if(selected&&s.opModes.length&&!busy&&!opMode(selected.name))selected=null;
   const bad=['rejected','incompatible'].includes(s.connection);
+  // Presentation only: distinguish stopped, initialized, running and lost-link states.
+  document.body.dataset.robotState=s.robotState==='EMERGENCY_STOP'?'emergency':connected?s.opModeState:'disconnected';
   $('#link-banner').className='banner '+(connected?'connected':bad?'bad':'searching');
   $('#link-text').textContent=connected?'Robot Connected':s.connection==='rejected'?'Another DS Connected':s.connection==='incompatible'?'Robot Not Supported':'Searching for Robot';
   $('#network').textContent=info.ssid||info.host||'—';
