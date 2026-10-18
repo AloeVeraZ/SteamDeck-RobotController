@@ -8,9 +8,9 @@ for future Main releases; saved robots and settings are kept.
 
 | Device | One-line install |
 | --- | --- |
-| **Steam Deck LCD / OLED · Konsole** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash` |
-| **Windows x64 · PowerShell** | `irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 | iex` |
-| **Apple Silicon · Terminal** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash` |
+| **Steam Deck LCD / OLED · Konsole** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh \| bash` |
+| **Windows x64 · PowerShell** | `irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 \| iex` |
+| **Apple Silicon · Terminal** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh \| bash` |
 
 Steam Deck/Linux and Apple Silicon use the **same command**. Windows uses its built-in
 PowerShell shell. No administrator account is required. On Steam Deck, run from Desktop Mode;
