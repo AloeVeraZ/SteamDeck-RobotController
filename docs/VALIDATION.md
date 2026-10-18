@@ -12,6 +12,8 @@
   the robot connected, a visible and labelled STOP at LCD/laptop/desktop sizes,
   low voltage and connection loss disabling the controls. The test screenshots
   use an explicit simulator, never product-generated placeholder telemetry.
+- Live-region checks ensure an unchanged robot status is not re-announced on each
+  packet, while an actual mode-state change still updates the announcement.
 - Controller diagnostics keep their live standard mappings and Deck-only help.
   CI runs the controller and FTC visual checks in Linux Electron and retains
   screenshots. See [design audit and scope](DESIGN.md).

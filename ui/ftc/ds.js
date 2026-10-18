@@ -44,9 +44,11 @@ function render(){
   $('#timer-switch').checked=timerOn;$('#timer-switch').disabled=state==='running';
   $('#config').textContent=s.activeConfig?.name?`${s.activeConfig.name}${s.activeConfig.dirty?' *':''}`:'<No Config Set>';
   const name=s.activeOpMode===STOP?'':s.activeOpMode;
-  $('#status-line').textContent=!connected?(s.connection==='rejected'?'Status : Another Driver Station is connected to this robot':`Status : Looking for robot at ${info.host||'its address'}`)
+  const statusText=!connected?(s.connection==='rejected'?'Status : Another Driver Station is connected to this robot':`Status : Looking for robot at ${info.host||'its address'}`)
     :s.robotState==='EMERGENCY_STOP'?'Status : EMERGENCY STOP':state==='running'?`Status : Running ${name}`:state==='init'?`Status : Initialized ${name}`:'Status : Robot is stopped';
-  const sys=$('#system-message');sys.hidden=!(s.systemError||s.systemWarning);sys.textContent=s.systemError||s.systemWarning;sys.className='system '+(s.systemError?'error':'warning');
+  // Live regions announce changes, not every heartbeat/telemetry packet.
+  if($('#status-line').textContent!==statusText)$('#status-line').textContent=statusText;
+  const sys=$('#system-message'),message=s.systemError||s.systemWarning||'';sys.hidden=!message;if(sys.textContent!==message)sys.textContent=message;sys.className='system '+(s.systemError?'error':'warning');
   if(s.telemetry.updated!==lastTelemetry)renderTelemetry(s.telemetry);
   renderPractice();watchTransitions(s);
 }

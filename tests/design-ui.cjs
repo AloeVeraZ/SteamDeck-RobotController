@@ -27,6 +27,8 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','design')
   await station.locator('#teleop-list').click();await station.locator('#picker-list button').filter({hasText:'Field Centric'}).click();
   await station.locator('#main-action').click();await station.waitForFunction(()=>document.body.dataset.robotState==='init');
   await station.locator('#main-action').click();await station.waitForFunction(()=>document.body.dataset.robotState==='running');
+  await station.evaluate(()=>{window.statusAnnouncements=0;new MutationObserver(()=>window.statusAnnouncements++).observe(document.querySelector('#status-line'),{childList:true,characterData:true,subtree:true});});
+  await page.waitForTimeout(300);assert.equal(await station.evaluate(()=>window.statusAnnouncements),0,'unchanged status re-announced on each robot packet');
   for(const [width,height,name] of [[1280,800,'lcd'],[1366,768,'laptop'],[1920,1080,'desktop'],[390,844,'portrait']]){
    await window.evaluate((w,s)=>{w.setMinimumSize(0,0);w.setContentSize(s.width,s.height);},{width,height});await page.waitForTimeout(150);
    const layout=await station.evaluate(()=>({width:innerWidth,height:innerHeight,scroll:document.documentElement.scrollWidth,stop:document.querySelector('#main-action').getBoundingClientRect().toJSON()}));
@@ -37,6 +39,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','design')
   }
   await window.evaluate(w=>w.setContentSize(1280,800));
   await station.locator('#main-action').click();await station.waitForFunction(()=>document.body.dataset.robotState==='stopped');assert.equal(robot.sim.opState,'stopped');
+  assert.ok(await station.evaluate(()=>window.statusAnnouncements>0),'changed robot state was not announced');
   robot.sim.battery='10.50';await station.waitForFunction(()=>document.querySelector('#volts-tile').classList.contains('danger'));
   assert.ok((await station.locator('#volts').textContent()).includes('10.50 V'));
   await station.screenshot({path:path.join(out,'ftc-low-voltage.png'),scale:'css'});
