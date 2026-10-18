@@ -23,11 +23,19 @@ async function until(fn,label){for(let i=0;i<100;i++){if(await fn())return;await
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth),'Drive has horizontal overflow');
   }
   await native.evaluate((w,size)=>w.setContentSize(...size),original.size);
+  await page.waitForFunction(size=>innerWidth===size[0]&&innerHeight===size[1],original.size);
   for(const method of ['button','escape','settings','already-fullscreen','close']){
    if(method==='already-fullscreen'){await native.evaluate(w=>w.setFullScreen(true));await until(()=>native.evaluate(w=>w.isFullScreen()),'app fullscreen');}
    await page.locator('#robot-fullscreen').click();await page.waitForFunction(()=>state.robotFullscreen&&document.body.classList.contains('robot-fullscreen'));
    await until(()=>native.evaluate(w=>w.isFullScreen()),'robot fullscreen');
-   const views=await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];return {size:w.getContentSize(),children:w.contentView.children.map(v=>({url:v.webContents.getURL(),bounds:v.getBounds()}))};});
+   // Linux/macOS fullscreen transitions and child-view resize notifications are
+   // asynchronous. Require the real viewport/overlay bounds to converge first.
+   let views;
+   await until(async()=>{
+    views=await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];return {size:w.getContentSize(),children:w.contentView.children.map(v=>({url:v.webContents.getURL(),bounds:v.getBounds()}))};});
+    const target=views.children.find(v=>v.url.startsWith('http://127.0.0.1:')),exit=views.children.at(-1);
+    return target?.bounds.x===0&&target.bounds.y===0&&target.bounds.width===views.size[0]&&target.bounds.height===views.size[1]&&exit?.bounds.x===views.size[0]-52;
+   },'fullscreen view and exit bounds: '+method);
    const target=views.children.find(v=>v.url.startsWith('http://127.0.0.1:')),exit=views.children.at(-1);
    assert.deepEqual(target.bounds,{x:0,y:0,width:views.size[0],height:views.size[1]});assert.ok(exit.url.endsWith('robot-fullscreen-exit.html'),'exit control is not above the robot view');assert.deepEqual(exit.bounds,{x:views.size[0]-52,y:12,width:40,height:40});
    assert.equal(await page.locator('body>header').isVisible(),false);assert.equal(await page.locator('.browser-toolbar').isVisible(),false);assert.equal(await robot.evaluate(()=>window.pageToken),token);assert.equal(await robot.evaluate(()=>typeof window.robotViewControls),'undefined');
