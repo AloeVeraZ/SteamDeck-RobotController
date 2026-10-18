@@ -46,7 +46,7 @@ jobs:
           DECK_ELECTRON_TEST_NO_SANDBOX: '1'
           DECK_TEST_CONTROLLERS_ONLY: '1'
         run: |
-          sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          sudo apt-get update && sudo apt-get install -y xvfb openbox libgtk-3-0t64 libnss3 libasound2t64 libgbm1
           export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
           for model in 'Steam Deck LCD' 'Steam Deck OLED' 'ROG Ally X' 'Lenovo Legion Go'; do
             DECK_TEST_MODEL="$model" xvfb-run -a node tests/ftc-app.cjs
@@ -66,7 +66,7 @@ jobs:
           DECK_UI_LAYOUT_ONLY=1 xvfb-run -a node tests/ui.cjs
           xvfb-run -a node tests/controller-ui.cjs
           xvfb-run -a node tests/design-ui.cjs
-          xvfb-run -a node tests/robot-fullscreen.cjs
+          DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/robot-fullscreen.cjs
           xvfb-run -a node tests/controller-compatibility.cjs
       - uses: actions/upload-artifact@v4
         if: matrix.target == 'steamdeck' && always()

@@ -1,11 +1,16 @@
 'use strict';
 const path=require('node:path'),fs=require('node:fs'),os=require('node:os'),http=require('node:http'),assert=require('node:assert/strict');
 const {_electron}=require(process.env.DECK_PLAYWRIGHT||'playwright');
+const {spawn}=require('node:child_process');
 const root=path.join(__dirname,'..'),wait=ms=>new Promise(r=>setTimeout(r,ms));
 async function until(fn,label){for(let i=0;i<100;i++){if(await fn())return;await wait(50);}throw Error('Timed out: '+label);}
 (async()=>{
+ // A bare Xvfb server has no WM to apply/acknowledge fullscreen geometry. Run
+ // the Linux check with a real WM and a shown window, like a desktop install.
+ const wm=process.platform==='linux'&&process.env.DECK_TEST_WINDOW_MANAGER==='openbox'?spawn('openbox',[],{stdio:'ignore'}):null;
+ if(wm)await new Promise((resolve,reject)=>{wm.once('spawn',resolve);wm.once('error',reject);});
  const server=http.createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Fullscreen robot fixture</title><style>body{margin:0;background:#111214;color:#f7f4ed;font:20px system-ui;padding:30px}h1{color:#9dccff}</style><h1>Robot interface</h1><p>The same robot page remains open.</p><script>window.pageToken=Math.random();setInterval(()=>window.sample=navigator.getGamepads()[0]?.axes[1],20)</script>');});await new Promise(r=>server.listen(0,'127.0.0.2',r));
- const env={...process.env,DECK_HEADLESS:'1',DECK_CONTROLLER_TEST:'1',DECK_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'deck-robot-fullscreen-'))};delete env.ELECTRON_RUN_AS_NODE;
+ const env={...process.env,DECK_HEADLESS:process.platform==='linux'?'0':'1',DECK_CONTROLLER_TEST:'1',DECK_DATA_DIR:fs.mkdtempSync(path.join(os.tmpdir(),'deck-robot-fullscreen-'))};delete env.ELECTRON_RUN_AS_NODE;
  const app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root,...(env.DECK_ELECTRON_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[])],env});
  try{
   const page=await app.firstWindow();await page.waitForFunction(()=>typeof state==='object'&&!!window.deck);const native=await app.browserWindow(page);
@@ -53,5 +58,5 @@ async function until(fn,label){for(let i=0;i<100;i++){if(await fn())return;await
   }
   assert.equal(await page.locator('#robot-fullscreen').isVisible(),false);assert.deepEqual(await native.evaluate(w=>w.getContentSize()),original.size);
   console.log('PASS: native robot-only fullscreen bounds and topmost X; button/Escape/Settings/close restoration; existing app fullscreen preserved; same robot page and controller inputs remain; isolated exit overlay.');
- }finally{await app.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+ }finally{await app.close();wm?.kill();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
