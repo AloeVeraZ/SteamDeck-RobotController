@@ -23,8 +23,9 @@ Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/Ste
 An app for driving your robots from Steam Deck, Linux, Windows, and Mac.
 The robot icon is preserved. There are two main views: **Drive** (the robot's
 controls) and **Settings** (Wi-Fi and saved addresses).
-The shared dark theme uses neutral surfaces, blue actions and distinct connection,
-warning and stop states. See the [design audit and scope](docs/DESIGN.md).
+The shared theme follows MotionModule: warm near-black surfaces, locally bundled
+Inter/Barlow Condensed fonts, steel-blue actions and distinct connection, warning
+and stop states. See the [design audit and scope](docs/DESIGN.md).
 
 The app works with two kinds of robots, detected automatically when an address is opened:
 
@@ -59,8 +60,10 @@ slot's pad swaps them. The assignment press is suppressed until buttons are rele
 sticks centered. **Use automatic assignment** restores the preferred built-in Controller 1.
 The test screen stays open until you close it and holds robot gamepad outputs at rest.
 
-The live illustration uses standard gamepad indices, with a Steam Deck or PlayStation-style
-view when the reported product identifies it. Known model names appear throughout setup;
+The live illustration follows [Hardware Tester's controller layout](https://hardwaretester.com/gamepad):
+one flat standard-input diagram, detached shoulders/triggers, offset sticks, and live
+stick-position plots. All 17 standard button indices and analog trigger levels remain visible.
+This is an input map rather than a picture of the connected physical model. Known model names appear throughout setup;
 ambiguous Xbox/XInput or virtual drivers display **Generic controller**. **Driver details**
 keeps the original OS identifier available. A Steam Deck host alone cannot prove that an
 Xbox-compatible input is its built-in controller. Steam Deck desktop-shortcut guidance

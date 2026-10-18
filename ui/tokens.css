@@ -1,29 +1,37 @@
-/* Shared app and FTC presentation tokens. Everything is local for offline robots. */
+/* MotionModule palette and bundled OFL fonts, shared by the app and FTC view. */
+@font-face{font-family:Inter;font-style:normal;font-weight:300 700;font-display:swap;src:url('fonts/inter-latin.woff2') format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/barlow-condensed-700-latin.woff2') format('woff2')}
 :root {
   color-scheme: dark;
-  --bg: #0e1116;
-  --surface: #191e26;
-  --raised: #202731;
-  --well: #12171e;
-  --line: #303945;
-  --line-strong: #465365;
-  --text: #edf1f7;
-  --muted: #a3aebd;
-  --quiet: #8996a7;
-  --accent: #5b9dff;
-  --accent-text: #a8cbff;
-  --accent-bg: #1b2d47;
-  --connected: #49d49e;
-  --connected-bg: #172e27;
-  --warning: #f1c16b;
-  --warning-bg: #332a1c;
-  --danger: #ff929c;
-  --danger-bg: #382128;
-  --radius: 8px;
+  --bg: #080808;
+  --surface: #111214;
+  --raised: #17181b;
+  --well: #0b0c0e;
+  --control: #1b1c1f;
+  --line: #292a2c;
+  --line-strong: #45464a;
+  --edge-top: #3b3b3a;
+  --text: #f7f4ed;
+  --muted: #b4b1a9;
+  --quiet: #96938d;
+  --accent: #7ba8d8;
+  --accent-text: #9dccff;
+  --accent-bg: #17202a;
+  --connected: #45cf9a;
+  --connected-bg: #14231e;
+  --warning: #f0c063;
+  --warning-bg: #2a2418;
+  --danger: #ff8189;
+  --danger-bg: #2b1a1c;
+  --radius: 16px;
   --space: 16px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
   --shadow: 0 12px 40px #0006;
+  --accent-fill: linear-gradient(180deg,#86b1df,#6b9acd);
+  --grid-major: #91c8ff0c;
+  --grid-minor: #ffffff04;
 }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }

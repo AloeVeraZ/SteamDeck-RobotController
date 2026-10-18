@@ -1,6 +1,7 @@
 'use strict';
 const path=require('node:path'),fs=require('node:fs'),assert=require('node:assert/strict'),http=require('node:http');const {_electron}=require(process.env.DECK_PLAYWRIGHT||'playwright');
 const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.mkdirSync(out,{recursive:true});
+const launchArgs=[root,...(process.env.DECK_ELECTRON_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[])];
 (async()=>{
   let releaseMode='empty';const updateBytes=Buffer.from('update download fixture'),updateHash=require('node:crypto').createHash('sha256').update(updateBytes).digest('hex');
   const actions=[];const server=http.createServer(async(req,res)=>{
@@ -14,16 +15,17 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.
   });await new Promise(r=>server.listen(0,'127.0.0.2',r));const target=`http://127.0.0.2:${server.address().port}`;
   const data=path.join(out,'data-'+Date.now());let app;
   try{
-    app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});
+    app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:launchArgs,env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});
     const page=await app.firstWindow(),errors=[];await app.evaluate(({app})=>{const req=process.getBuiltinModule('node:module').createRequire(app.getAppPath()+'/package.json');const {Network}=req('./src/network.cjs');let ssid='Test Home';Network.prototype.status=async()=>({connected:true,available:true,native:true,ssid});Network.prototype.scan=async()=>[{ssid:'Test Home',security:'WPA2',signal:99},{ssid:'Robot Wi-Fi',security:'WPA2',signal:80}];Network.prototype.join=async function(name,password){if(name!=='Test Home'&&!password){const e=Error('Enter Wi-Fi password');e.code='NEEDS_PASSWORD';throw e;}ssid=name;return this.status();};});page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof window.deck==='object'&&document.querySelector('#wifi-summary')?.textContent!=='Checking your network…');
     await page.locator('#settings-tab').click();await page.waitForFunction(()=>state.page==='settings');const window=await app.browserWindow(page);
     const layouts=[[1280,800,'lcd'],[1366,768,'laptop'],[1920,1080,'desktop'],[3840,2160,'4k'],[390,844,'portrait']];for(const [width,height,name]of process.env.DECK_UI_QUICK?layouts.slice(0,1):layouts){
       await window.evaluate((w,s)=>{w.setMinimumSize(0,0);w.setContentSize(s.width,s.height);},{width,height});await page.waitForTimeout(120);
-      const dims=await page.evaluate(()=>({w:innerWidth,scroll:document.documentElement.scrollWidth}));assert.ok(dims.scroll<=dims.w+1,`${name} has horizontal overflow: ${JSON.stringify(dims)}`);
+      const dims=await page.evaluate(()=>({w:document.documentElement.clientWidth,scroll:document.documentElement.scrollWidth}));assert.ok(dims.scroll<=dims.w+1,`${name} has horizontal overflow: ${JSON.stringify(dims)}`);
       const boxes=await page.locator('header').evaluate(h=>[...h.querySelectorAll('.brand,nav,.header-right')].map(e=>{const r=e.getBoundingClientRect();return {left:r.left,right:r.right};}));assert.ok(boxes[0].right<=boxes[1].left&&boxes[1].right<=boxes[2].left&&boxes[2].right<=width,name+' header controls overlap');
       if(name==='lcd'||name==='laptop'){const open=await page.locator('#open-robot').boundingBox();assert.ok(open.y+open.height<=height,name+' primary setup action below fold');}
       await page.screenshot({path:path.join(out,'settings-'+name+'.png'),fullPage:true,scale:'css'});
     }
+    if(process.env.DECK_UI_LAYOUT_ONLY==='1'){console.log('PASS: LCD/1366/1920/4K/portrait Settings layouts, no horizontal overflow, aligned header and visible primary setup action.');return;}
     await window.evaluate(w=>w.setContentSize(1280,800));
     assert.equal(await page.locator('.version').textContent(),require('../package.json').version+' · testing');
     assert.equal(await page.locator('#settings-tab').getAttribute('aria-current'),'page');
@@ -51,7 +53,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.
     await page.locator('#update-install').click();await page.waitForFunction(()=>document.querySelector('#update-status').textContent.includes('development copy'));
     await page.screenshot({path:path.join(out,'updates.png'),fullPage:true,scale:'css'});await page.locator('#update-close').click();assert.deepEqual(errors,[]);
     await app.close();app=null;
-    app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});const second=await app.firstWindow();await second.waitForFunction(()=>typeof state==='object'&&state.robots.length===2);
+    app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:launchArgs,env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});const second=await app.firstWindow();await second.waitForFunction(()=>typeof state==='object'&&state.robots.length===2);
     console.log('PASS: LCD/1366/1920/4K/portrait layouts, visible setup action and aligned header; original robot HTML; secure Gamepad context; isolated renderer; robot-owned action; native HTTP sign-in; saved addresses; persistence; Wi-Fi dropdown/connect/password/collapse; keyboard dismissal; read-only network binding; enlarged Updates dialog; Main/Testing confirmation; unpublished/current/available/error states; verified download; development install protection.');
   }finally{if(app)await app.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

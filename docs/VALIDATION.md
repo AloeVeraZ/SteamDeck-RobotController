@@ -1,5 +1,22 @@
 # Validation
 
+## Testing 2.4.8: Hardware Tester layout and MotionModule styling
+
+- The controller setup uses one flat standard controller diagram with live stick
+  movement, 17 independent button highlights, vertical analog trigger fills, XY
+  plots and numeric axes. Product names and raw routing identities stay separate.
+- Native input checks verify trigger levels, both XY plots, full standard button
+  coverage, naming, LCD/desktop/portrait layouts and visible Done with expanded
+  help. Steam Deck help remains specific to detected Steam Deck hardware.
+- The app and FTC view share MotionModule's palette, bundled offline fonts, rounded
+  panels and pill controls. The font licenses are included in each package. The
+  preview asset test covers font downloads and their MIME types as well as scripts
+  and stylesheets; all 62 Node tests pass.
+- Native shell checks retain Wi-Fi switching, sign-in, saved addresses, updates
+  and the original robot page at LCD, laptop, desktop, 4K and portrait sizes.
+- Physical Steam Deck/Apple Silicon execution and Bluetooth radio behavior remain
+  device checks. Robot communication, initialization and wiring are unchanged.
+
 ## Testing 2.4.7: cohesive driver station presentation
 
 - 62 Node tests include a new HTTP check that every app/FTC script and stylesheet

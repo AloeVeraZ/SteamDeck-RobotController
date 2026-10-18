@@ -4,15 +4,14 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
   const names=['A / Cross','B / Circle','X / Square','Y / Triangle','LB / L1','RB / R1','LT / L2','RT / R2','Back / View','Start / Menu','Left stick click','Right stick click','D-pad up','D-pad down','D-pad left','D-pad right','Guide / Home'];
   const number=v=>Number.isFinite(v)?Math.max(-1,Math.min(1,v)):0;
   let info={count:1,slots:[null,null],readings:[]},slot=1,lastCapture=null,lastAssignment=0,captureMessage='';
-  let viewKind='';
-  function drawController(kind){if(viewKind===kind)return;viewKind=kind;$('#controller-visual').innerHTML=window.DeckControllerArt.render(kind);}
+  $('#controller-visual').innerHTML=window.DeckControllerArt.render();
   const buttonNodes=names.map((name,index)=>{const item=document.createElement('div');item.className='input-button';item.dataset.button=String(index);const title=document.createElement('span');title.textContent=name;const value=document.createElement('output');value.textContent='0.00';value.setAttribute('aria-label',name+' value');const small=document.createElement('small');small.textContent='Button '+index;item.append(title,value,small);$('#controller-buttons').append(item);return item;});
   const axisNodes=['Left X','Left Y','Right X','Right Y'].map((name,index)=>{const item=document.createElement('div');item.className='axis-reading';const label=document.createElement('span'),value=document.createElement('output'),detail=document.createElement('small');label.textContent=name;value.textContent='0.00';value.id='controller-axis-'+index;detail.textContent='Axis '+index;item.append(label,value,detail);$('#controller-axes').append(item);return value;});
   function renderMonitor(){
     if(!dialog.open)return;
     const pad=info.slots?.[slot-1],reading=info.readings?.[slot-1],capturing=info.capture?.slot===slot,optional=slot===2&&info.count===1,h=hardware();
     $('#controller-dialog-title').textContent='Controller '+slot;
-    const identity=window.DeckControllers.identity(pad,h);drawController(identity.art);
+    const identity=window.DeckControllers.identity(pad,h);
     $('#controller-monitor-name').textContent=pad?identity.name:(slot===1&&h.builtInController?h.model+' controls · waiting for gamepad input':'No controller assigned');
     $('#controller-driver-name').textContent=pad?.id||'No driver reported';$('#controller-identity-note').textContent=identity.note;$('#controller-driver-details').hidden=!pad;
     $('#controller-monitor-dot').className='dot'+(pad?' live':'');
@@ -26,12 +25,13 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     const visual=$('#controller-visual svg'),travel=Number(visual.dataset.stickTravel);
     $('#stick-left-dot').setAttribute('transform',`translate(${axes[0]*travel} ${axes[1]*travel})`);
     $('#stick-right-dot').setAttribute('transform',`translate(${axes[2]*travel} ${axes[3]*travel})`);
-    $('#screen-left-dot')?.setAttribute('transform',`translate(${axes[0]*43} ${axes[1]*43})`);
-    $('#screen-right-dot')?.setAttribute('transform',`translate(${axes[2]*43} ${axes[3]*43})`);
+    $('#plot-left-dot').setAttribute('transform',`translate(${axes[0]*44} ${axes[1]*44})`);
+    $('#plot-right-dot').setAttribute('transform',`translate(${axes[2]*44} ${axes[3]*44})`);
     const buttons=names.map((_,i)=>{const b=reading?.buttons?.[i];return Math.max(0,number(typeof b==='object'?b.value:b));});
     buttonNodes.forEach((node,i)=>{node.classList.toggle('pressed',buttons[i]>0.2);node.querySelector('output').textContent=buttons[i].toFixed(2);});
     for(const node of document.querySelectorAll('[data-pad-button]'))node.classList.toggle('pressed',buttons[Number(node.dataset.padButton)]>0.2);
-    const triggerWidth=Number(visual.dataset.triggerWidth);$('#trigger-left-fill').setAttribute('width',String(buttons[6]*triggerWidth));$('#trigger-right-fill').setAttribute('width',String(buttons[7]*triggerWidth));
+    const triggerHeight=Number(visual.dataset.triggerHeight),triggerBottom=Number(visual.dataset.triggerBottom);
+    for(const [side,index] of [['left',6],['right',7]]){const fill=$('#trigger-'+side+'-fill');fill.setAttribute('height',String(buttons[index]*triggerHeight));fill.setAttribute('y',String(triggerBottom-buttons[index]*triggerHeight));}
     $('#controller-assign').textContent=capturing?'Cancel assignment':pad?'Reassign controller '+slot:'Assign controller '+slot;
     $('#controller-auto').hidden=slot!==1||!api.controllerAutomatic;
     $('#controller-robot-note').textContent=(optional?'This robot uses one controller. Controller 2 is available on standby; select Two controllers in the robot’s Settings when it needs a second operator. ':'')+'The robot defines each control’s action. Gamepad outputs to the robot stay neutral while this test is open.';
@@ -51,7 +51,7 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     if(dialog.open&&lastCapture&&!info.capture){const assigned=(info.assignment?.serial||0)>lastAssignment;captureMessage=assigned?'Assigned. Release buttons and center sticks, then test below.':'Assignment ended. Your previous selection is kept.';}
     lastCapture=info.capture;lastAssignment=info.assignment?.serial||0;renderMonitor();
   }
-  function show(selected=slot){if(!dialog.open||selected!==slot)captureMessage='';slot=selected;if(!dialog.open)dialog.showModal();renderMonitor();syncOverlay();}
+  function show(selected=slot){if(!dialog.open||selected!==slot){captureMessage='';$('#controller-mode-help').open=!info.slots?.[selected-1];}slot=selected;if(!dialog.open)dialog.showModal();renderMonitor();syncOverlay();}
   async function start(){if(!api.controllerCapture){toast('Use the installed app to assign controllers.');return;}if(info.capture){render(await api.controllerCancel());return;}render(await api.controllerCapture(slot));}
   async function close(){if(info.capture&&api.controllerCancel)render(await api.controllerCancel());dialog.close();syncOverlay();}
   const task=fn=>void Promise.resolve().then(fn).catch(error=>toast(error.message));

@@ -11,6 +11,8 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
   await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[-0.55,-0.8,0.75,0.35],buttons:Array.from({length:17},(_,i)=>({pressed:[0,4,6].includes(i),value:[0,4].includes(i)?1:i===6?0.65:0}))}]));
   await page.waitForFunction(()=>document.querySelector('#controller-1 small').textContent.includes('Steam Deck LCD controls'));
   await page.locator('#controller-1').click();await page.locator('#controller-dialog').waitFor({state:'visible'});
+  await page.evaluate(()=>document.fonts.ready.then(()=>undefined));
+  assert.ok(await page.evaluate(()=>document.fonts.check('400 13px Inter')&&document.fonts.check('700 24px "Barlow Condensed"')),'MotionModule fonts did not load offline');
   await page.waitForFunction(()=>document.querySelector('#controller-axis-1').textContent==='-0.80');
   const window=await app.browserWindow(page);
   for(const [width,height,name] of [[1280,800,'lcd'],[1920,1080,'desktop'],[390,844,'portrait']]){
@@ -26,20 +28,25 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
   for(const [id,name,art] of [['Microsoft X-Box 360 pad 0','Generic controller','generic'],['DualSense Wireless Controller','DualSense controller','playstation'],['Xbox One Wireless Controller','Xbox One controller','xbox']]){
    await page.evaluate(id=>window.__deckGamepadTest.set([{id,index:0,mapping:'standard',connected:true,axes:[-.55,-.8,.75,.35],buttons:Array.from({length:17},(_,i)=>({pressed:[0,4,6].includes(i),value:[0,4].includes(i)?1:i===6?.65:0}))}]),id);
    await page.waitForFunction(name=>document.querySelector('#controller-monitor-name').textContent===name,name);
-   assert.equal(await page.locator('#controller-visual svg').getAttribute('data-device-view'),art);
+   assert.equal(await page.locator('#controller-visual svg').getAttribute('data-device-view'),'standard');
    assert.equal(await page.locator('#controller-driver-name').textContent(),id);
    assert.equal(await page.locator('#controller-1 small').textContent(),name);
    assert.equal(await page.locator('#setup-controller-1-name').textContent(),name);
    assert.deepEqual((await page.locator('[data-pad-button]').evaluateAll(nodes=>nodes.map(n=>Number(n.dataset.padButton)))).sort((a,b)=>a-b),Array.from({length:17},(_,i)=>i));
    assert.equal(await page.locator('[data-pad-button].pressed').count(),3);
-   assert.equal(await page.locator('#trigger-left-fill').getAttribute('width'),'61.75');
-   assert.equal(await page.locator('#trigger-right-fill').getAttribute('width'),'0');
-   assert.equal(await page.locator('#stick-left-dot').getAttribute('transform'),'translate(-8.8 -12.8)');
-   assert.equal(await page.locator('#stick-right-dot').getAttribute('transform'),'translate(12 5.6)');
+   assert.equal(await page.locator('#trigger-left-fill').getAttribute('height'),'22.1');
+   assert.equal(await page.locator('#trigger-right-fill').getAttribute('height'),'0');
+   assert.equal(await page.locator('#trigger-left-fill').getAttribute('y'),'17.9');
+   assert.equal(await page.locator('#plot-left-dot').getAttribute('transform'),'translate(-24.200000000000003 -35.2)');
+   assert.equal(await page.locator('#plot-right-dot').getAttribute('transform'),'translate(33 15.399999999999999)');
+   assert.equal(await page.locator('#stick-left-dot').getAttribute('transform'),'translate(-4.4 -6.4)');
+   assert.equal(await page.locator('#stick-right-dot').getAttribute('transform'),'translate(6 2.8)');
    const done=await page.locator('#controller-done').boundingBox();assert.ok(done.y+done.height<=800,art+' illustration pushes exit off LCD');
    await page.screenshot({path:path.join(out,'input-test-'+art+'.png'),scale:'css'});
   }
   await page.locator('#controller-driver-details summary').click();await page.locator('#controller-driver-name').waitFor({state:'visible'});
+  await page.locator('#controller-mode-title').click();
+  const expandedDone=await page.locator('#controller-done').boundingBox();assert.ok(expandedDone.y+expandedDone.height<=800,'expanded help hides Done on LCD');
   await page.locator('#controller-done').click();await page.locator('#controller-dialog').waitFor({state:'hidden'});
   assert.deepEqual(errors,[]);console.log('PASS: live visual sticks/buttons/triggers, persistent test screen, both slots visible, LCD/desktop/portrait controller layouts, no page errors.');
  }finally{await app.close();}

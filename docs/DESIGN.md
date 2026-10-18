@@ -5,7 +5,26 @@ robot state, useful information density, and one component language across the
 launcher, input diagnostics and the built-in FTC station. Inspiration:
 [Linear](https://linear.app), [Foxglove](https://foxglove.dev),
 [Fluent 2](https://fluent2.microsoft.design), and [shadcn/ui](https://ui.shadcn.com).
-No third-party interface code, fonts or assets are loaded at runtime.
+The current presentation follows the user's subsequent request to match
+[MotionModule](https://github.com/AloeVeraZ/MotionModule): warm near-black surfaces,
+steel-blue accents, floating rounded chrome, pill controls, Inter text and Barlow
+Condensed headings. Fonts are bundled locally under the SIL Open Font License;
+the app requires no font CDN or third-party page at runtime.
+
+## Controller setup (2.4.8)
+
+The user requested [Hardware Tester's standard controller layout](https://hardwaretester.com/gamepad).
+The new original SVG follows that arrangement: upright triggers above detached
+bumpers, left stick high/right stick low, separate four-way D-pad and face-button
+lobes, and small center buttons. It replaces the earlier shaded Steam Deck and
+console illustrations. One diagram represents the standard Gamepad API mapping
+on every device; the title still shows the known product or Generic controller.
+
+Trigger fill rises with its actual analog value, each key highlights from its
+standard button index, and both sticks have live XY position plots plus numeric
+axis readouts. No calibration or robot bindings are changed by this screen.
+Input-mode help expands on demand (automatically when no pad is assigned), and
+the action footer stays visible when help or driver details are expanded.
 
 ## Audit and resolution, by severity
 
@@ -45,7 +64,7 @@ No third-party interface code, fonts or assets are loaded at runtime.
   pause during setup, model naming and Steam Deck-only help remain intact.
 - Touch targets for primary controls stay at least 40–44 px. Driving controls and
   connection state stay visible on landscape handhelds; narrow windows stack.
-- System fonts and local SVG/CSS work without internet access. Transitions only
+- Bundled fonts and local SVG/CSS work without internet access. Transitions only
   affect control colors; there are no continuous decorative animations.
 
 ## Review sizes and evidence

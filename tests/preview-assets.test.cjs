@@ -8,7 +8,9 @@ test('local preview serves every script and stylesheet referenced by the app and
   for(const page of ['/index.html','/ftc/index.html']){
    const url=`http://127.0.0.1:${port}${page}`,response=await fetch(url);assert.equal(response.status,200);const html=await response.text();
    const paths=[...html.matchAll(/<(?:script|link)\b[^>]*(?:src|href)="([^"]+)"/g)].map(match=>match[1]);assert.ok(paths.length>3);
-   for(const asset of paths){const resource=await fetch(new URL(asset,url));assert.equal(resource.status,200,page+' missing '+asset);assert.ok((await resource.arrayBuffer()).byteLength>0,asset+' is empty');}
+   for(const asset of paths){const resourceUrl=new URL(asset,url),resource=await fetch(resourceUrl);assert.equal(resource.status,200,page+' missing '+asset);const bytes=await resource.arrayBuffer();assert.ok(bytes.byteLength>0,asset+' is empty');
+    if(asset.endsWith('.css'))for(const font of new TextDecoder().decode(bytes).matchAll(/url\(['"]?(fonts\/[^'")]+\.woff2)['"]?\)/g)){const response=await fetch(new URL(font[1],resourceUrl));assert.equal(response.status,200,'Offline font missing: '+font[1]);assert.equal(response.headers.get('content-type'),'font/woff2');assert.ok((await response.arrayBuffer()).byteLength>1000);}
+   }
   }
  }finally{child.kill();}
 });
