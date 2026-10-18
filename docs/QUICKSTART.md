@@ -1,5 +1,18 @@
 # Install and use Deck Driver Station 2
 
+Download the **Main** installer directly from the [GitHub README](../README.md#%EF%B8%8F-download),
+or paste one line into a terminal:
+
+- Steam Deck / Linux and Mac: `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash`
+- Windows (PowerShell): `irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 | iex`
+
+The sections below describe the downloadable packages and manual setup.
+All initial installs use the latest stable Main release. After installing, open
+**⋮ → Updates → Testing** and accept the experimental warning to change channels.
+Return to **Main** from that same menu. Saved robots and Wi-Fi settings are kept.
+These commands contain no version number and continue to work for future stable
+releases. Close the app before running an installer again; saved data is kept separately.
+
 ## Steam Deck LCD / OLED and Linux x64
 
 1. Download `DeckDriverStation-2.4.2-SteamDeck.run` onto the Deck.
