@@ -6,11 +6,14 @@ if(window.top===window){
   let config={count:1,slots:[null,null],blocked:[],paused:true,capture:null};const listeners=new Set();
   ipcRenderer.on('controller-config',(_event,value)=>{config=value;for(const listener of listeners)listener(value);});
   contextBridge.exposeInMainWorld('__deckControllerInput',{state:()=>config,report:pads=>ipcRenderer.send('controller-input',pads),onState:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}});
-  contextBridge.executeInMainWorld({func:fixtures=>{
+  contextBridge.executeInMainWorld({func:(fixtures,shell)=>{
     const input=window.__deckControllerInput;let config=input.state(),raw=()=>Array.from(original()||[]),lastReport='',previous=[null,null];
     const original=navigator.getGamepads?.bind(navigator)||(()=>[]);
     const getRaw=()=>{try{return raw();}catch{return [];}};
     const projected=()=>{
+      // Dashboard navigation belongs to touch/mouse/keyboard. Raw reporting
+      // below still feeds assignment diagnostics without exposing gamepads here.
+      if(shell)return [null,null,null,null];
       const pads=getRaw();return [0,1,2,3].map(slot=>{
         const selected=slot<config.count?config.slots[slot]:null,p=selected&&pads.find(p=>p?.connected&&p.index===selected.index&&p.id===selected.id);if(!p)return null;
         // Never guess raw DirectInput/HID indices. Chromium maps recognized
@@ -27,6 +30,6 @@ if(window.top===window){
     for(const name of ['gamepadconnected','gamepaddisconnected'])window.addEventListener(name,event=>{if(event.isTrusted){event.stopImmediatePropagation();report(true);}},true);
     input.onState(next=>{config=next;events();report(true);});setInterval(()=>report(),20);report(true);
     if(fixtures)Object.defineProperty(window,'__deckGamepadTest',{value:{set:pads=>{raw=()=>pads;report(true);},reset:()=>{raw=()=>Array.from(original()||[]);report(true);}}});
-  },args:[process.argv.includes('--deck-controller-fixtures')]});
+  },args:[process.argv.includes('--deck-controller-fixtures'),process.argv.includes('--deck-controller-shell')]});
   ipcRenderer.send('controller-ready');
 }

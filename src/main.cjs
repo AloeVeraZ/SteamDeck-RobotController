@@ -5,7 +5,9 @@ const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
+const {RobotKeyboard}=require('./touch-keyboard.cjs');let robotKeyboard;
 const controllerSessions=new WeakSet(),controllerArguments=process.env.DECK_CONTROLLER_TEST==='1'?['--deck-controller-fixtures']:[];
+const robotArguments=()=>[...controllerArguments,...(device.builtInController?['--deck-touch-first']:[])];
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
 let managerView=null,managerProxy=null;
@@ -16,11 +18,11 @@ if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:
 if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',()=>{win?.show();win?.focus();});
 function emit(channel,value){try{if(win&&!win.isDestroyed())win.webContents.send(channel,value);}catch{}}
 function snapshot(){return {...state,robots:library?.list(currentNetwork?.ssid),network:currentNetwork};}
-function update(patch={}){Object.assign(state,patch);if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);emit('state',snapshot());}
+function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||state.error||!state.url)robotKeyboard?.hide({focus:false});if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);emit('state',snapshot());}
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
-function controllerState(){return {...(controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]}),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView};}
+function controllerState(){return {...(controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]}),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
 function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused}=value;return {count,slots,capture,blocked,paused};}
 function sendControllers(force=false){
   if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
@@ -29,23 +31,27 @@ function sendControllers(force=false){
   // routing and pause state, not the test screen's other-controller readings.
   const config=inputConfig(value),routing=JSON.stringify(config);if(force||routing!==lastInputConfig){lastInputConfig=routing;for(const view of [win,robotView])try{view?.webContents.send('controller-config',config);}catch{}}
 }
-function controllerSession(session){if(!controllerSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'controller-preload.cjs')});controllerSessions.add(session);}}
+const touchSessions=new WeakSet();
+function touchSession(session){if(!touchSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'touch-preload.cjs')});touchSessions.add(session);}}
+function controllerSession(session){if(!controllerSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'controller-preload.cjs')});touchSession(session);controllerSessions.add(session);}}
 function controllerSender(e){return e.sender===win?.webContents||e.sender===robotView?.webContents;}
 ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',inputConfig());});
 ipcMain.on('controller-input',(e,pads)=>{
   if(!controllerHub||!controllerSender(e)||e.senderFrame!==e.sender.mainFrame)return;
-  const rootInput=!robotView||!!controllerHub.capture||state.page!=='drive'||overlay||!!auth||!!managerView;
+  const rootInput=!robotView||!!controllerHub.capture||state.page!=='drive'||overlay||!!auth||!!managerView||!!robotKeyboard?.visible;
   if((rootInput&&e.sender!==win.webContents)||(!rootInput&&e.sender!==robotView.webContents))return;
   controllerHub.ingest(pads);sendControllers();
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function closeManager(){
+  robotKeyboard?.hide({focus:false});
   const view=managerView,proxy=managerProxy;managerView=null;managerProxy=null;
   if(view){try{win.contentView.removeChildView(view);view.webContents.close();}catch{}}
   if(proxy)await proxy.close();if(state.manager)update({manager:false});fitView();
 }
 async function closeRobot(){
+  robotKeyboard?.hide({focus:false});
   await setRobotFullscreen(false);
   if(auth){auth.callback();auth=null;}
   await closeManager();
@@ -56,11 +62,12 @@ async function closeRobot(){
   if(view){try{win.contentView.removeChildView(view);view.webContents.close();}catch{}}
   if(proxy)await proxy.close();update({loading:false,robot:null,url:'',title:'',error:'',kind:''});
 }
-function place(view,visible){const [width,height]=win.getContentSize();if(state.robotFullscreen){view.setBounds({x:0,y:0,width,height});view.setVisible(visible);return;}const x=Math.min(Math.max(0,Math.round(viewBounds.x)),width),y=Math.min(Math.max(0,Math.round(viewBounds.y)),height);view.setBounds({x,y,width:Math.max(0,Math.min(Math.round(viewBounds.width),width-x)),height:Math.max(0,Math.min(Math.round(viewBounds.height),height-y))});view.setVisible(visible);}
+function place(view,visible){const [width,fullHeight]=win.getContentSize(),height=fullHeight-(robotKeyboard?.visible?robotKeyboard.height():0);if(state.robotFullscreen){view.setBounds({x:0,y:0,width,height});view.setVisible(visible);return;}const x=Math.min(Math.max(0,Math.round(viewBounds.x)),width),y=Math.min(Math.max(0,Math.round(viewBounds.y)),height);view.setBounds({x,y,width:Math.max(0,Math.min(Math.round(viewBounds.width),width-x)),height:Math.max(0,Math.min(Math.round(viewBounds.height),height-y))});view.setVisible(visible);}
 function fitView(){
   if(!robotView||!win)return;const shown=state.page==='drive'&&!auth&&!state.error&&!overlay;
   if(managerView)place(managerView,shown);place(robotView,shown&&!managerView);
-  if(robotExitView){const [width]=win.getContentSize();robotExitView.setBounds({x:Math.max(0,width-52),y:12,width:40,height:40});robotExitView.setVisible(state.robotFullscreen&&shown);}
+  if(robotExitView){const [width]=win.getContentSize();robotExitView.setBounds({x:Math.max(0,width-60),y:12,width:48,height:48});robotExitView.setVisible(state.robotFullscreen&&shown);}
+  robotKeyboard?.layout();
   // Hidden Driver Station: gamepads are released to rest, the connection (and a running op mode) continues.
   if(bridge instanceof FtcSocket)try{robotView.webContents.send('ftc-active',shown&&!managerView);}catch{}
   sendControllers();
@@ -86,7 +93,7 @@ async function setRobotFullscreen(enabled){
   }
   return snapshot();
 }
-function robotEscape(contents){contents.on('before-input-event',(_event,input)=>{if(state.robotFullscreen&&input.type==='keyDown'&&input.key==='Escape')void setRobotFullscreen(false);});}
+function robotEscape(contents){contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape'){robotKeyboard?.hide();if(state.robotFullscreen)void setRobotFullscreen(false);}});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
 handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
 async function refreshNetwork(){
@@ -110,7 +117,7 @@ async function openRobot(input){
     if(kind==='ftc')return await openFtc(target,ssid);
     const proxy=new RobotProxy(target.url),localUrl=await proxy.start();bridge=proxy;
     const identity=createHash('sha256').update(`${ssid}\0${new URL(target.url).origin}`).digest('hex');
-    const view=new WebContentsView({webPreferences:{partition:`persist:robot-${identity}`,additionalArguments:controllerArguments,contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
+    const view=new WebContentsView({webPreferences:{partition:`persist:robot-${identity}`,additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
     robotView=view;active={...target,ssid};win.contentView.addChildView(view);
     const contents=view.webContents,session=contents.session;
     robotEscape(contents);
@@ -147,7 +154,7 @@ async function openFtc(target,ssid){
   const host=new URL(target.url).hostname,socket=new FtcSocket(host);
   try{await socket.open();}catch(e){update({page:'drive',loading:false,url:target.url,title:target.name||host,error:e.message});return {opened:false};}
   const robot=library.upsert({...target,ssid,kind:'ftc'},{opened:true});
-  const view=new WebContentsView({webPreferences:{preload:path.join(__dirname,'ftc-preload.cjs'),partition:'ftc-driver-station',additionalArguments:controllerArguments,contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
+  const view=new WebContentsView({webPreferences:{preload:path.join(__dirname,'ftc-preload.cjs'),partition:'ftc-driver-station',additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
   const page=path.join(__dirname,'../ui/ftc/index.html'),pageUrl=require('node:url').pathToFileURL(page).href;
   robotView=view;bridge=socket;active=robot;win.contentView.addChildView(view);lockDown(view.webContents,url=>url===pageUrl);
   robotEscape(view.webContents);
@@ -161,7 +168,8 @@ async function openFtc(target,ssid){
 async function openManager(){
   if(!(bridge instanceof FtcSocket))throw Error('Program & Manage is available for FTC robots.');await closeManager();
   const proxy=new RobotProxy(`http://${bridge.host.includes(':')?`[${bridge.host}]`:bridge.host}:8080/`),localUrl=await proxy.start();
-  const view=new WebContentsView({webPreferences:{partition:`persist:robot-manage-${createHash('sha256').update(bridge.host).digest('hex')}`,contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
+  const view=new WebContentsView({webPreferences:{partition:`persist:robot-manage-${createHash('sha256').update(bridge.host).digest('hex')}`,additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
+  touchSession(view.webContents.session);
   managerView=view;managerProxy=proxy;win.contentView.addChildView(view);lockDown(view.webContents,url=>{try{return new URL(url).origin===proxy.origin;}catch{return false;}});
   if(state.robotFullscreen&&robotExitView){win.contentView.removeChildView(robotExitView);win.contentView.addChildView(robotExitView);}
   robotEscape(view.webContents);
@@ -189,7 +197,7 @@ async function autoOpenFtc(){
 }
 handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware(),app:{version:meta.version,channel:meta.updateChannel}};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
-handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page!=='drive')await setRobotFullscreen(false);update({page});fitView();return snapshot();});
+handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}update({page});fitView();return snapshot();});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
 handle('join',async(ssid,password)=>{await closeRobot();let info;try{info=await network.join(ssid,password);}catch(e){if(e.code==='NEEDS_PASSWORD')return {needsPassword:true,ssid,message:e.message};throw e;}currentNetwork=info;emit('network',info);update();setTimeout(()=>void autoOpenFtc(),500);return info;});
@@ -199,7 +207,8 @@ handle('system-wifi',async()=>{
   await run('systemsettings',['kcm_networkmanagement'],{timeout:5000}).catch(e=>{if(e.killed)return;throw Error('Open Wi-Fi from the SteamOS quick settings menu.');});
 });
 handle('bounds',bounds=>{if(!bounds||!['x','y','width','height'].every(k=>Number.isFinite(bounds[k])&&bounds[k]>=0))throw Error('Invalid robot view bounds.');if(!state.robotFullscreen)viewBounds=bounds;fitView();});
-handle('overlay',visible=>{const previous=overlay;overlay=!!visible;fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
+handle('overlay',visible=>{const previous=overlay;overlay=!!visible;if(overlay)robotKeyboard?.hide({focus:false});fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
+handle('robot-focus',()=>{if(state.page==='drive'&&!overlay&&!auth&&!robotKeyboard?.visible&&win.isFocused())(managerView||robotView)?.webContents.focus();});
 handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',async()=>{const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();});
 handle('controllers',()=>controllerHub.state().slots);
 handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
@@ -235,11 +244,12 @@ app.whenReady().then(async()=>{
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
-  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:controllerArguments,partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>sendControllers(),100);controllerTimer.unref();
   Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
   win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
-  win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
+  win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });
 let closing=false;app.on('before-quit',e=>{if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());

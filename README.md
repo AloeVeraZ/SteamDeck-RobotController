@@ -60,6 +60,14 @@ slot's pad swaps them. The assignment press is suppressed until buttons are rele
 sticks centered. **Use automatic assignment** restores the preferred built-in Controller 1.
 The test screen stays open until you close it and holds robot gamepad outputs at rest.
 
+The dashboard is **touch first**: tap Drive/Settings, menus, Wi-Fi rows, saved robots
+and controller cards; swipe lists to scroll. Tap a text field for the built-in keyboard,
+including addresses, Wi-Fi passwords and robot sign-in forms. It also handles taps
+reported as mouse clicks on recognized handhelds. Gamepad inputs are reserved for the
+robot; the dashboard reads live controller diagnostics through its separate input bridge.
+Robot inputs stay neutral while its touch keyboard is open and until controls return
+to center after closing it. See [touchscreen controls](docs/TOUCH.md).
+
 Input support follows the actual **standard Gamepad layout** reported by Electron,
 without a brand allowlist. That includes recognized Logitech, Nintendo, PlayStation,
 Xbox and third-party USB/Bluetooth gamepads. Controller setup identifies the physical

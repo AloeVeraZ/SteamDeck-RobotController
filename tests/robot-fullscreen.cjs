@@ -39,10 +39,10 @@ async function until(fn,label){for(let i=0;i<100;i++){if(await fn())return;await
    await until(async()=>{
     views=await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];return {size:w.getContentSize(),children:w.contentView.children.map(v=>({url:v.webContents.getURL(),bounds:v.getBounds()}))};});
     const target=views.children.find(v=>v.url.startsWith('http://127.0.0.1:')),exit=views.children.at(-1);
-    return target?.bounds.x===0&&target.bounds.y===0&&target.bounds.width===views.size[0]&&target.bounds.height===views.size[1]&&exit?.bounds.x===views.size[0]-52;
+    return target?.bounds.x===0&&target.bounds.y===0&&target.bounds.width===views.size[0]&&target.bounds.height===views.size[1]&&exit?.bounds.x===views.size[0]-60;
    },'fullscreen view and exit bounds: '+method);
    const target=views.children.find(v=>v.url.startsWith('http://127.0.0.1:')),exit=views.children.at(-1);
-   assert.deepEqual(target.bounds,{x:0,y:0,width:views.size[0],height:views.size[1]});assert.ok(exit.url.endsWith('robot-fullscreen-exit.html'),'exit control is not above the robot view');assert.deepEqual(exit.bounds,{x:views.size[0]-52,y:12,width:40,height:40});
+   assert.deepEqual(target.bounds,{x:0,y:0,width:views.size[0],height:views.size[1]});assert.ok(exit.url.endsWith('robot-fullscreen-exit.html'),'exit control is not above the robot view');assert.deepEqual(exit.bounds,{x:views.size[0]-60,y:12,width:48,height:48});
    assert.equal(await page.locator('body>header').isVisible(),false);assert.equal(await page.locator('.browser-toolbar').isVisible(),false);assert.equal(await robot.evaluate(()=>window.pageToken),token);assert.equal(await robot.evaluate(()=>typeof window.robotViewControls),'undefined');
    const helper=app.context().pages().find(p=>p.url().endsWith('robot-fullscreen-exit.html'));assert.ok(helper);assert.deepEqual(await helper.evaluate(()=>[typeof require,typeof window.deck,typeof window.robotViewControls.exit]),['undefined','undefined','function']);
    await robot.evaluate(pads=>window.__deckGamepadTest.set(pads),pads);await robot.waitForFunction(()=>window.sample===-.65);

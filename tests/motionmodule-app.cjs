@@ -19,7 +19,9 @@ class Cdp{constructor(url){this.ws=new WebSocket(url);this.id=0;this.pending=new
   const pads=[pad('USB Xbox Controller',0),null,null,pad('Steam Deck Controller',3)];
   const feed=async()=>{const parent=await L.eval('window.deck.controllerInfo().then(s=>!!s.capture||s.paused)');for(const c of parent?[W,L]:[L,W])await c.eval('window.__deckGamepadTest.set('+JSON.stringify(pads)+')');};await feed();
   await until(()=>W.eval('activePad()?.id==="Steam Deck Controller"'),'built-in Controller 1 at logical 0');
-  const enable=()=>W.eval('document.querySelector("#armConfirm").checked=true;document.querySelector("#armConfirm").dispatchEvent(new Event("change"));document.querySelector("#enableButton").click()');
+  // Older robot pages used a confirmation checkbox; current MotionModule owns
+  // a direct Enable action. Exercise either existing robot UI without changing it.
+  const enable=()=>W.eval('(()=>{const confirm=document.querySelector("#armConfirm");if(confirm){confirm.checked=true;confirm.dispatchEvent(new Event("change"));}document.querySelector("#enableButton").click();})()');
   await enable();await until(()=>W.eval('armed'),'MotionModule enabled');
   const state=async()=>(await fetch(new URL('/__test_state',url))).json();
   pads[3].axes=[0.6,-0.7,0.5,0];await feed();

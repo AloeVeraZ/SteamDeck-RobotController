@@ -67,6 +67,7 @@ jobs:
           xvfb-run -a node tests/controller-ui.cjs
           xvfb-run -a node tests/design-ui.cjs
           DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/robot-fullscreen.cjs
+          DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/touch-ui.cjs
           xvfb-run -a node tests/controller-compatibility.cjs
       - uses: actions/upload-artifact@v4
         if: matrix.target == 'steamdeck' && always()
@@ -76,6 +77,7 @@ jobs:
             test-results/controllers/*.png
             test-results/design/*.png
             test-results/v2/*.png
+            test-results/touch/*.png
       - uses: actions/checkout@v4
         if: matrix.target == 'steamdeck'
         with:

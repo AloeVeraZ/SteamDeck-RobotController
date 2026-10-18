@@ -3,6 +3,7 @@ const {contextBridge,ipcRenderer}=require('electron');
 const call=(name,...args)=>ipcRenderer.invoke(name,...args).then(r=>{if(!r.ok){const e=Error(r.error);e.code=r.code;throw e;}return r.value;});
 const listen=(name,fn)=>{const cb=(_e,value)=>fn(value);ipcRenderer.on(name,cb);return()=>ipcRenderer.removeListener(name,cb);};
 contextBridge.exposeInMainWorld('deck',{
+  robotFocus:()=>call('robot-focus'),
   robotFullscreen:enabled=>call('robot-fullscreen',enabled),
   controllerInfo:()=>call('controller-info'),controllerCapture:slot=>call('controller-capture',slot),controllerCancel:()=>call('controller-cancel'),controllerAutomatic:()=>call('controller-automatic'),onControllerState:fn=>listen('controller-state',fn),onControllerCapture:fn=>listen('controller-capture',fn),
   updateInfo:()=>call('update-info'),updateChannel:(channel,confirmed)=>call('update-channel',channel,confirmed),updateCheck:repo=>call('update-check',repo),updateDownload:()=>call('update-download'),updateInstall:()=>call('update-install'),updateFolder:()=>call('update-folder'),onUpdateProgress:fn=>listen('update-progress',fn),

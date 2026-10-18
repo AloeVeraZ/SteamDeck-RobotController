@@ -21,8 +21,9 @@ releases. Close the app before running an installer again; saved data is kept se
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
-5. Select a **Gamepad** template with both sticks set to joysticks and leave Proton disabled. Use
-   **Steam + X** to type in text fields.
+5. Select a **Gamepad** template with both sticks set to joysticks and leave Proton disabled.
+   Use the screen to navigate. In Testing 2.4.10+, tapping a text field opens the app's
+   touch keyboard; **Steam + X** remains available for the system keyboard.
 
 The app runs natively without root or changes to SteamOS's read-only system.
 The LCD and OLED Decks both have 1280×800 built-in screens; the app also resizes

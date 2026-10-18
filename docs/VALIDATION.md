@@ -1,5 +1,25 @@
 # Validation
 
+## Testing 2.4.10: touch-first dashboard and robot-only gamepads
+
+- 67 Node tests cover the existing behavior and the restricted touch-keyboard action
+  contract. The native shell receives no projected gamepads; raw reports continue to
+  supply live diagnostics and assignments. Robot views retain their mapped inputs.
+- `tests/touch-ui.cjs` sends real Chromium touch events to the native app: 44px targets,
+  Wi-Fi list swipes, URL typing/editing, Wi-Fi password dialogs with Shift/Symbols,
+  native robot password entry/caret editing/submission, and touch menu/controller/fullscreen
+  controls. The keyboard stays clear of fields; passwords remain masked and are not
+  copied into the keyboard view. Handheld mouse-emulated taps are tested too.
+- A separate native keyboard surface exposes only validated text/editing operations
+  to the current robot view. Tests verify renderer isolation, neutral robot outputs
+  while typing and suppression of held inputs until released after closing it.
+- Existing native controller, fullscreen, Settings/auth/update, FTC and 100-profile
+  checks pass. The MotionModule test accepts both its older confirmation checkbox and
+  its current direct Enable button; it exercises the robot's own UI without editing it.
+- Linux CI uses a real window manager for touch/fullscreen checks and packages all
+  three desktop targets. These are software fixtures; physical touchscreen panels,
+  SteamOS input-mode configuration and Apple Silicon execution remain device checks.
+
 ## Testing 2.4.9: robot fullscreen and controller compatibility
 
 - 66 Node tests pass, including 100 source-documented synthetic standard controller

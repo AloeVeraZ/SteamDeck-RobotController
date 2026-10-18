@@ -6,6 +6,11 @@ Gamepad API. The bundled FTC station translates those slots to Robocol User 1/2.
 website that has no Gamepad API input handler still needs a robot-specific integration;
 the dashboard cannot infer motor commands from an arbitrary page.
 
+Touchscreen navigation is the default interaction model. The shell exposes no gamepads
+through its own enumeration; raw diagnostic reports still support testing/assignment.
+The selected robot receives the logical pads, while Settings, controller tests and the
+robot touch keyboard hold their outputs neutral. See [touchscreen controls](TOUCH.md).
+
 ## Layout and detection
 
 Electron/Chromium and the operating system perform USB/Bluetooth enumeration and
