@@ -1,5 +1,26 @@
 # Version 2.2 validation
 
+## Testing 2.4.4: installation and controller slots
+
+- The GitHub README has three install entries. Steam Deck/Linux and Apple Silicon
+  share one platform-detecting Bash command; Windows uses PowerShell. The stable
+  URLs resolve the current Main release, with no version in the command.
+- Bootstrap fixtures exercise future versioned assets, Linux and Apple Silicon
+  selection, old/new Linux installer behavior, exactly one app launch, CRLF
+  checksums, corrupt downloads, prerelease rejection, and unsupported hardware.
+  A separate PowerShell fixture checks Windows silent installation followed by
+  launch, future stable assets, and rejection before execution on verification failure.
+- 56 Node tests pass for controller policy, saved data, robot transports, networking,
+  and updates. Native UI checks pass at LCD, 4K, and portrait sizes.
+- Native Electron checks exercise default Controller 1, optional Controller 2,
+  header click/press assignment and swapping, neutral assignment presses,
+  disconnect/reconnect, and actual FTC UDP axis delivery. A separate native website
+  fixture verifies the selected slots through its own standard Gamepad API,
+  Settings input pause, and sandbox isolation. Test controller injection is absent
+  from normal app launches.
+- This does not validate physical Steam Deck input, Bluetooth radio stability,
+  physical robot motion, or execution on Apple Silicon. Those need device tests.
+
 ## Testing 2.4.3: built-in handheld controllers
 
 - 49 Node tests pass, including Linux/Windows hardware detection, built-in preference,

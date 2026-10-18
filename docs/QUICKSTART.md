@@ -92,11 +92,16 @@ STOP, mechanisms, and camera controls belong to that page.** The launcher sends
 none of those commands on its own. Header controls only reload, navigate back,
 close the page, or open the three-dot settings menu.
 
-Controller one is the Deck when it is the first connected gamepad, as expected
-when using the built-in controller alone. Up to two indicators are displayed.
-Bluetooth/USB controller pairing is handled by the OS. The robot website decides
-which gamepad index it reads and whether it implements a second controller;
-this app does not add an operator-two mapping to firmware that lacks one.
+Controller 1 defaults to recognized built-in handheld controls, with the first
+standard gamepad as a fallback on other devices. Click its icon, then press any
+button on the desired controller to assign it. Saved robots default to one controller;
+select **Two controllers** in that robot's Settings for a second operator. Clicking
+the other controller's icon and pressing a button swaps assignments. The assignment
+press is consumed until buttons are released and sticks centered. Manual preferences
+are saved in `controller-settings.json` in the user-data directory.
+Bluetooth/USB pairing is handled by the OS. Standard Gamepad API websites receive
+Controller 1 at index 0 and Controller 2 at index 1. The robot must implement its own
+second-operator behavior; proprietary controller APIs require a compatible integration.
 
 Opening Settings hides the robot without disconnecting it; press Drive to return.
 Changing Wi-Fi or closing the robot closes its transport (FTC robots are sent STOP).

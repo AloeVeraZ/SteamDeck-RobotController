@@ -22,13 +22,18 @@ test('native built-in controls take User 1 even when external pads enumerate fir
  assert.deepEqual(orderedPads([external,third,builtin],deck).map(p=>p.index),[3,0,1]);
  assert.equal(defaultPad([external,pad('ROG Ally Controller',2)],identifyHardware({override:'ROG Ally'})).index,2);
 });
+test('late built-in enumeration replaces an automatic fallback but never a manual selection',()=>{
+ const a=new Assignments(),external=pad('Xbox',0),builtin=pad('Steam Deck Controller',3);a.sync([external],deck);a.sync([external,builtin],deck);assert.equal(a.users[1],3);
+ a.assign(1,external);a.sync([external,builtin],deck);assert.equal(a.users[1],0);
+});
 test('renamed standard gamepads work on handhelds; no controller is invented when none is exposed',()=>{
  const a=new Assignments();assert.equal(a.sync([],deck).automatic,null);assert.equal(a.users[1],null);
  assert.equal(a.sync([pad('Xbox 360 Controller (XInput STANDARD GAMEPAD)',1)],deck).automatic.index,1);
  assert.equal(defaultPad([pad('Flight stick',0,'')],deck),null);
 });
-test('ordinary laptops and desktops retain explicit gamepad assignment',()=>{
- const a=new Assignments(),external=pad('Xbox Wireless Controller',0);assert.equal(a.sync([external],identifyHardware({platform:'win32'})).automatic,null);assert.deepEqual(a.users,{1:null,2:null});a.assign(1,external);assert.equal(a.users[1],0);
+test('ordinary desktops and unknown handhelds default to the first standard controller',()=>{
+ for(const platform of ['win32','darwin','linux']){const a=new Assignments(),external=pad('Xbox Wireless Controller',0);assert.equal(a.sync([external],identifyHardware({platform})).automatic.index,0);assert.deepEqual(a.users,{1:0,2:null});}
+ assert.equal(defaultPad([pad('External Xbox',0),pad('Future Integrated Gamepad',2)],{}).index,2);
 });
 test('manual external User 1 and built-in User 2 choices are not overwritten by automatic defaults',()=>{
  const a=new Assignments(),builtin=pad('Steam Deck Controller',2),external=pad('Xbox',0),pads=[external,builtin];a.sync(pads,deck);a.assign(1,external);a.assign(2,builtin);
@@ -40,5 +45,5 @@ test('disconnect releases the user; built-in reconnect on a different index retu
  const reconnected=pad('Steam Deck Controller',4);a.sync([reconnected],deck);assert.equal(a.users[1],4);assert.equal(a.snapshot([reconnected])[0].index,4);
 });
 test('a different controller reusing a gamepad index cannot inherit a manual assignment',()=>{
- const a=new Assignments();a.assign(1,pad('Xbox A',0));assert.deepEqual(a.sync([pad('Xbox B',0)],{}).disconnected,[1]);assert.equal(a.users[1],null);
+ const a=new Assignments();a.assign(1,pad('Xbox A',0));const change=a.sync([pad('Xbox B',0)],{});assert.deepEqual(change.disconnected,[1]);assert.equal(change.automatic.id,'Xbox B');assert.equal(a.identities[1],'Xbox B');
 });

@@ -44,7 +44,13 @@ else (cd "$stage" && printf '%s  %s\n' "$expected" "$file" | shasum -a 256 -c -)
 
 if [[ "${DECK_DOWNLOAD_ONLY:-}" == 1 ]]; then echo "Verified download: $stage/$file"; exit 0; fi
 if [[ "$file" == *.run ]]; then
-  bash "$stage/$file"
+  # Older Main installers install without launching. New installers honor this
+  # flag, so this stable entry point launches exactly once with either version.
+  DECK_NO_LAUNCH=1 bash "$stage/$file"
+  launcher="${XDG_DATA_HOME:-$HOME/.local/share}/deck-driver-station/launch.sh"
+  [[ -f "$launcher" ]] || { echo 'The installed launcher could not be found.' >&2; exit 1; }
+  nohup bash "$launcher" </dev/null >"${TMPDIR:-/tmp}/deck-driver-station-launch.log" 2>&1 &
+  echo 'Opening Deck Driver Station. Its robot icon is on your desktop and application menu.'
 else
   /usr/bin/ditto -x -k "$stage/$file" "$stage/app"
   bash "$stage/app/Install-Mac.command"

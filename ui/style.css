@@ -24,3 +24,5 @@ select{font:inherit;color:inherit;background:#152128;border:1px solid #4c646a;bo
 .check-row{display:flex;gap:12px;align-items:flex-start;margin:16px 0 0;padding:12px 14px;border:1px solid #415660;border-radius:8px;background:#121d23;cursor:pointer;font-size:11px;color:#9fb5b8;line-height:1.5}
 .check-row input{width:20px;height:20px;min-height:0;margin:1px 0 0;padding:0;flex-shrink:0;accent-color:#aaf1ca}
 .check-row b{display:block;color:#e5f5ee;font-size:12px;margin-bottom:2px}
+
+button.controller{border:0;background:none;text-align:left;padding:4px;border-radius:8px}button.controller:hover{background:#273b37}#controller-dialog{max-width:520px}#controller-dialog h2{font-size:25px}

@@ -52,13 +52,15 @@ desktops, stacked on narrow windows like the phone app.
 | Status | `Robot is stopped` / `Initialized …` / `Running …`, robot errors and warnings, then the op mode's telemetry (classic, monospace, and HTML formats) |
 | ••• menu | Restart Robot, Program & Manage, Camera Stream, Gamepad assignment, About |
 
-- **Gamepads:** like the FTC Driver Station, press **START + A** to make a gamepad User 1
-  (`gamepad1`) or **START + B** for User 2 (`gamepad2`). On a recognized handheld, the built-in controls
-  become User 1 automatically; a second controller still uses START + B (on Steam Deck, START is ☰).
-  Testing 2.4.3 recognizes Deck LCD/OLED, ROG Ally / Ally X, and Lenovo Legion Go / Go S / Go 2.
-  Manual assignments win. If Steam Input hides the internal controller's identity,
-  the app falls back to the OS's first standard gamepad; START+A can override it.
-  Inputs are sent only after assignment, and only while the Driver Station is visible and
+- **Gamepads (Testing 2.4.4):** Controller 1 (`gamepad1`) defaults to recognized built-in
+  handheld controls, or the OS's first standard gamepad. This also works on ordinary
+  computers and unknown handhelds. Click Controller 1 in the app header, then press
+  any button on the desired pad to override it. Manual choices are saved.
+  Each saved robot defaults to one controller. Select **Two controllers** in its
+  Settings to enable Controller 2 (`gamepad2`); click its icon and press a button to
+  assign it. Choosing the other slot's pad swaps the two. Assignment presses stay
+  neutral until buttons are released and sticks centered.
+  Inputs are sent only while the Driver Station is visible and
   focused. Opening Settings, a dialog, or another window sends the gamepads back to rest.
 - **Auto-transition:** when an Autonomous op mode with `autoTransition` stops, its TeleOp is
   selected and initialized automatically.

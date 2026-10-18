@@ -17,6 +17,7 @@ jobs:
       - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
       - run: mkdir -p test-results && bash tests/update-linux.sh
       - run: bash tests/install-bootstrap.sh
+      - run: pwsh -NoProfile -File tests/install-bootstrap.ps1
   desktop:
     needs: verify
     runs-on: ubuntu-latest
@@ -50,6 +51,7 @@ jobs:
           for model in 'Steam Deck LCD' 'Steam Deck OLED' 'ROG Ally X' 'Lenovo Legion Go'; do
             DECK_TEST_MODEL="$model" xvfb-run -a node tests/ftc-app.cjs
           done
+          xvfb-run -a node tests/controller-app.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-installer

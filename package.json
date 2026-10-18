@@ -1,8 +1,11 @@
 {
   "name": "deck-driver-station",
   "productName": "Deck Driver Station",
-  "version": "2.4.3",
-  "repository": {"type":"git","url":"https://github.com/AloeVeraZ/SteamDeck-RobotController.git"},
+  "version": "2.4.4",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AloeVeraZ/SteamDeck-RobotController.git"
+  },
   "updateChannel": "testing",
   "private": true,
   "description": "Open existing robot websites with saved Wi-Fi networks and addresses",
@@ -14,5 +17,7 @@
     "preview": "node tools/preview.cjs",
     "build:steamdeck": "python3 tools/package.py"
   },
-  "devDependencies": {"electron": "44.8.0"}
+  "devDependencies": {
+    "electron": "44.8.0"
+  }
 }

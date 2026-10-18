@@ -16,7 +16,7 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
   const robot=await startUdpRobot({address:'127.0.0.2'}),data=fs.mkdtempSync(path.join(os.tmpdir(),'deck-e2e-')),out=path.join(root,'test-results','ftc');fs.mkdirSync(out,{recursive:true});
   // Ubuntu CI restricts unprivileged user namespaces. The sandbox exception is
   // confined to this simulated-robot test process, never the packaged launcher.
-  const launch=()=>spawn(process.env.DECK_ELECTRON||path.join(root,'.cache/runtime-win32-x64-44.8.0/electron.exe'),[root,'--remote-debugging-port=9333',...(process.env.DECK_ELECTRON_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[])],{env:(()=>{const e={...process.env,DECK_DATA_DIR:data,DECK_DEVICE_MODEL:model,DECK_HEADLESS:process.env.DECK_FTC_SCREENSHOTS==='1'?'0':'1'};delete e.ELECTRON_RUN_AS_NODE;return e;})(),stdio:'ignore'});
+  const launch=()=>spawn(process.env.DECK_ELECTRON||path.join(root,'.cache/runtime-win32-x64-44.8.0/electron.exe'),[root,'--remote-debugging-port=9333',...(process.env.DECK_ELECTRON_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[])],{env:(()=>{const e={...process.env,DECK_DATA_DIR:data,DECK_DEVICE_MODEL:model,DECK_CONTROLLER_TEST:'1',DECK_HEADLESS:process.env.DECK_FTC_SCREENSHOTS==='1'?'0':'1'};delete e.ELECTRON_RUN_AS_NODE;return e;})(),stdio:'ignore'});
   let app=launch();
   try{
     const launcherT=await until(async()=>(await targets()).find(t=>t.url.endsWith('ui/index.html')),15000,'launcher');const L=new Cdp(launcherT.webSocketDebuggerUrl);await L.ready;
@@ -24,32 +24,37 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
     await L.eval(`window.deck.open({url:'127.0.0.2',name:'Practice Bot'})`);
     const dsT=await until(async()=>(await targets()).find(t=>t.url.includes('ui/ftc/index.html')),10000,'driver station view');const D=new Cdp(dsT.webSocketDebuggerUrl);await D.ready;
     await until(()=>D.eval(`document.querySelector('#link-text').textContent==='Robot Connected'&&document.querySelector('#config').textContent==='competition'`),8000,'DS connected');
-    // Simulated browser gamepads exercise the production renderer and real UDP transport.
-    // Use a separate external controller at index 0 so ordering cannot mask the selection.
+    // Both renderers see fixture pads through the production input preload.
     const controllerName=/ROG/i.test(model)?'ROG Ally Controller':/Legion/i.test(model)?'Lenovo Legion Go Controller':'Steam Deck Controller (Vendor: 28de Product: 1205)';
-    await D.eval(`(()=>{Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});document.hasFocus=()=>true;const b=p=>({pressed:p,value:p?1:0});window.fixturePad=(id,index,y)=>({id,index,connected:true,mapping:'standard',axes:[0,y,0,0],buttons:Array.from({length:17},()=>b(false))});window.fixturePads=[fixturePad('Xbox Wireless Controller (Vendor: 045e)',0,0.25),null,fixturePad(${JSON.stringify(controllerName)},2,-0.5)];navigator.getGamepads=()=>fixturePads;})()`);
-    await until(()=>robot.sim.gamepads[1]?.id===3&&robot.sim.gamepads[1]?.left_stick_y===-0.5,5000,model+' built-in axes sent as User 1');if(robot.sim.gamepads[2]&&robot.sim.gamepads[2].id!==-2)throw Error('second pad was assigned without START + B');
+    const make=(id,index,y=0,pressed=false)=>({id,index,connected:true,mapping:'standard',axes:[0,y,0,0],buttons:Array.from({length:17},(_,i)=>({pressed:pressed&&i===0,value:pressed&&i===0?1:0}))});
+    const pads=[make('Xbox Wireless Controller',0),null,make(controllerName,2)];
+    async function feed(){const capture=await L.eval('window.deck.controllerInfo().then(s=>!!s.capture)');for(const c of capture?[D,L]:[L,D])await c.eval('window.__deckGamepadTest.set('+JSON.stringify(pads)+')');}
+    await until(()=>D.eval('!!window.__deckGamepadTest'),5000,'shared gamepad preload');
+    await D.eval("Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});document.hasFocus=()=>true");
+    await feed();pads[0].axes[1]=0.25;pads[2].axes[1]=-0.5;await feed();
+    await until(()=>robot.sim.gamepads[1]?.id===1&&robot.sim.gamepads[1]?.left_stick_y===-0.5,5000,model+' built-in axes as logical User 1');
+    assert.ok(!robot.sim.gamepads[2]||robot.sim.gamepads[2].id===-2,'one-controller robot forwarded User 2');
     assert.equal((await L.eval('window.deck.controllers()'))[0].index,2);
-    // Assign the external pad to User 1, suppress the assignment chord, then use its axes.
-    await D.eval(`fixturePads[0].buttons[9]={pressed:true,value:1};fixturePads[0].buttons[0]={pressed:true,value:1}`);
-    await until(()=>robot.sim.gamepads[1]?.id===1&&robot.sim.gamepads[1]?.left_stick_y===0&&!robot.sim.gamepads[1]?.a,5000,'assignment chord held at rest');
-    await D.eval(`fixturePads[0].buttons.forEach(b=>{b.pressed=false;b.value=0})`);
-    await until(()=>robot.sim.gamepads[1]?.left_stick_y===0.25,5000,'external manual User 1 input');
-    await wait(200);assert.equal(robot.sim.gamepads[1].id,1,'automatic selection stole manual User 1');
-    // Manually move the internal controls to User 2; unplugging User 1 must not steal them.
-    await D.eval(`fixturePads[2].buttons[9]={pressed:true,value:1};fixturePads[2].buttons[1]={pressed:true,value:1}`);
-    await until(()=>robot.sim.gamepads[2]?.id===3,5000,'manual internal User 2');
-    await D.eval(`fixturePads[2].buttons.forEach(b=>{b.pressed=false;b.value=0});fixturePads[0]=null`);
-    await until(()=>robot.sim.gamepads[1]?.id===-2&&robot.sim.gamepads[2]?.left_stick_y===-0.5,5000,'User 1 disconnect and manual User 2 retained');
-    assert.equal((await L.eval('window.deck.controllers()'))[0],null);
-    // Reconnecting the internal controls at a new browser index restores the default.
-    await D.eval(`fixturePads[2]=null`);await until(()=>robot.sim.gamepads[2]?.id===-2,5000,'User 2 disconnect');
-    await D.eval(`fixturePads[3]=fixturePad(${JSON.stringify(controllerName)},3,-0.75)`);
-    await until(()=>robot.sim.gamepads[1]?.id===4&&robot.sim.gamepads[1]?.left_stick_y===-0.75,5000,'internal reconnect at a new index');
-    assert.equal((await L.eval('window.deck.controllers()'))[0].index,3);
-    console.log('PASS:',model,'automatic User 1, UDP axis delivery, external-first ordering, manual reassignment, chord suppression, header slots, and reconnect.');
+    assert.equal(await L.eval('document.querySelector("#controller-2").hidden'),true);
+    await L.eval('window.deck.save({...state.robot,controllerCount:2})');await feed();
+    await until(()=>robot.sim.gamepads[2]?.id===2&&robot.sim.gamepads[2]?.left_stick_y===0.25,5000,'two-controller robot enabled User 2');
+    assert.equal(await L.eval('document.querySelector("#controller-2").hidden'),false);
+    await L.eval('document.querySelector("#controller-1").click()');
+    await until(()=>L.eval('document.querySelector("#controller-dialog").open'),3000,'assignment prompt');
+    pads[0]=make(pads[0].id,0);pads[2]=make(controllerName,2);await feed();
+    pads[0]=make(pads[0].id,0,0,true);await feed();
+    await until(async()=>!(await L.eval('document.querySelector("#controller-dialog").open')),3000,'assignment accepted');
+    await until(()=>robot.sim.gamepads[1]?.left_stick_y===0&&!robot.sim.gamepads[1]?.a,5000,'assignment press suppressed');
+    assert.deepEqual((await L.eval('window.deck.controllers()')).map(p=>p.index),[0,2]);
+    pads[0]=make(pads[0].id,0);await feed();pads[0].axes[1]=0.25;pads[2].axes[1]=-0.5;await feed();
+    await until(()=>robot.sim.gamepads[1]?.left_stick_y===0.25&&robot.sim.gamepads[2]?.left_stick_y===-0.5,5000,'swapped logical Users 1 and 2');
+    pads[0]=null;pads[2]=null;await feed();await until(()=>robot.sim.gamepads[1]?.id===-2&&robot.sim.gamepads[2]?.id===-2,5000,'both users disconnected');
+    pads[3]=make('Xbox Wireless Controller',3,0.75);pads[4]=make(controllerName,4,-0.75);await feed();
+    await until(()=>robot.sim.gamepads[1]?.left_stick_y===0.75&&robot.sim.gamepads[2]?.left_stick_y===-0.75,5000,'manual slots restored after reconnect');
+    assert.deepEqual((await L.eval('window.deck.controllers()')).map(p=>p.index),[3,4]);
+    console.log('PASS:',model,'default User 1, optional User 2, click/press swapping, neutral assignment press, actual UDP axes, and reconnect.');
     if(process.env.DECK_TEST_CONTROLLERS_ONLY==='1')return;
-    await D.eval('delete navigator.getGamepads');
+    pads.length=0;await feed();
     console.log('launcher state:',JSON.stringify(await L.eval('({kind:state.kind,title:state.title,url:state.url,robot:state.robot?.kind})')));
     console.log('DS:',await D.eval(`[...document.querySelectorAll('#ds-name,#link-text,#network,#ping,#volts,#volts-min,#config,#ds-battery-text')].map(e=>e.textContent).join(' | ')`));
     await D.eval(`document.querySelector('#teleop-list').click();[...document.querySelectorAll('#picker-list button')].find(b=>b.textContent.startsWith('Field Centric')).click();`);await wait(200);await D.eval(`document.querySelector('#main-action').click()`);

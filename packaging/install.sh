@@ -40,3 +40,6 @@ chmod +x -- "$desktop_dir/Deck Driver Station.desktop"
 command -v gio >/dev/null && gio set "$desktop_dir/Deck Driver Station.desktop" metadata::trusted true 2>/dev/null || true
 command -v update-desktop-database >/dev/null && update-desktop-database "$data_dir/applications" || true
 printf '\nInstalled Deck Driver Station.\nLaunch it from the application menu.\nIn Steam: Games > Add a Non-Steam Game > Deck Driver Station.\nChoose the Gamepad With Joystick Trackpad controller template.\nNo sudo, Proton, or SteamOS system changes are required.\n'
+if [[ "${DECK_NO_LAUNCH:-}" != 1 ]]; then
+  nohup bash "$install_dir/launch.sh" </dev/null >"${TMPDIR:-/tmp}/deck-driver-station-launch.log" 2>&1 &
+fi

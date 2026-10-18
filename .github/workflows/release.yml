@@ -16,6 +16,7 @@ jobs:
           node-version: '24'
       - run: node --test tests/*.test.cjs
       - run: bash tests/install-bootstrap.sh
+      - run: pwsh -NoProfile -File tests/install-bootstrap.ps1
       - id: meta
         shell: bash
         run: |

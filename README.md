@@ -2,53 +2,21 @@
 
 ## ⬇️ Download
 
-**Install Main first.** Pick a download below or paste one command into your terminal.
-The commands always install the latest stable Main release; Testing is never selected during installation.
-Keep the same terminal command for future installs and updates—no version number needs editing.
+Paste the command for your terminal. It detects the supported device, downloads and verifies
+**Main**, installs the app, creates its desktop icon, and launches it. Reuse the same command
+for future Main releases; saved robots and settings are kept.
 
-| Device | Download Main 2.4.2 | Open it |
-| --- | --- | --- |
-| **Steam Deck LCD / OLED** | **[⬇ Download for Steam Deck](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-SteamDeck.run)** | Desktop Mode → Konsole: `bash ~/Downloads/DeckDriverStation-2.4.2-SteamDeck.run` |
-| **Windows x64** | **[⬇ Download Windows installer](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-Windows-Setup.exe)** | Double-click the downloaded installer. |
-| **Apple Silicon Mac** | **[⬇ Download for Apple Silicon](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-macOS-arm64.zip)** | Extract, then open `Install-Mac.command`. |
+| Device | One-line install |
+| --- | --- |
+| **Steam Deck LCD / OLED · Konsole** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash` |
+| **Windows x64 · PowerShell** | `irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 | iex` |
+| **Apple Silicon · Terminal** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash` |
 
-The installer creates the app shortcuts and preserves saved robots and settings.
-After installation, open **⋮ → Updates** to switch to **Testing**. Accept the experimental
-warning to use it; switch back to **Main** from the same menu whenever you want.
-
-### Steam Deck (or Linux x64)
-
-In Desktop Mode, open **Konsole** and paste:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash
-```
-
-This downloads and verifies the current Main installer, then installs it. No laptop download server is needed.
-
-### Windows
-
-Open **PowerShell** and paste:
-
-```powershell
-irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 | iex
-```
-
-The command downloads and verifies the current Main installer, installs it, and opens the app.
-
-### Mac (Apple Silicon)
-
-Open **Terminal** and paste:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash
-```
-
-The command downloads and verifies the current Main package, then runs its installer.
-
-No administrator account is required. The one-line commands check the download's SHA-256
-checksum first. After installing, use **⋮ → Updates** inside the app to stay current.
-All versions are on the [Releases page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases).
+Steam Deck/Linux and Apple Silicon use the **same command**. Windows uses its built-in
+PowerShell shell. No administrator account is required. On Steam Deck, run from Desktop Mode;
+add the installed app through Steam → Games → Add a Non-Steam Game for Gaming Mode.
+After installing, **⋮ → Updates** lets you opt into experimental **Testing** or return to **Main**.
+Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/latest).
 
 ---
 
@@ -80,28 +48,21 @@ The app works with two kinds of robots, detected automatically when an address i
    credentials when switching networks; a password prompt appears if needed.
    Settings also shows every robot saved for the current Wi-Fi as a grid of cards.
 
-Two controller indicators appear in the header. Testing 2.4.3 automatically assigns
-the built-in controls to FTC User 1 on recognized Steam Deck LCD/OLED, ROG Ally,
-and Legion Go handhelds, including reconnects. Explicit controller identities take
-priority over enumeration order; manual START+A / START+B assignments still win.
-When Steam Input or a handheld driver hides controller identity, the default uses
-the OS's first standard gamepad. Ordinary PCs keep explicit FTC assignment.
-The robot website retains its own controller assignments; the launcher does not
-rewrite that site's Gamepad API indices or invent operator-two controls.
+Controller 1 is the default. Recognized built-in handheld controls are preferred; if the OS
+exposes an ordinary Xbox-style controller or an unknown handheld, its first standard gamepad
+is selected. Click a controller icon in the app header, then press any button on that pad to
+assign it. Selecting the pad in the other slot swaps them. The assignment press is suppressed
+until buttons are released and sticks centered.
 
-## Package details
+Saved robots default to **one controller**. Choose **Two controllers** in that robot's Settings
+when it needs a second operator. Slot assignment applies to the FTC station and websites
+using the standard Gamepad API; a custom USB, Bluetooth, or proprietary robot protocol needs
+its own compatible integration. Browser gamepad visibility may require pressing a button first.
+Two identical controllers without distinct OS identities may need reassignment after reconnecting.
 
-Each release (and a local `dist` build) contains version-numbered packages, plus version-free copies used by the links above:
-
-| Platform | Package | Install |
-| --- | --- | --- |
-| Steam Deck / Linux x64 | `DeckDriverStation-2.4.2-SteamDeck.run` | Run `bash DeckDriverStation-2.4.2-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
-| Windows x64 | `DeckDriverStation-2.4.2-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
-| Apple Silicon Mac | `DeckDriverStation-2.4.2-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
-
-The Apple Silicon package is not Apple-notarized; approval may be required in Privacy &
-Security. See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md),
-and [validation and remaining device checks](docs/VALIDATION.md).
+The Apple Silicon package is not Apple-notarized; approval may be required in Privacy & Security.
+See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md), and
+[validation and remaining device checks](docs/VALIDATION.md).
 
 ## Why the local bridge exists
 

@@ -4,6 +4,8 @@ const fs=require('node:fs'),path=require('node:path');const {execFile}=require('
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
+const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='';
+const controllerSessions=new WeakSet(),controllerArguments=process.env.DECK_CONTROLLER_TEST==='1'?['--deck-controller-fixtures']:[];
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
 let managerView=null,managerProxy=null;
@@ -17,6 +19,21 @@ function update(patch={}){Object.assign(state,patch);emit('state',snapshot());}
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
+function controllerState(){return {...(controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]}),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView};}
+function sendControllers(force=false){
+  if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
+  emit('controller-state',value);for(const view of [win,robotView])try{view?.webContents.send('controller-config',value);}catch{}
+}
+function controllerSession(session){if(!controllerSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'controller-preload.cjs')});controllerSessions.add(session);}}
+function controllerSender(e){return e.sender===win?.webContents||e.sender===robotView?.webContents;}
+ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',controllerState());});
+ipcMain.on('controller-input',(e,pads)=>{
+  if(!controllerHub||!controllerSender(e)||e.senderFrame!==e.sender.mainFrame)return;
+  const rootInput=!robotView||!!controllerHub.capture||state.page!=='drive'||overlay||!!auth||!!managerView;
+  if((rootInput&&e.sender!==win.webContents)||(!rootInput&&e.sender!==robotView.webContents))return;
+  controllerHub.ingest(pads);sendControllers();
+});
+function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function closeManager(){
   const view=managerView,proxy=managerProxy;managerView=null;managerProxy=null;
@@ -29,6 +46,7 @@ async function closeRobot(){
   // An FTC station sends STOP for an active op mode before its socket closes; the robot also stops on its own after 2 s.
   if(robotView&&bridge instanceof FtcSocket){try{await Promise.race([robotView.webContents.executeJavaScript('window.deckShutdown?.()'),delay(300)]);await delay(80);}catch{}}
   const view=robotView,proxy=bridge;robotView=null;bridge=null;active=null;
+  controllerHub?.cancel();controllerHub?.setCount(1);sendControllers(true);
   if(view){try{win.contentView.removeChildView(view);view.webContents.close();}catch{}}
   if(proxy)await proxy.close();update({loading:false,robot:null,url:'',title:'',error:'',kind:''});
 }
@@ -38,6 +56,7 @@ function fitView(){
   if(managerView)place(managerView,shown);place(robotView,shown&&!managerView);
   // Hidden Driver Station: gamepads are released to rest, the connection (and a running op mode) continues.
   if(bridge instanceof FtcSocket)try{robotView.webContents.send('ftc-active',shown&&!managerView);}catch{}
+  sendControllers();
 }
 async function refreshNetwork(){
   const next=await network.status(),previous=currentNetwork;currentNetwork=next;
@@ -60,9 +79,10 @@ async function openRobot(input){
     if(kind==='ftc')return await openFtc(target,ssid);
     const proxy=new RobotProxy(target.url),localUrl=await proxy.start();bridge=proxy;
     const identity=createHash('sha256').update(`${ssid}\0${new URL(target.url).origin}`).digest('hex');
-    const view=new WebContentsView({webPreferences:{partition:`persist:robot-${identity}`,contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
+    const view=new WebContentsView({webPreferences:{partition:`persist:robot-${identity}`,additionalArguments:controllerArguments,contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
     robotView=view;active={...target,ssid};win.contentView.addChildView(view);
     const contents=view.webContents,session=contents.session;
+    controllerSession(session);controllerHub.setCount(target.controllerCount===2?2:1);
     session.setPermissionRequestHandler((_w,_p,cb)=>cb(false));session.setPermissionCheckHandler(()=>false);
     session.webRequest.onBeforeRequest((details,cb)=>{
       try{const u=new URL(details.url);
@@ -95,9 +115,10 @@ async function openFtc(target,ssid){
   const host=new URL(target.url).hostname,socket=new FtcSocket(host);
   try{await socket.open();}catch(e){update({page:'drive',loading:false,url:target.url,title:target.name||host,error:e.message});return {opened:false};}
   const robot=library.upsert({...target,ssid,kind:'ftc'},{opened:true});
-  const view=new WebContentsView({webPreferences:{preload:path.join(__dirname,'ftc-preload.cjs'),partition:'ftc-driver-station',contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
+  const view=new WebContentsView({webPreferences:{preload:path.join(__dirname,'ftc-preload.cjs'),partition:'ftc-driver-station',additionalArguments:controllerArguments,contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
   const page=path.join(__dirname,'../ui/ftc/index.html'),pageUrl=require('node:url').pathToFileURL(page).href;
   robotView=view;bridge=socket;active=robot;win.contentView.addChildView(view);lockDown(view.webContents,url=>url===pageUrl);
+  controllerSession(view.webContents.session);controllerHub.setCount(robot.controllerCount);
   socket.onPacket(bytes=>{if(robotView===view)view.webContents.send('ftc-packet',bytes);});
   view.webContents.on('render-process-gone',()=>{if(robotView===view)void closeRobot().then(()=>update({error:'The Driver Station closed unexpectedly. Open the robot again to reconnect.'}));});
   update({page:'drive',loading:false,url:target.url,title:robot.name,robot,kind:'ftc',error:''});fitView();
@@ -113,7 +134,8 @@ async function openManager(){
   update({manager:true});fitView();void view.webContents.loadURL(localUrl);return true;
 }
 ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents&&bridge instanceof FtcSocket&&bytes instanceof Uint8Array)bridge.send(bytes);});
-ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',...device,steamDeck:device.controllerFamily==='steamdeck'};});
+ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',controllerCount:active?.controllerCount||1,...device,steamDeck:device.controllerFamily==='steamdeck'};});
+ipcMain.handle('ftc-controller-capture',(e,slot)=>{if(e.sender!==robotView?.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC driver station is open.');return captureController(slot);});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 handle('manager-close',closeManager);
 // An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and
@@ -133,7 +155,7 @@ async function autoOpenFtc(){
 handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware()};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
 handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');update({page});fitView();return snapshot();});
-handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});update();return robot;});handle('remove',id=>{library.remove(id);update();});
+handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
 handle('join',async(ssid,password)=>{await closeRobot();let info;try{info=await network.join(ssid,password);}catch(e){if(e.code==='NEEDS_PASSWORD')return {needsPassword:true,ssid,message:e.message};throw e;}currentNetwork=info;emit('network',info);update();setTimeout(()=>void autoOpenFtc(),500);return info;});
 handle('system-wifi',async()=>{
@@ -142,9 +164,10 @@ handle('system-wifi',async()=>{
   await run('systemsettings',['kcm_networkmanagement'],{timeout:5000}).catch(e=>{if(e.killed)return;throw Error('Open Wi-Fi from the SteamOS quick settings menu.');});
 });
 handle('bounds',bounds=>{if(!bounds||!['x','y','width','height'].every(k=>Number.isFinite(bounds[k])&&bounds[k]>=0))throw Error('Invalid robot view bounds.');viewBounds=bounds;fitView();});
-handle('overlay',visible=>{overlay=!!visible;fitView();});
+handle('overlay',visible=>{const previous=overlay;overlay=!!visible;fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
 handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',async()=>{const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();});
-handle('controllers',async()=>{if(!robotView)return null;try{return await robotView.webContents.executeJavaScript(bridge instanceof FtcSocket?`window.deckControllerAssignments?.()||[]`:`Array.from(navigator.getGamepads?.()||[]).filter(p=>p?.connected).map(p=>({id:p.id,index:p.index,mapping:p.mapping,connected:true}))`);}catch{return [];}});
+handle('controllers',()=>controllerHub.state().slots);
+handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
 handle('auth',({id,username,password,cancel})=>{if(!auth||auth.id!==id)throw Error('This sign-in prompt expired.');const pending=auth;auth=null;if(cancel)pending.callback();else pending.callback(String(username||'').slice(0,256),String(password||'').slice(0,1024));fitView();});
 handle('fullscreen',()=>win.setFullScreen(!win.isFullScreen()));handle('quit',()=>app.quit());
 handle('update-info',async()=>{await closeRobot();return updater.info();});
@@ -170,10 +193,13 @@ function recoverSandboxedLibrary(dir){
 app.whenReady().then(async()=>{
   device=await detectHardware();
   recoverSandboxedLibrary(app.getPath('userData'));
+  const controllerFile=path.join(app.getPath('userData'),'controller-settings.json');let preferred=[];try{const saved=JSON.parse(fs.readFileSync(controllerFile,'utf8'));if(Array.isArray(saved))preferred=saved;}catch{}
+  controllerHub=new ControllerHub({hardware:device,preferred,persist:value=>fs.writeFileSync(controllerFile,JSON.stringify(value),{mode:0o600})});
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
-  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#11171b',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#11171b',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:controllerArguments,partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>sendControllers(),100);controllerTimer.unref();
   Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });

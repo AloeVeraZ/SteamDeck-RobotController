@@ -5,7 +5,7 @@
 const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_SECONDS=30;
 const host=window.ftcHost;
 let session=null,info={name:'FTC Robot',host:'',ssid:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0,minVolts=null,dsBattery=null;
-const assignments=new window.DeckControllers.Assignments(),users=assignments.users,padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();
+const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0};
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.hidden=true;},Math.max(1500,ms));}
@@ -130,7 +130,7 @@ function mainAction(){
 }
 function stop(){stopCountdown();session.stopOpMode();queueRender();}
 
-// ---- Gamepads: START+A assigns User 1, START+B assigns User 2 ---------------------------------
+// ---- Gamepads: shared driver-station controller slots ---------------------------------
 const dead=v=>{v=Math.max(-1,Math.min(1,Number(v)||0));return Math.abs(v)<0.05?0:v;};
 function gamepadType(id){return /054c|sony|dualshock|dualsense|wireless controller/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
 function ftcPad(p,rest){
@@ -141,27 +141,18 @@ function ftcPad(p,rest){
 }
 function inputsLive(){return inputsOn&&!document.hidden&&document.hasFocus();}
 function pollGamepads(){
-  if(!session)return;const pads=Array.from(navigator.getGamepads?.()||[]).filter(p=>p?.connected),present=new Set(pads.map(p=>p.index));
-  for(const index of held)if(!present.has(index))held.delete(index);
-  const changes=assignments.sync(pads,info);
-  for(const u of changes.disconnected){session.setGamepad(u,null);padKeys[u]='';padStamps[u]=0;toast(`User ${u} gamepad disconnected`);}
-  if(changes.automatic){const p=changes.automatic;if(p.buttons.some(b=>b.pressed))held.add(p.index);toast(`${info.model||'Built-in'} controls are User 1`,2500);}
-  for(const p of pads){
-    const pressed=i=>!!p.buttons[i]?.pressed;
-    if(inputsLive()&&pressed(9)&&(pressed(0)||pressed(1))){
-      const u=pressed(0)?1:2;
-      const change=assignments.assign(u,p);if(change.changed){for(const released of change.released){session.setGamepad(released,null);padKeys[released]='';}held.add(p.index);toast(`Gamepad assigned to User ${u}`,2000);}
-    }
-    if(held.has(p.index)&&!p.buttons.some(b=>b.pressed))held.delete(p.index);
-  }
+  if(!session)return;const pads=Array.from(navigator.getGamepads?.()||[]),count=window.__deckControllerInput?.state().count||info.controllerCount||1;
+  $('#pad-2').hidden=count<2;
   for(const u of [1,2]){
-    const index=users[u],button=$('#pad-'+u);button.classList.toggle('assigned',index!==null);if(index===null){button.classList.remove('active');continue;}
-    const p=pads.find(x=>x.index===index),pad=ftcPad(p,!inputsLive()||held.has(index)),key=JSON.stringify(pad);
-    if(key!==padKeys[u]){padKeys[u]=key;padStamps[u]=Date.now();}
-    session.setGamepad(u,{...pad,timestamp:padStamps[u]});button.classList.toggle('active',!R.atRest(pad));button.title=`User ${u}: ${p.id}`;
+    const p=u<=count?pads[u-1]:null,button=$('#pad-'+u),previous=users[u];users[u]=p?.connected?u-1:null;
+    button.classList.toggle('assigned',users[u]!==null);
+    if(users[u]===null){if(previous!==null)session.setGamepad(u,null);button.classList.remove('active');continue;}
+    const pad=ftcPad(p,!inputsLive()),key=JSON.stringify(pad);if(key!==padKeys[u]){padKeys[u]=key;padStamps[u]=Date.now();}
+    session.setGamepad(u,{...pad,timestamp:padStamps[u]});button.classList.toggle('active',!R.atRest(pad));button.title='Assign controller '+u+' · '+p.id;
   }
-  $('#assign-hint').hidden=!(session.state.connection==='connected'&&users[1]===null&&pads.some(p=>p.index!==users[2]));
+  $('#assign-hint').hidden=!(session.state.connection==='connected'&&users[1]===null);
 }
+
 async function rumble(effect){
   const token=++rumbleToken,index=users[effect.user===2?2:1],actuator=index===null?null:navigator.getGamepads?.()[index]?.vibrationActuator;if(!actuator?.playEffect)return;
   for(const step of effect.steps){if(token!==rumbleToken)return;const duration=step.duration<0?10000:Math.min(step.duration,10000);
@@ -180,7 +171,7 @@ $('#menu-restart').onclick=()=>menu(()=>{session.restartRobot();toast('Restartin
 $('#menu-manage').onclick=()=>menu(()=>{Promise.resolve(host.programAndManage?.()).catch(e=>toast(e.message));});
 $('#menu-camera').onclick=()=>menu(openCamera);
 $('#menu-about').onclick=()=>menu(()=>{session.requestAbout();const r=session.state.robot;showDialog('About',`Robot: ${info.name}\nAddress: ${info.host}\nRobocol: ${session.identity.version}${r?.sdk?`\nRobot Controller SDK: ${r.sdk}`:''}\n\nWaiting for the Robot Controller’s details…`);});
-$('#menu-gamepads').onclick=()=>menu(()=>showDialog('Gamepad assignment',`${info.builtInController||info.steamDeck?'Built-in controls default to User 1 on this handheld.\n\n':''}Press START + A on a gamepad to make it User 1 (gamepad1).\nPress START + B to make it User 2 (gamepad2).\n\nOn Steam Deck, START is the ☰ button.\n\nUser 1: ${users[1]===null?'not assigned':navigator.getGamepads()[users[1]]?.id||'assigned'}\nUser 2: ${users[2]===null?'not assigned':navigator.getGamepads()[users[2]]?.id||'assigned'}`));
+$('#menu-gamepads').onclick=()=>menu(()=>showDialog('Gamepad assignment','Click Controller 1 in the app header, then press any button on that controller.\n\nFor a two-controller robot, select Two controllers in Settings, then click Controller 2 to assign or swap it.\n\nBuilt-in controls are preferred for Controller 1; other devices use the first detected controller.'));
 $('#camera-image').onclick=()=>session.requestFrame();$('#camera-close').onclick=closeCamera;
 $('#auto-list').onclick=()=>openPicker('AUTONOMOUS');$('#teleop-list').onclick=()=>openPicker('TELEOP');
 $('#opmode-name').onclick=()=>openPicker(selected?.flavor==='AUTONOMOUS'?'AUTONOMOUS':'TELEOP');
@@ -190,7 +181,7 @@ $('#timer').onclick=()=>{if(countdown===null){timerOn=!timerOn;queueRender();}};
 $('#timer-switch').onchange=()=>{timerOn=$('#timer-switch').checked;queueRender();};
 $('#practice-play').onclick=()=>practice?stopPractice():choosePractice();
 $('#dialog-ok').onclick=()=>$('#ds-dialog').close();
-$('#pad-1').onclick=$('#pad-2').onclick=()=>$('#menu-gamepads').click();
+for(const slot of [1,2])$('#pad-'+slot).onclick=()=>Promise.resolve(host.controllerCapture?.(slot)).catch(e=>toast(e.message));
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closePicker();setMenu(false);}
   // Space stops an initialized or running op mode, like an emergency stop key.
@@ -200,8 +191,8 @@ document.addEventListener('keydown',e=>{
 async function boot(){
   if(!host){$('#link-text').textContent='Driver Station Unavailable';$('#link-banner').className='banner bad';$('#status-line').textContent='Status : Open this robot from Deck Driver Station Settings.';return;}
   try{info={...info,...await host.info()};}catch{}
-  window.deckControllerAssignments=()=>assignments.snapshot(navigator.getGamepads?.()||[]);
-  if(info.builtInController||info.steamDeck)$('#pad-1').title='Built-in controls become User 1 automatically; START + A reassigns';
+  window.deckControllerAssignments=()=>Array.from(navigator.getGamepads?.()||[]).slice(0,2).map(p=>p?{id:p.id,index:p.index,mapping:p.mapping,connected:true}:null);
+  $('#pad-1').title='Click, then press a button to assign controller 1';
   $('#ds-name').textContent=dsName();document.title=`${info.name||'FTC Robot'} · ${dsName()}`;
   try{const b=await navigator.getBattery?.();if(b){dsBattery=b;for(const e of ['levelchange','chargingchange'])b.addEventListener(e,renderBattery);}}catch{}renderBattery();
   session=new R.DriverStation({send:bytes=>host.send(bytes)});host.onPacket(bytes=>session.receive(bytes));

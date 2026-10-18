@@ -4,7 +4,7 @@ function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').hidden=true,5000);}
 async function task(fn){try{return await fn();}catch(e){toast(e.message);}}
 function setBusy(b){for(const id of ['open-robot','save-robot'])$('#'+id).disabled=b;}
-function formRobot(){const ftc=$('#robot-ftc').checked;return {id:$('#robot-id').value||undefined,url:$('#robot-url').value.trim()||(ftc?'192.168.43.1':''),name:$('#robot-name').value,kind:ftc?'ftc':'auto'};}
+function formRobot(){const ftc=$('#robot-ftc').checked;return {id:$('#robot-id').value||undefined,url:$('#robot-url').value.trim()||(ftc?'192.168.43.1':''),name:$('#robot-name').value,kind:ftc?'ftc':'auto',controllerCount:Number($('#robot-controllers').value)};}
 async function openRobot(robot){setBusy(true);try{const result=await api.open(robot);if(result?.needsWifi){
     // Try the OS's saved network credentials first for one-click reopen.
     try{const info=await api.join(result.needsWifi.ssid,'');if(info.needsPassword){promptWifi(result.needsWifi.ssid,robot);return;}await openRobot(robot);}catch{promptWifi(result.needsWifi.ssid,robot);}
@@ -12,7 +12,7 @@ async function openRobot(robot){setBusy(true);try{const result=await api.open(ro
 function setMenu(open){$('#menu').hidden=!open;$('#more').setAttribute('aria-expanded',String(open));syncOverlay();}
 function showPage(page){void task(()=>api.page(page));setMenu(false);if(page==='settings')void task(scan);}
 function network(info){wifi=info||{};$('#network-chip span').textContent=wifi.ssid||'Connect Wi-Fi';$('#network-chip .dot').className=`dot${wifi.connected?' live':''}`;$('#wifi-summary').textContent=wifi.ssid?`Connected to ${wifi.ssid}`:wifi.message||'Connect to a robot hotspot or your home network.';$('#robot-network').textContent=wifi.ssid||'No Wi-Fi connected';$('#wifi-picker-label').textContent=wifi.ssid||'Choose a network';renderLibrary(true);}
-function edit(robot){$('#robot-id').value=robot?.id||'';$('#robot-url').value=robot?.url||'';$('#robot-name').value=robot?.autoName?'':robot?.name||'';$('#robot-ftc').checked=robot?.kind==='ftc';showPage('settings');$('#robot-url').focus();}
+function edit(robot){$('#robot-id').value=robot?.id||'';$('#robot-url').value=robot?.url||'';$('#robot-name').value=robot?.autoName?'':robot?.name||'';$('#robot-ftc').checked=robot?.kind==='ftc';$('#robot-controllers').value=String(robot?.controllerCount||1);showPage('settings');$('#robot-url').focus();}
 function renderLibrary(force=false){
   const key=JSON.stringify([state.robots,wifi.ssid,state.robot?.id,$('#library-search').value]);if(key===listKey&&!force)return;listKey=key;
   const query=$('#library-search').value.toLowerCase(),all=state.robots||[],robots=all.filter(r=>`${r.name} ${r.url} ${r.ssid}`.toLowerCase().includes(query));
@@ -44,7 +44,14 @@ $('#wifi-form').onsubmit=e=>{e.preventDefault();void(async()=>{const p=pendingWi
 api.onAuth(data=>{pendingAuth=data;$('#auth-host').textContent=data.host+(data.realm?` · ${data.realm}`:'');$('#auth-password').value='';$('#auth-message').textContent=data.retry?'Sign-in failed. Check the username and password.':'Credentials are sent to this robot and are not saved in the address list.';if(!$('#auth-dialog').open)$('#auth-dialog').showModal();$('#auth-username').focus();});
 $('#auth-form').onsubmit=e=>{e.preventDefault();const p={id:pendingAuth.id,username:$('#auth-username').value,password:$('#auth-password').value};$('#auth-dialog').close();$('#auth-password').value='';void task(()=>api.auth(p));};
 function cancelAuth(){if(pendingAuth)void api.auth({id:pendingAuth.id,cancel:true}).catch(()=>{});pendingAuth=null;$('#auth-dialog').close();$('#auth-password').value='';}$('#auth-cancel').onclick=cancelAuth;$('#auth-dialog').addEventListener('cancel',e=>{e.preventDefault();cancelAuth();});
-async function controllers(){try{let pads=await api.controllers();if(!pads)pads=Array.from(navigator.getGamepads?.()||[]);if(state.kind!=='ftc')pads=window.DeckControllers.orderedPads(pads,hardware).slice(0,2);for(let i=0;i<2;i++){const row=$('#controller-'+(i+1)),p=pads[i];row.querySelector('small').textContent=p?p.id:i===0?(hardware.builtInController?'Built-in controls · press a button':'Press a controller button'):'Not connected';row.querySelector('.dot').className=`dot${p?' live':''}`;row.title=p?.id||'No controller connected';}}catch{}}
+let controllerInfo={count:1,slots:[null,null]},captureSerial=0;
+function renderControllers(info){controllerInfo=info;for(let i=0;i<2;i++){const row=$('#controller-'+(i+1)),pad=info.slots[i];row.hidden=i>=info.count;row.querySelector('small').textContent=pad?pad.id:'Click, then press a button';row.querySelector('.dot').className=`dot${pad?' live':''}`;row.title=`Assign controller ${i+1}${pad?' · '+pad.id:''}`;}if(!info.capture&&$('#controller-dialog').open){$('#controller-dialog').close();syncOverlay();toast((info.assignment?.serial||0)>captureSerial?'Controller assigned. Release buttons and center sticks.':'Controller assignment canceled.');}}
+function showControllerCapture(info){if(!info.capture)return;captureSerial=info.assignment?.serial||0;$('#controller-dialog-title').textContent='Assign controller '+info.capture.slot;if(!$('#controller-dialog').open)$('#controller-dialog').showModal();syncOverlay();}
+for(const slot of [1,2])$('#controller-'+slot).onclick=()=>void task(async()=>{if(!api.controllerCapture)throw Error('Use the installed app to assign controllers.');showControllerCapture(await api.controllerCapture(slot));});
+async function cancelController(){if(api.controllerCancel)renderControllers(await api.controllerCancel());}
+$('#controller-cancel').onclick=()=>void task(cancelController);$('#controller-dialog').addEventListener('cancel',event=>{event.preventDefault();void task(cancelController);});
+api.onControllerState?.(renderControllers);api.onControllerCapture?.(showControllerCapture);
+async function controllers(){try{if(api.controllerInfo)renderControllers(await api.controllerInfo());else renderControllers({count:state.robot?.controllerCount||1,slots:window.DeckControllers.orderedPads(navigator.getGamepads?.()||[],hardware).slice(0,2)});}catch{}}
 new ResizeObserver(()=>void bounds()).observe($('#robot-mount'));window.addEventListener('resize',()=>void bounds());api.onState(render);api.onNetwork(network);
 void task(async()=>{const data=await api.bootstrap();hardware=data.hardware;$('#device').textContent=hardware.model;render(data.state);if(!data.state.network?.connected&&!data.state.robots?.length)showPage('settings');void controllers();setInterval(controllers,1000);});
 
