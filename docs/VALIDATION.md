@@ -1,5 +1,19 @@
 # Version 2.2 validation
 
+## Testing 2.4.3: built-in handheld controllers
+
+- 49 Node tests pass, including Linux/Windows hardware detection, built-in preference,
+  sparse gamepad indices, generic Steam Input identities, no-controller and ordinary-PC
+  behavior, manual overrides, disconnects, reconnects, and index reuse.
+- Native Electron against a simulated Control Hub passes with LCD, OLED, ROG Ally X,
+  and Legion Go device profiles. An external controller is enumerated first. The
+  built-in pad's axes arrive over real UDP as User 1 without a button chord; manual
+  User 1/User 2 assignments, chord suppression, header slots, and reconnects also pass.
+- The native LCD test checks INIT/START/STOP, Settings visibility, heartbeat continuity,
+  saved robot reopening, and automatic reopening on the saved network.
+- These tests simulate controller and device identities; physical handheld input,
+  Steam Input configuration, Bluetooth pairing, and robot motion still need device checks.
+
 ## GitHub installation (2.4.2)
 
 - The GitHub README provides Steam Deck, Windows, and Apple Silicon downloads and

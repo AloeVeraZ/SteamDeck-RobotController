@@ -5,7 +5,7 @@
 const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_SECONDS=30;
 const host=window.ftcHost;
 let session=null,info={name:'FTC Robot',host:'',ssid:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0,minVolts=null,dsBattery=null;
-const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();let deckAssigned=null;
+const assignments=new window.DeckControllers.Assignments(),users=assignments.users,padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.hidden=true;},Math.max(1500,ms));}
@@ -141,20 +141,16 @@ function ftcPad(p,rest){
 }
 function inputsLive(){return inputsOn&&!document.hidden&&document.hasFocus();}
 function pollGamepads(){
-  if(!session)return;const pads=[...(navigator.getGamepads?.()||[])].filter(p=>p&&p.connected),present=new Set(pads.map(p=>p.index));
-  for(const u of [1,2])if(users[u]!==null&&!present.has(users[u])){users[u]=null;session.setGamepad(u,null);toast(`User ${u} gamepad disconnected`);}
-  if(deckAssigned!==null&&!present.has(deckAssigned))deckAssigned=null;
-  // Steam Deck: its built-in controls become User 1 without START + A. Valve's controller (vendor 28de, or the first
-  // pad when Steam Input renames it) is chosen once; START + A / START + B still reassign, and a reconnect repeats it.
-  if(info.steamDeck&&deckAssigned===null&&users[1]===null&&pads.length){
-    const deck=pads.find(p=>/28de|valve|steam deck/i.test(p.id))||pads[0];
-    if(deck.index!==users[2]){users[1]=deck.index;deckAssigned=deck.index;if(deck.buttons.some(b=>b.pressed))held.add(deck.index);toast('Steam Deck controls are User 1',2500);}
-  }
+  if(!session)return;const pads=Array.from(navigator.getGamepads?.()||[]).filter(p=>p?.connected),present=new Set(pads.map(p=>p.index));
+  for(const index of held)if(!present.has(index))held.delete(index);
+  const changes=assignments.sync(pads,info);
+  for(const u of changes.disconnected){session.setGamepad(u,null);padKeys[u]='';padStamps[u]=0;toast(`User ${u} gamepad disconnected`);}
+  if(changes.automatic){const p=changes.automatic;if(p.buttons.some(b=>b.pressed))held.add(p.index);toast(`${info.model||'Built-in'} controls are User 1`,2500);}
   for(const p of pads){
     const pressed=i=>!!p.buttons[i]?.pressed;
     if(inputsLive()&&pressed(9)&&(pressed(0)||pressed(1))){
-      const u=pressed(0)?1:2,other=3-u;
-      if(users[u]!==p.index){if(users[other]===p.index){users[other]=null;session.setGamepad(other,null);}users[u]=p.index;held.add(p.index);toast(`Gamepad assigned to User ${u}`,2000);}
+      const u=pressed(0)?1:2;
+      const change=assignments.assign(u,p);if(change.changed){for(const released of change.released){session.setGamepad(released,null);padKeys[released]='';}held.add(p.index);toast(`Gamepad assigned to User ${u}`,2000);}
     }
     if(held.has(p.index)&&!p.buttons.some(b=>b.pressed))held.delete(p.index);
   }
@@ -184,7 +180,7 @@ $('#menu-restart').onclick=()=>menu(()=>{session.restartRobot();toast('Restartin
 $('#menu-manage').onclick=()=>menu(()=>{Promise.resolve(host.programAndManage?.()).catch(e=>toast(e.message));});
 $('#menu-camera').onclick=()=>menu(openCamera);
 $('#menu-about').onclick=()=>menu(()=>{session.requestAbout();const r=session.state.robot;showDialog('About',`Robot: ${info.name}\nAddress: ${info.host}\nRobocol: ${session.identity.version}${r?.sdk?`\nRobot Controller SDK: ${r.sdk}`:''}\n\nWaiting for the Robot Controller’s details…`);});
-$('#menu-gamepads').onclick=()=>menu(()=>showDialog('Gamepad assignment',`Press START + A on a gamepad to make it User 1 (gamepad1).\nPress START + B to make it User 2 (gamepad2).\n\nOn Steam Deck, START is the ☰ button.\n\nUser 1: ${users[1]===null?'not assigned':navigator.getGamepads()[users[1]]?.id||'assigned'}\nUser 2: ${users[2]===null?'not assigned':navigator.getGamepads()[users[2]]?.id||'assigned'}`));
+$('#menu-gamepads').onclick=()=>menu(()=>showDialog('Gamepad assignment',`${info.builtInController||info.steamDeck?'Built-in controls default to User 1 on this handheld.\n\n':''}Press START + A on a gamepad to make it User 1 (gamepad1).\nPress START + B to make it User 2 (gamepad2).\n\nOn Steam Deck, START is the ☰ button.\n\nUser 1: ${users[1]===null?'not assigned':navigator.getGamepads()[users[1]]?.id||'assigned'}\nUser 2: ${users[2]===null?'not assigned':navigator.getGamepads()[users[2]]?.id||'assigned'}`));
 $('#camera-image').onclick=()=>session.requestFrame();$('#camera-close').onclick=closeCamera;
 $('#auto-list').onclick=()=>openPicker('AUTONOMOUS');$('#teleop-list').onclick=()=>openPicker('TELEOP');
 $('#opmode-name').onclick=()=>openPicker(selected?.flavor==='AUTONOMOUS'?'AUTONOMOUS':'TELEOP');
@@ -204,6 +200,8 @@ document.addEventListener('keydown',e=>{
 async function boot(){
   if(!host){$('#link-text').textContent='Driver Station Unavailable';$('#link-banner').className='banner bad';$('#status-line').textContent='Status : Open this robot from Deck Driver Station Settings.';return;}
   try{info={...info,...await host.info()};}catch{}
+  window.deckControllerAssignments=()=>assignments.snapshot(navigator.getGamepads?.()||[]);
+  if(info.builtInController||info.steamDeck)$('#pad-1').title='Built-in controls become User 1 automatically; START + A reassigns';
   $('#ds-name').textContent=dsName();document.title=`${info.name||'FTC Robot'} · ${dsName()}`;
   try{const b=await navigator.getBattery?.();if(b){dsBattery=b;for(const e of ['levelchange','chargingchange'])b.addEventListener(e,renderBattery);}}catch{}renderBattery();
   session=new R.DriverStation({send:bytes=>host.send(bytes)});host.onPacket(bytes=>session.receive(bytes));

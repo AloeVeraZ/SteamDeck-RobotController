@@ -3,6 +3,7 @@ const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell}=require('ele
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
+const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
 let managerView=null,managerProxy=null;
@@ -15,8 +16,7 @@ function snapshot(){return {...state,robots:library?.list(currentNetwork?.ssid),
 function update(patch={}){Object.assign(state,patch);emit('state',snapshot());}
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
-function deviceModel(){if(process.env.DECK_DEVICE_MODEL)return process.env.DECK_DEVICE_MODEL;let model=process.platform==='win32'?'Windows desktop':process.platform==='darwin'?'Mac':'Linux desktop';if(process.platform==='linux'){try{const s=fs.readFileSync('/sys/class/dmi/id/product_name','utf8').trim();if(/jupiter/i.test(s))model='Steam Deck LCD';else if(/galileo/i.test(s))model='Steam Deck OLED';}catch{}}return model;}
-function hardware(){const model=deviceModel(),d=screen.getDisplayMatching(win.getBounds());return {model,platform:process.platform,display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
+function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function closeManager(){
   const view=managerView,proxy=managerProxy;managerView=null;managerProxy=null;
@@ -113,7 +113,7 @@ async function openManager(){
   update({manager:true});fitView();void view.webContents.loadURL(localUrl);return true;
 }
 ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents&&bridge instanceof FtcSocket&&bytes instanceof Uint8Array)bridge.send(bytes);});
-ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',steamDeck:deviceModel().startsWith('Steam Deck')};});
+ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',...device,steamDeck:device.controllerFamily==='steamdeck'};});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 handle('manager-close',closeManager);
 // An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and
@@ -144,7 +144,7 @@ handle('system-wifi',async()=>{
 handle('bounds',bounds=>{if(!bounds||!['x','y','width','height'].every(k=>Number.isFinite(bounds[k])&&bounds[k]>=0))throw Error('Invalid robot view bounds.');viewBounds=bounds;fitView();});
 handle('overlay',visible=>{overlay=!!visible;fitView();});
 handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',async()=>{const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();});
-handle('controllers',async()=>{if(!robotView)return null;try{return await robotView.webContents.executeJavaScript(`Array.from(navigator.getGamepads?.()||[]).filter(p=>p?.connected).slice(0,2).map(p=>({id:p.id,index:p.index,mapping:p.mapping}))`);}catch{return [];}});
+handle('controllers',async()=>{if(!robotView)return null;try{return await robotView.webContents.executeJavaScript(bridge instanceof FtcSocket?`window.deckControllerAssignments?.()||[]`:`Array.from(navigator.getGamepads?.()||[]).filter(p=>p?.connected).map(p=>({id:p.id,index:p.index,mapping:p.mapping,connected:true}))`);}catch{return [];}});
 handle('auth',({id,username,password,cancel})=>{if(!auth||auth.id!==id)throw Error('This sign-in prompt expired.');const pending=auth;auth=null;if(cancel)pending.callback();else pending.callback(String(username||'').slice(0,256),String(password||'').slice(0,1024));fitView();});
 handle('fullscreen',()=>win.setFullScreen(!win.isFullScreen()));handle('quit',()=>app.quit());
 handle('update-info',async()=>{await closeRobot();return updater.info();});
@@ -167,7 +167,8 @@ function recoverSandboxedLibrary(dir){
     for(const file of ['robots.json','update-settings.json'])if(fs.existsSync(path.join(best.folder,file))&&!fs.existsSync(path.join(dir,file)))fs.copyFileSync(path.join(best.folder,file),path.join(dir,file));
   }catch{}
 }
-app.whenReady().then(()=>{
+app.whenReady().then(async()=>{
+  device=await detectHardware();
   recoverSandboxedLibrary(app.getPath('userData'));
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}

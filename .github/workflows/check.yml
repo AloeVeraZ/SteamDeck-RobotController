@@ -35,6 +35,21 @@ jobs:
           PYTHONUTF8: '1'
       - run: bash tests/installer-linux.sh
         if: matrix.target == 'steamdeck'
+      - uses: actions/setup-node@v4
+        if: matrix.target == 'steamdeck'
+        with:
+          node-version: '24'
+      - name: Check handheld controller assignment in Linux Electron
+        if: matrix.target == 'steamdeck'
+        env:
+          DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          DECK_TEST_CONTROLLERS_ONLY: '1'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          for model in 'Steam Deck LCD' 'Steam Deck OLED' 'ROG Ally X' 'Lenovo Legion Go'; do
+            DECK_TEST_MODEL="$model" xvfb-run -a node tests/ftc-app.cjs
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-installer

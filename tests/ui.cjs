@@ -45,7 +45,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','v2');fs.
     await page.locator('#update-install').click();await page.waitForFunction(()=>document.querySelector('#update-status').textContent.includes('development copy'));
     await page.screenshot({path:path.join(out,'updates.png'),fullPage:true,scale:'css'});await page.locator('#update-close').click();assert.deepEqual(errors,[]);
     await app.close();app=null;
-    app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});const second=await app.firstWindow();await second.waitForFunction(()=>state.robots.length===2);
+    app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args:[root],env:{...process.env,DECK_HEADLESS:'1',DECK_DATA_DIR:data},timeout:30000});const second=await app.firstWindow();await second.waitForFunction(()=>typeof state==='object'&&state.robots.length===2);
     console.log('PASS: LCD/4K/portrait layouts; original robot HTML; secure Gamepad context; isolated renderer; robot-owned action; native HTTP sign-in; saved addresses; persistence; Wi-Fi dropdown/connect/password/collapse; read-only network binding; enlarged Updates dialog; Main/Testing confirmation; unpublished/current/available/error states; verified download; development install protection.');
   }finally{if(app)await app.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

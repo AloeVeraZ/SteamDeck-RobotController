@@ -80,10 +80,14 @@ The app works with two kinds of robots, detected automatically when an address i
    credentials when switching networks; a password prompt appears if needed.
    Settings also shows every robot saved for the current Wi-Fi as a grid of cards.
 
-Two controller indicators appear in the header. On Deck, controller one is the
-built-in gamepad when it is the first connected gamepad. A second Bluetooth/USB
-controller can be shown. The robot website retains its own controller assignments;
-the launcher does not invent second-controller robot controls.
+Two controller indicators appear in the header. Testing 2.4.3 automatically assigns
+the built-in controls to FTC User 1 on recognized Steam Deck LCD/OLED, ROG Ally,
+and Legion Go handhelds, including reconnects. Explicit controller identities take
+priority over enumeration order; manual START+A / START+B assignments still win.
+When Steam Input or a handheld driver hides controller identity, the default uses
+the OS's first standard gamepad. Ordinary PCs keep explicit FTC assignment.
+The robot website retains its own controller assignments; the launcher does not
+rewrite that site's Gamepad API indices or invent operator-two controls.
 
 ## Package details
 
