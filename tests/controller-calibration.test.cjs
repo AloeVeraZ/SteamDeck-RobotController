@@ -1,0 +1,5 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {axes,deadzone,DriftSample}=require('../ui/controller-calibration.js');
+test('radial deadzone removes drift, rescales travel, and leaves zero-deadzone axes unchanged',()=>{assert.deepEqual(axes([.04,.03,0,0],.1),[0,0,0,0]);assert.ok(Math.abs(axes([0,.55,0,-1],.1)[1]-.5)<1e-10);assert.equal(axes([0,.55,0,-1],.1)[3],-1);assert.deepEqual(axes([1,1,-1,-1],0),[1,1,-1,-1]);assert.ok(Math.abs(Math.hypot(...axes([1,1],.1).slice(0,2))-1)<1e-10);assert.deepEqual(axes([NaN,Infinity]),[0,0,0,0]);for(const value of [-.1,.31,NaN,'0.1'])assert.throws(()=>deadzone(value));});
+test('resting sample records raw drift, center bias, travel and a bounded recommendation',()=>{const sample=new DriftSample();sample.add([.03,.04,-.02,0]);sample.add([-.03,.04,.02,0]);const r=sample.result();assert.equal(r.count,2);assert.equal(r.peak[0],.05);assert.deepEqual(r.center,[0,.04,0,0]);assert.equal(r.recommended,.07);assert.deepEqual(r.min,[-.03,.04,-.02,0]);sample.add([1,1,1,1]);assert.equal(sample.result().recommended,.3);});

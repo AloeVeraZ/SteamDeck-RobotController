@@ -55,6 +55,12 @@ class Cdp{
   await until(()=>W.eval('sample[0]?.y===-0.5&&sample[1]?.y===0.25'),'header swap affects actual website input');
   await L.eval('window.deck.save({...state.robot,controllerCount:1})');await feed();await until(()=>W.eval('sample[1]===null'),'single-controller mode hides User 2');
   const saved=JSON.parse(fs.readFileSync(path.join(data,'controller-settings.json')));assert.equal(saved[0].id,builtinName);assert.equal(saved[1].id,'USB Xbox Controller');
+  await L.eval('window.deck.page("settings")');await L.eval('window.deck.controllerCalibration(1,0.1)');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(data,'controller-calibration.json')))[builtinName],.1);
+  pads[0]=make(pads[0].id,0);pads[3]=make(pads[3].id,3);await feed();
+  await L.eval('window.deck.page("drive")');pads[3].axes[1]=.05;await feed();await until(()=>W.eval('sample[0]?.y===0'),'saved deadzone removes drift at actual robot');
+  pads[3].axes[1]=.55;await feed();await until(()=>W.eval('Math.abs(sample[0]?.y-.5)<1e-8'),'deadzone preserves rescaled robot travel');
+  await L.eval('window.deck.page("settings")');await L.eval('window.deck.controllerCalibration(1,0)');pads[3].axes[1]=0;await feed();await L.eval('window.deck.page("drive")');pads[3].axes[1]=.55;await feed();await until(()=>W.eval('sample[0]?.y===.55'),'reset restores original output');
   console.log('PASS:',model,'native Gamepad API, built-in C1/external C2, persistent live input test, click/press swaps, consumed assignment press, Settings pause, saved preferences, renderer isolation.');
  }catch(error){console.error('Input debug:',JSON.stringify(await L?.eval('({state:window.__deckControllerInput.state(),axes:[...document.querySelectorAll(".axis-reading output")].map(e=>e.textContent),buttons:[...document.querySelectorAll(".input-button.pressed")].map(e=>e.dataset.button)})')));throw error;}
  finally{L?.ws.close();W?.ws.close();app.kill();server.closeAllConnections();await new Promise(r=>server.close(r));}

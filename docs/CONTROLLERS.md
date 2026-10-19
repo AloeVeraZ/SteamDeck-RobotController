@@ -23,6 +23,10 @@ every supported OS. Pairing remains in the operating system.
 
 Controller 1 prefers recognized built-in controls, otherwise the first standard pad.
 Controller 2 is independently available even when the robot accepts only Controller 1.
+**Use automatic assignment** clears both manual slot preferences and rebuilds the
+slots: recognized built-in controls first, then an available external standard pad.
+Only two controllers can be assigned at once. Ambiguous virtual Xbox IDs may still
+need manual assignment because their physical origin is not exposed by the driver.
 Click either slot, choose Assign/Reassign and press a button to select or swap devices.
 The assignment press is consumed until controls return to neutral. Manual choices
 persist. Disconnects and reconnects are handled without relying on a fixed browser index.
@@ -60,6 +64,33 @@ with digital triggers cannot supply analog precision. Single Joy-Cons, retro pad
 accessibility setups can expose fewer physical controls. Gyro, touch coordinates,
 extra paddles, adaptive triggers and vendor software features are not promised by this
 input contract. Rumble availability depends on the exposed actuator and robot support.
+
+## Calibration and Steam Deck navigation
+
+Open either controller, then **Calibration**. Live plots show reported raw stick
+positions, recent travel and per-axis extrema. **Measure drift · 3 seconds** records
+peak resting movement while the sticks are released. It suggests a radial app
+deadzone with a small margin; large movement invalidates the recommendation.
+**Apply deadzone**, **Use measured recommendation**, and **Reset to 0%** are explicit
+saved changes. Defaults remain zero. Values are stored by driver ID outside the
+installation; identical driver names share a preference. This is software drift
+filtering, not firmware/Steam calibration. OS/Steam filtering can already affect
+the reported raw values. Settings/testing continues to hold robot output neutral;
+release the sticks before driving after applying a change.
+
+On a detected Steam Deck, expand **Steam Deck trackpads & back paddles**. Launch
+the app through Steam and use **Gamepad with Mouse Trackpad**, then set right pad
+to mouse/left click, left pad to scroll/right click. Leave sticks, triggers,
+bumpers, face buttons and D-pad mapped to gamepad outputs. Enable back grips and
+map them to robot gamepad buttons such as A/B/X/Y. Extra button indices 17–23 are
+shown when actually reported. Steam Input's emulated Xbox pad does not expose
+every Deck control independently; the app cannot manufacture missing paddle or
+trackpad reports. This one-time per-app layout is configured in Steam, not by
+rewriting the global desktop layout. The dashboard and robot website accept the
+resulting pointer events while gamepads remain reserved for the robot.
+
+See [Valve's legacy input bindings](https://partner.steamgames.com/doc/features/steam_controller/legacy_mode)
+and [Steam Deck desktop controls](https://help.steampowered.com/en/faqs/view/671a-4453-e8d2-323c).
 
 ## Evidence and remaining device checks
 

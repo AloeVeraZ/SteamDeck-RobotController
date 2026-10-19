@@ -7,7 +7,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
  const args=[root,...(env.DECK_ELECTRON_TEST_NO_SANDBOX==='1'?['--no-sandbox']:[])];
  const app=await _electron.launch({executablePath:process.env.DECK_ELECTRON,args,env});
  try{
-  const page=await app.firstWindow(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof state==='object'&&!!window.__deckGamepadTest);
+  const page=await app.firstWindow(),errors=[];page.setDefaultTimeout(15000);page.on('pageerror',e=>{errors.push(e.message);console.error('Renderer error:',e.message);});await page.waitForFunction(()=>typeof state==='object'&&!!window.__deckGamepadTest);
   await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[-0.55,-0.8,0.75,0.35],buttons:Array.from({length:17},(_,i)=>({pressed:[0,4,6].includes(i),value:[0,4].includes(i)?1:i===6?0.65:0}))}]));
   await page.waitForFunction(()=>document.querySelector('#controller-1 small').textContent.includes('Steam Deck LCD controls'));
   await page.locator('#controller-1').click();await page.locator('#controller-dialog').waitFor({state:'visible'});
@@ -47,7 +47,20 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
   await page.locator('#controller-driver-details summary').click();await page.locator('#controller-driver-name').waitFor({state:'visible'});
   await page.locator('#controller-mode-title').click();
   const expandedDone=await page.locator('#controller-done').boundingBox();assert.ok(expandedDone.y+expandedDone.height<=800,'expanded help hides Done on LCD');
+  await page.locator('#controller-mode-title').click();await page.locator('#controller-driver-details summary').click();
+  await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[.03,.04,0,0],buttons:Array.from({length:21},(_,i)=>({pressed:i===18,value:i===18?1:0}))}]));
+  await page.waitForFunction(()=>document.querySelector('[data-button="18"]').classList.contains('pressed'));
+  assert.equal(await page.locator('#steamdeck-controls').isVisible(),true);
+  await page.locator('#controller-calibration-tab').click();await page.locator('#calibration-measure').click();
+  await page.waitForFunction(()=>document.querySelector('#calibration-status').textContent.includes('left 5.0%'));
+  assert.match(await page.locator('#calibration-status').textContent(),/deadzone: 7%/);
+  await page.locator('#calibration-suggest').click();await page.waitForFunction(()=>document.querySelector('#calibration-saved').textContent.includes('7%'));
+  assert.match(await page.locator('#calibration-stick-0').textContent(),/X 0.03.*Y 0.04/,'calibration must show raw readings after applying deadzone');
+  await page.screenshot({path:path.join(out,'calibration-lcd.png'),scale:'css'});
+  await page.locator('#calibration-reset').click();await page.waitForFunction(()=>document.querySelector('#calibration-saved').textContent.includes('0%'));
   await page.locator('#controller-done').click();await page.locator('#controller-dialog').waitFor({state:'hidden'});
+  await page.evaluate(()=>window.__deckGamepadTest.set([{id:'Steam Deck Controller',index:0,mapping:'standard',connected:true,axes:[0,0,0,0],buttons:[]},{id:'DualSense Wireless Controller',index:1,mapping:'standard',connected:true,axes:[.01,0,0,0],buttons:[]}]));await page.waitForFunction(()=>document.querySelector('#controller-2 small').textContent.includes('DualSense'));
+  await page.locator('#controller-2').click();await page.locator('#controller-calibration-tab').click();await page.locator('#calibration-deadzone').press('Home');for(let i=0;i<5;i++)await page.locator('#calibration-deadzone').press('ArrowRight');await page.locator('#calibration-apply').click();await page.waitForFunction(()=>document.querySelector('#calibration-saved').textContent.includes('5%'));assert.deepEqual(await page.evaluate(()=>window.deck.controllerInfo().then(s=>s.deadzones)),[0,.05]);await page.locator('#controller-done').click();
   assert.deepEqual(errors,[]);console.log('PASS: live visual sticks/buttons/triggers, persistent test screen, both slots visible, LCD/desktop/portrait controller layouts, no page errors.');
  }finally{await app.close();}
  for(const model of ['Windows desktop','ROG Ally','Mac']){

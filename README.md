@@ -131,17 +131,21 @@ transport (an FTC robot is sent STOP first). The robot's own stop/watchdog
 behavior remains authoritative.
 No launcher can provide a hardware emergency stop for an arbitrary robot website.
 
+Robot-hosted Wi-Fi can use [Find robot automatically](docs/DISCOVERY.md) in Settings.
+It is opt-in and checks the hotspot gateway only; home/shared networks keep manual or saved addresses.
+Controller setup includes [drift measurement and app deadzones](docs/CONTROLLERS.md#calibration-and-steam-deck-navigation).
+
 ## Development
 
-Use **⋮ → Updates** to check the GitHub repository, download a verified update,
-then **Install & restart**. Builds from `main` follow the **Main** (stable) channel; builds from `testing` follow **Testing**.
+Use **⋮ → Updates → Check for updates**, then **Download update**. The app verifies
+the download, installs it automatically, and restarts. Builds from `main` follow the **Main** (stable) channel; builds from `testing` follow **Testing**.
 Checks distinguish no published release, current version, available version, and
 network/access errors. A robot hotspot without internet cannot check GitHub.
 See [update and release setup](docs/UPDATES.md).
 
 New work belongs on `testing`; approved changes merge into `main`.
 Public install commands always read Main and select its latest stable release.
-Testing remains available through the installed app's update-channel selector.
+Testing remains available through the installed app's Main and Testing buttons.
 
 ```bash
 npm install

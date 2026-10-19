@@ -37,3 +37,4 @@ test('automatic assignment restores built-in controls after a manual swap and su
  h.automatic();assert.equal(h.state().slots[0].index,3);assert.equal(h.state().automatic,true);assert.equal(preferred[0],null);
  const copy=new ControllerHub({hardware,preferred});copy.ingest([external,builtin]);assert.equal(copy.state().slots[0].index,3);
 });
+test('automatic reset rebuilds both slots and drops a manually pinned raw second device',()=>{const h=new ControllerHub({hardware,preferred:[external,pad('Raw HID',4,{mapping:''})]});h.ingest([external,builtin,pad('Raw HID',4,{mapping:''})]);assert.equal(h.state().slots[1].index,4);h.automatic();assert.deepEqual(h.state().slots.map(p=>p.index),[3,0]);assert.deepEqual(h.preferred,[null,null]);h.ingest([builtin]);assert.deepEqual(h.state().slots.map(p=>p?.index),[3,undefined]);h.ingest([builtin,pad('New external',7)]);assert.deepEqual(h.state().slots.map(p=>p.index),[3,7]);});

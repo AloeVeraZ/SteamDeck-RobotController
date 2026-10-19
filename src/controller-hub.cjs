@@ -1,12 +1,12 @@
 'use strict';
-const {Assignments,defaultPad}=require('../ui/controllers.js');
+const {Assignments}=require('../ui/controllers.js');
 const key=p=>p?`${p.index}:${p.id}`:'';
 const normalizeValues=(items,max,min=0)=>Array.isArray(items)?items.slice(0,max).map(v=>Number.isFinite(v)?Math.round(Math.max(min,Math.min(1,v))*100)/100:0):[];
 class ControllerHub{
   constructor({hardware={},preferred=[],persist=()=>{}}={}){this.hardware=hardware;this.preferred=preferred;this.persist=persist;this.assignments=new Assignments();this.pads=[];this.count=1;this.capture=null;this.blocked=new Set();this.assignment=null;}
   setCount(count){if(![1,2].includes(count))throw Error('Choose one or two controllers.');this.count=count;}
   begin(slot,now=Date.now()){if(![1,2].includes(slot))throw Error('Choose controller 1 or controller 2.');this.capture={slot,deadline:now+15000,waiting:new Set(this.pads.filter(p=>p.pressed||p.axesActive).map(key))};}
-  automatic(){this.cancel();const pad=defaultPad(this.pads,this.hardware);if(pad)this.assignments.assign(1,pad,{swap:true,automatic:true});else{this.assignments.users[1]=null;this.assignments.identities[1]=null;this.assignments.automaticUser1=true;}this.preferred=[null,this.assignments.snapshot(this.pads)[1]];this.persist(this.preferred);for(const p of this.assignments.snapshot(this.pads))if(p)this.blocked.add(key(p));}
+  automatic(){this.cancel();this.assignments=new Assignments();this.preferred=[null,null];this.ingest(this.pads);this.assignments.automaticUser1=true;this.persist(this.preferred);for(const p of this.assignments.snapshot(this.pads))if(p)this.blocked.add(key(p));}
   cancel(){this.capture=null;}
   tick(now=Date.now()){if(this.capture&&now>=this.capture.deadline)this.capture=null;}
   ingest(values){

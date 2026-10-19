@@ -29,6 +29,23 @@
 .stick-plot svg .scope-point{fill:var(--connected);stroke:none}
 .stick-plot span{font-size:11px;color:var(--muted);line-height:1.4}
 .axis-readings{margin-top:8px}
+.controller-tabs{display:flex;gap:8px;margin-bottom:12px}
+.controller-tabs button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.calibration-plots{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.calibration-plot{border:1px solid var(--line);border-radius:8px;background:var(--well);padding:12px;min-width:0}
+.calibration-plot svg{display:block;width:100%;height:160px;fill:none;stroke:var(--line-strong)}
+.calibration-plot h3{font-size:14px;margin:0}
+#controller-dialog[data-view=calibration] :is(#controller-mode-help,#steamdeck-controls,#controller-robot-note,#controller-driver-details){display:none}
+.calibration-plot .calibration-zone{fill:var(--accent-bg);stroke:var(--accent)}
+.calibration-plot .calibration-trail{stroke:var(--connected);opacity:.5;stroke-width:1.5}
+.calibration-plot .calibration-dot{fill:var(--connected);stroke:none}
+.calibration-plot output{display:block;font:11px var(--mono)}
+.calibration-travel{font-size:10px!important;margin:4px 0!important}
+#calibration-status{font-size:12px;margin:12px 0}
+#calibration-deadzone{width:100%;accent-color:var(--accent)}
+.deck-control-guide{padding:0 12px 12px;font-size:12px;line-height:1.6}
+.deck-control-guide ul{padding-left:20px}
+@media(max-width:540px){.calibration-plots{gap:8px}.calibration-plot{padding:8px}.calibration-plot svg{height:140px}.calibration-plot output{font-size:10px}}
 .axis-reading{padding:4px 2px}
 .axis-reading output{font-size:14px}
 .controller-identity{position:relative}

@@ -16,7 +16,7 @@ class Network {
         return {available:!!device,connected:!!ssid,ssid,device:device?.[0]||'',native:true};
       }
       if(this.platform==='win32'){
-        const s=await this.run('netsh',['wlan','show','interfaces']);const ssid=s.match(/^\s*SSID\s*:\s*(.+)$/m)?.[1]?.trim()||'';return {available:!s.includes('no wireless interface'),connected:!!ssid,ssid,native:true};
+        const s=await this.run('netsh',['wlan','show','interfaces']);const active=s.split(/(?=^\s*Name\s*:)/m).find(block=>/^\s*SSID\s*:\s*\S/m.test(block))||'',ssid=active.match(/^\s*SSID\s*:\s*(.+)$/m)?.[1]?.trim()||'';return {available:!s.includes('no wireless interface'),connected:!!ssid,ssid,device:active.match(/^\s*Name\s*:\s*(.+)$/m)?.[1]?.trim()||'',native:true};
       }
       if(this.platform==='darwin'){
         const ports=await this.run('/usr/sbin/networksetup',['-listallhardwareports']);const device=ports.match(/Hardware Port: (?:Wi-Fi|AirPort)\r?\nDevice: (\S+)/)?.[1]||'en0';
@@ -43,6 +43,21 @@ class Network {
       const entries=JSON.parse(await this.run('/usr/bin/osascript',['-l','JavaScript','-e',script],25000));const unique=new Map();for(const e of entries.sort((a,b)=>b.signal-a.signal))if(!unique.has(e.ssid))unique.set(e.ssid,e);return [...unique.values()];
     }
     return [];
+  }
+  async context(){
+    const wifi=await this.status();if(!wifi.connected||!wifi.device)return {...wifi,internet:'unknown'};
+    try{
+      if(this.platform==='win32')return {...wifi,...JSON.parse(await this.run('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'wifi-context.ps1'),'-Device',wifi.device]))};
+      if(this.platform==='linux'){
+        const [gateway,address,connectivity]=await Promise.all([this.run('nmcli',['-g','IP4.GATEWAY','device','show',wifi.device]),this.run('nmcli',['-g','IP4.ADDRESS','device','show',wifi.device]),this.run('nmcli',['-g','GENERAL.IP4-CONNECTIVITY','device','show',wifi.device]).catch(()=>'unknown')]);
+        const [ip,prefix]=address.split('\n')[0].split('/');return {...wifi,address:ip,prefix:Number(prefix),gateway:gateway.split('\n')[0],internet:/full|^4\b/i.test(connectivity)?'full':/limited|^3\b/i.test(connectivity)?'limited':/portal|^2\b/i.test(connectivity)?'portal':'unknown'};
+      }
+      if(this.platform==='darwin'){
+        const [address,gateway,mask]=await Promise.all([this.run('/usr/sbin/ipconfig',['getifaddr',wifi.device]),this.run('/usr/sbin/ipconfig',['getoption',wifi.device,'router']),this.run('/usr/sbin/ipconfig',['getoption',wifi.device,'subnet_mask'])]);
+        const binary=mask.split('.').map(n=>Number(n).toString(2).padStart(8,'0')).join('');return {...wifi,address,gateway:gateway.split(/\s/)[0],prefix:/^1+0*$/.test(binary)?binary.indexOf('0')===-1?32:binary.indexOf('0'):0,internet:'unknown'};
+      }
+    }catch{}
+    return {...wifi,internet:'unknown'};
   }
   async windowsNetworks(){
     const raw=await this.run('netsh',['wlan','show','networks','mode=bssid']);const entries=[];let item;

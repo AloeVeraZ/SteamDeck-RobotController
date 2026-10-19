@@ -1,7 +1,9 @@
 # App updates and branches
 
-Open **⋮ → Updates**. The larger popup shows the installed version, saved channel, and GitHub
-repository. Switch between Main (stable) and Testing (experimental) in its dropdown.
+Open **⋮ → Updates**. The larger popup shows the installed version, saved channel, and two channel
+buttons: Main (stable) and Testing (experimental). The update source is fixed to
+this project; there is no editable repository field. Older saved repository
+overrides are ignored.
 Entering Testing requires accepting an experimental-features warning. The choice
 is saved outside the installation and survives restarts and updates. **Check for updates** reads GitHub Releases over HTTPS. Testing builds
 use prereleases such as `testing-v2.4.3`; stable builds use tags such as `v2.4.2` and channel `main`.
@@ -15,8 +17,8 @@ personal app uses public release downloads and stores no GitHub access tokens.
 
 **Download update** checks the GitHub asset SHA-256 digest (or its exact matching
 `.sha256` file), size, and repository/release URL. Failed downloads are discarded.
-**Install & restart** extracts a new copy, validates its app name/version/runtime,
-then starts a helper that waits for this app to exit. The helper keeps the previous
+After verification, the same action automatically extracts a new copy, validates its app name/version/runtime,
+and starts a helper that waits for this app to exit. The helper keeps the previous
 app under the update's staging folder, replaces the installed files, and restarts.
 Saved robots, browser sessions, and operating-system Wi-Fi profiles remain outside
 the replaced installation. Helpers write `install.log` in the staging folder.

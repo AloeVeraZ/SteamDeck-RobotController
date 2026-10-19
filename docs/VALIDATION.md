@@ -1,3 +1,24 @@
+## Testing 2.4.12: updates, calibration and hotspot discovery
+
+- 82 Node tests cover fixed update source/legacy preference migration, channel switching,
+  verified automatic install handoff and failure recovery; radial drift filtering;
+  automatic slot reset; private Wi-Fi gateway rules and discovery cancellation.
+- Native Windows fixtures verify a single update action through download, real extraction,
+  helper handoff, replacement, backup and restart without touching installed user apps.
+- Native controller tests measure drift, apply/reset saved deadzones, exercise both slots,
+  show reported extra buttons, and confirm filtering reaches the robot while raw diagnostic
+  values remain visible. No default deadzone is introduced.
+- Native discovery UI fixtures cover blocked home/internet networks with zero probes,
+  explicit hotspot consent, real gateway/port autofill, multiple-result choice, network-switch
+  rejection and no automatic robot opening/profile edits. Network and web responses are mocked;
+  no local physical network was scanned. Platform command parsing has separate fixtures.
+- Touch-only URL/password typing and HTTP-auth handoff remain regression checks.
+- Linux CI runs the new calibration/discovery checks and all three desktop package builds.
+  Steam Deck trackpad/paddle bindings are a one-time per-app Steam Input configuration;
+  the app only documents that setup, never overwrites global Steam bindings, and does not
+  claim to read independent paddles hidden by an emulated Xbox driver. Physical Steam Deck,
+  Windows handheld and Apple Silicon execution still need device checks.
+
 # Validation
 
 ## Testing 2.4.11: touch keyboard authentication handoff

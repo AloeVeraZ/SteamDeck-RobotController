@@ -122,8 +122,8 @@ Keep the robot's normal physical stop/power controls available.
 ## Saved data and updates
 
 Use **⋮ → Updates → Check for updates**. Stable builds follow Main releases (Testing builds follow testing releases)
-from GitHub. **Download update** verifies the package; **Install & restart**
-updates the installed app. Saved robot data is retained. No update is available until a
+from GitHub. **Download update** verifies the package, automatically installs it, and restarts
+the app. Saved robot data is retained. No update is available until a
 release is published. [Release setup](UPDATES.md).
 
 Desktop settings normally live in Electron's **Deck Driver Station** user-data

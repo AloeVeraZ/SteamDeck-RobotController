@@ -1,9 +1,10 @@
 'use strict';
 window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
   const $=selector=>document.querySelector(selector),dialog=$('#controller-dialog');
-  const names=['A / Cross','B / Circle','X / Square','Y / Triangle','LB / L1','RB / R1','LT / L2','RT / R2','Back / View','Start / Menu','Left stick click','Right stick click','D-pad up','D-pad down','D-pad left','D-pad right','Guide / Home'];
+  const names=['A / Cross','B / Circle','X / Square','Y / Triangle','LB / L1','RB / R1','LT / L2','RT / R2','Back / View','Start / Menu','Left stick click','Right stick click','D-pad up','D-pad down','D-pad left','D-pad right','Guide / Home',...Array.from({length:7},(_,i)=>'Extra button '+(17+i))];
   const number=v=>Number.isFinite(v)?Math.max(-1,Math.min(1,v)):0;
   let info={count:1,slots:[null,null],readings:[]},slot=1,lastCapture=null,lastAssignment=0,captureMessage='';
+  const calibration=window.DeckCalibrationUI.create({api,selection:()=>({slot,pad:info.slots?.[slot-1],reading:info.readings?.[slot-1],zone:info.deadzones?.[slot-1]||0}),toast});
   $('#controller-visual').innerHTML=window.DeckControllerArt.render();
   const buttonNodes=names.map((name,index)=>{const item=document.createElement('div');item.className='input-button';item.dataset.button=String(index);const title=document.createElement('span');title.textContent=name;const value=document.createElement('output');value.textContent='0.00';value.setAttribute('aria-label',name+' value');const small=document.createElement('small');small.textContent='Button '+index;item.append(title,value,small);$('#controller-buttons').append(item);return item;});
   const axisNodes=['Left X','Left Y','Right X','Right Y'].map((name,index)=>{const item=document.createElement('div');item.className='axis-reading';const label=document.createElement('span'),value=document.createElement('output'),detail=document.createElement('small');label.textContent=name;value.textContent='0.00';value.id='controller-axis-'+index;detail.textContent='Axis '+index;item.append(label,value,detail);$('#controller-axes').append(item);return value;});
@@ -29,7 +30,7 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     $('#plot-left-dot').setAttribute('transform',`translate(${axes[0]*44} ${axes[1]*44})`);
     $('#plot-right-dot').setAttribute('transform',`translate(${axes[2]*44} ${axes[3]*44})`);
     const buttons=names.map((_,i)=>{const b=reading?.buttons?.[i];return Math.max(0,number(typeof b==='object'?b.value:b));});
-    buttonNodes.forEach((node,i)=>{node.querySelector('span').textContent=labels[i];node.classList.toggle('pressed',buttons[i]>0.2);node.querySelector('output').textContent=buttons[i].toFixed(2);node.querySelector('output').setAttribute('aria-label',labels[i]+' value');});
+    buttonNodes.forEach((node,i)=>{node.hidden=i>=17&&i>=(reading?.buttons?.length||0);node.querySelector('span').textContent=labels[i]||names[i];node.classList.toggle('pressed',buttons[i]>0.2);node.querySelector('output').textContent=buttons[i].toFixed(2);node.querySelector('output').setAttribute('aria-label',(labels[i]||names[i])+' value');});
     for(const index of [0,1,2,3,4,5,6,7]){const text=visual.querySelector(`[data-pad-button="${index}"] text`);if(text)text.textContent=raw?String(index):({Cross:'×',Circle:'○',Square:'□',Triangle:'△'}[labels[index].split(' · ')[0]]||labels[index].split(' · ')[0]);}
     for(const node of document.querySelectorAll('[data-pad-button]'))node.classList.toggle('pressed',buttons[Number(node.dataset.padButton)]>0.2);
     const triggerHeight=Number(visual.dataset.triggerHeight),triggerBottom=Number(visual.dataset.triggerBottom);
@@ -38,6 +39,7 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     $('#controller-auto').hidden=slot!==1||!api.controllerAutomatic;
     $('#controller-robot-note').textContent=(optional?'This robot uses one controller. Controller 2 is available on standby; select Two controllers in the robot’s Settings when it needs a second operator. ':'')+'The robot defines each control’s action. Gamepad outputs to the robot stay neutral while this test is open.';
     const deck=h.controllerFamily==='steamdeck';
+    $('#steamdeck-controls').hidden=!deck;calibration.render();
     $('#controller-mode-title').textContent=deck&&!h.launchedThroughSteam?'Steam Deck · Desktop shortcut':'Gamepad input · built-in or external';
     $('#controller-mode-copy').textContent=deck&&!h.launchedThroughSteam?'Keep Steam running. Hold ☰ Menu until Gamepad Mode appears, then press A. The left stick should move Left X / Y here; the right stick should move Right X / Y. For Gaming Mode, add this app to Steam and choose the Gamepad template. Use the touchscreen for the pointer, or configure a mouse trackpad while keeping both sticks as joysticks.':'Pair external controllers in your operating system, or connect a USB data cable. If sticks move the mouse or scroll, switch your handheld utility or this app’s Steam Input layout to Gamepad. Move both sticks here to verify gamepad input before returning to Drive.';
   }
@@ -56,7 +58,7 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     if(dialog.open&&lastCapture&&!info.capture){const assigned=(info.assignment?.serial||0)>lastAssignment;captureMessage=assigned?'Assigned. Release buttons and center sticks, then test below.':'Assignment ended. Your previous selection is kept.';}
     lastCapture=info.capture;lastAssignment=info.assignment?.serial||0;renderMonitor();
   }
-  function show(selected=slot){if(!dialog.open||selected!==slot){captureMessage='';$('#controller-mode-help').open=!info.slots?.[selected-1];}slot=selected;if(!dialog.open)dialog.showModal();renderMonitor();syncOverlay();}
+  function show(selected=slot){if(!dialog.open||selected!==slot){captureMessage='';calibration.reset();$('#controller-mode-help').open=!info.slots?.[selected-1];$('#steamdeck-controls').open=false;}slot=selected;if(!dialog.open)dialog.showModal();renderMonitor();syncOverlay();}
   async function start(){if(!api.controllerCapture){toast('Use the installed app to assign controllers.');return;}if(info.capture){render(await api.controllerCancel());return;}render(await api.controllerCapture(slot));}
   async function close(){if(info.capture&&api.controllerCancel)render(await api.controllerCancel());dialog.close();syncOverlay();}
   const task=fn=>void Promise.resolve().then(fn).catch(error=>toast(error.message));

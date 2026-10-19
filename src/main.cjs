@@ -5,6 +5,8 @@ const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
+const {deadzone}=require('../ui/controller-calibration.js');let calibrationFile,calibrations=Object.create(null);
+const discovery=require('./discovery.cjs');let finding=null;
 const {RobotKeyboard}=require('./touch-keyboard.cjs');let robotKeyboard;
 const controllerSessions=new WeakSet(),controllerArguments=process.env.DECK_CONTROLLER_TEST==='1'?['--deck-controller-fixtures']:[];
 const robotArguments=()=>[...controllerArguments,...(device.builtInController?['--deck-touch-first']:[])];
@@ -22,8 +24,8 @@ function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||st
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
-function controllerState(){return {...(controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]}),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
-function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused}=value;return {count,slots,capture,blocked,paused};}
+function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
+function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones};}
 function sendControllers(force=false){
   if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
   emit('controller-state',value);
@@ -98,10 +100,12 @@ handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
 async function refreshNetwork(){
   const next=await network.status(),previous=currentNetwork;currentNetwork=next;
+  if(previous&&(next.ssid!==previous.ssid||next.device!==previous.device))finding?.abort();
   if(robotView&&previous?.ssid&&next.ssid!==previous.ssid&&!network.busy){await closeRobot();update({error:'Wi-Fi changed. Open the robot saved for this network.'});}
   emit('network',next);return next;
 }
 async function openRobot(input){
+  finding?.abort();
   if(opening)throw Error('A robot connection is already opening.');opening=true;
   try{
     const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)};
@@ -187,7 +191,7 @@ handle('manager-close',closeManager);
 const auto={ssid:null,dismissed:false,busy:false};
 async function autoOpenFtc(){
   const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false});
-  if(auto.busy||auto.dismissed||robotView||opening||network.busy||!library||!ssid)return;
+  if(auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
   const saved=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');if(!saved.length)return;
   auto.busy=true;
   try{
@@ -200,6 +204,9 @@ handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpen
 handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}update({page});fitView();return snapshot();});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
+handle('discovery-info',async()=>{const context=await network.context();return {...context,reason:discovery.eligibility(context)};});
+handle('discover-robot',async input=>{if(finding)throw Error('Already finding a robot.');if(robotView||opening)throw Error('Close the current robot before finding another.');const controller=new AbortController();finding=controller;try{return await discovery.discover({network,ssid:input?.ssid,confirmed:input?.confirmed,signal:controller.signal});}finally{if(finding===controller)finding=null;}});
+handle('discovery-cancel',()=>{finding?.abort();});
 handle('join',async(ssid,password)=>{await closeRobot();let info;try{info=await network.join(ssid,password);}catch(e){if(e.code==='NEEDS_PASSWORD')return {needsPassword:true,ssid,message:e.message};throw e;}currentNetwork=info;emit('network',info);update();setTimeout(()=>void autoOpenFtc(),500);return info;});
 handle('system-wifi',async()=>{
   await closeRobot();if(process.platform==='win32')return shell.openExternal('ms-settings:network-wifi');
@@ -213,14 +220,13 @@ handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.
 handle('controllers',()=>controllerHub.state().slots);
 handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
 handle('controller-automatic',()=>{controllerHub.automatic();sendControllers(true);return controllerState();});
+handle('controller-calibration',({slot,zone})=>{if(![1,2].includes(slot))throw Error('Choose controller 1 or controller 2.');const pad=controllerHub.state().slots[slot-1];if(!pad||pad.mapping!=='standard')throw Error('Connect a mapped controller first.');const next=Object.assign(Object.create(null),calibrations,{[pad.id]:deadzone(zone)});fs.writeFileSync(calibrationFile+'.tmp',JSON.stringify(next),{mode:0o600});fs.renameSync(calibrationFile+'.tmp',calibrationFile);calibrations=next;controllerHub.blocked.add(`${pad.index}:${pad.id}`);sendControllers(true);return controllerState();});
 handle('auth',({id,username,password,cancel})=>{if(!auth||auth.id!==id)throw Error('This sign-in prompt expired.');const pending=auth;auth=null;if(cancel)pending.callback();else pending.callback(String(username||'').slice(0,256),String(password||'').slice(0,1024));fitView();});
 handle('fullscreen',()=>win.setFullScreen(!win.isFullScreen()));handle('quit',()=>app.quit());
-handle('update-info',async()=>{await closeRobot();return updater.info();});
-handle('update-check',repo=>updater.check(repo));
+handle('update-info',async()=>{auto.dismissed=true;finding?.abort();await closeRobot();return updater.info();});
+handle('update-check',()=>updater.check());
 handle('update-channel',(channel,confirmed)=>updater.setChannel(channel,confirmed));
-handle('update-download',()=>updater.download());
-handle('update-folder',async()=>{if(!updater.downloaded)throw Error('Download an update first.');shell.showItemInFolder(updater.downloaded.file);});
-handle('update-install',async()=>{if(!updater.downloaded)throw Error('Download an update first.');await closeRobot();const prepared=await prepareInstall(updater.downloaded,{appPath:app.getAppPath(),executable:process.execPath});await launchInstall(prepared);setTimeout(()=>app.quit(),200);return {restarting:true};});
+handle('update-download',()=>updater.downloadAndInstall(async download=>{await closeRobot();const prepared=await prepareInstall(download,{appPath:app.getAppPath(),executable:process.execPath});await launchInstall(prepared);setTimeout(()=>app.quit(),200);return {restarting:true};}));
 app.on('login',(event,contents,details,info,callback)=>{
   if(contents!==robotView?.webContents)return;event.preventDefault();if(auth)auth.callback();auth={id:randomUUID(),callback};robotKeyboard?.hide({focus:false});robotView.setVisible(false);emit('auth',{id:auth.id,host:active?.url||'',realm:info.realm||'',retry:!details.firstAuthAttempt});
   void setRobotFullscreen(false);
@@ -241,6 +247,7 @@ app.whenReady().then(async()=>{
   recoverSandboxedLibrary(app.getPath('userData'));
   const controllerFile=path.join(app.getPath('userData'),'controller-settings.json');let preferred=[];try{const saved=JSON.parse(fs.readFileSync(controllerFile,'utf8'));if(Array.isArray(saved))preferred=saved;}catch{}
   controllerHub=new ControllerHub({hardware:device,preferred,persist:value=>fs.writeFileSync(controllerFile,JSON.stringify(value),{mode:0o600})});
+  calibrationFile=path.join(app.getPath('userData'),'controller-calibration.json');try{for(const [id,zone]of Object.entries(JSON.parse(fs.readFileSync(calibrationFile,'utf8')))){if(id.length<=2048)calibrations[id]=deadzone(zone);}}catch{}
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;

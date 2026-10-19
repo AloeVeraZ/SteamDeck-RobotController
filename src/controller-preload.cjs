@@ -19,7 +19,8 @@ if(window.top===window){
         // Never guess raw DirectInput/HID indices. Chromium maps recognized
         // USB/Bluetooth layouts to standard; raw devices remain diagnostic only.
         const rest=p.mapping!=='standard'||config.paused||config.capture||config.blocked.includes(`${p.index}:${p.id}`);
-        return new Proxy(p,{get:(target,property)=>property==='index'?slot:property==='axes'&&rest?Array.from(target.axes||[],()=>0):property==='buttons'&&rest?Array.from(target.buttons||[],b=>({pressed:false,touched:false,value:0})):Reflect.get(target,property,target)});
+        const zone=config.deadzones?.[slot]||0,axes=Array.from(p.axes||[]);if(!rest&&zone>0&&zone<=0.3)for(const i of [0,2]){const radius=Math.hypot(axes[i]||0,axes[i+1]||0),scale=radius<=zone?0:(Math.min(1,radius)-zone)/(1-zone)/radius;axes[i]=(axes[i]||0)*scale;axes[i+1]=(axes[i+1]||0)*scale;}
+        return new Proxy(p,{get:(target,property)=>property==='index'?slot:property==='axes'?(rest?axes.map(()=>0):axes):property==='buttons'&&rest?Array.from(target.buttons||[],b=>({pressed:false,touched:false,value:0})):Reflect.get(target,property,target)});
       });
     };
     const quantize=(value,min=0)=>Number.isFinite(value)?Math.round(Math.max(min,Math.min(1,value))*100)/100:0;
