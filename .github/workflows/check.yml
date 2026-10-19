@@ -66,6 +66,7 @@ jobs:
           DECK_UI_LAYOUT_ONLY=1 xvfb-run -a node tests/ui.cjs
           xvfb-run -a node tests/controller-ui.cjs
           xvfb-run -a node tests/controller-session.cjs
+          xvfb-run -a node tests/recovery-app.cjs
           xvfb-run -a node tests/discovery-ui.cjs
           xvfb-run -a node tests/design-ui.cjs
           DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/robot-fullscreen.cjs
@@ -81,6 +82,7 @@ jobs:
             test-results/v2/*.png
             test-results/touch/*.png
             test-results/discovery/*.png
+            test-results/recovery/*.png
       - uses: actions/checkout@v4
         if: matrix.target == 'steamdeck'
         with:

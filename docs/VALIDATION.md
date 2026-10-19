@@ -1,4 +1,4 @@
-## Testing 2.4.13: persistent station controller session
+## Testing 2.4.13: persistent controllers and connection recovery
 
 - Reproduced the lost-controller failure with the previous 2.4.12 code using
   `tests/controller-session.cjs`: only the station receives synthetic OS input;
@@ -12,6 +12,15 @@
   The 100-controller native fixture and FTC UDP controller checks remain regression
   checks. Fixtures verify software behavior; physical OS/Steam Deck pairing remains
   a device check. No robot enable/initialization behavior is changed.
+- `tests/recovery-app.cjs` drives real Electron powerMonitor listeners with simulated
+  suspend/resume and Wi-Fi states. It checks retained addresses, names, SSIDs and
+  controller counts; Retry; held-input release locks; wrong-network reconnection;
+  robot renderer crashes; explicit Close; and an unfinished protocol probe, including
+  a not-yet-saved target. An FTC UDP fixture confirms STOP on suspend and no automatic
+  INIT/START on wake. These are simulated power events, not physical sleep tests.
+- Shell-only corner tokens, panel insets, helper text and heading spacing unify
+  Drive/Settings/controller/update surfaces. Native layout/touch checks cover the
+  resulting screens; embedded robot websites retain their own appearance.
 
 ## Testing 2.4.12: updates, calibration and hotspot discovery
 

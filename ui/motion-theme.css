@@ -1,5 +1,5 @@
-/* MotionModule's typography, floating bar, lit panel edges and pill controls.
-   The existing robot page remains responsible for its own appearance. */
+/* Shared station theme. Robot websites keep their own styles. */
+.driver-station{--radius-panel:16px;--radius-control:10px;--radius-detail:6px}
 body{font-family:var(--font);-webkit-font-smoothing:antialiased;background-color:var(--bg);background-image:linear-gradient(var(--grid-major) 1px,transparent 1px),linear-gradient(90deg,var(--grid-major) 1px,transparent 1px),linear-gradient(var(--grid-minor) 1px,transparent 1px),linear-gradient(90deg,var(--grid-minor) 1px,transparent 1px);background-size:80px 80px,80px 80px,20px 20px,20px 20px}
 h1,h2,h3,.brand,.eyebrow,.status-heading{font-family:var(--font-display);font-weight:700;text-transform:uppercase}
 h1{letter-spacing:.01em}
@@ -81,6 +81,26 @@ dialog h2{font-size:28px;letter-spacing:.03em}
 #controller-robot-note{font-size:11px;line-height:1.5}
 .capture-status,.testing-warning{border-radius:10px}
 #update-status,#update-notes{background:var(--well);border-color:var(--line);border-radius:10px}
+.driver-station :is(.panel,.welcome,.welcome-icon,.browser-toolbar,.menu,.wifi-popover,.controller-cards,.robot-card,dialog){border-radius:var(--radius-panel)}
+.driver-station :is(button.controller,.controller>span,.slot-number,.step,input,select,.wifi-picker,.wifi-row,.check-row,.quick-robots button,.capture-status,.testing-warning,#update-status,#update-notes){border-radius:var(--radius-control)}
+.driver-station .panel{padding-block:20px}
+.driver-station .controller-identity{padding:12px}
+/* Shell-only refinements: equal text rhythm and repeatable inset surfaces. */
+.driver-station :is(.panel-title,.dialog-heading){gap:16px;margin-bottom:16px}
+.driver-station :is(.panel-title,.dialog-heading)>div{min-width:0}
+.driver-station :is(.panel-title,.dialog-heading) h2{margin-bottom:4px;line-height:1.25}
+.driver-station label{margin-bottom:8px}
+.driver-station :is(.controller-card small,.saved-row small,.controller-identity p){margin-top:4px;line-height:1.5}
+.driver-station :is(.controller-buttons-panel>.hint,.hint,.panel-title p,.check-row span){font-size:12px;line-height:1.5}
+.driver-station :is(.controller-identity,.controller-visual-panel,.controller-buttons-panel,.calibration-plot,.robot-discovery,.input-help){border-radius:var(--radius-panel)}
+.driver-station :is(.axis-reading,.input-button){border-radius:var(--radius-detail)}
+.driver-station :is(.text-button,.saved-row .edit,.saved-row .delete,.browser-actions button,.menu button){border-radius:var(--radius-control)}
+.driver-station .menu button:last-child{border-radius:var(--radius-control)}
+.driver-station :is(.button-row,.dialog-actions){gap:8px}
+.driver-station :is(.robot-card,.controller-card,.saved-row){gap:16px}
+.driver-station .input-help{border:1px solid var(--line-strong)}
+.driver-station #controller-robot-note{margin-block:16px;line-height:1.5}
+.driver-station .robot-discovery{margin-top:16px}
 .bar{margin:8px 12px 0;border:1px solid var(--line);border-top-color:var(--edge-top);border-radius:12px;background:var(--raised);min-height:52px}
 .bar .brand span{font:700 18px var(--font-display);color:var(--text);letter-spacing:.03em}
 .banner{border-radius:999px}

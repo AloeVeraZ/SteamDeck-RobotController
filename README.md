@@ -134,6 +134,12 @@ No launcher can provide a hardware emergency stop for an arbitrary robot website
 Once detected by the station, controllers stay assigned across robot reloads and Close robot/reopen.
 The station forwards their current input to the robot; each robot page needs no separate controller activation.
 
+Sleep or a lost Wi-Fi connection keeps the selected robot's address and network.
+After reconnecting Wi-Fi, choose **Try again** to reopen it without restarting the app
+or retyping its address. Controls stay neutral until held sticks/buttons are released;
+robot enable and initialization are never automatically restored.
+The station forwards their current input to the robot; each robot page needs no separate controller activation.
+
 Robot-hosted Wi-Fi can use [Find robot automatically](docs/DISCOVERY.md) in Settings.
 It is opt-in and checks the hotspot gateway only; home/shared networks keep manual or saved addresses.
 Controller setup includes [drift measurement and app deadzones](docs/CONTROLLERS.md#calibration-and-steam-deck-navigation).

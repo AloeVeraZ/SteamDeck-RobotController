@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell}=require('electron');
+const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
@@ -15,7 +15,8 @@ const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=nu
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
 let managerView=null,managerProxy=null;
 let robotExitView=null,robotExitReady=null,robotFullscreenPrevious=false;
-const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false};const network=new Network();let overlay=false;
+let suspended=false,interruption=null,connectionEpoch=0;const recoveryControllers=new Set();
+const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
 app.setName('Deck Driver Station');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
 if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',()=>{win?.show();win?.focus();});
@@ -25,7 +26,8 @@ function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||st
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
-function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
+function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:suspended||state.recovering||state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
+function blockHeldControllers(){for(const pad of controllerHub?.state().slots||[])if(pad){recoveryControllers.add(pad.id);controllerHub.blocked.add(`${pad.index}:${pad.id}`);}}
 function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,pads:controllerOutput(value)};}
 function sendControllers(force=false){
   if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
@@ -41,7 +43,9 @@ function controllerSender(e){return e.sender===win?.webContents||e.sender===robo
 ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',inputConfig());});
 ipcMain.on('controller-input',(e,pads)=>{
   if(!controllerHub||e.sender!==win?.webContents||e.senderFrame!==e.sender.mainFrame)return;
-  lastControllerInput=performance.now();controllerHub.ingest(pads);sendControllers();
+  lastControllerInput=performance.now();controllerHub.ingest(pads);
+  for(const pad of controllerHub.pads)if(recoveryControllers.has(pad.id)){if(!pad.pressed&&!controllerHub.axesActive(pad))recoveryControllers.delete(pad.id);else controllerHub.blocked.add(`${pad.index}:${pad.id}`);}
+  if(suspended||state.recovering)blockHeldControllers();sendControllers();
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -51,7 +55,10 @@ async function closeManager(){
   if(view){try{win.contentView.removeChildView(view);view.webContents.close();}catch{}}
   if(proxy)await proxy.close();if(state.manager)update({manager:false});fitView();
 }
-async function closeRobot(){
+async function closeRobot({retain=false}={}){
+  if(!retain&&interruption)await interruption;
+  connectionEpoch++;
+  const selection=retain?{robot:active||state.robot,url:state.url||active?.url||'',title:state.title,kind:state.kind}:{};
   robotKeyboard?.hide({focus:false});
   await setRobotFullscreen(false);
   if(auth){auth.callback();auth=null;}
@@ -59,9 +66,17 @@ async function closeRobot(){
   // An FTC station sends STOP for an active op mode before its socket closes; the robot also stops on its own after 2 s.
   if(robotView&&bridge instanceof FtcSocket){try{await Promise.race([robotView.webContents.executeJavaScript('window.deckShutdown?.()'),delay(300)]);await delay(80);}catch{}}
   const view=robotView,proxy=bridge;robotView=null;bridge=null;active=null;
-  controllerHub?.cancel();controllerHub?.setCount(1);sendControllers(true);
+  controllerHub?.cancel();if(!retain)controllerHub?.setCount(1);sendControllers(true);
   if(view){try{win.contentView.removeChildView(view);view.webContents.close();}catch{}}
-  if(proxy)await proxy.close();update({loading:false,robot:null,url:'',title:'',error:'',kind:''});
+  if(proxy)await proxy.close();update({loading:false,robot:null,url:'',title:'',error:'',kind:'',recovering:false,...selection,...(retain?{recovering:true}:{})});
+}
+function interruptRobot(message){
+  connectionEpoch++;finding?.abort();
+  if(interruption)return interruption;
+  if(!state.url&&!active)return Promise.resolve();
+  update({loading:false,recovering:true,error:message});blockHeldControllers();sendControllers(true);
+  interruption=closeRobot({retain:true}).then(()=>update({error:message})).finally(()=>{interruption=null;});
+  return interruption;
 }
 function place(view,visible){const [width,fullHeight]=win.getContentSize(),height=fullHeight-(robotKeyboard?.visible?robotKeyboard.height():0);if(state.robotFullscreen){view.setBounds({x:0,y:0,width,height});view.setVisible(visible);return;}const x=Math.min(Math.max(0,Math.round(viewBounds.x)),width),y=Math.min(Math.max(0,Math.round(viewBounds.y)),height);view.setBounds({x,y,width:Math.max(0,Math.min(Math.round(viewBounds.width),width-x)),height:Math.max(0,Math.min(Math.round(viewBounds.height),height-y))});view.setVisible(visible);}
 function fitView(){
@@ -100,25 +115,32 @@ ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.we
 async function refreshNetwork(){
   const next=await network.status(),previous=currentNetwork;currentNetwork=next;
   if(previous&&(next.ssid!==previous.ssid||next.device!==previous.device))finding?.abort();
-  if(robotView&&previous?.ssid&&next.ssid!==previous.ssid&&!network.busy){await closeRobot();update({error:'Wi-Fi changed. Open the robot saved for this network.'});}
+  const expected=active?.ssid||state.robot?.ssid||previous?.ssid;
+  if((robotView||opening&&state.url)&&expected&&next.ssid!==expected&&!network.busy&&!suspended){await interruptRobot(next.ssid?'Wi-Fi changed. Your robot address is saved. Choose Try again to reconnect to its network.':'Wi-Fi disconnected. Your robot address is saved. Reconnect Wi-Fi, then choose Try again.');}
   emit('network',next);return next;
 }
 async function openRobot(input){
   finding?.abort();
   if(opening)throw Error('A robot connection is already opening.');opening=true;
   try{
+    if(interruption)await interruption;
+    if(suspended)throw Error('Wait for this device to wake before reconnecting.');
     const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)};
-    const wifi=await refreshNetwork(),ssid=cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:wifi.ssid);
+    const wifi=await refreshNetwork(),ssid=cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:input.ssid||wifi.ssid);
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
     // The automatic FTC check holds UDP 20884 for up to 1.5 s; let it finish first.
     for(let i=0;auto.busy&&i<40;i++)await delay(50);
     await closeRobot();
+    if(suspended)throw Error('Wait for this device to wake before reconnecting.');
+    const epoch=++connectionEpoch;active={...target,ssid};
+    update({page:'drive',loading:true,url:target.url,title:target.name||'Opening robot',robot:active,error:''});
     // FTC Robot Controllers answer Robocol discovery on UDP 20884 and get the Driver Station; everything else is a website.
     // The Settings "FTC robot" box forces the Driver Station; unticked ("auto") detects again.
     let kind=input.kind==='ftc'?'ftc':input.kind==='auto'?undefined:saved?.url===target.url?saved.kind:undefined;
-    if(!kind){update({page:'drive',loading:true,url:target.url,title:target.name||'Looking for robot',robot:saved||null,error:''});kind=(await probeFtc(new URL(target.url).hostname)).ftc?'ftc':'web';}
-    if(kind==='ftc')return await openFtc(target,ssid);
-    const proxy=new RobotProxy(target.url),localUrl=await proxy.start();bridge=proxy;
+    if(!kind){kind=(await probeFtc(new URL(target.url).hostname)).ftc?'ftc':'web';}
+    if(epoch!==connectionEpoch||suspended)return {opened:false};
+    if(kind==='ftc')return await openFtc(target,ssid,epoch);
+    const proxy=new RobotProxy(target.url),localUrl=await proxy.start();if(epoch!==connectionEpoch||suspended){await proxy.close();return {opened:false};}bridge=proxy;
     const identity=createHash('sha256').update(`${ssid}\0${new URL(target.url).origin}`).digest('hex');
     const view=new WebContentsView({webPreferences:{partition:`persist:robot-${identity}`,additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
     robotView=view;active={...target,ssid};win.contentView.addChildView(view);
@@ -144,8 +166,8 @@ async function openRobot(input){
     });
     contents.on('page-title-updated',(_e,title)=>{if(robotView===view&&active?.id){const robot=library.updateTitle(active.id,title);update({title:robot.name,robot});}});
     contents.on('did-fail-load',(_e,code,message,_url,isMainFrame)=>{if(robotView===view&&isMainFrame&&code!==-3){view.setVisible(false);update({loading:false,error:`Could not open the robot: ${message}`});}});
-    contents.on('render-process-gone',()=>{if(robotView===view)void closeRobot().then(()=>update({error:'Robot page closed unexpectedly. Open it again to reconnect.'}));});
-    update({page:'drive',loading:true,url:target.url,title:target.name||'Opening robot',robot:saved||null,error:''});fitView();
+    contents.on('render-process-gone',()=>{if(robotView===view)void interruptRobot('Robot page closed unexpectedly. Your address is saved. Choose Try again to reconnect.');});
+    update({page:'drive',loading:true,url:target.url,title:target.name||'Opening robot',robot:active,error:''});fitView();
     void contents.loadURL(localUrl).then(()=>{if(robotView===view)contents.focus();}).catch(e=>{if(robotView===view)update({loading:false,error:e.message});});return {opened:true};
   }finally{opening=false;}
 }
@@ -153,9 +175,10 @@ function lockDown(contents,allowed){
   const session=contents.session;session.setPermissionRequestHandler((_w,_p,cb)=>cb(false));session.setPermissionCheckHandler(()=>false);
   contents.on('will-navigate',(e,url)=>{if(!allowed(url))e.preventDefault();});contents.setWindowOpenHandler(({url})=>{if(allowed(url))void contents.loadURL(url);return {action:'deny'};});
 }
-async function openFtc(target,ssid){
+async function openFtc(target,ssid,epoch){
   const host=new URL(target.url).hostname,socket=new FtcSocket(host);
-  try{await socket.open();}catch(e){update({page:'drive',loading:false,url:target.url,title:target.name||host,error:e.message});return {opened:false};}
+  try{await socket.open();}catch(e){if(epoch===connectionEpoch)update({page:'drive',loading:false,url:target.url,title:target.name||host,error:e.message});return {opened:false};}
+  if(epoch!==connectionEpoch||suspended){await socket.close();return {opened:false};}
   const robot=library.upsert({...target,ssid,kind:'ftc'},{opened:true});
   const view=new WebContentsView({webPreferences:{preload:path.join(__dirname,'ftc-preload.cjs'),partition:'ftc-driver-station',additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,backgroundThrottling:false,webSecurity:true}});
   const page=path.join(__dirname,'../ui/ftc/index.html'),pageUrl=require('node:url').pathToFileURL(page).href;
@@ -163,7 +186,7 @@ async function openFtc(target,ssid){
   robotEscape(view.webContents);
   controllerSession(view.webContents.session);controllerHub.setCount(robot.controllerCount);
   socket.onPacket(bytes=>{if(robotView===view)view.webContents.send('ftc-packet',bytes);});
-  view.webContents.on('render-process-gone',()=>{if(robotView===view)void closeRobot().then(()=>update({error:'The Driver Station closed unexpectedly. Open the robot again to reconnect.'}));});
+  view.webContents.on('render-process-gone',()=>{if(robotView===view)void interruptRobot('The Driver Station closed unexpectedly. Your robot address is saved. Choose Try again to reconnect.');});
   update({page:'drive',loading:false,url:target.url,title:robot.name,robot,kind:'ftc',error:''});fitView();
   await view.webContents.loadFile(page);if(robotView===view){view.webContents.focus();fitView();}return {opened:true,kind:'ftc'};
 }
@@ -190,12 +213,12 @@ handle('manager-close',closeManager);
 const auto={ssid:null,dismissed:false,busy:false};
 async function autoOpenFtc(){
   const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false});
-  if(auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
+  if(suspended||state.recovering||auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
   const saved=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');if(!saved.length)return;
   auto.busy=true;
   try{
     const host=await findFtc([...new Set(saved.map(r=>new URL(r.url).hostname))]);const robot=saved.find(r=>new URL(r.url).hostname===host);
-    if(robot&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
+    if(robot&&!suspended&&!state.recovering&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
   }catch(e){emit('notice',e.message);}finally{auto.busy=false;}
 }
 handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware(),app:{version:meta.version,channel:meta.updateChannel}};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
@@ -242,6 +265,8 @@ function recoverSandboxedLibrary(dir){
   }catch{}
 }
 app.whenReady().then(async()=>{
+  powerMonitor.on('suspend',()=>{suspended=true;blockHeldControllers();sendControllers(true);void interruptRobot('Device sleeping. Your robot address is saved. After waking and reconnecting Wi-Fi, choose Try again.');});
+  powerMonitor.on('resume',()=>{suspended=false;lastControllerInput=0;controllerHub?.ingest([]);sendControllers(true);void (async()=>{if(interruption)await interruption;await refreshNetwork();if(state.recovering)update({error:'Device resumed. Your robot address is saved. Check Wi-Fi, then choose Try again. Robot controls stay neutral until released.'});})().catch(e=>emit('notice',e.message));});
   device=await detectHardware();
   recoverSandboxedLibrary(app.getPath('userData'));
   const controllerFile=path.join(app.getPath('userData'),'controller-settings.json');let preferred=[];try{const saved=JSON.parse(fs.readFileSync(controllerFile,'utf8'));if(Array.isArray(saved))preferred=saved;}catch{}
