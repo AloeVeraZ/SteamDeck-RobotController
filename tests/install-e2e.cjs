@@ -43,7 +43,17 @@ async function update(label,{version,base,assets,expect}){
   // Windows and Linux helpers restart the app with this environment; macOS uses `open`.
   // The restarted copy holds the single-instance lock until it exits; wait for that before relaunching.
   if(platform!=='darwin'){const {pid}=JSON.parse(await until(()=>fs.existsSync(restartSmoke)&&fs.readFileSync(restartSmoke,'utf8'),label+' automatic restart',90000));await until(()=>{try{process.kill(pid,0);return false;}catch{return true;}},label+' restarted app exit',30000).catch(()=>{try{process.kill(pid);}catch{}});}
-  else{await sleep(3000);try{execFileSync('pkill',['-f',install.root]);}catch{}await until(()=>{try{execFileSync('pgrep',['-f',install.root]);return false;}catch{return true;}},label+' restarted app exit',30000);}
+  else{
+    // LaunchServices does not inherit the smoke-test environment. Wait for the
+    // actual restarted main process, then stop that PID. A fixed sleep + pkill
+    // could kill the still-running install helper, miss a late launch, or wait
+    // forever on Chromium's crash handler after the main app had already exited.
+    const binaries=[at(install.bin),fs.realpathSync(at(install.bin))];
+    const processes=()=>execFileSync('ps',['-axo','pid=,stat=,command='],{encoding:'utf8'}).split('\n').map(line=>line.trim().match(/^(\d+)\s+(\S+)\s+(.*)$/)).filter(Boolean).map(([,pid,status,command])=>({pid:Number(pid),status,command}));
+    const restarted=await until(()=>processes().find(p=>!p.status.startsWith('Z')&&binaries.some(bin=>p.command===bin||p.command.startsWith(bin+' '))&&!p.command.includes(' --type=')),label+' automatic restart',90000);
+    process.kill(restarted.pid,'SIGTERM');
+    await until(()=>!processes().some(p=>p.pid===restarted.pid&&!p.status.startsWith('Z')),label+' restarted app exit',30000);
+  }
   delete process.env.DECK_SMOKE_FILE;
   return {check,downloaded:served.filter(u=>!u.includes('api.github.com')&&!u.endsWith('/channel.json')).map(u=>u.split('/').pop())};
 }
