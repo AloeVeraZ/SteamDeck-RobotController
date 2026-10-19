@@ -19,6 +19,13 @@
   --radius-control: 8px;
   --radius-detail: 6px;
   --shadow: 0 16px 48px #000a;
+  --on-accent: #0a0a0a;
+  --accent-hover: #d4d4d4;
+  --accent-active: #bdbdbd;
+  --hover: #282828;
+  --input-hover: #444;
+  --placeholder: #5c5c5c;
+  --backdrop: #000c;
   background: var(--bg);
   background-image: none;
   -webkit-font-smoothing: antialiased;
@@ -83,15 +90,15 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 
 /* Buttons: solid white primary, quiet grey secondary, plain text links. */
 .driver-station :is(.primary, .secondary) { min-height: 44px; padding: 10px 18px; border: 0; border-radius: var(--radius-control); font: 600 13px/1.3 var(--font); letter-spacing: 0; box-shadow: none; }
-.driver-station .primary { background: var(--text); color: #0a0a0a; }
-.driver-station .primary:hover:not(:disabled) { background: #d4d4d4; border: 0; }
-.driver-station .primary:active:not(:disabled) { background: #bdbdbd; }
+.driver-station .primary { background: var(--text); color: var(--on-accent); }
+.driver-station .primary:hover:not(:disabled) { background: var(--accent-hover); border: 0; }
+.driver-station .primary:active:not(:disabled) { background: var(--accent-active); }
 .driver-station .secondary { background: var(--raised); color: var(--text); }
-.driver-station .secondary:hover:not(:disabled) { background: #282828; border: 0; }
+.driver-station .secondary:hover:not(:disabled) { background: var(--hover); border: 0; }
 .driver-station .text-button { color: var(--muted); font-size: 13px; font-weight: 500; padding-inline: 0; }
 .driver-station .text-button:hover { color: var(--text); }
 .driver-station :is(#close-page, #manager-close) { border: 0; border-radius: var(--radius-control); background: var(--raised); font: 600 12px var(--font); }
-.driver-station :is(#close-page, #manager-close):hover { background: #282828; border: 0; }
+.driver-station :is(#close-page, #manager-close):hover { background: var(--hover); border: 0; }
 .driver-station :is(.icon-button, #robot-fullscreen) { border: 0; border-radius: var(--radius-control); color: var(--muted); }
 .driver-station :is(.icon-button, #robot-fullscreen):hover:not(:disabled) { background: var(--raised); border: 0; color: var(--text); }
 
@@ -109,9 +116,9 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station label { margin: 20px 0 8px; font-size: 12px; font-weight: 600; color: var(--text); }
 .driver-station label > span { font-size: 12px; font-weight: 400; color: var(--quiet); }
 .driver-station :is(input, select, .wifi-picker) { min-height: 44px; background: var(--well); border: 1px solid var(--line-strong); border-radius: var(--radius-control); font-size: 14px; color: var(--text); }
-.driver-station :is(input, select):hover, .driver-station .wifi-picker:hover { border-color: #444; }
+.driver-station :is(input, select):hover, .driver-station .wifi-picker:hover { border-color: var(--input-hover); }
 .driver-station :is(input, select):focus, .driver-station .wifi-picker[aria-expanded=true] { border-color: var(--text); }
-.driver-station input::placeholder { color: #5c5c5c; }
+.driver-station input::placeholder { color: var(--placeholder); }
 .driver-station .wifi-popover { margin-top: 8px; padding: 4px; background: var(--well); border: 1px solid var(--line-strong); border-radius: var(--radius-control); }
 .driver-station .wifi-row { border: 0; border-radius: var(--radius-detail); }
 .driver-station .wifi-row:hover { background: var(--raised); }
@@ -164,11 +171,11 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 
 /* Dialogs share the panel surface. */
 .driver-station dialog { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-panel); box-shadow: var(--shadow); }
-.driver-station dialog::backdrop { background: #000c; }
+.driver-station dialog::backdrop { background: var(--backdrop); }
 .driver-station :is(dialog h2, #controller-dialog h2, #update-dialog h2) { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
 .driver-station #update-version { font-size: 13px; color: var(--quiet); }
 .driver-station .update-channels > button { background: var(--raised); color: var(--muted); }
-.driver-station .update-channels > button[aria-pressed=true] { background: var(--text); color: #0a0a0a; border: 0; box-shadow: none; }
+.driver-station .update-channels > button[aria-pressed=true] { background: var(--text); color: var(--on-accent); border: 0; box-shadow: none; }
 .driver-station :is(#update-status, #update-notes) { background: var(--well); border: 1px solid var(--line); border-radius: var(--radius-control); }
 .driver-station .testing-warning { border-radius: var(--radius-control); }
 .driver-station #controller-dialog .dialog-heading { border-bottom: 1px solid var(--line); }
@@ -204,3 +211,50 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
   .driver-station footer > #robot-title { display: block; max-width: 100%; }
   .driver-station footer > #device { display: none; }
 }
+
+/* Light theme: chosen in Settings, or followed from the system when set to System. */
+:root[data-theme=light] { color-scheme: light; background: #f7f7f7; }
+:root[data-theme=light] .driver-station {
+  --bg: #f7f7f7; --surface: #fff; --raised: #efefef; --well: #f7f7f7; --control: #e8e8e8;
+  --line: #e6e6e6; --line-strong: #d4d4d4; --text: #0a0a0a; --muted: #525252; --quiet: #737373;
+  --accent: #0a0a0a; --accent-text: #0a0a0a; --accent-bg: #efefef; --on-accent: #fafafa;
+  --accent-hover: #262626; --accent-active: #404040; --hover: #e2e2e2; --input-hover: #a3a3a3; --placeholder: #a3a3a3;
+  --backdrop: #0006; --shadow: 0 16px 48px #0002;
+  --connected: #16a34a; --connected-bg: #dcfce7; --warning: #a16207; --warning-bg: #fef9c3; --danger: #dc2626; --danger-bg: #fee2e2;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme=dark]) { color-scheme: light; background: #f7f7f7; }
+  :root:not([data-theme=dark]) .driver-station {
+    --bg: #f7f7f7; --surface: #fff; --raised: #efefef; --well: #f7f7f7; --control: #e8e8e8;
+    --line: #e6e6e6; --line-strong: #d4d4d4; --text: #0a0a0a; --muted: #525252; --quiet: #737373;
+    --accent: #0a0a0a; --accent-text: #0a0a0a; --accent-bg: #efefef; --on-accent: #fafafa;
+    --accent-hover: #262626; --accent-active: #404040; --hover: #e2e2e2; --input-hover: #a3a3a3; --placeholder: #a3a3a3;
+    --backdrop: #0006; --shadow: 0 16px 48px #0002;
+    --connected: #16a34a; --connected-bg: #dcfce7; --warning: #a16207; --warning-bg: #fef9c3; --danger: #dc2626; --danger-bg: #fee2e2;
+  }
+}
+/* Older layers hard-code a few dark-only tints; keep them readable on both themes. */
+.driver-station .testing-warning { border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
+.driver-station .testing-warning p { color: var(--muted); }
+.driver-station .input-notice { border-bottom-color: color-mix(in srgb, var(--warning) 35%, transparent); }
+.driver-station .input-button.pressed :is(span, output) { color: var(--text); }
+.driver-station :where(.robot-grid, .wifi-list, dialog, .controller-scroll) { scrollbar-color: var(--line-strong) transparent; }
+
+/* Preferences: theme switch, keep-awake and the shortcut list. */
+.driver-station .setting-label { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--text); }
+.driver-station .segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 3px; background: var(--well); border: 1px solid var(--line); border-radius: var(--radius-control); }
+.driver-station .segmented > button { min-height: 44px; min-width: 0; border: 0; border-radius: var(--radius-detail); background: none; color: var(--muted); font: 600 13px var(--font); }
+.driver-station .segmented > button:hover { color: var(--text); }
+.driver-station .segmented > button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong); }
+.driver-station .shortcuts { margin-top: 20px; border-top: 1px solid var(--line); }
+.driver-station .shortcut-list { margin: 0 0 4px; }
+.driver-station .shortcut-list > div { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.driver-station .shortcut-list > div:first-child { border-top: 0; }
+.driver-station .shortcut-list dt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--quiet); }
+.driver-station .shortcut-list dd { margin: 0; color: var(--text); text-align: right; }
+.driver-station kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--well); color: var(--text); font: 600 11px/1.5 var(--font); text-align: center; }
+
+/* Toolbar zoom badge and footer session clock. */
+.driver-station .zoom-reset { min-width: 44px; min-height: 44px; padding: 0 10px; border: 0; border-radius: var(--radius-control); background: var(--raised); color: var(--text); font: 600 12px var(--font); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.driver-station .zoom-reset:hover { background: var(--hover); }
+.driver-station #session-time { color: var(--muted); font-variant-numeric: tabular-nums; }

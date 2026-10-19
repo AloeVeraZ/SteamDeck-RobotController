@@ -1,3 +1,22 @@
+## Testing 2.4.17: light mode and driving conveniences
+
+- Settings → Preferences: theme (System, Light, Dark), saved per device and applied by
+  `ui/theme.js` before first paint. System follows `prefers-color-scheme`; checked in
+  the preview with emulated light and dark schemes. Robot pages and the FTC view keep
+  their own colors.
+- Keep screen awake while driving (on by default): a `prevent-display-sleep` power-save
+  blocker is held only while a robot is open and the device is not suspended.
+- Shortcuts work from the station and from inside robot pages: F5/Ctrl+R reload,
+  Alt+← back (⌘[ on macOS), F11 robot fullscreen, Ctrl +/−/0 and Ctrl+wheel zoom,
+  Ctrl+1/2 Drive/Settings. Plain keys always reach the robot. `tests/shortcuts.test.cjs`
+  covers the key table on Windows, Linux and macOS.
+- Robot page zoom is remembered per saved robot (`robot-zoom.json`); a toolbar badge shows
+  a non-100% zoom and resets it. The footer shows how long the robot has been connected.
+- The layout audit checks pass in the preview at 1280×800, 577×582 and 360×480 with the new
+  panel, badge and clock shown. A headless launch of the desktop app ran with no
+  main-process or renderer errors. `node --test` passes 89/89. Not run locally: the
+  Electron Playwright suites, and keep-awake or zoom on real hardware.
+
 ## Testing 2.4.16: flat, minimal station
 
 - Simpler robot mark (head, antenna, eyes) in `ui/icon.svg`; `icon.png`, `icon.ico`

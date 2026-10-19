@@ -1,8 +1,8 @@
 'use strict';
-const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor}=require('electron');
+const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor,powerSaveBlocker}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
-const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
+const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {shortcut}=require('./shortcuts.cjs');const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
 const {controllerOutput}=require('./controller-output.cjs');let lastControllerInput=0;
@@ -21,8 +21,18 @@ app.setName('Deck Driver Station');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
 if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',()=>{win?.show();win?.focus();});
 function emit(channel,value){try{if(win&&!win.isDestroyed())win.webContents.send(channel,value);}catch{}}
-function snapshot(){return {...state,robots:library?.list(currentNetwork?.ssid),network:currentNetwork};}
-function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||state.error||!state.url)robotKeyboard?.hide({focus:false});if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);emit('state',snapshot());}
+function snapshot(){return {...state,zoom:currentZoom(),robots:library?.list(currentNetwork?.ssid),network:currentNetwork};}
+function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||state.error||!state.url)robotKeyboard?.hide({focus:false});if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);syncAwake();emit('state',snapshot());}
+// Keep the display on while a robot is open (Settings preference, on by default).
+let keepAwake=true,awakeBlocker=null;
+function syncAwake(){const wanted=keepAwake&&!!robotView&&!suspended;if(wanted&&awakeBlocker===null)awakeBlocker=powerSaveBlocker.start('prevent-display-sleep');else if(!wanted&&awakeBlocker!==null){powerSaveBlocker.stop(awakeBlocker);awakeBlocker=null;}}
+// Robot page zoom, remembered per saved robot (and separately for Program & Manage).
+const zoomSteps=[.5,.67,.75,.8,.9,1,1.1,1.25,1.5,1.75,2];let zoomFile='',zooms={};
+function zoomKey(contents){const id=active?.id||active?.url||'';return id&&(contents===managerView?.webContents?'manage:'+id:id);}
+function currentZoom(){try{return Number(((managerView||robotView)?.webContents.getZoomFactor()||1).toFixed(2));}catch{return 1;}}
+function applyZoom(contents){const factor=zooms[zoomKey(contents)]||1;if(contents.getZoomFactor()!==factor){contents.setZoomFactor(factor);emit('state',snapshot());}}
+function setZoom(step){const contents=(managerView||robotView)?.webContents;if(!contents)return 1;const current=contents.getZoomFactor(),nearest=zoomSteps.reduce((best,z,i)=>Math.abs(z-current)<Math.abs(zoomSteps[best]-current)?i:best,0),next=step===0?1:zoomSteps[Math.max(0,Math.min(zoomSteps.length-1,nearest+step))],key=zoomKey(contents);
+  if(key){if(next===1)delete zooms[key];else zooms[key]=next;try{fs.writeFileSync(zoomFile,JSON.stringify(zooms),{mode:0o600});}catch{}}contents.setZoomFactor(next);emit('state',snapshot());return next;}
 function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
@@ -110,7 +120,14 @@ async function setRobotFullscreen(enabled){
   }
   return snapshot();
 }
-function robotEscape(contents){contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape'){robotKeyboard?.hide();if(state.robotFullscreen)void setRobotFullscreen(false);}});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
+async function runShortcut(action){
+  if(action==='reload')return (managerView||robotView)?.webContents.reload();if(action==='back')return goBack();
+  if(action==='zoom-in'||action==='zoom-out'||action==='zoom-reset')return setZoom(action==='zoom-in'?1:action==='zoom-out'?-1:0);
+  if(action==='drive'||action==='settings')return setPage(action);
+  if(action==='fullscreen'){if(robotView&&state.page==='drive'&&!state.error&&!state.loading)return setRobotFullscreen(!state.robotFullscreen);if(!state.robotFullscreen)win?.setFullScreen(!win.isFullScreen());}
+}
+function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
+function robotEscape(contents){keys(contents);contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape'){robotKeyboard?.hide();if(state.robotFullscreen)void setRobotFullscreen(false);}});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
 handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
 async function refreshNetwork(){
@@ -224,7 +241,8 @@ async function autoOpenFtc(){
 }
 handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware(),app:{version:meta.version,channel:meta.updateChannel}};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
-handle('page',async page=>{if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}update({page});fitView();return snapshot();});
+async function setPage(page){if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}update({page});fitView();return snapshot();}
+handle('page',setPage);
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
 handle('discovery-info',async()=>{const context=await network.context();return {...context,reason:discovery.eligibility(context)};});
@@ -239,7 +257,8 @@ handle('system-wifi',async()=>{
 handle('bounds',bounds=>{if(!bounds||!['x','y','width','height'].every(k=>Number.isFinite(bounds[k])&&bounds[k]>=0))throw Error('Invalid robot view bounds.');if(!state.robotFullscreen)viewBounds=bounds;fitView();});
 handle('overlay',visible=>{const previous=overlay;overlay=!!visible;if(overlay)robotKeyboard?.hide({focus:false});fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
 handle('robot-focus',()=>{if(state.page==='drive'&&!overlay&&!auth&&!robotKeyboard?.visible&&win.isFocused())(managerView||robotView)?.webContents.focus();});
-handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',async()=>{const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();});
+async function goBack(){const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();}
+handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',goBack);handle('zoom',step=>setZoom(Math.sign(Number(step))||0));handle('keep-awake',enabled=>{keepAwake=enabled!==false;syncAwake();return keepAwake;});
 handle('controllers',()=>controllerHub.state().slots);
 handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
 handle('controller-automatic',()=>{controllerHub.automatic();sendControllers(true);return controllerState();});
@@ -273,6 +292,7 @@ app.whenReady().then(async()=>{
   const controllerFile=path.join(app.getPath('userData'),'controller-settings.json');let preferred=[];try{const saved=JSON.parse(fs.readFileSync(controllerFile,'utf8'));if(Array.isArray(saved))preferred=saved;}catch{}
   controllerHub=new ControllerHub({hardware:device,preferred,zoneFor:id=>calibrations[id]||0,persist:value=>fs.writeFileSync(controllerFile,JSON.stringify(value),{mode:0o600})});
   calibrationFile=path.join(app.getPath('userData'),'controller-calibration.json');try{for(const [id,zone]of Object.entries(JSON.parse(fs.readFileSync(calibrationFile,'utf8')))){if(id.length<=2048)calibrations[id]=deadzone(zone);}}catch{}
+  zoomFile=path.join(app.getPath('userData'),'robot-zoom.json');try{for(const [key,factor]of Object.entries(JSON.parse(fs.readFileSync(zoomFile,'utf8'))))if(key.length<=2048&&zoomSteps.includes(factor))zooms[key]=factor;}catch{}
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
@@ -280,7 +300,7 @@ app.whenReady().then(async()=>{
   robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)controllerHub.ingest([]);sendControllers();},100);controllerTimer.unref();
   win.webContents.on('render-process-gone',()=>{lastControllerInput=0;controllerHub.ingest([]);sendControllers(true);});
-  Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
+  keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
   win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
