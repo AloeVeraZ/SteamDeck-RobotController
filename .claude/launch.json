@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "preview",
+      "runtimeExecutable": "C:\\Users\\angel\\OneDrive\\Documents\\Github\\SteamDeck-RobotController\\.cache\\runtime-win32-x64-44.8.0\\electron.exe",
+      "runtimeArgs": ["tools/preview.cjs"],
+      "env": {"ELECTRON_RUN_AS_NODE": "1", "PORT": "8787", "DECK_PREVIEW_SSID": "9999-C-RC", "DECK_PREVIEW_STEAMDECK": "1"},
+      "port": 8787
+    }
+  ]
+}
