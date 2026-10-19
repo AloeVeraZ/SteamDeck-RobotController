@@ -12,7 +12,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results','controll
   await page.waitForFunction(()=>document.querySelector('#controller-1 small').textContent.includes('Steam Deck LCD controls'));
   await page.locator('#controller-1').click();await page.locator('#controller-dialog').waitFor({state:'visible'});
   await page.evaluate(()=>document.fonts.ready.then(()=>undefined));
-  assert.ok(await page.evaluate(()=>document.fonts.check('400 13px Inter')&&document.fonts.check('700 24px "Barlow Condensed"')),'MotionModule fonts did not load offline');
+  assert.ok(await page.evaluate(()=>document.fonts.check('400 13px Inter')&&document.fonts.check('600 22px Inter')),'Station interface font did not load offline');
   await page.waitForFunction(()=>document.querySelector('#controller-axis-1').textContent==='-0.80');
   const window=await app.browserWindow(page);
   for(const [width,height,name] of [[1280,800,'lcd'],[1920,1080,'desktop'],[390,844,'portrait']]){

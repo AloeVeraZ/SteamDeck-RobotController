@@ -1,3 +1,15 @@
+## Testing 2.4.15: restrained station controls
+
+- `ui/elements.css` restyles station controls only: one Inter type scale in sentence
+  case, flatter buttons, tabs and cards, quieter labels and status badges, and plain
+  disclosure chevrons. Decorative arrows were removed from in-app buttons; the
+  external System Wi-Fi link keeps its ↗. Layout, behavior and robot pages are unchanged.
+- Checked in the browser preview at 1280×800 and 375×812 (Drive, Settings, the
+  controller and update dialogs); no horizontal overflow at phone width.
+- `node --test tests/*.test.cjs` passes 86/86. The Electron Playwright suites
+  (`controller-ui`, `layout-audit`) were not run locally; Playwright is not
+  installed on this PC, so CI covers them.
+
 ## Testing 2.4.14: responsive layout and visual polish
 
 - `tests/layout-audit.cjs` exercises shell layouts at 360×480, 390×844, 640×480,
