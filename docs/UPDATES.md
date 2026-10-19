@@ -15,6 +15,14 @@ been published yet**. Errors and unpublished releases never say â€œup to date.â€
 Private repositories need a distribution solution with authentication; this
 personal app uses public release downloads and stores no GitHub access tokens.
 
+**Checking without GitHub's API limit.** Unauthenticated GitHub API calls are limited to 60
+per hour for each network, shared by every device and tool on it. Each publish therefore also
+uploads `channel.json` to a fixed `testing-channel` / `main-channel` prerelease, with the
+newest release's assets, sizes and SHA-256 digests. **Check for updates** reads that file as
+an ordinary download, which the API limit does not apply to. Only if it is missing does the app
+call the API, sending the saved ETag so an unchanged list costs nothing. If GitHub still refuses,
+the app uses the last saved list, or says when the limit resets.
+
 **Update size.** Each release also publishes a small
 `DeckDriverStation-<version>-App-<base>.tar.gz` holding only the app code (well under 1 MB).
 `<base>` fingerprints what an installed copy keeps when only the code changes: the Electron

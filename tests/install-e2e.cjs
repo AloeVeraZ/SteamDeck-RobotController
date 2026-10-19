@@ -34,7 +34,7 @@ function release(version,assets){
 async function update(label,{version,base,assets,expect}){
   const {Updater,prepareInstall,launchInstall}=require(at(install.app+'/src/updater.cjs'));
   const releases=release(versionB,assets),served=[];
-  const updater=new Updater({directory:path.join(home,'updates-'+label),version,repo:'AloeVeraZ/SteamDeck-RobotController',channel:'testing',base,fetcher:async url=>{served.push(url);if(url.includes('api.github.com'))return new Response(JSON.stringify(releases));return new Response(fs.readFileSync(file(decodeURIComponent(url.split('/').pop()))));}});
+  const updater=new Updater({directory:path.join(home,'updates-'+label),version,repo:'AloeVeraZ/SteamDeck-RobotController',channel:'testing',base,fetcher:async url=>{served.push(url);if(url.endsWith('/testing-channel/channel.json'))return new Response(JSON.stringify({schema:1,channel:'testing',releases}));if(url.includes('api.github.com'))throw Error('the channel manifest should make API calls unnecessary');return new Response(fs.readFileSync(file(decodeURIComponent(url.split('/').pop()))));}});
   const check=await updater.check();assert.equal(check.status,'available');assert.equal(check.asset.kind,expect,label+' picked '+check.asset.kind);
   // The helper waits for "the app" to exit; a short-lived stand-in plays that part here.
   const standIn=spawn(process.execPath,['-e','setTimeout(()=>{},1500)']);const restartSmoke=path.join(home,`restart-${label}.json`);process.env.DECK_SMOKE_FILE=restartSmoke;Object.assign(process.env,{DECK_HEADLESS:'1',DECK_DATA_DIR:data});
@@ -45,7 +45,7 @@ async function update(label,{version,base,assets,expect}){
   if(platform!=='darwin'){const {pid}=JSON.parse(await until(()=>fs.existsSync(restartSmoke)&&fs.readFileSync(restartSmoke,'utf8'),label+' automatic restart',90000));await until(()=>{try{process.kill(pid,0);return false;}catch{return true;}},label+' restarted app exit',30000).catch(()=>{try{process.kill(pid);}catch{}});}
   else{await sleep(3000);try{execFileSync('pkill',['-f',install.root]);}catch{}await until(()=>{try{execFileSync('pgrep',['-f',install.root]);return false;}catch{return true;}},label+' restarted app exit',30000);}
   delete process.env.DECK_SMOKE_FILE;
-  return {check,downloaded:served.filter(u=>!u.includes('api.github.com')).map(u=>u.split('/').pop())};
+  return {check,downloaded:served.filter(u=>!u.includes('api.github.com')&&!u.endsWith('/channel.json')).map(u=>u.split('/').pop())};
 }
 (async()=>{
   console.log(`== ${kind}: install ${versionA}, App update and full update to ${versionB}`);

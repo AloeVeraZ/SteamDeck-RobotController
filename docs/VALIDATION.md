@@ -1,5 +1,11 @@
 ## Testing 2.4.19: keyboard as Controller 1, layouts and controller brands
 
+- Update checks read a `channel.json` manifest from a fixed release download first, so they no
+  longer spend the 60-per-hour unauthenticated GitHub API allowance. The API fallback sends
+  the saved ETag (304 replies are free), reuses the saved list when limited, and names the
+  reset time otherwise. `tests/updater.test.cjs` covers each path; the CI install checks now
+  run with the manifest and fail if the API is touched. 103/103 unit tests pass.
+
 - Controller 1 can be a keyboard (Controller / Keyboard switch in its dialog). It feeds the
   same hub and robot output as a gamepad; `tests/keyboard.test.cjs` covers key mapping,
   diagonal normalisation, slot pinning, output to robots, and switching back.

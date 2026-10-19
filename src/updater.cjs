@@ -27,7 +27,27 @@ class Updater{
   persist(){fs.mkdirSync(this.directory,{recursive:true});fs.writeFileSync(this.file,JSON.stringify({channel:this.channel}),{mode:0o600});}
   setChannel(channel,confirmed=false){if(this.busy)throw Error('An update operation is already in progress.');if(!['main','testing'].includes(channel))throw Error('Choose Main or Testing.');if(channel==='testing'&&this.channel!=='testing'&&confirmed!==true)throw Error('Testing is experimental. Confirm the warning before switching.');this.channel=channel;this.release=null;this.downloaded=null;this.persist();return this.info();}
   async response(url,max=120000){const r=await this.fetcher(url,{headers:{'User-Agent':'DeckDriverStation','Accept':url.includes('api.github.com')?'application/vnd.github+json':'application/octet-stream','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(max)});if(!r.ok){if(r.status===404)throw Error('Repository or release not found. It may be private or not published yet.');if(r.status===403||r.status===429)throw Error('GitHub rate limit or access restriction. Try again later.');throw Error(`GitHub returned HTTP ${r.status}.`);}return r;}
-  async check(){if(this.busy)throw Error('An update operation is already in progress.');this.busy=true;this.release=null;this.downloaded=null;try{this.persist();const releases=[];for(let page=1;page<=5;page++){const r=await this.response(`https://api.github.com/repos/${this.repo}/releases?per_page=100&page=${page}`,20000);const part=await r.json();if(!Array.isArray(part))throw Error('Invalid GitHub release response.');releases.push(...part);if(part.length<100)break;}const result=selectRelease(releases,this);if(result.asset){this.validateUrl(result.asset.browser_download_url,result.tag);this.release=result;}return {...this.info(),...result,asset:result.asset?{name:result.asset.name,size:result.asset.size,kind:result.kind}:undefined};}finally{this.busy=false;}}
+  // Release list for this channel. First the channel manifest, a plain release download that
+  // GitHub's hourly API limit does not apply to; then the API with a cached ETag (a 304 reply
+  // is not counted); if GitHub refuses, the last saved list, or a clear time to try again.
+  async releases(){
+    try{const r=await this.fetcher(`https://github.com/${this.repo}/releases/download/${this.channel}-channel/channel.json`,{headers:{'User-Agent':'DeckDriverStation','Accept':'application/json'},signal:AbortSignal.timeout(15000)});
+      if(r.ok){const manifest=await r.json();if(manifest?.schema===1&&manifest.channel===this.channel&&Array.isArray(manifest.releases)&&manifest.releases.every(x=>typeof x?.tag_name==='string'&&Array.isArray(x.assets)))return {releases:manifest.releases};}}catch{}
+    const cacheFile=path.join(this.directory,'release-cache.json'),key=`${this.repo}#${this.channel}`;let cache=null;try{const saved=JSON.parse(fs.readFileSync(cacheFile,'utf8'));if(saved.key===key&&Array.isArray(saved.releases))cache=saved;}catch{}
+    const url=`https://api.github.com/repos/${this.repo}/releases?per_page=100`;
+    const r=await this.fetcher(url,{headers:{'User-Agent':'DeckDriverStation','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28',...(cache?.etag?{'If-None-Match':cache.etag}:{})},signal:AbortSignal.timeout(20000)});
+    if(r.status===304&&cache)return {releases:cache.releases};
+    if(r.status===403||r.status===429){
+      const reset=Number(r.headers?.get?.('x-ratelimit-reset')),when=Number.isFinite(reset)&&reset>0?new Date(reset*1000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+      if(cache)return {releases:cache.releases,note:`(GitHub's hourly limit for this network is used up, so this is the last check from ${new Date(cache.time).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}.)`};
+      throw Error(`GitHub's hourly limit for update checks on this network is used up${when?'. Try again after '+when:'. Try again in an hour'}.`);
+    }
+    if(!r.ok){if(r.status===404)throw Error('Repository or release not found. It may be private or not published yet.');throw Error(`GitHub returned HTTP ${r.status}.`);}
+    const releases=await r.json();if(!Array.isArray(releases))throw Error('Invalid GitHub release response.');
+    try{fs.writeFileSync(cacheFile,JSON.stringify({key,etag:r.headers?.get?.('etag')||'',time:Date.now(),releases}),{mode:0o600});}catch{}
+    return {releases};
+  }
+  async check(){if(this.busy)throw Error('An update operation is already in progress.');this.busy=true;this.release=null;this.downloaded=null;try{this.persist();const {releases,note}=await this.releases();const result=selectRelease(releases,this);if(note)result.message+=' '+note;if(result.asset){this.validateUrl(result.asset.browser_download_url,result.tag);this.release=result;}return {...this.info(),...result,asset:result.asset?{name:result.asset.name,size:result.asset.size,kind:result.kind}:undefined};}finally{this.busy=false;}}
   validateUrl(url,tag){const u=new URL(url);if(u.protocol!=='https:'||u.hostname!=='github.com'||u.username||u.password||!u.pathname.startsWith(`/${this.repo}/releases/download/${encodeURIComponent(tag)}/`))throw Error('The update download must belong to this GitHub repository and release.');return u.href;}
   async download(){if(this.busy)throw Error('An update operation is already in progress.');if(!this.release)throw Error('Check for updates first.');this.busy=true;try{
     const {asset,tag}=this.release;let hash=asset.digest?.match(/^sha256:([a-f0-9]{64})$/i)?.[1].toLowerCase();
