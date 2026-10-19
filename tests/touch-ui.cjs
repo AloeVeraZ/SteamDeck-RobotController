@@ -19,7 +19,7 @@ const pad=(id,index,y=0)=>({id,index,connected:true,mapping:'standard',axes:[0,y
  try{
   page=await app.firstWindow();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));console.log('Touch check: app launched.');
   await app.evaluate(({app})=>{const req=process.getBuiltinModule('node:module').createRequire(app.getAppPath()+'/package.json'),{Network}=req('./src/network.cjs');Network.prototype.status=async()=>({connected:true,native:true,ssid:'Touch test network (simulated)'});Network.prototype.scan=async()=>Array.from({length:24},(_,i)=>({ssid:'Simulated network '+(i+1),security:'WPA2',signal:90-i}));Network.prototype.join=async(ssid,password)=>password?{connected:true,native:true,ssid}:{needsPassword:true,ssid};});
-  await page.waitForFunction(()=>typeof state==='object'&&!!window.deck);const native=await app.browserWindow(page);await native.evaluate(w=>w.setContentSize(1280,800));
+  await page.waitForFunction(()=>typeof state==='object'&&!!window.deck&&hardware.model==='Steam Deck LCD');const native=await app.browserWindow(page);await native.evaluate(w=>w.setContentSize(1280,800));
   // Bootstrap may have queried the OS before the test transport was installed.
   // Refresh the fixture SSID explicitly so the current network is always the
   // 25th entry, independent of process startup timing or the runner's Wi-Fi.
