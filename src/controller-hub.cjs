@@ -2,7 +2,8 @@
 const {Assignments}=require('../ui/controllers.js');
 const {axes:calibratedAxes}=require('../ui/controller-calibration.js');
 const key=p=>p?`${p.index}:${p.id}`:'';
-const normalizeValues=(items,max,min=0)=>Array.isArray(items)?items.slice(0,max).map(v=>Number.isFinite(v)?Math.round(Math.max(min,Math.min(1,v))*100)/100:0):[];
+const normalizeValues=(items,max,min=0)=>Array.isArray(items)?items.slice(0,max).map(v=>Number.isFinite(v)?Math.max(min,Math.min(1,v)):0):[];
+const flags=(values,buttons,threshold)=>buttons.map((value,i)=>Array.isArray(values)&&i<values.length?values[i]===true:value>threshold);
 class ControllerHub{
   constructor({hardware={},preferred=[],persist=()=>{},zoneFor=()=>0}={}){this.hardware=hardware;this.preferred=preferred;this.persist=persist;this.zoneFor=zoneFor;this.assignments=new Assignments();this.pads=[];this.count=1;this.capture=null;this.blocked=new Set();this.assignment=null;}
   axesActive(p){const zone=this.zoneFor(p.id);return zone>0&&p.mapping==='standard'&&p.axes.length>=2?calibratedAxes(p.axes,zone).some(v=>Math.abs(v)>0.08):p.axesActive;}
@@ -12,7 +13,7 @@ class ControllerHub{
   cancel(){this.capture=null;}
   tick(now=Date.now()){if(this.capture&&now>=this.capture.deadline)this.capture=null;}
   ingest(values){
-    const seen=new Set();this.pads=Array.from(Array.isArray(values)?values:[]).slice(0,16).filter(p=>p&&p.connected&&Number.isInteger(p.index)&&p.index>=0&&p.index<16&&typeof p.id==='string'&&p.id.length<=2048&&!seen.has(p.index)&&seen.add(p.index)).map(p=>({id:p.id,index:p.index,mapping:p.mapping==='standard'?'standard':'',connected:true,pressed:!!p.pressed,axesActive:!!p.axesActive,axes:normalizeValues(p.axes,4,-1),buttons:normalizeValues(p.buttons,24)}));
+    const seen=new Set();this.pads=Array.from(Array.isArray(values)?values:[]).slice(0,16).filter(p=>p&&p.connected&&Number.isInteger(p.index)&&p.index>=0&&p.index<16&&typeof p.id==='string'&&p.id.length<=2048&&!seen.has(p.index)&&seen.add(p.index)).map(p=>{const buttons=normalizeValues(p.buttons,24);return {id:p.id,index:p.index,mapping:p.mapping==='standard'?'standard':'',connected:true,pressed:!!p.pressed,axesActive:!!p.axesActive,axes:normalizeValues(p.axes,4,-1),buttons,buttonPressed:flags(p.buttonPressed,buttons,.5),buttonTouched:flags(p.buttonTouched,buttons,0)};});
     // Clear stale identities before restoring a saved choice, including when a
     // controller reconnects under a different browser index.
     for(const slot of [1,2])if(!this.pads.some(p=>p.index===this.assignments.users[slot]&&p.id===this.assignments.identities[slot])){this.assignments.users[slot]=null;this.assignments.identities[slot]=null;}

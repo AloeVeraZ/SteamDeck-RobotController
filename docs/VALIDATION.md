@@ -1,3 +1,18 @@
+## Testing 2.4.13: persistent station controller session
+
+- Reproduced the lost-controller failure with the previous 2.4.12 code using
+  `tests/controller-session.cjs`: only the station receives synthetic OS input;
+  the new robot document has no local native gamepad activation. The same test
+  passes after the fix, including three reloads, navigation, close/reopen and a
+  manual slot swap followed by another reload, without feeding robot-page inputs.
+- 86 Node tests include logical-output precision, button flags, pause/capture/
+  unmapped/release-lock neutralization before IPC, per-robot count and deadzones.
+- Native controller-session coverage includes post-load connection events, live
+  retained Gamepads, real source disconnect/reconnect, and stale-source neutralization.
+  The 100-controller native fixture and FTC UDP controller checks remain regression
+  checks. Fixtures verify software behavior; physical OS/Steam Deck pairing remains
+  a device check. No robot enable/initialization behavior is changed.
+
 ## Testing 2.4.12: updates, calibration and hotspot discovery
 
 - 83 Node tests cover fixed update source/legacy preference migration, channel switching,

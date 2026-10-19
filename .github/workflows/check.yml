@@ -65,6 +65,7 @@ jobs:
           export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
           DECK_UI_LAYOUT_ONLY=1 xvfb-run -a node tests/ui.cjs
           xvfb-run -a node tests/controller-ui.cjs
+          xvfb-run -a node tests/controller-session.cjs
           xvfb-run -a node tests/discovery-ui.cjs
           xvfb-run -a node tests/design-ui.cjs
           DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/robot-fullscreen.cjs

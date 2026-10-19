@@ -131,6 +131,9 @@ transport (an FTC robot is sent STOP first). The robot's own stop/watchdog
 behavior remains authoritative.
 No launcher can provide a hardware emergency stop for an arbitrary robot website.
 
+Once detected by the station, controllers stay assigned across robot reloads and Close robot/reopen.
+The station forwards their current input to the robot; each robot page needs no separate controller activation.
+
 Robot-hosted Wi-Fi can use [Find robot automatically](docs/DISCOVERY.md) in Settings.
 It is opt-in and checks the hotspot gateway only; home/shared networks keep manual or saved addresses.
 Controller setup includes [drift measurement and app deadzones](docs/CONTROLLERS.md#calibration-and-steam-deck-navigation).

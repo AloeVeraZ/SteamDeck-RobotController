@@ -6,6 +6,23 @@ Gamepad API. The bundled FTC station translates those slots to Robocol User 1/2.
 website that has no Gamepad API input handler still needs a robot-specific integration;
 the dashboard cannot infer motor commands from an arbitrary page.
 
+Controller polling belongs to the persistent driver-station document. Once the OS
+exposes the controllers there, robot reloads, navigation, and Close robot/reopen do
+not require another controller activation or assignment. Each new robot document
+receives the current logical C1/C2 reports and connection events after its load
+handlers run. Cached logical Gamepad/button objects remain live as inputs change.
+Robot pages cannot submit controller reports or clear the station's devices.
+Real physical disconnects clear the output; a missing station heartbeat clears it
+within about 0.6 seconds. Full app restarts or OS pairing can still require the
+initial interaction that exposes a controller to Chromium. Robot enable/INIT
+remains the robot's responsibility. Optional haptic actuators still depend on the
+robot document's native OS exposure; driving input does not.
+
+The station sends only gated logical values to robot documents: setup, assignment,
+keyboard pauses, unmapped layouts and release locks are already neutral in the
+IPC payload. Raw readings stay in the trusted station. Analog input precision and
+the driver's button press/touch flags are preserved across the bridge.
+
 Touchscreen navigation is the default interaction model. The shell exposes no gamepads
 through its own enumeration; raw diagnostic reports still support testing/assignment.
 The selected robot receives the logical pads, while Settings, controller tests and the

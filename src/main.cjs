@@ -5,6 +5,7 @@ const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
+const {controllerOutput}=require('./controller-output.cjs');let lastControllerInput=0;
 const {deadzone}=require('../ui/controller-calibration.js');let calibrationFile,calibrations=Object.create(null);
 const discovery=require('./discovery.cjs');let finding=null;
 const {RobotKeyboard}=require('./touch-keyboard.cjs');let robotKeyboard;
@@ -25,7 +26,7 @@ function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.web
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
-function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones};}
+function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,pads:controllerOutput(value)};}
 function sendControllers(force=false){
   if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
   emit('controller-state',value);
@@ -39,10 +40,8 @@ function controllerSession(session){if(!controllerSessions.has(session)){session
 function controllerSender(e){return e.sender===win?.webContents||e.sender===robotView?.webContents;}
 ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',inputConfig());});
 ipcMain.on('controller-input',(e,pads)=>{
-  if(!controllerHub||!controllerSender(e)||e.senderFrame!==e.sender.mainFrame)return;
-  const rootInput=!robotView||!!controllerHub.capture||state.page!=='drive'||overlay||!!auth||!!managerView||!!robotKeyboard?.visible;
-  if((rootInput&&e.sender!==win.webContents)||(!rootInput&&e.sender!==robotView.webContents))return;
-  controllerHub.ingest(pads);sendControllers();
+  if(!controllerHub||e.sender!==win?.webContents||e.senderFrame!==e.sender.mainFrame)return;
+  lastControllerInput=performance.now();controllerHub.ingest(pads);sendControllers();
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -251,9 +250,10 @@ app.whenReady().then(async()=>{
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
-  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false}});
+  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
-  controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>sendControllers(),100);controllerTimer.unref();
+  controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)controllerHub.ingest([]);sendControllers();},100);controllerTimer.unref();
+  win.webContents.on('render-process-gone',()=>{lastControllerInput=0;controllerHub.ingest([]);sendControllers(true);});
   Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
   win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
