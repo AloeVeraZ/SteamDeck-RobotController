@@ -271,3 +271,9 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
   .driver-station .theme-switch { display: none; }
   .driver-station .theme-row { display: block; margin-bottom: 4px; }
 }
+
+/* Controller 1 input source and keyboard bindings. */
+.driver-station .input-source { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 12px; }
+.driver-station .input-source[hidden] { display: none; }
+.driver-station .keyboard-bindings { margin: 4px 0 12px; }
+.driver-station .keyboard-bindings dt { flex-wrap: wrap; }

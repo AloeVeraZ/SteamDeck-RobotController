@@ -11,8 +11,11 @@ class ControllerHub{
   begin(slot,now=Date.now()){if(![1,2].includes(slot))throw Error('Choose controller 1 or controller 2.');this.capture={slot,deadline:now+15000,waiting:new Set(this.pads.filter(p=>p.pressed||this.axesActive(p)).map(key))};}
   automatic(){this.cancel();this.assignments=new Assignments();this.preferred=[null,null];this.ingest(this.pads);this.assignments.automaticUser1=true;this.persist(this.preferred);for(const p of this.assignments.snapshot(this.pads))if(p)this.blocked.add(key(p));}
   cancel(){this.capture=null;}
+  // Only on an explicit choice (leaving keyboard mode): never promote Controller 2 on a disconnect.
+  promote(){const a=this.assignments;if(a.users[1]!==null||a.users[2]===null)return;const p=this.pads.find(p=>p.index===a.users[2]&&p.id===a.identities[2]);if(p)a.assign(1,p);}
   tick(now=Date.now()){if(this.capture&&now>=this.capture.deadline)this.capture=null;}
-  ingest(values){
+  // pin: a device id (the keyboard) that must hold Controller 1 whenever it is present.
+  ingest(values,{pin}={}){
     const seen=new Set();this.pads=Array.from(Array.isArray(values)?values:[]).slice(0,16).filter(p=>p&&p.connected&&Number.isInteger(p.index)&&p.index>=0&&p.index<16&&typeof p.id==='string'&&p.id.length<=2048&&!seen.has(p.index)&&seen.add(p.index)).map(p=>{const buttons=normalizeValues(p.buttons,24);return {id:p.id,index:p.index,mapping:p.mapping==='standard'?'standard':'',connected:true,pressed:!!p.pressed,axesActive:!!p.axesActive,axes:normalizeValues(p.axes,4,-1),buttons,buttonPressed:flags(p.buttonPressed,buttons,.5),buttonTouched:flags(p.buttonTouched,buttons,0)};});
     // Clear stale identities before restoring a saved choice, including when a
     // controller reconnects under a different browser index.
@@ -25,6 +28,7 @@ class ControllerHub{
     }
     for(const slot of [1,2])if(this.assignments.users[slot]===null){const wanted=this.preferred[slot-1],pad=wanted&&this.pads.find(p=>p.id===wanted.id&&p.index===wanted.index)||wanted&&this.pads.find(p=>p.id===wanted.id);if(pad&&this.assignments.users[3-slot]!==pad.index)this.assignments.assign(slot,pad);}
     this.assignments.sync(this.pads,this.hardware);
+    const pinned=pin&&this.pads.find(p=>p.id===pin);if(pinned&&(this.assignments.users[1]!==pinned.index||this.assignments.identities[1]!==pinned.id))this.assignments.assign(1,pinned);
     if(this.assignments.users[2]===null){const second=this.pads.find(p=>p.mapping==='standard'&&p.index!==this.assignments.users[1]);if(second)this.assignments.assign(2,second);}
     const present=new Set(this.pads.map(key));for(const blocked of this.blocked)if(!present.has(blocked))this.blocked.delete(blocked);
   }

@@ -5,7 +5,7 @@ const listen=(name,fn)=>{const cb=(_e,value)=>fn(value);ipcRenderer.on(name,cb);
 contextBridge.exposeInMainWorld('deck',{
   robotFocus:()=>call('robot-focus'),
   robotFullscreen:enabled=>call('robot-fullscreen',enabled),
-  controllerInfo:()=>call('controller-info'),controllerCapture:slot=>call('controller-capture',slot),controllerCancel:()=>call('controller-cancel'),controllerAutomatic:()=>call('controller-automatic'),onControllerState:fn=>listen('controller-state',fn),onControllerCapture:fn=>listen('controller-capture',fn),
+  controllerInfo:()=>call('controller-info'),controllerCapture:slot=>call('controller-capture',slot),controllerCancel:()=>call('controller-cancel'),controllerAutomatic:()=>call('controller-automatic'),controllerSource:source=>call('controller-source',source),onControllerState:fn=>listen('controller-state',fn),onControllerCapture:fn=>listen('controller-capture',fn),
   controllerCalibration:(slot,zone)=>call('controller-calibration',{slot,zone}),
   discoveryInfo:()=>call('discovery-info'),discoverRobot:input=>call('discover-robot',input),discoveryCancel:()=>call('discovery-cancel'),
   updateInfo:()=>call('update-info'),updateChannel:(channel,confirmed)=>call('update-channel',channel,confirmed),updateCheck:()=>call('update-check'),updateDownload:()=>call('update-download'),onUpdateProgress:fn=>listen('update-progress',fn),

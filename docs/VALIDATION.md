@@ -1,3 +1,14 @@
+## Testing 2.4.19: keyboard as Controller 1, layouts and controller brands
+
+- Controller 1 can be a keyboard (Controller / Keyboard switch in its dialog). It feeds the
+  same hub and robot output as a gamepad; `tests/keyboard.test.cjs` covers key mapping,
+  diagonal normalisation, slot pinning, output to robots, and switching back.
+- Layout detection names QWERTY/AZERTY/QWERTZ/Dvorak/Colemak/non-Latin layouts and country
+  variants; checked with the real Chromium layout map on this PC (English (US) QWERTY).
+- Brand fallback by USB vendor ID for unlisted controllers; virtual and cloned IDs stay
+  generic. `node --test` passes 100/100. A headless launch with keyboard mode saved ran
+  without errors. Not tested by hand: driving a real robot from the keyboard.
+
 ## Testing 2.4.18: real update sizes, code-only updates, icons, header theme switch
 
 - The ~152 MB shown before was the true GitHub size of the full Windows package: every update

@@ -18,6 +18,35 @@ initial interaction that exposes a controller to Chromium. Robot enable/INIT
 remains the robot's responsibility. Optional haptic actuators still depend on the
 robot document's native OS exposure; driving input does not.
 
+## Keyboard as Controller 1
+
+Laptops and desktops with a keyboard can drive without a gamepad. Open **Controller 1**
+and choose **Keyboard**; the choice is saved on this device. The keyboard then becomes a
+standard-mapping gamepad on logical slot 0, so robot pages read it exactly like a
+controller, and any physical controller moves to Controller 2.
+
+| Gamepad | Keys (by position) |
+|---|---|
+| Left stick | W A S D |
+| Right stick | Arrow keys |
+| D-pad | I K J L (up, down, left, right) |
+| A · B · X · Y | Space · C · R · F |
+| LB · RB · LT · RT | Q · E · Left Shift · G |
+| Back · Start | ` · Enter |
+| Left / right stick click | X · M |
+
+Keys are read by physical position (`KeyboardEvent.code`), so the cluster stays in the
+WASD position on AZERTY, QWERTZ, Dvorak and other layouts. The dialog names the layout
+from Chromium's keyboard map (for example *English (UK) QWERTY*, *German QWERTZ*,
+*French AZERTY*) and shows the keycaps printed at each position. Chords with Ctrl, ⌘ or
+Alt are left for station shortcuts. Held keys are released when the window loses focus.
+Key presses still reach the robot page too, so text fields keep working.
+
+Controllers report a vendor and product ID. Known models are named from a catalog; an
+unlisted product from a known maker is named by brand (for example *8BitDo controller*).
+Valve's virtual Steam pad and the Xbox 360 ID that many third-party pads reuse stay
+"Generic controller", because the ID cannot identify the physical device.
+
 The station sends only gated logical values to robot documents: setup, assignment,
 keyboard pauses, unmapped layouts and release locks are already neutral in the
 IPC payload. Raw readings stay in the trusted station. Analog input precision and

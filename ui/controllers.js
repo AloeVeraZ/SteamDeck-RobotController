@@ -1,6 +1,8 @@
 'use strict';
 (function(root,factory){if(typeof module==='object'&&module.exports)module.exports=factory();else root.DeckControllers=factory();})(typeof self!=='undefined'?self:this,function(){
 const signatures={steamdeck:/steam\s*deck|28de[\s\S]*1205/i,ally:/rog\s*(?:xbox\s*)?ally|0b05[\s\S]*(?:1abe|1b4c)/i,legion:/legion\s*go/i};
+// USB vendor IDs of controller makers (Valve is omitted: 28de is also Steam's virtual pad).
+const vendors={'045e':['Microsoft Xbox','xbox'],'054c':['Sony PlayStation','playstation'],'057e':['Nintendo','nintendo'],'046d':['Logitech'],'2dc8':['8BitDo'],'0f0d':['HORI'],'0e6f':['PDP'],'24c6':['PowerA'],'20d6':['PowerA'],'1532':['Razer'],'0738':['Mad Catz'],'1038':['SteelSeries'],'3537':['GameSir'],'05ac':['Apple'],'0b05':['ASUS'],'17ef':['Lenovo'],'146b':['Nacon'],'3285':['Nacon'],'10f5':['Turtle Beach'],'2e24':['Hyperkin'],'044f':['Thrustmaster'],'06a3':['Saitek'],'2c22':['Qanba'],'11c0':['Betop'],'2563':['ShanWan'],'0079':['DragonRise'],'1949':['Amazon Luna'],'18d1':['Google Stadia'],'2f24':['GameSir'],'1bad':['Harmonix'],'12bd':['Gembird'],'0583':['Padix'],'1a34':['ACRUX'],'2833':['Meta'],'0955':['NVIDIA SHIELD'],'0c12':['Zeroplus'],'1689':['Razer'],'15e4':['Numark'],'3767':['Fanatec']};
 function connected(pads){return Array.from(pads||[]).filter(p=>p?.connected).sort((a,b)=>a.index-b.index);}
 function defaultPad(pads,hardware){
   const all=connected(pads).filter(p=>p.mapping==='standard'),signature=signatures[hardware.controllerFamily||(hardware.steamDeck?'steamdeck':'')];
@@ -27,6 +29,10 @@ function identity(pad,hardware={}){
   if(/switch.*pro controller|pro controller.*switch/i.test(id))return result('Nintendo Switch Pro controller','nintendo');
   if(vendor==='046d'&&['c216','c218','c219'].includes(product))return result('Logitech controller','generic','This DirectInput product ID is shared by multiple Logitech models.');
   if(/logitech|8bitdo|gamesir|gulikit|steelseries|razer|powera|\bpdp\b|\bhori\b|nacon|turtle beach|\bscuf\b/i.test(id))return result(id.replace(/\s*\(.*$/,'').replace(/\s*\b(?:vendor|product):.*$/i,'').trim().slice(0,80));
+  // Unlisted product from a known controller maker: name the brand from its USB vendor ID.
+  // Valve's virtual pad and the Xbox 360 ID many third-party pads copy stay unidentified.
+  const brand=vendor&&!(vendor==='045e'&&product==='028e')&&vendors[vendor];
+  if(brand)return result(brand[0]+' controller',brand[1]||'generic','Brand identified from the reported vendor ID; this product ID is not in the catalog.');
   return {name:'Generic controller',art:'generic',known:false,note:/xinput|x.?box|28de/i.test(id)?'This Xbox-compatible or virtual driver does not reliably identify the physical controller.':'The physical model is not identifiable from this driver description.'};
 }
 function buttonLabels(pad){
