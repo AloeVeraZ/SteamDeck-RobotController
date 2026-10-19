@@ -78,7 +78,8 @@ function interruptRobot(message){
   interruption=closeRobot({retain:true}).then(()=>update({error:message})).finally(()=>{interruption=null;});
   return interruption;
 }
-function place(view,visible){const [width,fullHeight]=win.getContentSize(),height=fullHeight-(robotKeyboard?.visible?robotKeyboard.height():0);if(state.robotFullscreen){view.setBounds({x:0,y:0,width,height});view.setVisible(visible);return;}const x=Math.min(Math.max(0,Math.round(viewBounds.x)),width),y=Math.min(Math.max(0,Math.round(viewBounds.y)),height);view.setBounds({x,y,width:Math.max(0,Math.min(Math.round(viewBounds.width),width-x)),height:Math.max(0,Math.min(Math.round(viewBounds.height),height-y))});view.setVisible(visible);}
+// Shell measurements are CSS pixels; native child-view bounds use window units.
+function place(view,visible){const [width,fullHeight]=win.getContentSize(),height=fullHeight-(robotKeyboard?.visible?robotKeyboard.height():0);if(state.robotFullscreen){view.setBounds({x:0,y:0,width,height});view.setVisible(visible);return;}const zoom=win.webContents.getZoomFactor(),x=Math.min(Math.max(0,Math.round(viewBounds.x*zoom)),width),y=Math.min(Math.max(0,Math.round(viewBounds.y*zoom)),height);view.setBounds({x,y,width:Math.max(0,Math.min(Math.round(viewBounds.width*zoom),width-x)),height:Math.max(0,Math.min(Math.round(viewBounds.height*zoom),height-y))});view.setVisible(visible);}
 function fitView(){
   if(!robotView||!win)return;const shown=state.page==='drive'&&!auth&&!state.error&&!overlay;
   if(managerView)place(managerView,shown);place(robotView,shown&&!managerView);

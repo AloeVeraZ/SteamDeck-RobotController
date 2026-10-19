@@ -14,6 +14,10 @@
   overlapping sibling controls, horizontal overflow, clipped button text and
   unreachable controller exits. Keyboard keys must stay inside the keyboard.
 - The expanded local run passes 192 layout/state checks with zero reported issues.
+- A separate native WebContentsView test reproduced a toolbar overlap at 125% app
+  zoom. Robot-view placement now converts CSS coordinates to window units. The
+  regression checks real embedded-view bounds at 100/125/150/200%, followed by
+  the existing fullscreen/exit restoration checks.
 - These are native Electron fixtures on desktop/CI, not proof of every possible
   font, OS scale setting, accessibility configuration or embedded robot website.
   Robot web pages, robot code and control protocols are unchanged.
