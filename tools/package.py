@@ -4,6 +4,9 @@ import argparse,hashlib,io,json,os,plistlib,shutil,stat,tarfile,urllib.request,z
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 META=json.loads((ROOT/'package.json').read_text());VERSION=META['version'];ELECTRON=META['devDependencies']['electron']
+# Bump when anything outside app/ changes in a way installed copies must pick up
+# (runtime layout, launchers, Info.plist keys). Installs whose base differs get the full package.
+BASE_REVISION='1'
 CACHE=ROOT/'.cache';OUT=ROOT/'dist';BASE=f'https://github.com/electron/electron/releases/download/v{ELECTRON}'
 def download(url,dest):
     if dest.exists():return
@@ -27,8 +30,18 @@ def runtime(target):
                 z.extract(e,dest)
                 if os.name!='nt' and (dest/e.filename).is_file():(dest/e.filename).chmod((e.external_attr>>16)&0o777 or 0o644)
     return dest
+def base_id():
+    """Fingerprint of everything an installed copy keeps when only app/ is replaced."""
+    h=hashlib.sha256(f'{BASE_REVISION}\n{ELECTRON}\n'.encode())
+    for name in ('launch.sh','Launcher.nsi'):h.update((ROOT/'packaging'/name).read_bytes().replace(b'\r\n',b'\n'))
+    return h.hexdigest()[:12]
+def generated(name,data):
+    folder=CACHE/'generated'/VERSION;folder.mkdir(parents=True,exist_ok=True);file=folder/name;file.write_bytes(data);return file
 def app_files():
-    yield ROOT/'package.json','package.json'
+    meta=json.loads((ROOT/'package.json').read_text())
+    if meta['version']==VERSION:yield ROOT/'package.json','package.json'
+    else:meta['version']=VERSION;yield generated('package.json',(json.dumps(meta,indent=2)+'\n').encode()),'package.json'
+    yield generated('build.json',json.dumps({'version':VERSION,'electron':ELECTRON,'base':base_id()}).encode()),'build.json'
     yield ROOT/'docs'/'CHROMIUM-LICENSE.txt','licenses/CHROMIUM-GAMEPAD.txt'
     for folder in ('src','ui'):
         for file in sorted((ROOT/folder).rglob('*')):
@@ -85,7 +98,17 @@ exit 0
 __ARCHIVE_BELOW__
 '''.replace('@HASH@',digest).replace('@NAME@',name)
     with installer.open('wb') as out,file.open('rb') as source_file:out.write(header.encode());shutil.copyfileobj(source_file,out)
-    installer.chmod(0o755);finish(installer);latest(installer)
+    installer.chmod(0o755);finish(installer);latest(installer);app_package()
+def app_package():
+    """Code-only update: just app/, for installs whose runtime base matches."""
+    file=OUT/f'DeckDriverStation-{VERSION}-App-{base_id()}.tar.gz'
+    with open(file,'wb') as raw,gzip_writer(raw) as gz,tarfile.open(fileobj=gz,mode='w',format=tarfile.PAX_FORMAT) as t:
+        for src,relative in app_files():
+            data=src.read_bytes();e=tarfile.TarInfo('app/'+relative);e.size=len(data);e.mode=0o644;e.mtime=0;e.uid=e.gid=0;e.uname=e.gname='';t.addfile(e,io.BytesIO(data))
+    with tarfile.open(file) as t:assert all(m.name.startswith('app/') and '..' not in m.name.split('/') for m in t.getmembers())
+    finish(file)
+def gzip_writer(raw):
+    import gzip;return gzip.GzipFile(filename='',mode='wb',fileobj=raw,compresslevel=9,mtime=0)
 def windows():
     archive=runtime_archive('win32-x64');name=f'DeckDriverStation-{VERSION}-Windows';file=OUT/(name+'.zip')
     payload=CACHE/('windows-'+VERSION)/name;payload.mkdir(parents=True,exist_ok=True)
@@ -125,10 +148,13 @@ def mac(arch):
         assert plistlib.loads(z.read(bundle+'/Contents/Info.plist'))['CFBundleIdentifier']=='dev.deckdriverstation.app'
     finish(file);latest(file)
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--target',choices=['steamdeck','windows','macos-arm64','all'],default='steamdeck');p.add_argument('--runtime-only',choices=['linux-x64','win32-x64']);p.add_argument('--fetch-only',choices=['darwin-arm64']);args=p.parse_args();OUT.mkdir(exist_ok=True)
+    p=argparse.ArgumentParser();p.add_argument('--target',choices=['steamdeck','windows','macos-arm64','app','all'],default='steamdeck');p.add_argument('--version',help='Package as this version (update tests only).');p.add_argument('--runtime-only',choices=['linux-x64','win32-x64']);p.add_argument('--fetch-only',choices=['darwin-arm64']);args=p.parse_args();OUT.mkdir(exist_ok=True)
+    if args.version:
+        global VERSION;VERSION=args.version
     if args.runtime_only:print(runtime(args.runtime_only));return
     if args.fetch_only:print(runtime_archive(args.fetch_only));return
     if args.target in ('steamdeck','all'):linux()
     if args.target in ('windows','all'):windows()
     if args.target in ('macos-arm64','all'):mac('arm64')
+    if args.target=='app':app_package()
 if __name__=='__main__':main()

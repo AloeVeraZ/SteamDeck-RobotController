@@ -11,4 +11,4 @@ if [[ -d "$HOME/Desktop" && ! -e "$HOME/Desktop/Deck Driver Station.app" ]]; the
   /bin/ln -s "$destination" "$HOME/Desktop/Deck Driver Station.app"
 fi
 printf '\nInstalled in ~/Applications. This personal build is not Apple-notarized.\nIf macOS asks for approval, use Privacy & Security > Open Anyway.\n'
-/usr/bin/open "$destination"
+if [[ "${DECK_NO_LAUNCH:-}" != 1 ]]; then /usr/bin/open "$destination"; fi

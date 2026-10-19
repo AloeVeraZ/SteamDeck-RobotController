@@ -9,29 +9,32 @@ const LIMIT=700*1024*1024;
 function repository(value){const s=String(value||'').trim().replace(/^https:\/\/github\.com\//,'').replace(/\.git$/,'').replace(/\/$/,'');if(!/^[\w-]+\/[\w.-]+$/.test(s))throw Error('Enter a GitHub repository as owner/repository.');return s;}
 function compare(a,b){const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++)if(x[i]!==y[i])return x[i]-y[i];return 0;}
 function assetName(version,platform,arch){const suffix=platform==='linux'&&arch==='x64'?'SteamDeck.tar.gz':platform==='win32'&&arch==='x64'?'Windows.zip':platform==='darwin'&&arch==='arm64'?'macOS-arm64.zip':null;if(!suffix)throw Error('Updates support Steam Deck x64, Windows x64, and Apple Silicon.');return `DeckDriverStation-${version}-${suffix}`;}
-function selectRelease(releases,{version,channel,installedChannel=channel,platform,arch}){
+// A release's App package holds only app/; it fits installs built on the same runtime base.
+function appAssetName(version,base){return /^[a-f0-9]{12}$/.test(String(base||''))?`DeckDriverStation-${version}-App-${base}.tar.gz`:null;}
+function selectRelease(releases,{version,channel,installedChannel=channel,platform,arch,base}){
   const pattern=channel==='testing'?/^testing-v(\d+\.\d+\.\d+)$/:/^v(\d+\.\d+\.\d+)$/;
   const candidates=releases.filter(r=>!r.draft&&!!r.prerelease===(channel==='testing')&&pattern.test(r.tag_name)).map(r=>({...r,version:r.tag_name.match(pattern)[1]})).sort((a,b)=>compare(b.version,a.version));
   if(!candidates.length)return {status:'unpublished',message:`No ${channel} releases have been published yet.`};
   const r=candidates[0];if(channel===installedChannel&&compare(r.version,version)<=0)return {status:'current',latest:r.version,message:`You’re up to date. Latest ${channel} release: ${r.version}.`};
-  const name=assetName(r.version,platform,arch),asset=r.assets?.find(a=>a.name===name&&a.state==='uploaded');
-  if(!asset)throw Error(`Release ${r.version} has no ${name} download yet.`);
-  return {status:'available',latest:r.version,tag:r.tag_name,asset,notes:String(r.body||'').slice(0,8000),message:channel!==installedChannel?`Switch to ${channel} by installing version ${r.version}. Your saved robots and Wi-Fi settings are kept.`:`Version ${r.version} is available.`};
+  const name=assetName(r.version,platform,arch),uploaded=n=>n&&r.assets?.find(a=>a.name===n&&a.state==='uploaded'),full=uploaded(name),small=uploaded(appAssetName(r.version,base));
+  if(!full&&!small)throw Error(`Release ${r.version} has no ${name} download yet.`);
+  const asset=small||full,kind=small?'app':'full';
+  return {status:'available',latest:r.version,tag:r.tag_name,asset,kind,fullSize:full?.size||0,notes:String(r.body||'').slice(0,8000),message:channel!==installedChannel?`Switch to ${channel} by installing version ${r.version}. Your saved robots and Wi-Fi settings are kept.`:`Version ${r.version} is available.`};
 }
 class Updater{
-  constructor({directory,version,repo,channel='testing',platform=process.platform,arch=process.arch,fetcher=fetch,onProgress=()=>{}}){Object.assign(this,{directory,version,channel,installedChannel:channel,platform,arch,fetcher,onProgress});this.file=path.join(directory,'update-settings.json');this.repo=repository(repo);try{const saved=JSON.parse(fs.readFileSync(this.file));if(['main','testing'].includes(saved.channel))this.channel=saved.channel;}catch{}this.release=null;this.busy=false;}
+  constructor({directory,version,repo,channel='testing',platform=process.platform,arch=process.arch,base='',fetcher=fetch,onProgress=()=>{}}){Object.assign(this,{directory,version,channel,installedChannel:channel,platform,arch,base,fetcher,onProgress});this.file=path.join(directory,'update-settings.json');this.repo=repository(repo);try{const saved=JSON.parse(fs.readFileSync(this.file));if(['main','testing'].includes(saved.channel))this.channel=saved.channel;}catch{}this.release=null;this.busy=false;}
   info(){return {version:this.version,repository:this.repo,channel:this.channel,installedChannel:this.installedChannel,platform:this.platform,arch:this.arch};}
   persist(){fs.mkdirSync(this.directory,{recursive:true});fs.writeFileSync(this.file,JSON.stringify({channel:this.channel}),{mode:0o600});}
   setChannel(channel,confirmed=false){if(this.busy)throw Error('An update operation is already in progress.');if(!['main','testing'].includes(channel))throw Error('Choose Main or Testing.');if(channel==='testing'&&this.channel!=='testing'&&confirmed!==true)throw Error('Testing is experimental. Confirm the warning before switching.');this.channel=channel;this.release=null;this.downloaded=null;this.persist();return this.info();}
   async response(url,max=120000){const r=await this.fetcher(url,{headers:{'User-Agent':'DeckDriverStation','Accept':url.includes('api.github.com')?'application/vnd.github+json':'application/octet-stream','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(max)});if(!r.ok){if(r.status===404)throw Error('Repository or release not found. It may be private or not published yet.');if(r.status===403||r.status===429)throw Error('GitHub rate limit or access restriction. Try again later.');throw Error(`GitHub returned HTTP ${r.status}.`);}return r;}
-  async check(){if(this.busy)throw Error('An update operation is already in progress.');this.busy=true;this.release=null;this.downloaded=null;try{this.persist();const releases=[];for(let page=1;page<=5;page++){const r=await this.response(`https://api.github.com/repos/${this.repo}/releases?per_page=100&page=${page}`,20000);const part=await r.json();if(!Array.isArray(part))throw Error('Invalid GitHub release response.');releases.push(...part);if(part.length<100)break;}const result=selectRelease(releases,this);if(result.asset){this.validateUrl(result.asset.browser_download_url,result.tag);this.release=result;}return {...this.info(),...result,asset:result.asset?{name:result.asset.name,size:result.asset.size}:undefined};}finally{this.busy=false;}}
+  async check(){if(this.busy)throw Error('An update operation is already in progress.');this.busy=true;this.release=null;this.downloaded=null;try{this.persist();const releases=[];for(let page=1;page<=5;page++){const r=await this.response(`https://api.github.com/repos/${this.repo}/releases?per_page=100&page=${page}`,20000);const part=await r.json();if(!Array.isArray(part))throw Error('Invalid GitHub release response.');releases.push(...part);if(part.length<100)break;}const result=selectRelease(releases,this);if(result.asset){this.validateUrl(result.asset.browser_download_url,result.tag);this.release=result;}return {...this.info(),...result,asset:result.asset?{name:result.asset.name,size:result.asset.size,kind:result.kind}:undefined};}finally{this.busy=false;}}
   validateUrl(url,tag){const u=new URL(url);if(u.protocol!=='https:'||u.hostname!=='github.com'||u.username||u.password||!u.pathname.startsWith(`/${this.repo}/releases/download/${encodeURIComponent(tag)}/`))throw Error('The update download must belong to this GitHub repository and release.');return u.href;}
   async download(){if(this.busy)throw Error('An update operation is already in progress.');if(!this.release)throw Error('Check for updates first.');this.busy=true;try{
     const {asset,tag}=this.release;let hash=asset.digest?.match(/^sha256:([a-f0-9]{64})$/i)?.[1].toLowerCase();
     if(!hash){const url=this.validateUrl(asset.browser_download_url,tag)+'.sha256';const text=await(await this.response(url,20000)).text();const match=text.trim().match(/^([a-f0-9]{64})\s+\*?([^\r\n]+)$/i);if(!match||match[2]!==asset.name)throw Error('The release has no valid SHA-256 checksum.');hash=match[1].toLowerCase();}
     const folder=path.join(this.directory,'updates',randomUUID());fs.mkdirSync(folder,{recursive:true,mode:0o700});const file=path.join(folder,asset.name),partial=file+'.part';let bytes=0;const digest=createHash('sha256');
     try{const response=await this.response(this.validateUrl(asset.browser_download_url,tag),300000);await pipeline(Readable.fromWeb(response.body),new Transform({transform:(chunk,_enc,cb)=>{bytes+=chunk.length;if(bytes>LIMIT)return cb(Error('Update download exceeds the size limit.'));digest.update(chunk);this.onProgress({bytes,total:asset.size||0});cb(null,chunk);}}),fs.createWriteStream(partial,{mode:0o600,flags:'wx'}));if(asset.size&&bytes!==asset.size)throw Error('Update download was incomplete.');if(digest.digest('hex')!==hash)throw Error('Update checksum mismatch. The update was not installed.');fs.renameSync(partial,file);}catch(e){fs.rmSync(partial,{force:true});throw e;}
-    this.downloaded={file,folder,version:this.release.latest};return {...this.downloaded,verified:true};
+    this.downloaded={file,folder,version:this.release.latest,kind:this.release.kind||'full'};return {...this.downloaded,verified:true};
   }finally{this.busy=false;}}
   async downloadAndInstall(install){const download=await this.download();this.busy=true;try{this.onProgress({phase:'installing'});return await install(download);}finally{this.busy=false;}}
 }
@@ -42,10 +45,37 @@ function installRoot(appPath,executable,platform){
 async function prepareInstall(download,{appPath,executable,platform=process.platform,pid=process.pid}){
   const destination=installRoot(appPath,executable,platform);if(!destination)throw Error('This is a development copy. Install the downloaded package first; in-app updates work in the installed app.');
   const stage=path.join(download.folder,'extracted');fs.mkdirSync(stage);
+  if(download.kind==='app'){const source=await assembleAppUpdate(download,{destination,stage,platform});return finishPrepare(download,{source,destination,pid,platform});}
   if(platform==='win32')await run('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'update-extract.ps1'),download.file,stage],{windowsHide:true,timeout:180000,maxBuffer:1024*1024});
   else if(platform==='darwin')await run('/usr/bin/ditto',['-x','-k',download.file,stage],{timeout:180000});
   else {const {stdout}=await run('tar',['-tzf',download.file],{timeout:30000,maxBuffer:4*1024*1024});if(stdout.split('\n').some(s=>s.startsWith('/')||s.split('/').includes('..')))throw Error('Unsafe update archive path.');await run('tar',['-xzf',download.file,'-C',stage],{timeout:180000});}
   const kind=platform==='win32'?'Windows':platform==='darwin'?'macOS':'SteamDeck';const source=platform==='darwin'?path.join(stage,'Deck Driver Station.app'):path.join(stage,`DeckDriverStation-${download.version}-${kind}`);
+  return finishPrepare(download,{source,destination,pid,platform});
+}
+function tarCommand(platform){return platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32','tar.exe'):'tar';}
+// Combine the downloaded app/ with this install's own runtime and launchers, so the
+// helper swaps a complete copy exactly as it does for a full package.
+async function assembleAppUpdate(download,{destination,stage,platform}){
+  const tar=tarCommand(platform),incoming=path.join(stage,'incoming');fs.mkdirSync(incoming);
+  const {stdout}=await run(tar,['-tzf',download.file],{timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
+  const entries=stdout.split(/\r?\n/).filter(Boolean);if(!entries.length||entries.some(e=>!e.startsWith('app/')||e.startsWith('/')||e.split(/[\\/]/).includes('..')))throw Error('Unsafe update archive path.');
+  await run(tar,['-xzf',download.file,'-C',incoming],{timeout:120000,windowsHide:true});
+  const app=path.join(incoming,'app');
+  if(platform==='darwin'){
+    const source=path.join(stage,'Deck Driver Station.app'),resources=path.join(source,'Contents','Resources');
+    await run('/usr/bin/ditto',[destination,source],{timeout:180000});
+    fs.rmSync(path.join(resources,'app'),{recursive:true,force:true});fs.renameSync(app,path.join(resources,'app'));
+    fs.copyFileSync(path.join(resources,'app','ui','icon.icns'),path.join(resources,'deck.icns'));
+    const plist=path.join(source,'Contents','Info.plist');for(const key of ['CFBundleShortVersionString','CFBundleVersion'])await run('/usr/bin/plutil',['-replace',key,'-string',download.version,plist],{timeout:15000});
+    return source;
+  }
+  const kind=platform==='win32'?'Windows':'SteamDeck',source=path.join(stage,`DeckDriverStation-${download.version}-${kind}`);fs.mkdirSync(source);
+  fs.renameSync(app,path.join(source,'app'));
+  fs.cpSync(path.join(destination,'runtime'),path.join(source,'runtime'),{recursive:true,verbatimSymlinks:true,preserveTimestamps:true});
+  for(const name of platform==='win32'?['DeckDriverStation.exe']:['launch.sh'])if(fs.existsSync(path.join(destination,name)))fs.copyFileSync(path.join(destination,name),path.join(source,name));
+  return source;
+}
+function finishPrepare(download,{source,destination,pid,platform}){
   const meta=JSON.parse(fs.readFileSync(path.join(source,platform==='darwin'?'Contents/Resources/app/package.json':'app/package.json')));if(meta.version!==download.version||meta.name!=='deck-driver-station')throw Error('The extracted update is not the expected application version.');
   const bin=path.join(source,platform==='darwin'?'Contents/MacOS/Electron':platform==='win32'?'runtime/electron.exe':'runtime/electron');if(!fs.statSync(bin).isFile())throw Error('The update runtime is missing.');
   const plan={source,destination,pid,platform,stage:download.folder};const planPath=path.join(download.folder,'install-plan.json');fs.writeFileSync(planPath,JSON.stringify(plan),{mode:0o600});

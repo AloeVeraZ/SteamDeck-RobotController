@@ -2,7 +2,7 @@
 const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor,powerSaveBlocker}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
-const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {shortcut}=require('./shortcuts.cjs');const meta=require('../package.json');let updater;
+const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {shortcut}=require('./shortcuts.cjs');let build={};try{build=JSON.parse(fs.readFileSync(path.join(__dirname,'../build.json'),'utf8'));}catch{}const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
 const {controllerOutput}=require('./controller-output.cjs');let lastControllerInput=0;
@@ -126,8 +126,11 @@ async function runShortcut(action){
   if(action==='drive'||action==='settings')return setPage(action);
   if(action==='fullscreen'){if(robotView&&state.page==='drive'&&!state.error&&!state.loading)return setRobotFullscreen(!state.robotFullscreen);if(!state.robotFullscreen)win?.setFullScreen(!win.isFullScreen());}
 }
-function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
-function robotEscape(contents){keys(contents);contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape'){robotKeyboard?.hide();if(state.robotFullscreen)void setRobotFullscreen(false);}});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
+// Escape always leaves fullscreen (robot view first, then the app window) unless a station
+// menu or dialog is open, where it only closes that. The key still reaches the page.
+function leaveFullscreen(){if(state.robotFullscreen)void setRobotFullscreen(false);else if(win&&!win.isDestroyed()&&win.isFullScreen())win.setFullScreen(false);}
+function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{if(input.type==='keyDown'&&input.key==='Escape'&&!(shell&&(overlay||auth)))leaveFullscreen();const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
+function robotEscape(contents){keys(contents);contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape')robotKeyboard?.hide();});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
 handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
 async function refreshNetwork(){
@@ -293,13 +296,15 @@ app.whenReady().then(async()=>{
   controllerHub=new ControllerHub({hardware:device,preferred,zoneFor:id=>calibrations[id]||0,persist:value=>fs.writeFileSync(controllerFile,JSON.stringify(value),{mode:0o600})});
   calibrationFile=path.join(app.getPath('userData'),'controller-calibration.json');try{for(const [id,zone]of Object.entries(JSON.parse(fs.readFileSync(calibrationFile,'utf8')))){if(id.length<=2048)calibrations[id]=deadzone(zone);}}catch{}
   zoomFile=path.join(app.getPath('userData'),'robot-zoom.json');try{for(const [key,factor]of Object.entries(JSON.parse(fs.readFileSync(zoomFile,'utf8'))))if(key.length<=2048&&zoomSteps.includes(factor))zooms[key]=factor;}catch{}
-  updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
+  updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,base:build.electron===process.versions.electron?build.base:'',onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
   win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)controllerHub.ingest([]);sendControllers();},100);controllerTimer.unref();
   win.webContents.on('render-process-gone',()=>{lastControllerInput=0;controllerHub.ingest([]);sendControllers(true);});
+  // Install and update checks launch the packaged app with DECK_SMOKE_FILE and read back what started.
+  if(process.env.DECK_SMOKE_FILE)win.webContents.once('did-finish-load',()=>{fs.writeFileSync(process.env.DECK_SMOKE_FILE,JSON.stringify({version:meta.version,electron:process.versions.electron,base:build.base||'',appPath:app.getAppPath()}));setTimeout(()=>app.exit(0),200);});
   keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
   win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});

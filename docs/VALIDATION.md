@@ -1,3 +1,21 @@
+## Testing 2.4.18: real update sizes, code-only updates, icons, header theme switch
+
+- The ~152 MB shown before was the true GitHub size of the full Windows package: every update
+  re-downloaded the unchanged Electron runtime. Releases now add a code-only App package;
+  `tests/app-update.test.cjs` covers package choice by runtime base and rebuilding a complete
+  copy (Windows/Linux folder layout, macOS bundle with Info.plist and icon), plus rejecting
+  archives with paths outside `app/`.
+- On this Windows PC: `tests/update-app-install.cjs` ran a real App update through the PowerShell
+  helper (12 KB fixture: swap, versioned shortcut icon, restart, saved data kept) and
+  `tests/update-install.cjs` still passes for full packages.
+- CI `install-update` runs on Ubuntu, Windows and macOS runners with real packages built as
+  9.0.0 and 9.0.1: shipped installer (Setup.exe /S, SteamDeck.run, Install-Mac.command), first
+  launch, App update, full update, automatic restart (Windows/Linux), relaunch, icon checks,
+  codesign verify (macOS) and silent uninstall (Windows).
+- Escape leaves robot fullscreen or app fullscreen unless a station menu or dialog is open.
+- Header theme switch (System, Light, Dark) next to Settings, matching MotionModule; System is
+  the default. Below 960 px it moves to Settings → Preferences. `node --test` passes 94/94.
+
 ## Testing 2.4.17: light mode and driving conveniences
 
 - Settings → Preferences: theme (System, Light, Dark), saved per device and applied by

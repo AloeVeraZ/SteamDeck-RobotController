@@ -15,6 +15,20 @@ been published yet**. Errors and unpublished releases never say â€œup to date.â€
 Private repositories need a distribution solution with authentication; this
 personal app uses public release downloads and stores no GitHub access tokens.
 
+**Update size.** Each release also publishes a small
+`DeckDriverStation-<version>-App-<base>.tar.gz` holding only the app code (well under 1 MB).
+`<base>` fingerprints what an installed copy keeps when only the code changes: the Electron
+version and the launchers. An install whose `app/build.json` base matches downloads just
+that package; anything else (an Electron upgrade, installs from before 2.4.18) downloads the
+full package for its platform. The dialog shows the exact size GitHub lists for the chosen
+asset before you download, and the progress counts against that size. A code-only update is
+rebuilt locally from this install's own runtime and then installed exactly like a full one.
+
+**Icons.** Windows shortcuts point at a versioned `icons\deck-<version>.ico`, and the update
+helper repoints Desktop, Start menu and pinned taskbar shortcuts and refreshes the shell icon
+cache. Linux refreshes the menu icon copy and desktop entries; macOS refreshes the bundle icon
+and re-registers the app with LaunchServices.
+
 **Download update** checks the GitHub asset SHA-256 digest (or its exact matching
 `.sha256` file), size, and repository/release URL. Failed downloads are discarded.
 After verification, the same action automatically extracts a new copy, validates its app name/version/runtime,

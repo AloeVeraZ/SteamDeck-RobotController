@@ -18,6 +18,63 @@ jobs:
       - run: mkdir -p test-results && bash tests/update-linux.sh
       - run: bash tests/install-bootstrap.sh
       - run: pwsh -NoProfile -File tests/install-bootstrap.ps1
+  # Real installers and in-app updates on each OS's own runner: install version A, launch it,
+  # update to B with the small App package and with the full package, relaunch, check icons.
+  install-update:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: steamdeck
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Unit tests on this OS
+        run: node --test tests/*.test.cjs
+      - name: Build two versions (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python tools/package.py --target windows --version 9.0.0
+          python tools/package.py --target windows --version 9.0.1
+          python tools/package.py --target app --version 9.0.1
+      - name: Build two versions
+        if: runner.os != 'Windows'
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python3 tools/package.py --target ${{ matrix.target }} --version 9.0.0
+          python3 tools/package.py --target ${{ matrix.target }} --version 9.0.1
+          python3 tools/package.py --target app --version 9.0.1
+      - name: Linux display and sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Windows update helpers
+        if: runner.os == 'Windows'
+        run: |
+          node tests/update-install.cjs
+          node tests/update-app-install.cjs
+      - name: Install and update end to end
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node tests/install-e2e.cjs dist 9.0.0 9.0.1
+          else node tests/install-e2e.cjs dist 9.0.0 9.0.1; fi
   desktop:
     needs: verify
     runs-on: ubuntu-latest
