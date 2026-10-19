@@ -30,12 +30,14 @@ Section "Deck Driver Station"
   SetOutPath "$INSTDIR\runtime"
   File /r "${PAYLOAD}\runtime\*"
   ; Versioned icon path: Explorer caches shortcut icons by path, so updates show the new one.
-  RMDir /r "$INSTDIR\icons"
+  ; Keep previous icon paths valid for cached and OneDrive-synced shortcuts.
   SetOutPath "$INSTDIR\icons"
   File "/oname=deck-${VERSION}.ico" "${ICON}"
   SetOutPath "$INSTDIR"
   CreateShortCut "$DESKTOP\Deck Driver Station.lnk" "$INSTDIR\DeckDriverStation.exe" "" "$INSTDIR\icons\deck-${VERSION}.ico" 0
   CreateShortCut "$SMPROGRAMS\Deck Driver Station.lnk" "$INSTDIR\DeckDriverStation.exe" "" "$INSTDIR\icons\deck-${VERSION}.ico" 0
+  System::Call 'shell32::SHChangeNotify(i 0x2000,i 0x1005,t "$DESKTOP\Deck Driver Station.lnk",p 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x2000,i 0x1005,t "$SMPROGRAMS\Deck Driver Station.lnk",p 0)'
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   FileOpen $0 "$INSTDIR\.deck-driver-station-install" w
   FileWrite $0 "dev.deckdriverstation.app"

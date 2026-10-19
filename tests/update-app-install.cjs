@@ -12,6 +12,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
   const buildScript=path.join(folder,'fixture.ps1');fs.writeFileSync(buildScript,`param([string]$Output)\nAdd-Type -TypeDefinition 'using System; using System.IO; public class Fixture { public static void Main() { File.AppendAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"started.txt"),"restarted\\n"); } }' -OutputAssembly $Output -OutputType ConsoleApplication\n`);
   execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-File',buildScript,path.join(destination,'runtime/electron.exe')],{windowsHide:true});
   fs.writeFileSync(path.join(destination,'runtime/resources.pak'),'runtime data that must survive');fs.writeFileSync(path.join(destination,'DeckDriverStation.exe'),'launcher');
+  fs.mkdirSync(path.join(destination,'icons'));fs.copyFileSync(path.join(__dirname,'../ui/icon.ico'),path.join(destination,'icons/deck-2.2.0.ico'));
   // A desktop-style shortcut in a fixture folder is not touched: only real shell folders are scanned.
   const source=path.join(folder,'app-source');fs.mkdirSync(path.join(source,'app','ui'),{recursive:true});
   fs.writeFileSync(path.join(source,'app/package.json'),JSON.stringify({name:'deck-driver-station',version:'2.3.0'}));fs.copyFileSync(path.join(__dirname,'../ui/icon.ico'),path.join(source,'app/ui/icon.ico'));
@@ -31,6 +32,7 @@ const updater=new Updater({directory:p.download,version:'2.2.0',repo:'owner/robo
   assert.equal(fs.readFileSync(path.join(destination,'runtime/resources.pak'),'utf8'),'runtime data that must survive');
   assert.equal(fs.readFileSync(path.join(destination,'DeckDriverStation.exe'),'utf8'),'launcher');
   assert.ok(fs.existsSync(path.join(destination,'icons','deck-2.3.0.ico')),'versioned shortcut icon missing');
+  assert.ok(fs.existsSync(path.join(destination,'icons','deck-2.2.0.ico')),'previous icon path must keep working for cached and synced shortcuts');
   assert.equal(JSON.parse(fs.readFileSync(path.join(stage,'previous/app/package.json'))).version,'2.2.0');
   assert.equal(fs.readFileSync(path.join(folder,'robots.json'),'utf8'),'saved robots remain');
   console.log(`PASS: a ${Math.round(size/1024)} KB App update rebuilt the Windows install with its existing runtime, swapped it, added a versioned shortcut icon, restarted, and kept saved data.`);

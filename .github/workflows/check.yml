@@ -124,6 +124,7 @@ jobs:
           xvfb-run -a node tests/controller-ui.cjs
           xvfb-run -a node tests/layout-audit.cjs
           xvfb-run -a node tests/controller-session.cjs
+          DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/keyboard-app.cjs
           xvfb-run -a node tests/recovery-app.cjs
           xvfb-run -a node tests/discovery-ui.cjs
           xvfb-run -a node tests/design-ui.cjs

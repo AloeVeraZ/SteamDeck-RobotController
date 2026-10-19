@@ -145,8 +145,9 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station .card-action { font-size: 13px; font-weight: 600; color: var(--muted); }
 .driver-station .controller-card:hover .card-action { color: var(--text); }
 
-/* Robot discovery and help: disclosure rows, not cards. */
-.driver-station .robot-discovery { margin: 24px 0 0; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+/* Robot discovery stays visible; other help uses disclosure rows. */
+.driver-station .robot-discovery { margin: 24px 0 0; padding: 16px 0 0; background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.driver-station .robot-discovery h3 { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
 .driver-station .robot-discovery p { font-size: 12px; }
 .driver-station details > summary { list-style: none; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); }
 .driver-station details > summary::-webkit-details-marker { display: none; }

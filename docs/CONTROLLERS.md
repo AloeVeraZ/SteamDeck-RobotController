@@ -111,6 +111,14 @@ accessibility setups can expose fewer physical controls. Gyro, touch coordinates
 extra paddles, adaptive triggers and vendor software features are not promised by this
 input contract. Rumble availability depends on the exposed actuator and robot support.
 
+## Keyboard controller
+
+Choose **Keyboard** in Controller 1 to use the displayed physical-key bindings.
+Mapped keys, including arrows and Space, drive the virtual gamepad without scrolling
+or activating page controls. This also applies inside the controller test dialog.
+Text fields keep normal typing and cursor movement; Ctrl/Command/Alt shortcuts
+remain available. Choose **Controller** to restore normal page key handling.
+
 ## Calibration and Steam Deck navigation
 
 Open either controller, then **Calibration**. Live plots show reported raw stick

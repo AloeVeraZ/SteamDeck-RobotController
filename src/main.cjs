@@ -40,7 +40,7 @@ function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{truste
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,source1:keyboardSource?'keyboard':'controller',deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:suspended||state.recovering||state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
 function blockHeldControllers(){for(const pad of controllerHub?.state().slots||[])if(pad){recoveryControllers.add(pad.id);controllerHub.blocked.add(`${pad.index}:${pad.id}`);}}
-function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,pads:controllerOutput(value)};}
+function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,keyboardKeys:keyboardSource?[...DeckKeyboard.used]:[],pads:controllerOutput(value)};}
 function ingestPads(pads){
   lastPads=Array.isArray(pads)?pads:[];
   controllerHub.ingest(keyboardSource?[...lastPads.filter(p=>p?.index!==DeckKeyboard.INDEX),DeckKeyboard.pad(keysDown)]:lastPads,{pin:keyboardSource?DeckKeyboard.ID:null});

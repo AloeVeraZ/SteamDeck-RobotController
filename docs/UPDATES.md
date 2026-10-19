@@ -37,6 +37,10 @@ helper repoints Desktop, Start menu and pinned taskbar shortcuts and refreshes t
 cache. Linux refreshes the menu icon copy and desktop entries; macOS refreshes the bundle icon
 and re-registers the app with LaunchServices.
 
+Windows keeps previous versioned icon files so cached, pinned and OneDrive-synced
+shortcuts can still resolve them. Each updated shortcut also gets an explicit shell
+refresh notification.
+
 **Download update** checks the GitHub asset SHA-256 digest (or its exact matching
 `.sha256` file), size, and repository/release URL. Failed downloads are discarded.
 After verification, the same action automatically extracts a new copy, validates its app name/version/runtime,

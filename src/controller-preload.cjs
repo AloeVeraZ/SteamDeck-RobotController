@@ -12,6 +12,15 @@ if(window.top===window){
   contextBridge.executeInMainWorld({func:(fixtures,shell)=>{
     const input=window.__deckControllerInput,original=navigator.getGamepads?.bind(navigator)||(()=>[]);
     let config=input.state(),raw=()=>Array.from(original()||[]),lastReport='',lastSent=0,reporting=true,previous=[null,null],cache=[null,null],ready=document.readyState==='complete',timestamp=performance.now();
+    // Main already captures physical controller keys. Consume their browser actions
+    // even in the controller tester, where robot output is paused. Text fields
+    // keep normal editing, and Ctrl/Command/Alt shortcuts still reach the app.
+    const editable=target=>target instanceof HTMLElement&&(target.isContentEditable||target.matches('textarea,select,[role="textbox"]')||target instanceof HTMLInputElement&&!['checkbox','radio','button','submit','reset','image','hidden'].includes(target.type));
+    for(const type of ['keydown','keyup'])window.addEventListener(type,event=>{
+      if(event.ctrlKey||event.metaKey||event.altKey||event.isComposing||!config.keyboardKeys?.includes(event.code))return;
+      if(event.composedPath().some(editable))return;
+      event.preventDefault();event.stopImmediatePropagation();
+    },true);
     const getRaw=()=>{try{return raw();}catch{return [];}};
     const identity=slot=>{const p=config.pads?.[slot],source=config.slots?.[slot];return p&&source?JSON.stringify([p.id,source.index,p.mapping,p.axes.length,p.buttons.length]):'';};
     function gamepad(slot){
