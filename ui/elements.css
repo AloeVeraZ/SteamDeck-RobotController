@@ -1,119 +1,206 @@
-/* Visual treatment for station controls; layout and robot pages are separate. */
+/* Station look: flat, neutral and bold. Loaded last; layout files keep sizing and
+   responsive behavior. Robot websites and the FTC view keep their own styles. */
 .driver-station {
-  --bg: #101215;
-  --surface: #171a1f;
-  --raised: #20242b;
-  --well: #12151a;
-  --control: #242932;
-  --line: #303640;
-  --line-strong: #4b5563;
+  --bg: #0a0a0a;
+  --surface: #121212;
+  --raised: #1c1c1c;
+  --well: #0d0d0d;
+  --control: #222;
+  --line: #222;
+  --line-strong: #333;
   --edge-top: var(--line);
-  --text: #e8ecf2;
-  --muted: #a8b1bf;
-  --quiet: #96a1b1;
-  --accent: #93b7e8;
-  --accent-text: #a7c8f3;
-  --accent-bg: #233145;
-  --radius-panel: 10px;
-  --radius-control: 7px;
-  --radius-detail: 5px;
+  --text: #f5f5f5;
+  --muted: #a3a3a3;
+  --quiet: #737373;
+  --accent: #f5f5f5;
+  --accent-text: #f5f5f5;
+  --accent-bg: #1c1c1c;
+  --radius-panel: 12px;
+  --radius-control: 8px;
+  --radius-detail: 6px;
+  --shadow: 0 16px 48px #000a;
+  background: var(--bg);
   background-image: none;
   -webkit-font-smoothing: antialiased;
 }
-.driver-station :is(h1, h2, h3, .brand, .eyebrow) {
-  font-family: var(--font);
-  text-transform: none;
-  letter-spacing: 0;
-}
-.driver-station h1 { font-size: 26px; line-height: 1.25; font-weight: 650; letter-spacing: -.5px; }
-.driver-station h2 { font-size: 16px; line-height: 1.4; font-weight: 600; }
-.driver-station h3 { font-size: 13px; line-height: 1.4; font-weight: 600; }
-.driver-station .eyebrow { font-size: 11px; font-weight: 500; color: var(--quiet); }
-.driver-station > header { background: var(--surface); box-shadow: none; border-color: var(--line); border-radius: 10px; }
-.driver-station .brand { font-size: 15px; font-weight: 650; line-height: 1.3; }
-.driver-station .brand span { font: 400 10px/1.4 var(--font); color: var(--muted); letter-spacing: 0; margin-top: 0; }
-.driver-station .brand img { width: 30px; height: 30px; }
-.driver-station nav { background: transparent; border: 0; border-radius: 0; }
-.driver-station .tab { border-radius: 7px; font-size: 13px; font-weight: 500; }
-.driver-station .tab.active { background: var(--raised); border-color: var(--line-strong); color: var(--text); }
-.driver-station .tab:hover { background: var(--raised); }
-.driver-station .network-chip { border-radius: 7px; background: var(--well); font-size: 12px; }
-.driver-station button.controller { border-radius: 7px; }
-.driver-station .controller b { font-size: 11px; font-weight: 500; }
-.driver-station :is(.controller > span, .slot-number) { background: var(--control); border-color: var(--line); border-radius: 5px; }
-.driver-station :is(.more, .icon-button, #robot-fullscreen) { border-radius: 7px; }
-.driver-station .browser-toolbar { background: var(--surface); border-color: var(--line); border-radius: 8px; }
-.driver-station .menu { background: var(--raised); border-color: var(--line-strong); box-shadow: 0 8px 24px #0004; }
-.driver-station .menu button { font-size: 13px; }
-.driver-station .menu button:hover { background: var(--control); }
-.driver-station :is(.panel, dialog, .welcome) { background: var(--surface); border-color: var(--line); box-shadow: none; }
-.driver-station .panel h2 { font-size: 16px; line-height: 1.4; }
-.driver-station .panel-title p { color: var(--muted); }
-.driver-station .step { background: transparent; border-color: transparent; color: var(--muted); border-radius: 0; }
-.driver-station :is(.settings-heading h1, .welcome h1) { font-size: 28px; line-height: 1.25; letter-spacing: -.6px; }
-.driver-station .welcome-icon { background: var(--well); border-color: var(--line); border-radius: 12px; }
-.driver-station .welcome > p:not(.eyebrow) { font-size: 13px; }
-.driver-station .version { background: transparent; color: var(--quiet); border: 0; border-radius: 0; }
-.driver-station :is(.primary, .secondary) {
-  border-radius: 7px;
-  font-size: 13px;
-  line-height: 1.4;
-  font-weight: 550;
-  letter-spacing: 0;
-  box-shadow: none;
-}
-.driver-station .primary { background: var(--accent); border-color: var(--accent); color: #101b2a; }
-.driver-station .primary:hover:not(:disabled) { background: #afcdf5; border-color: #afcdf5; }
-.driver-station .primary:active:not(:disabled) { background: #83a8d9; }
-.driver-station .secondary { background: var(--raised); border-color: var(--line-strong); color: var(--text); }
-.driver-station .secondary:hover:not(:disabled) { background: var(--control); border-color: #738199; }
-.driver-station :is(#close-page, #manager-close) { border-radius: 7px; background: var(--raised); }
-.driver-station :is(input, select, .wifi-picker) { background: var(--well); border-color: var(--line-strong); font-size: 13px; border-radius: 7px; }
-.driver-station :is(input, select):focus { border-color: var(--accent); }
-.driver-station .wifi-picker[aria-expanded=true] { border-color: var(--accent); }
-.driver-station .wifi-row.selected { background: var(--accent-bg); border-color: #6383ad; }
-.driver-station .check-row { background: var(--well); border-color: var(--line); }
-.driver-station :is(.robot-card, .quick-robots > button) { background: var(--well); border-color: var(--line); }
-.driver-station .robot-card.current { background: var(--well); border-color: var(--accent); }
-.driver-station :is(.robot-kind, .role-badge) { border-radius: 4px; background: transparent; color: var(--muted); font-size: 10px; letter-spacing: 0; text-transform: none; }
-.driver-station .saved-row { padding-block: 16px; }
-.driver-station .saved-row .secondary { font-size: 12px; }
-.driver-station :is(dialog h2, #controller-dialog h2, #update-dialog h2) { font-size: 22px; line-height: 1.3; letter-spacing: -.3px; }
-.driver-station dialog::backdrop { background: #070a0ecc; }
-.driver-station #controller-dialog .dialog-heading { border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.driver-station #controller-dialog .dialog-heading .eyebrow { margin-bottom: 4px; }
-.driver-station :is(.controller-identity, .controller-visual-panel, .controller-buttons-panel, .calibration-plot) { background: var(--well); border-color: var(--line); }
-.driver-station .controller-identity strong { font-size: 13px; font-weight: 600; }
-.driver-station .controller-buttons-panel h3 { font-size: 14px; letter-spacing: 0; }
-.driver-station .controller-tabs { background: var(--well); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 4px; }
-.driver-station .controller-tabs > button { border-color: transparent; background: transparent; box-shadow: none; }
-.driver-station .controller-tabs > button[aria-pressed=true] { background: var(--raised); border-color: var(--line-strong); color: var(--text); }
-.driver-station .controller-tabs > button:hover { background: var(--raised); }
-.driver-station .input-button { background: var(--surface); border-color: var(--line); }
-.driver-station .input-button.pressed { background: var(--connected-bg); border-color: var(--connected); }
-.driver-station .input-button > span { font-weight: 500; }
-.driver-station .axis-reading { background: var(--surface); }
-.driver-station :is(.input-help, .robot-discovery) { background: var(--well); border-color: var(--line); }
-.driver-station .update-channels > button[aria-pressed=true] { background: var(--accent-bg); color: var(--accent-text); border-color: var(--accent); box-shadow: none; }
-.driver-station :is(#update-status, #update-notes) { background: var(--well); border-color: var(--line); }
-.driver-station #toast { background: var(--raised); border-color: var(--line-strong); border-radius: 8px; box-shadow: 0 4px 16px #0004; }
-@media (max-width: 640px) {
-  .driver-station :is(.settings-heading h1, .welcome h1) { font-size: 25px; }
-  .driver-station :is(dialog h2, #controller-dialog h2, #update-dialog h2) { font-size: 20px; }
-}
-.driver-station .mini { font: 500 11px/1.4 var(--font); letter-spacing: 0; color: var(--quiet); }
-.driver-station .url-display { font-size: 12px; }
-.driver-station .version { font: 12px var(--font); color: var(--quiet); padding: 0; }
-.driver-station .card-action { font-weight: 500; color: var(--muted); }
+
+/* Type: one family, heavy headings, no tracking tricks or capitals. */
+.driver-station :is(h1, h2, h3, .brand, .eyebrow, .status-heading) { font-family: var(--font); text-transform: none; }
+.driver-station h1 { font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -.03em; }
+.driver-station h2 { font-size: 15px; line-height: 1.35; font-weight: 650; letter-spacing: -.01em; }
+.driver-station h3 { font-size: 13px; line-height: 1.4; font-weight: 650; letter-spacing: 0; }
+.driver-station p { color: var(--muted); }
+.driver-station :is(.url-display, .version, .robot-card small, .saved-url, #update-version, .controller > span, .slot-number) { font-family: var(--font); }
+.driver-station :is(.version, #update-version) { font-variant-numeric: tabular-nums; }
+
+/* Header: one flat bar, no floating shell. */
+body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px; gap: 16px; background: var(--bg); border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; }
+.driver-station #drive-view { height: calc(100dvh - 60px); }
+.driver-station .brand { gap: 10px; font-size: 14px; font-weight: 700; letter-spacing: -.01em; line-height: 1; }
+.driver-station .brand img { width: 26px; height: 26px; }
+.driver-station nav { height: auto; padding: 0; gap: 4px; background: none; border: 0; border-radius: 0; }
+.driver-station .tab { min-width: 0; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--radius-control); background: none; color: var(--quiet); font: 600 13px var(--font); }
+.driver-station .tab .ui-icon { display: none; }
+.driver-station .tab:hover { background: none; color: var(--text); }
+.driver-station .tab.active { background: var(--raised); color: var(--text); }
+.driver-station :is(.network-chip, button.controller, .more) { background: none; border: 0; border-radius: var(--radius-control); }
+.driver-station :is(.network-chip, button.controller, .more):hover { background: var(--raised); border: 0; }
+.driver-station .network-chip { font-size: 13px; font-weight: 500; color: var(--text); padding-inline: 10px; }
+.driver-station .network-icon { display: none; }
+.driver-station button.controller { min-width: 0; gap: 10px; padding: 6px 10px; }
+.driver-station .controller > span { width: auto; height: auto; min-width: 12px; border: 0; background: none; color: var(--text); font-size: 15px; font-weight: 700; }
+.driver-station .controller.standby > span { color: var(--quiet); }
+.driver-station .controller b { font-size: 12px; font-weight: 600; }
+.driver-station .controller small { font-size: 11px; color: var(--quiet); }
+.driver-station .more { color: var(--muted); }
+.driver-station .menu { top: 56px; right: 12px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-panel); box-shadow: var(--shadow); }
+.driver-station .menu button { font-size: 13px; font-weight: 500; border-radius: var(--radius-detail); }
+.driver-station .menu button:hover { background: var(--raised); }
+.driver-station .menu button:last-child { border-top: 0; margin-top: 0; border-radius: var(--radius-detail); }
+
+/* Robot toolbar and page area: edge to edge. */
+.driver-station .browser-toolbar { margin: 0; padding: 0 12px; min-height: 52px; background: var(--bg); border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+.driver-station .browser-actions button { border: 0; color: var(--muted); }
+.driver-station .browser-actions button:hover:not(:disabled) { background: var(--raised); border: 0; color: var(--text); }
+.driver-station .url-display { font-size: 13px; color: var(--muted); }
+.driver-station .mini { font: 500 12px var(--font); letter-spacing: 0; color: var(--quiet); }
+.driver-station #robot-mount { margin: 0; }
+.driver-station footer { background: var(--bg); border-top: 1px solid var(--line); font-size: 11px; color: var(--quiet); }
+
+/* Welcome: logo, one line, one action. */
+.driver-station .welcome { background: none; border: 0; border-radius: 0; box-shadow: none; padding: 32px 24px; }
+.driver-station .welcome-logo { display: block; width: 56px; height: 56px; margin: 0 auto 24px; }
+.driver-station .welcome h1 { font-size: 32px; margin-bottom: 8px; }
+.driver-station .welcome > p { font-size: 14px; margin-bottom: 24px; }
+.driver-station .welcome .primary { margin-top: 0; }
+.driver-station .quick-robots { width: min(420px, 100%); margin: 32px auto 0; gap: 0; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--line); }
+.driver-station .quick-robots > button { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 4px; background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
+.driver-station .quick-robots > button:hover { background: none; }
+.driver-station .quick-robots > button:hover strong { text-decoration: underline; text-underline-offset: 3px; }
+.driver-station .quick-robots strong { font-size: 14px; font-weight: 600; }
+.driver-station .quick-robots small { margin: 0; color: var(--quiet); font-size: 12px; flex-shrink: 0; }
+.driver-station .page-status h2 { font-size: 20px; }
+
+/* Buttons: solid white primary, quiet grey secondary, plain text links. */
+.driver-station :is(.primary, .secondary) { min-height: 44px; padding: 10px 18px; border: 0; border-radius: var(--radius-control); font: 600 13px/1.3 var(--font); letter-spacing: 0; box-shadow: none; }
+.driver-station .primary { background: var(--text); color: #0a0a0a; }
+.driver-station .primary:hover:not(:disabled) { background: #d4d4d4; border: 0; }
+.driver-station .primary:active:not(:disabled) { background: #bdbdbd; }
+.driver-station .secondary { background: var(--raised); color: var(--text); }
+.driver-station .secondary:hover:not(:disabled) { background: #282828; border: 0; }
+.driver-station .text-button { color: var(--muted); font-size: 13px; font-weight: 500; padding-inline: 0; }
+.driver-station .text-button:hover { color: var(--text); }
+.driver-station :is(#close-page, #manager-close) { border: 0; border-radius: var(--radius-control); background: var(--raised); font: 600 12px var(--font); }
+.driver-station :is(#close-page, #manager-close):hover { background: #282828; border: 0; }
+.driver-station :is(.icon-button, #robot-fullscreen) { border: 0; border-radius: var(--radius-control); color: var(--muted); }
+.driver-station :is(.icon-button, #robot-fullscreen):hover:not(:disabled) { background: var(--raised); border: 0; color: var(--text); }
+
+/* Settings: flat panels, no nested boxes, short copy. */
+.driver-station #settings-view { padding: 28px 24px 40px; max-width: 1200px; }
+.driver-station .settings-heading { align-items: baseline; margin-bottom: 24px; }
+.driver-station .settings-heading h1 { font-size: 28px; margin: 0; }
+.driver-station .version { margin: 0; padding: 0; border: 0; background: none; color: var(--quiet); font-size: 12px; }
+.driver-station .settings-grid { gap: 16px; }
+.driver-station .setup-left { gap: 16px; }
+.driver-station .panel { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: none; padding: 24px; }
+.driver-station .panel-title { gap: 12px; margin-bottom: 20px; }
+.driver-station .panel-title h2 { margin-bottom: 2px; }
+.driver-station .panel-title p { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.driver-station label { margin: 20px 0 8px; font-size: 12px; font-weight: 600; color: var(--text); }
+.driver-station label > span { font-size: 12px; font-weight: 400; color: var(--quiet); }
+.driver-station :is(input, select, .wifi-picker) { min-height: 44px; background: var(--well); border: 1px solid var(--line-strong); border-radius: var(--radius-control); font-size: 14px; color: var(--text); }
+.driver-station :is(input, select):hover, .driver-station .wifi-picker:hover { border-color: #444; }
+.driver-station :is(input, select):focus, .driver-station .wifi-picker[aria-expanded=true] { border-color: var(--text); }
+.driver-station input::placeholder { color: #5c5c5c; }
+.driver-station .wifi-popover { margin-top: 8px; padding: 4px; background: var(--well); border: 1px solid var(--line-strong); border-radius: var(--radius-control); }
+.driver-station .wifi-row { border: 0; border-radius: var(--radius-detail); }
+.driver-station .wifi-row:hover { background: var(--raised); }
+.driver-station .wifi-row.selected { background: var(--raised); border: 0; box-shadow: inset 2px 0 0 var(--text); }
+.driver-station .wifi-row strong { font-size: 14px; }
+.driver-station #wifi-connect-panel { border-top: 1px solid var(--line); }
+.driver-station .network-panel > .text-button { margin-top: 12px; }
+.driver-station .network-binding { margin: 8px 0 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 13px; }
+.driver-station .hint { font-size: 12px; color: var(--quiet); line-height: 1.5; }
+.driver-station .check-row { margin-top: 20px; padding: 0; background: none; border: 0; border-radius: 0; min-height: 44px; }
+.driver-station .check-row input { accent-color: var(--text); width: 18px; height: 18px; }
+.driver-station .check-row span { font-size: 12px; color: var(--quiet); }
+.driver-station .check-row b { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.driver-station .button-row { margin-top: 24px; }
+
+/* Controller slots: a plain list. */
+.driver-station .controller-cards { border: 0; border-radius: 0; border-top: 1px solid var(--line); }
+.driver-station .controller-card { min-height: 64px; padding: 12px 0; background: none; border-bottom: 1px solid var(--line); }
+.driver-station .controller-card + .controller-card { border-top: 0; }
+.driver-station .controller-card:hover { background: none; }
+.driver-station .controller-card strong { font-size: 14px; font-weight: 600; }
+.driver-station .controller-card small { font-size: 12px; color: var(--quiet); }
+.driver-station .slot-number { width: 32px; height: 32px; border: 0; border-radius: var(--radius-detail); background: var(--raised); font-size: 14px; font-weight: 700; }
+.driver-station .card-action { font-size: 13px; font-weight: 600; color: var(--muted); }
 .driver-station .controller-card:hover .card-action { color: var(--text); }
-.driver-station .text-button { font-weight: 500; }
-.driver-station :is(.hint, .panel-title p, .check-row span) { color: var(--muted); }
-.driver-station .welcome-note { font-size: 12px !important; color: var(--quiet) !important; }
-.driver-station :is(.robot-discovery, .input-help) summary { font-size: 13px; font-weight: 500; color: var(--text); }
-.driver-station .settings-footer { color: var(--quiet); font-size: 12px; }
-.driver-station .check-row b { font-weight: 600; }
-.driver-station details > summary { list-style: none; display: flex; align-items: center; gap: 10px; }
+
+/* Robot discovery and help: disclosure rows, not cards. */
+.driver-station .robot-discovery { margin: 24px 0 0; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.driver-station .robot-discovery p { font-size: 12px; }
+.driver-station details > summary { list-style: none; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); }
 .driver-station details > summary::-webkit-details-marker { display: none; }
-.driver-station details > summary::before { content: ""; flex-shrink: 0; width: 6px; height: 6px; margin-inline: 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); opacity: .7; }
+.driver-station details > summary::before { content: ""; flex-shrink: 0; width: 6px; height: 6px; margin-inline: 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); opacity: .6; }
 .driver-station details[open] > summary::before { transform: rotate(45deg); }
 @media (prefers-reduced-motion: no-preference) { .driver-station details > summary::before { transition: transform 120ms ease; } }
+
+/* Saved robots: one quiet list with name, address and actions. */
+.driver-station .library-panel { margin-top: 16px; background: var(--surface); }
+.driver-station .library-panel .panel-title { align-items: center; margin-bottom: 12px; }
+.driver-station .library-panel .panel-title input { max-width: 260px; font-size: 13px; }
+.driver-station .saved-row { grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.driver-station .saved-row strong { font-size: 14px; font-weight: 600; }
+.driver-station .saved-row small { margin-top: 2px; font-size: 12px; color: var(--quiet); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.driver-station .saved-row.here small { color: var(--muted); }
+.driver-station .saved-actions { gap: 4px; align-items: center; }
+.driver-station .saved-row .secondary { min-height: 44px; padding: 8px 16px; font-size: 13px; }
+.driver-station .saved-row :is(.edit, .delete) { padding: 8px 12px; border-radius: var(--radius-control); font: 500 13px var(--font); color: var(--muted); }
+.driver-station .saved-row .edit:hover { background: var(--raised); color: var(--text); }
+.driver-station .saved-row .delete:hover { background: var(--danger-bg); color: var(--danger); }
+.driver-station .empty { font-size: 13px; color: var(--quiet); padding: 12px 0 0; }
+
+/* Dialogs share the panel surface. */
+.driver-station dialog { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-panel); box-shadow: var(--shadow); }
+.driver-station dialog::backdrop { background: #000c; }
+.driver-station :is(dialog h2, #controller-dialog h2, #update-dialog h2) { font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+.driver-station #update-version { font-size: 13px; color: var(--quiet); }
+.driver-station .update-channels > button { background: var(--raised); color: var(--muted); }
+.driver-station .update-channels > button[aria-pressed=true] { background: var(--text); color: #0a0a0a; border: 0; box-shadow: none; }
+.driver-station :is(#update-status, #update-notes) { background: var(--well); border: 1px solid var(--line); border-radius: var(--radius-control); }
+.driver-station .testing-warning { border-radius: var(--radius-control); }
+.driver-station #controller-dialog .dialog-heading { border-bottom: 1px solid var(--line); }
+.driver-station .controller-tabs { background: var(--well); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 3px; gap: 4px; }
+.driver-station .controller-tabs > button { background: none; color: var(--muted); }
+.driver-station .controller-tabs > button[aria-pressed=true] { background: var(--raised); color: var(--text); }
+.driver-station .controller-tabs > button:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+.driver-station :is(.controller-identity, .controller-visual-panel, .controller-buttons-panel, .calibration-plot, .input-help) { background: var(--well); border: 1px solid var(--line); }
+.driver-station .role-badge { background: none; border: 1px solid var(--line-strong); border-radius: var(--radius-detail); color: var(--muted); font-size: 11px; letter-spacing: 0; text-transform: none; }
+.driver-station .input-button { background: var(--surface); border-color: var(--line); }
+.driver-station .input-button.pressed { background: var(--connected-bg); border-color: var(--connected); }
+.driver-station .axis-reading { background: var(--surface); border-color: var(--line); }
+.driver-station #toast { background: var(--raised); border: 1px solid var(--line-strong); border-radius: var(--radius-control); box-shadow: var(--shadow); font-size: 13px; }
+
+@media (max-width: 860px) {
+  .driver-station .saved-row { grid-template-columns: minmax(0, 1fr) auto; }
+}
+@media (max-width: 720px) {
+  .driver-station .network-icon { display: block; }
+}
+@media (max-width: 640px) {
+  body.driver-station > header { height: 56px; padding: 0 8px; gap: 4px; }
+  .driver-station #drive-view { height: calc(100dvh - 56px); }
+  .driver-station .tab { padding: 0 12px; }
+  .driver-station .menu { top: 52px; right: 8px; }
+  .driver-station #settings-view { padding: 20px 12px 32px; }
+  .driver-station .panel { padding: 20px 16px; }
+  .driver-station h1, .driver-station .settings-heading h1 { font-size: 24px; }
+  .driver-station .welcome h1 { font-size: 26px; }
+  .driver-station :is(dialog h2, #controller-dialog h2, #update-dialog h2) { font-size: 20px; }
+  .driver-station .library-panel .panel-title input { max-width: none; }
+  .driver-station .saved-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .driver-station footer > #robot-title { display: block; max-width: 100%; }
+  .driver-station footer > #device { display: none; }
+}

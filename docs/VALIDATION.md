@@ -1,3 +1,16 @@
+## Testing 2.4.16: flat, minimal station
+
+- Simpler robot mark (head, antenna, eyes) in `ui/icon.svg`; `icon.png`, `icon.ico`
+  and `icon.icns` were re-rendered from it, and `tools/icons.py` draws the same mark.
+- Flat header and robot toolbar, solid white primary buttons, no nested boxes, and
+  heavier Inter headings. Removed the small labels above headings, the panel icon tiles
+  and most helper copy. Saved robots is one list, with robots on the current Wi-Fi
+  listed first; the separate "Robots on this network" cards are gone.
+- The controller and update dialogs keep their layout and only take the new colors.
+- The layout audit's overlap, overflow, clipping and 44 px target checks were run in the
+  browser preview on Drive and Settings at 1280×800, 800×600, 390×844 and 360×480:
+  no problems. `node --test tests/*.test.cjs` passes 86/86. CI runs the Electron suites.
+
 ## Testing 2.4.15: restrained station controls
 
 - `ui/elements.css` restyles station controls only: one Inter type scale in sentence
