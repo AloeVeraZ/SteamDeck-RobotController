@@ -25,7 +25,7 @@ async function launch(label){
   const smoke=path.join(home,`smoke-${label}.json`);fs.rmSync(smoke,{force:true});
   const args=[at(install.app),...(platform==='linux'?['--no-sandbox','--ozone-platform=x11']:[])];
   const child=spawn(at(install.bin),args,{env:{...env,DECK_SMOKE_FILE:smoke},stdio:'inherit'});
-  try{return JSON.parse(await until(()=>fs.existsSync(smoke)&&fs.readFileSync(smoke,'utf8'),'app start: '+label,90000));}finally{child.kill();}
+  try{const result=JSON.parse(await until(()=>fs.existsSync(smoke)&&fs.readFileSync(smoke,'utf8'),'app start: '+label,90000));await until(()=>child.exitCode!==null||child.signalCode!==null,label+' app exit',30000).catch(()=>{});return result;}finally{child.kill();}
 }
 function release(version,assets){
   const list=assets.map(name=>{const f=file(name),bytes=fs.readFileSync(f);return {name,state:'uploaded',size:bytes.length,digest:'sha256:'+createHash('sha256').update(bytes).digest('hex'),browser_download_url:`https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/testing-v${version}/${name}`};});
@@ -41,8 +41,9 @@ async function update(label,{version,base,assets,expect}){
   let stage='';await updater.downloadAndInstall(async download=>{stage=download.folder;const prepared=await prepareInstall(download,{appPath:at(install.app),executable:at(install.bin),pid:standIn.pid});await launchInstall(prepared);});
   await until(()=>installedVersion()===versionB&&fs.existsSync(path.join(stage,'previous'+(platform==='darwin'?'.app':''))),label+' install',180000).catch(e=>{for(const log of ['install.log','install.log.error'])if(fs.existsSync(path.join(stage,log)))console.error(fs.readFileSync(path.join(stage,log),'utf8'));throw e;});
   // Windows and Linux helpers restart the app with this environment; macOS uses `open`.
-  if(platform!=='darwin')await until(()=>fs.existsSync(restartSmoke),label+' automatic restart',90000);
-  else{await sleep(3000);try{execFileSync('pkill',['-f',install.root]);}catch{}}
+  // The restarted copy holds the single-instance lock until it exits; wait for that before relaunching.
+  if(platform!=='darwin'){const {pid}=JSON.parse(await until(()=>fs.existsSync(restartSmoke)&&fs.readFileSync(restartSmoke,'utf8'),label+' automatic restart',90000));await until(()=>{try{process.kill(pid,0);return false;}catch{return true;}},label+' restarted app exit',30000).catch(()=>{try{process.kill(pid);}catch{}});}
+  else{await sleep(3000);try{execFileSync('pkill',['-f',install.root]);}catch{}await until(()=>{try{execFileSync('pgrep',['-f',install.root]);return false;}catch{return true;}},label+' restarted app exit',30000);}
   delete process.env.DECK_SMOKE_FILE;
   return {check,downloaded:served.filter(u=>!u.includes('api.github.com')).map(u=>u.split('/').pop())};
 }

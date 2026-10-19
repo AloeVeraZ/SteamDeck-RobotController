@@ -318,7 +318,7 @@ app.whenReady().then(async()=>{
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)ingestPads([]);sendControllers();},100);controllerTimer.unref();
   win.webContents.on('render-process-gone',()=>{lastControllerInput=0;ingestPads([]);sendControllers(true);});
   // Install and update checks launch the packaged app with DECK_SMOKE_FILE and read back what started.
-  if(process.env.DECK_SMOKE_FILE)win.webContents.once('did-finish-load',()=>{fs.writeFileSync(process.env.DECK_SMOKE_FILE,JSON.stringify({version:meta.version,electron:process.versions.electron,base:build.base||'',appPath:app.getAppPath()}));setTimeout(()=>app.exit(0),200);});
+  if(process.env.DECK_SMOKE_FILE)win.webContents.once('did-finish-load',()=>{fs.writeFileSync(process.env.DECK_SMOKE_FILE,JSON.stringify({version:meta.version,electron:process.versions.electron,base:build.base||'',appPath:app.getAppPath(),pid:process.pid}));setTimeout(()=>app.exit(0),200);});
   keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
   win.on('blur',releaseKeys);win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
