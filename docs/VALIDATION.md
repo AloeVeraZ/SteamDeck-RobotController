@@ -1,6 +1,6 @@
 ## Testing 2.4.12: updates, calibration and hotspot discovery
 
-- 82 Node tests cover fixed update source/legacy preference migration, channel switching,
+- 83 Node tests cover fixed update source/legacy preference migration, channel switching,
   verified automatic install handoff and failure recovery; radial drift filtering;
   automatic slot reset; private Wi-Fi gateway rules and discovery cancellation.
 - Native Windows fixtures verify a single update action through download, real extraction,

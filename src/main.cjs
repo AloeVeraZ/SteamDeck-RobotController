@@ -246,7 +246,7 @@ app.whenReady().then(async()=>{
   device=await detectHardware();
   recoverSandboxedLibrary(app.getPath('userData'));
   const controllerFile=path.join(app.getPath('userData'),'controller-settings.json');let preferred=[];try{const saved=JSON.parse(fs.readFileSync(controllerFile,'utf8'));if(Array.isArray(saved))preferred=saved;}catch{}
-  controllerHub=new ControllerHub({hardware:device,preferred,persist:value=>fs.writeFileSync(controllerFile,JSON.stringify(value),{mode:0o600})});
+  controllerHub=new ControllerHub({hardware:device,preferred,zoneFor:id=>calibrations[id]||0,persist:value=>fs.writeFileSync(controllerFile,JSON.stringify(value),{mode:0o600})});
   calibrationFile=path.join(app.getPath('userData'),'controller-calibration.json');try{for(const [id,zone]of Object.entries(JSON.parse(fs.readFileSync(calibrationFile,'utf8')))){if(id.length<=2048)calibrations[id]=deadzone(zone);}}catch{}
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
