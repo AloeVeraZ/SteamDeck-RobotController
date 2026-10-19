@@ -1,7 +1,7 @@
 {
   "name": "deck-driver-station",
   "productName": "Deck Driver Station",
-  "version": "2.4.13",
+  "version": "2.4.14",
   "repository": {
     "type": "git",
     "url": "https://github.com/AloeVeraZ/SteamDeck-RobotController.git"

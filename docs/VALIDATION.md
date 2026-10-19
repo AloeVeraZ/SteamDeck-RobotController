@@ -1,3 +1,23 @@
+## Testing 2.4.14: responsive layout and visual polish
+
+- `tests/layout-audit.cjs` exercises shell layouts at 360×480, 390×844, 640×480,
+  800×600, 1024×600, 1280×720, 1280×800, 1920×1080 and 3840×2160, plus
+  125%, 150% and 200% Electron zoom on the LCD viewport.
+- The original audit found clipping/overflow in 51 of 144 layout/state combinations.
+  Fixes add wrapping, bounded grid columns, adaptive toolbar/header controls and
+  scrollable welcome/error views. Controller diagnostics now have a dedicated
+  scrolling body between a fixed heading/close control and assignment/Done actions.
+- Expanded coverage includes maximum-length robot names, long URLs and SSIDs,
+  saved/empty search, touch keyboard, both controller slots, 24-button diagnostics,
+  expanded help/driver details, calibration, network recovery, password/sign-in,
+  update warnings/changelog/errors and download progress. Geometry checks detect
+  overlapping sibling controls, horizontal overflow, clipped button text and
+  unreachable controller exits. Keyboard keys must stay inside the keyboard.
+- The expanded local run passes 192 layout/state checks with zero reported issues.
+- These are native Electron fixtures on desktop/CI, not proof of every possible
+  font, OS scale setting, accessibility configuration or embedded robot website.
+  Robot web pages, robot code and control protocols are unchanged.
+
 ## Testing 2.4.13: persistent controllers and connection recovery
 
 - Reproduced the lost-controller failure with the previous 2.4.12 code using
