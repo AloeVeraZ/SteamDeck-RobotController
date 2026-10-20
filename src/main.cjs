@@ -17,7 +17,7 @@ const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=nu
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
 let managerView=null,managerProxy=null;
 let robotExitView=null,robotExitReady=null,robotFullscreenPrevious=false;
-let suspended=false,interruption=null,connectionEpoch=0;const recoveryControllers=new Set();
+let suspended=false,interruption=null,connectionEpoch=0,pageEpoch=0;const recoveryControllers=new Set();
 const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
 app.setName('Deck Driver Station');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
@@ -40,7 +40,7 @@ function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{truste
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,source1:keyboardSource?'keyboard':'controller',deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:suspended||state.recovering||state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
 function blockHeldControllers(){for(const pad of controllerHub?.state().slots||[])if(pad){recoveryControllers.add(pad.id);controllerHub.blocked.add(`${pad.index}:${pad.id}`);}}
-function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,keyboardKeys:keyboardSource?[...DeckKeyboard.used]:[],pads:controllerOutput(value)};}
+function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,keyboardKeys:keyboardSource&&state.page!=='simulation'?[...DeckKeyboard.used]:[],pads:controllerOutput(value)};}
 function ingestPads(pads){
   lastPads=Array.isArray(pads)?pads:[];
   controllerHub.ingest(keyboardSource?[...lastPads.filter(p=>p?.index!==DeckKeyboard.INDEX),DeckKeyboard.pad(keysDown)]:lastPads,{pin:keyboardSource?DeckKeyboard.ID:null});
@@ -141,7 +141,7 @@ async function runShortcut(action){
 // Escape always leaves fullscreen (robot view first, then the app window) unless a station
 // menu or dialog is open, where it only closes that. The key still reaches the page.
 function leaveFullscreen(){if(state.robotFullscreen)void setRobotFullscreen(false);else if(win&&!win.isDestroyed()&&win.isFullScreen())win.setFullScreen(false);}
-function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{if(keyboardSource&&DeckKeyboard.used.has(input.code))keyboardKey(input);if(input.type==='keyDown'&&input.key==='Escape'&&!(shell&&(overlay||auth)))leaveFullscreen();const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
+function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{if(keyboardSource&&state.page!=='simulation'&&DeckKeyboard.used.has(input.code))keyboardKey(input);if(input.type==='keyDown'&&input.key==='Escape'&&!(shell&&(overlay||auth)))leaveFullscreen();const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
 function robotEscape(contents){keys(contents);contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape')robotKeyboard?.hide();});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
 handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
@@ -153,7 +153,7 @@ async function refreshNetwork(){
   emit('network',next);return next;
 }
 async function openRobot(input){
-  finding?.abort();
+  const navigation=pageEpoch;finding?.abort();
   if(opening)throw Error('A robot connection is already opening.');opening=true;
   try{
     if(interruption)await interruption;
@@ -163,7 +163,9 @@ async function openRobot(input){
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
     // The automatic FTC check holds UDP 20884 for up to 1.5 s; let it finish first.
     for(let i=0;auto.busy&&i<40;i++)await delay(50);
+    if(navigation!==pageEpoch)return {opened:false};
     await closeRobot();
+    if(navigation!==pageEpoch)return {opened:false};
     if(suspended)throw Error('Wait for this device to wake before reconnecting.');
     const epoch=++connectionEpoch;active={...target,ssid};
     update({page:'drive',loading:true,url:target.url,title:target.name||'Opening robot',robot:active,error:''});
@@ -246,17 +248,25 @@ handle('manager-close',closeManager);
 const auto={ssid:null,dismissed:false,busy:false};
 async function autoOpenFtc(){
   const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false});
-  if(suspended||state.recovering||auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
+  if(state.page==='simulation'||suspended||state.recovering||auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
   const saved=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');if(!saved.length)return;
   auto.busy=true;
   try{
     const host=await findFtc([...new Set(saved.map(r=>new URL(r.url).hostname))]);const robot=saved.find(r=>new URL(r.url).hostname===host);
-    if(robot&&!suspended&&!state.recovering&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
+    if(robot&&state.page!=='simulation'&&!suspended&&!state.recovering&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
   }catch(e){emit('notice',e.message);}finally{auto.busy=false;}
 }
 handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware(),app:{version:meta.version,channel:meta.updateChannel}};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
-async function setPage(page){if(!['drive','settings'].includes(page))throw Error('Unknown app view.');if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}update({page});fitView();return snapshot();}
+async function setPage(page){
+  if(!['drive','settings','simulation'].includes(page))throw Error('Unknown app view.');
+  pageEpoch++;releaseKeys();
+  if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}
+  update({page});fitView();
+  // Simulation is offline. Close the live robot, including its active FTC op mode.
+  if(page==='simulation'){finding?.abort();await closeRobot();}
+  return snapshot();
+}
 handle('page',setPage);
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());

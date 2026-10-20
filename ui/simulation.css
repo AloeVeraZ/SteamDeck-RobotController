@@ -1,0 +1,13 @@
+.driver-station #simulation-view{max-width:1120px;margin:0 auto;padding:24px 32px 20px}
+.simulation-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.simulation-heading h1{margin-bottom:4px}.simulation-heading p{margin-bottom:0}.simulation-mode{color:var(--muted);font-size:12px}
+.simulation-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:start}
+.field-area{min-width:0;text-align:center}#simulation-field{display:block;width:100%;max-height:calc(100dvh - 240px);min-height:260px;touch-action:none;border-radius:4px}
+#simulation-field[data-placing="true"]{cursor:crosshair}#simulation-field:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+.field-floor{fill:var(--surface);stroke:var(--line-strong);stroke-width:.65}.field-grid{fill:none;stroke:var(--line);stroke-width:.3}
+.field-labels{fill:var(--muted);font:3px var(--font)}#field-robot rect{fill:var(--text);stroke:var(--muted);stroke-width:.4}#field-robot path{fill:none;stroke:var(--bg);stroke-width:1;stroke-linecap:round;stroke-linejoin:round}#field-robot circle{fill:var(--bg)}
+#simulation-field[data-placing="true"] #field-robot rect{fill-opacity:.7;stroke-dasharray:1.5 1}
+#field-coordinates{font-variant-numeric:tabular-nums;display:block;margin:4px 0 6px;font-size:14px}.field-area .hint{max-width:480px;margin:0 auto}
+.start-controls h2{font-size:18px}.start-controls>p{margin-bottom:16px}.start-xy{display:grid;grid-template-columns:1fr 1fr;gap:12px}.start-controls label{display:block;margin:0 0 6px}.start-controls input{width:100%;min-width:0;min-height:44px;margin:0 0 14px}.start-controls form>.primary{width:100%}.start-controls .button-row{margin:12px 0;flex-wrap:wrap}.start-controls .button-row button{flex:1;white-space:nowrap;padding-inline:12px}.start-controls .hint{font-size:12px}.start-controls #start-status{min-height:20px;margin:12px 0;color:var(--text)}
+@media(max-width:780px){.driver-station #simulation-view{padding:20px 16px}.simulation-layout{grid-template-columns:minmax(0,1fr);gap:24px}.simulation-heading{align-items:start;flex-wrap:wrap}.start-controls{max-width:560px;width:100%;margin:auto}#simulation-field{max-height:480px}.simulation-mode{font-size:11px}}
+@media(max-height:720px) and (min-width:781px){.driver-station #simulation-view{padding-top:16px}.simulation-layout{grid-template-columns:minmax(0,1fr) 280px;gap:24px}.start-controls>p{margin-bottom:10px}}
