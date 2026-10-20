@@ -39,6 +39,10 @@ public final class ${className} {
     public static final Pose START = new Pose(${n(start.x)}, ${n(start.y)}, Math.toRadians(${n(start.heading)}));
     public static final double HEADING = Math.toRadians(${n(route.heading)});
 
+    /** Actual field dimensions, inches (custom fields are not rescaled). */
+    public static final double FIELD_WIDTH = ${n(layout.width||144)};
+    public static final double FIELD_HEIGHT = ${n(layout.height||144)};
+
     /** Pause after each leg, in seconds. */
     public static final double[] WAIT_SECONDS = {${parts.map(l=>n(l.wait)).join(', ')}};
 
@@ -71,7 +75,7 @@ ${parts.map(leg).join(',\n')}
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:'deck-sim-1',timestamp:options.timestamp||new Date().toISOString(),
-      startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
+      field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
   }
   return {legs,java,pp,validName};
 });

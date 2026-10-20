@@ -21,6 +21,7 @@
     return {x:Math.max(b.x0-x0,Math.min(b.x1-x1,pose.x)),y:Math.max(b.y0-y0,Math.min(b.y1-y1,pose.y)),heading:angle};
   }
   function validate(pose,geometry={}){
+    const bounds=geometry.bounds||FIELD,[x0,x1,y0,y1]=extents(pose.heading,geometry.footprint);if(x1-x0>bounds.x1-bounds.x0+1e-7||y1-y0>bounds.y1-bounds.y0+1e-7)throw Error('The robot footprint is larger than this field. Increase the field size or reduce the robot size.');
     const clamped=constrain(pose,geometry);
     if(Math.abs(clamped.x-pose.x)>1e-6||Math.abs(clamped.y-pose.y)>1e-6)throw Error(geometry.footprint?'Keep the robot footprint inside the field.':'Keep the 18-inch preview footprint inside the field.');
     return clamped;

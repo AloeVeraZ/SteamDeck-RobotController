@@ -6,3 +6,4 @@ __pycache__/
 *.log
 sim-runtime/
 ui/vendor/
+ui/assets/robots/*.glb

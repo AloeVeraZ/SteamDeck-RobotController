@@ -9,12 +9,14 @@ window.DeckSim3D={create(host){
   const box=host.querySelector('.sim-3d-canvas'),note=host.querySelector('#sim-3d-note');
   let renderer;try{renderer=new THREE.WebGLRenderer({antialias:true});}catch{note.textContent='3D needs WebGL, which this device did not provide.';return {setField(){},setModel(){},update(){},resize(){},dispose(){}};}
   renderer.setPixelRatio(Math.min(2,devicePixelRatio||1));box.append(renderer.domElement);
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1,1,3000);camera.up.set(0,0,1);camera.position.set(72,-95,150);
   const controls=new L.OrbitControls(camera,renderer.domElement);controls.target.set(72,72,0);controls.maxPolarAngle=Math.PI*.49;controls.update();
-  scene.add(new THREE.HemisphereLight(0xffffff,0x5a6270,2.2));const sun=new THREE.DirectionalLight(0xffffff,1.6);sun.position.set(130,-40,220);scene.add(sun);
+  scene.add(new THREE.HemisphereLight(0xffffff,0x8b96a5,2.8),new THREE.AmbientLight(0xffffff,.5));const sun=new THREE.DirectionalLight(0xffffff,1.8);sun.position.set(130,-40,220);scene.add(sun);
+  sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-180;sun.shadow.camera.right=180;sun.shadow.camera.top=180;sun.shadow.camera.bottom=-180;sun.shadow.bias=-.0005;
   const fieldGroup=new THREE.Group(),overlay=new THREE.Group(),robotGroup=new THREE.Group(),ghost=new THREE.Group();scene.add(fieldGroup,overlay,robotGroup,ghost);
   let info=null,frame=null,state=null,body=null,raf=0,lastOverlay='';
-  const css=name=>getComputedStyle(document.documentElement).getPropertyValue(name).trim()||'#888',color=name=>new THREE.Color(css(name));
+  const css=name=>getComputedStyle(host).getPropertyValue(name).trim()||'#888',color=name=>new THREE.Color(css(name));
   function dispose(object){object.traverse(o=>{o.geometry?.dispose?.();for(const m of [].concat(o.material||[]))m.dispose?.();});}
   // The robot model's geometry belongs to the model module; only drop our own objects.
   function clear(group){for(const c of [...group.children]){group.remove(c);if(c.userData.keep!==true)dispose(c);}}
@@ -24,14 +26,8 @@ window.DeckSim3D={create(host){
   function setField(nextInfo){
     info=nextInfo;clear(fieldGroup);scene.background=color('--bg');
     const b=info?.bounds||{x0:0,y0:0,x1:144,y1:144},w=b.x1-b.x0,h=b.y1-b.y0;
-    const floor=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshStandardMaterial({color:color('--surface'),roughness:.95}));floor.position.set((b.x0+b.x1)/2,(b.y0+b.y1)/2,0);fieldGroup.add(floor);
-    const grid=[];for(let v=24;v<144;v+=24)grid.push(v3({x:v,y:b.y0},.05),v3({x:v,y:b.y1},.05),v3({x:b.x0,y:v},.05),v3({x:b.x1,y:v},.05));
-    fieldGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(grid),new THREE.LineBasicMaterial({color:color('--line-strong')})));
-    const wall=new THREE.MeshStandardMaterial({color:color('--line-strong'),transparent:true,opacity:.35});
-    for(const [x,y,sx,sy] of [[b.x0-.5,(b.y0+b.y1)/2,1,h+2],[b.x1+.5,(b.y0+b.y1)/2,1,h+2],[(b.x0+b.x1)/2,b.y0-.5,w+2,1],[(b.x0+b.x1)/2,b.y1+.5,w+2,1]]){const m=new THREE.Mesh(new THREE.BoxGeometry(sx,sy,12),wall);m.position.set(x,y,6);fieldGroup.add(m);}
-    const solid=new THREE.MeshStandardMaterial({color:0x8a919c,roughness:.8});for(const z of info?.fieldZones||[])fieldGroup.add(prism(window.DeckPlanner.polygon(z),info.field==='biobuzz'?4:12,solid));
-    const frameMat=new THREE.MeshStandardMaterial({color:0x9aa1ab,roughness:.7,transparent:true,opacity:.55});
-    for(const hull of info?.structures||[]){const pts=[];for(let i=0;i<hull.length;i+=3)pts.push(new THREE.Vector3(hull[i],hull[i+1],hull[i+2]));try{fieldGroup.add(new THREE.Mesh(new L.ConvexGeometry(pts),frameMat));}catch{}}
+    window.DeckFieldArt.build3d(fieldGroup,info,THREE,L,{surface:color('--surface').lerp(color('--muted'),.18),line:color('--line-strong')});
+    const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2,span=Math.max(w,h);controls.target.set(cx,cy,4);camera.near=Math.max(.1,span/1000);camera.far=Math.max(3000,span*10);camera.updateProjectionMatrix();camera.position.set(cx,cy-span*1.1,span*1.05);sun.target.position.set(cx,cy,0);scene.add(sun.target);controls.update();
     note.textContent=!info?'':info.physics==='3d'?'3D physics':'Flat (2D) physics, shown in 3D';
     lastOverlay='';robotModel();schedule();
   }
@@ -62,11 +58,12 @@ window.DeckSim3D={create(host){
   function render(){
     raf=0;if(!host.isConnected||host.hidden)return;resize();overlays();
     const t=frame?.truth,p=t||state?.start;if(!robotGroup.children.length)robotModel();
-    if(p){robotGroup.position.set(p.x,p.y,t?.z||0);robotGroup.rotation.set(0,0,p.heading*DEG);}
+    if(p){robotGroup.position.set(p.x,p.y,t?.z||0);robotGroup.rotation.set(0,0,p.heading*DEG);window.DeckRobotModel?.animate(robotGroup,frame);}
     clear(ghost);const e=frame?.estimate;if(e&&info){const c=window.DeckPlanner.body(e,info.footprint);ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c.map(q=>v3(q,7))),new THREE.LineDashedMaterial({color:color('--warning'),dashSize:1.5,gapSize:1})).computeLineDistances());}
     controls.update();renderer.render(scene,camera);
   }
   function resize(){const w=Math.max(1,box.clientWidth),h=Math.max(1,box.clientHeight),size=renderer.getSize(new THREE.Vector2());if(size.x!==w||size.y!==h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
   controls.addEventListener('change',schedule);
-  return {setField,setModel,update,resize:()=>{resize();schedule();},dispose(){cancelAnimationFrame(raf);clear(scene);renderer.dispose();host.replaceChildren();}};
+  const themeObserver=new MutationObserver(()=>{if(info)setField(info);});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});const scheme=matchMedia('(prefers-color-scheme: dark)'),themeChanged=()=>{if(info)setField(info);};scheme.addEventListener('change',themeChanged);
+  return {setField,setModel,update,resize:()=>{resize();schedule();},dispose(){cancelAnimationFrame(raf);themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);controls.dispose();clear(scene);renderer.dispose();host.replaceChildren();}};
 }};

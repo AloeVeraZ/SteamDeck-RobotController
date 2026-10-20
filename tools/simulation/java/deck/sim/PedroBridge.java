@@ -141,7 +141,8 @@ public final class PedroBridge {
 
     private JsonObject init(JsonObject m) throws Exception {
         JsonObject drive = m.getAsJsonObject("drive"), tune = m.getAsJsonObject("tuning"), start = m.getAsJsonObject("start");
-        SimDrivetrain.Kind kind = "swerve".equals(drive.get("kind").getAsString()) ? SimDrivetrain.Kind.SWERVE : SimDrivetrain.Kind.MECANUM;
+        String driveKind = drive.get("kind").getAsString();
+        SimDrivetrain.Kind kind = "swerve".equals(driveKind) ? SimDrivetrain.Kind.SWERVE : "tank".equals(driveKind) ? SimDrivetrain.Kind.TANK : SimDrivetrain.Kind.MECANUM;
         drivetrain = new SimDrivetrain(kind, num(drive, "halfLength"), num(drive, "halfWidth"));
         localizer = new SimLocalizer();
         double maxF = num(tune, "maxForward"), maxS = num(tune, "maxStrafe");

@@ -72,8 +72,9 @@ ipcMain.on('controller-input',(e,pads)=>{
   lastControllerInput=performance.now();ingestPads(pads);
   for(const pad of controllerHub.pads)if(recoveryControllers.has(pad.id)){if(!pad.pressed&&!controllerHub.axesActive(pad))recoveryControllers.delete(pad.id);else controllerHub.blocked.add(`${pad.index}:${pad.id}`);}
   if(suspended||state.recovering)blockHeldControllers();sendControllers();
-  // Simulation drives with controller 1 through the same assignment and deadzone as a robot.
-  if(simulation?.running&&state.page==='simulation'&&!suspended)simulation.setGamepad(controllerOutput({...controllerState(),paused:false})[0]);
+  // The simulation process accepts Controller 1 only during an explicitly started TELEOP
+  // practice phase. Autonomous and transition always reject it; robot output stays paused.
+  if(simulation?.running&&state.page==='simulation'){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture;simulation.practiceInput(blocked?null:controllerOutput({...padState,paused:false})[0]);}
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -278,7 +279,6 @@ async function setPage(page){
 handle('page',setPage);
 handle('sim',async(method,args)=>{if(state.page!=='simulation')throw Error('Open the Simulation view first.');return simulation.call(method,args);});
 handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
-ipcMain.on('sim-drive',(e,value)=>{if(e.sender===shellContents()&&e.senderFrame===e.sender.mainFrame&&state.page==='simulation'&&simulation?.running)simulation.setDrive(value);});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
 handle('discovery-info',async()=>{const context=await network.context();return {...context,reason:discovery.eligibility(context)};});

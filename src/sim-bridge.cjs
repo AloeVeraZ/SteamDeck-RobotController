@@ -1,17 +1,16 @@
 'use strict';
 // Main-process side of the offline simulator: owns the simulation utility process, relays its
-// messages to the driver station window, merges manual driving input and handles local files
+// messages to the driver station window and handles local files
 // (projects, robot models, route exports, Java programs). Nothing here talks to a robot; leaving
 // the Simulation view kills the utility process (and with it any Java program).
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MESH_TYPES={'.glb':'glb','.gltf':'gltf','.stl':'stl','.obj':'obj'},STEP_TYPES=['.step','.stp'];
 const MODEL_LIMIT=200*1024*1024,STORED_LIMIT=150*1024*1024,SOURCE_LIMIT=200*1024,PROJECT_LIMIT=150*1024*1024,EXPORT_LIMIT=4*1024*1024;
 const EXPORTS={java:{name:'Pedro Java',extensions:['java']},pp:{name:'Pedro path file',extensions:['pp']}};
-const axis=v=>Number.isFinite(v)&&Math.abs(v)>.06?Math.max(-1,Math.min(1,v)):0;
 const validKey=key=>typeof key==='string'&&/^[\w-]{1,64}$/.test(key);
 
 class SimulationHost{
-  constructor({utilityProcess,dataDir,emit}){this.utilityProcess=utilityProcess;this.dataDir=dataDir;this.emit=emit;this.proc=null;this.pending=new Map();this.nextId=1;this.drive={enabled:false,keyboard:null,fieldCentric:false,precision:false};this.pad=null;this.lastManual='';}
+  constructor({utilityProcess,dataDir,emit}){this.utilityProcess=utilityProcess;this.dataDir=dataDir;this.emit=emit;this.proc=null;this.pending=new Map();this.nextId=1;}
   get running(){return !!this.proc;}
   start(){
     if(this.proc)return this.proc;
@@ -23,24 +22,17 @@ class SimulationHost{
       if(message?.type==='reply'){const p=this.pending.get(message.id);if(!p)return;this.pending.delete(message.id);clearTimeout(p.timer);message.ok?p.resolve(message.value):p.reject(Error(message.error));return;}
       this.emit(message);
     });
-    proc.on('exit',code=>{if(proc!==this.proc)return;this.proc=null;this.lastManual='';for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error('The simulation process stopped.'));}this.pending.clear();
+    proc.on('exit',code=>{if(proc!==this.proc)return;this.proc=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error('The simulation process stopped.'));}this.pending.clear();
       this.emit({type:'host-exit',code,error:code?`The simulation process stopped unexpectedly (code ${code}). ${stderr.trim().split('\n').slice(-3).join(' ')}`.trim():''});});
     this.proc=proc;return proc;
   }
   call(method,args=[]){
     if(typeof method!=='string'||!Array.isArray(args))return Promise.reject(Error('Invalid simulator call.'));
-    const proc=this.start(),id=this.nextId++,timeout={run:60000,load:30000,evaluate:180000,convertStep:300000}[method]||10000;
+    const proc=this.start(),id=this.nextId++,timeout={run:60000,practice:60000,load:30000,evaluate:180000,convertStep:300000}[method]||10000;
     return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('The simulator did not respond.'));},timeout);this.pending.set(id,{resolve,reject,timer});proc.postMessage({id,method,args});});
   }
-  stop(){const proc=this.proc;this.proc=null;this.drive={enabled:false,keyboard:null,fieldCentric:false,precision:false};this.pad=null;this.lastManual='';for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error('Simulation closed.'));}this.pending.clear();if(proc)try{proc.kill();}catch{}}
-  // Manual driving: the window's keyboard input plus controller 1 (after the app's deadzone).
-  setDrive(value){if(!value||typeof value!=='object')return;const k=value.keyboard;this.drive={enabled:!!value.enabled,fieldCentric:!!value.fieldCentric,precision:!!value.precision,keyboard:k&&{x:axis(k.x),y:axis(k.y),turn:axis(k.turn)}};this.pushManual();}
-  setGamepad(pad){this.pad=pad&&pad.mapping==='standard'?{x:axis(pad.axes[0]),y:-axis(pad.axes[1]),turn:axis(pad.axes[2]),precision:!!pad.buttons[4]?.pressed}:null;this.pushManual();}
-  pushManual(){
-    if(!this.proc)return;const d=this.drive,k=d.keyboard||{x:0,y:0,turn:0},p=this.pad||{x:0,y:0,turn:0,precision:false};
-    const input=d.enabled?{x:axis(k.x+p.x),y:axis(k.y+p.y),turn:axis(k.turn+p.turn),fieldCentric:d.fieldCentric,precision:d.precision||p.precision}:null;
-    const signature=JSON.stringify(input);if(signature===this.lastManual)return;this.lastManual=signature;this.proc.postMessage({method:'manual',args:[input]});
-  }
+  stop(){const proc=this.proc;this.proc=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error('Simulation closed.'));}this.pending.clear();if(proc)try{proc.kill();}catch{}}
+  practiceInput(pad){if(this.proc)this.proc.postMessage({method:'practice-input',args:[pad||null]});}
   // A robot model the team picked or dropped: STEP is tessellated and merged into one body in the
   // simulation process; mesh formats are returned as bytes for the window to merge.
   async readModel(file){
@@ -53,6 +45,7 @@ class SimulationHost{
   exportsFile(){return path.join(this.dataDir,'simulation','exports.json');}
   exportTargets(){try{const v=JSON.parse(fs.readFileSync(this.exportsFile(),'utf8'));return v&&typeof v==='object'?v:{};}catch{return {};}}
   async file(dialog,win,action,data){
+    if(action==='builtin-model'){if(!['strafer','swechanum'].includes(data))throw Error('Unknown bundled robot.');const dir=path.join(__dirname,'../ui/assets/robots'),catalog=JSON.parse(fs.readFileSync(path.join(dir,'catalog.json'),'utf8'));return {bytes:new Uint8Array(require('node:zlib').gunzipSync(fs.readFileSync(path.join(dir,data+'.glb.gz')))),meta:catalog[data]};}
     const models=path.join(this.dataDir,'simulation','models');
     const open=async(title,filters,limit)=>{const r=await dialog.showOpenDialog(win,{title,properties:['openFile'],filters});if(r.canceled||!r.filePaths[0])return null;const file=r.filePaths[0];if(fs.statSync(file).size>limit)throw Error(`${path.basename(file)} is larger than ${Math.round(limit/1048576)} MB.`);return file;};
     if(action==='project-save'){

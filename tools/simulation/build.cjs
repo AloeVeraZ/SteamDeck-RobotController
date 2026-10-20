@@ -19,13 +19,16 @@ function check(){
     if(dirty)throw Error(`${name} clone has local modifications:\n${dirty}`);
   }
   for(const [name,version] of Object.entries(versions)){const actual=JSON.parse(fs.readFileSync(path.join(deps,name,'package.json'),'utf8')).version;if(actual!==version)throw Error(`${name} ${actual} installed; expected ${version}.`);}
+  const robots=JSON.parse(fs.readFileSync(path.join(root,'ui/assets/robots/catalog.json'),'utf8'));for(const id of ['strafer','swechanum'])if(sha(path.join(root,'ui/assets/robots',id+'.glb.gz'))!==robots[id].assetSha256)throw Error(`Bundled ${id} CAD differs from its prepared hash.`);
 }
 function copy(from,to){fs.mkdirSync(path.dirname(to),{recursive:true});fs.cpSync(from,to,{recursive:true});}
 async function bundles(){
   const esbuild=require(path.join(deps,'esbuild'));
   // DSIM's online-only modules stay out of the bundle; see stubs/discordActivity.ts.
   const stubs={name:'deck-dsim-stubs',setup(b){b.onResolve({filter:/net\/discordActivity$/},()=>({path:path.join(__dirname,'stubs/discordActivity.ts')}));}};
-  const common={bundle:true,logLevel:'warning',nodePaths:[deps],alias:{dsim:upstream.dsim.dir},plugins:[stubs],legalComments:'eof',target:'es2022',minify:true,
+  // Offline robots use a typed intake reach rather than a game's fixed intake preset.
+  const footprint={name:'deck-offline-footprint',setup(b){b.onLoad({filter:/[\\/]src[\\/]sim[\\/]field\.ts$/},args=>{const text=fs.readFileSync(args.path,'utf8'),from='const reach = C.INTAKE_PRESETS[spec.intake].reach;';if(text.split(from).length!==2)throw Error('Review the DSIM footprint adapter.');return {contents:text.split(from).join('const reach = (spec as RobotSpec & {deckIntakeReach?:number}).deckIntakeReach ?? C.INTAKE_PRESETS[spec.intake].reach;'),loader:'ts'};});}};
+  const common={bundle:true,logLevel:'warning',nodePaths:[deps],alias:{dsim:upstream.dsim.dir},plugins:[stubs,footprint],legalComments:'eof',target:'es2022',minify:true,
     define:{'import.meta.env':JSON.stringify({BASE_URL:'deck-asset://dsim/',DEV:false,PROD:true,MODE:'production'})}};
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'planning-entry.js')],format:'iife',globalName:'DeckPlanningLibs',platform:'browser',outfile:path.join(vendor,'planning.js')});
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'planning-entry.js')],format:'cjs',platform:'node',outfile:path.join(vendor,'planning.cjs')});
@@ -40,6 +43,7 @@ function assets(){
     'PEDRO-LICENSE':path.join(upstream.pedro.dir,'LICENSE'),'OCCT-IMPORT-JS-LICENSE':path.join(deps,'occt-import-js/dist/license.occt-import-js.txt'),'OPENCASCADE-LICENSE':path.join(deps,'occt-import-js/dist/license.occt.txt'),'THREE-LICENSE':path.join(deps,'three/LICENSE'),
     'RAPIER3D-LICENSE':path.join(deps,'@dimforge/rapier3d-deterministic-compat/LICENSE'),'DIJKSTRAJS-LICENSE':path.join(deps,'dijkstrajs/LICENSE.md')};
   for(const [name,file] of Object.entries(notices)){if(!fs.existsSync(file))throw Error('Missing license file '+file);fs.copyFileSync(file,path.join(licenses,name));}
+  fs.copyFileSync(path.join(root,'ui/assets/robots/NOTICES.md'),path.join(licenses,'ROBOT-CAD-NOTICES.md'));
   // These two packages ship their terms in package metadata or a source header, not a file.
   fs.writeFileSync(path.join(licenses,'RAPIER2D-NOTICE.txt'),'@dimforge/rapier2d-compat 0.19.3 is licensed under the Apache License 2.0 (package.json "license": "Apache-2.0"). Its npm package omits the text; RAPIER3D-LICENSE is the same Apache-2.0 license from the same authors (Dimforge).\n');
   const clipper=fs.readFileSync(path.join(deps,'clipper-lib/clipper.js'),'utf8'),header=clipper.slice(0,clipper.indexOf('*/')+2);
@@ -73,7 +77,7 @@ function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.
 (async()=>{
   check();fs.mkdirSync(vendor,{recursive:true});fs.mkdirSync(out,{recursive:true});
   await bundles();assets();const clockReads=skipJava?null:java();
-  const files=[...walk(vendor),...['dsim-host.cjs','occt/occt-import-js.js','occt/occt-import-js.wasm'].map(f=>path.join(out,f))].filter(f=>!f.includes(path.sep+'licenses'+path.sep));
+  const files=[...walk(vendor),...walk(path.join(root,'ui/assets/robots')).filter(f=>!f.endsWith('.glb')),...['dsim-host.cjs','occt/occt-import-js.js','occt/occt-import-js.wasm'].map(f=>path.join(out,f))].filter(f=>!f.includes(path.sep+'licenses'+path.sep));
   let previous=null;try{previous=JSON.parse(fs.readFileSync(path.join(out,'manifest.json'),'utf8')).java;}catch{}
   const manifest={upstream:Object.fromEntries(Object.entries(upstream).map(([k,v])=>[k,v.commit])),versions,java:skipJava?previous:{runtime:fs.readFileSync(path.join(runtime,'java/release'),'utf8').match(/JAVA_VERSION="([^"]+)"/)[1],gson:'2.11.0',pedroClockReadsPatched:clockReads},
     outputs:Object.fromEntries(files.map(f=>[path.relative(root,f).replace(/\\/g,'/'),sha(f)]))};

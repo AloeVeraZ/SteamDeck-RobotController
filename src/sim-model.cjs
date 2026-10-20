@@ -34,6 +34,7 @@ async function convertStep(file,runtimeDir){
     const result=occt.ReadStepFile(bytes,{linearUnit:'inch',linearDeflectionType:'bounding_box_ratio',linearDeflection:deflection,angularDeflection:.5});
     if(!result.success||!result.meshes.length)throw Error('That STEP file could not be read. Export it again as STEP AP214 or AP242.');
     const triangles=result.meshes.reduce((n,m)=>n+m.index.array.length/3,0);
+    if(!triangles)throw Error('The CAD reader found parts but could not tessellate this assembly. Export a smaller STEP AP214/AP242 assembly, or a GLB/STL/OBJ mesh.');
     if(triangles<=TRIANGLE_LIMIT||deflection===.015)return {name:path.basename(file),...merge(result.meshes)};
   }
 }

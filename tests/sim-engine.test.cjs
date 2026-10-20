@@ -9,6 +9,9 @@ function engine(){
   const {SimEngine}=require('../src/sim-engine.cjs'),events=[];
   // A frozen wall clock: the pacing timer never steps, so each test drives ticks explicitly.
   const e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-sim-test-')),emit:m=>{if(m.type!=='frame')events.push(m);},now:()=>0});
+  // These follower regressions use the original measured test robot and odometry explicitly.
+  // New UI setups correctly start sensor-free and use the bundled Strafer specification.
+  const load=e.load.bind(e);e.load=raw=>load({...raw,robot:{intake:'sloped',length:14.5,width:16.5,massLb:23.5,driveRpm:500,...raw?.robot},sensors:{localization:'odometry',...raw?.sensors}});
   e.events=events;return e;
 }
 async function ticks(e,limit,until=()=>false){for(let i=0;i<limit&&e.mode==='program'&&!until();i++)await e.programTick();}
@@ -83,6 +86,7 @@ test('gyro-only sensing refuses path following; pause holds time; reset restores
 test('DSIM fields: DECODE planar, BIOBUZZ Rapier 3D; reload disposes the 3D world',{skip},async()=>{
   const e=engine();try{
     const decode=await e.load({field:'decode',start:{x:30,y:72,heading:0}});assert.equal(decode.physics,'2d');assert.ok(decode.fieldZones.length>=4);assert.equal(e.world.balls.length,0,'path planning only: no game pieces');assert.equal(decode.obstacleName,'goals and ramps');
+    const red=decode.goals.find(g=>g.alliance==='red'),blue=decode.goals.find(g=>g.alliance==='blue');assert.equal(red.openingZ,38.75);assert.ok(red.triangle.every(p=>p.x>100)&&blue.triangle.every(p=>p.x<44),'goal colors and measured triangles match the physics frame');
     const bb=await e.load({field:'biobuzz',start:{x:30,y:40,heading:0}});assert.equal(bb.physics,'3d');assert.equal(e.world.balls.length,0);assert.ok(bb.structures.length>=4,'3D hive and flower structures for drawing');assert.equal(e.world.biobuzz.physics,'3d');assert.ok(bb.bounds.x0>1.3&&bb.bounds.x0<1.4);
     const first=e.world;e.manual({x:0,y:1,turn:0});for(let i=0;i<30;i++)e.tick(e.manualCommand());assert.ok(e.truth().x>35);
     e.reset();assert.notEqual(e.world,first,'reset builds a fresh world');assert.ok(Math.abs(e.truth().x-30)<1e-6);

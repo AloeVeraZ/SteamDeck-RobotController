@@ -13,7 +13,7 @@ import java.util.Map;
  * them into wheel-limited motion, acceleration limits and contact physics.
  */
 public final class SimDrivetrain implements Drivetrain {
-    public enum Kind { MECANUM, SWERVE }
+    public enum Kind { MECANUM, SWERVE, TANK }
 
     private final Kind kind;
     private final double[][] modules; // swerve module positions, scaled so the farthest is radius 1
@@ -29,6 +29,7 @@ public final class SimDrivetrain implements Drivetrain {
     }
 
     private double[] mecanum(DrivePowers p) {
+        if (kind == Kind.TANK) return new double[] { p.forward() - p.turn(), p.forward() + p.turn() };
         return new double[] {
             p.forward() - p.strafe() - p.turn(),
             p.forward() + p.strafe() + p.turn(),
@@ -50,19 +51,19 @@ public final class SimDrivetrain implements Drivetrain {
     public void drive(DrivePowers powers, boolean manual) {
         brake = manual;
         double max = 1;
-        if (kind == Kind.MECANUM) for (double w : mecanum(powers)) max = Math.max(max, Math.abs(w));
+        if (kind != Kind.SWERVE) for (double w : mecanum(powers)) max = Math.max(max, Math.abs(w));
         else for (double[] w : swerve(powers)) max = Math.max(max, Math.hypot(w[0], w[1]));
         forward = powers.forward() / max;
-        strafe = powers.strafe() / max;
+        strafe = kind == Kind.TANK ? 0 : powers.strafe() / max;
         turn = powers.turn() / max;
     }
 
     @Override
     public double maxScaling(DrivePowers current, DrivePowers delta) {
         double lambda = 1;
-        if (kind == Kind.MECANUM) {
+        if (kind != Kind.SWERVE) {
             double[] a = mecanum(current), b = mecanum(delta);
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < a.length; i++) {
                 if (Math.abs(b[i]) < 1e-9) continue;
                 double t1 = (1 - a[i]) / b[i], t2 = (-1 - a[i]) / b[i];
                 if (t1 >= 0 && t1 < lambda) lambda = t1;

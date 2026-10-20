@@ -44,7 +44,7 @@
   }
   const zoneHits=(shape,zone)=>parts(zone).some(q=>overlap(shape,q));
   function hull(points){const sorted=points.slice().sort((a,b)=>a.x-b.x||a.y-b.y),lower=[],upper=[];for(const p of sorted){while(lower.length>1&&cross(lower.at(-2),lower.at(-1),p)<=EPS)lower.pop();lower.push(p);}for(const p of sorted.slice().reverse()){while(upper.length>1&&cross(upper.at(-2),upper.at(-1),p)<=EPS)upper.pop();upper.push(p);}return lower.slice(0,-1).concat(upper.slice(0,-1));}
-  function footprintOf(raw){const f=raw||{front:9,rear:9,half:9};if(![f.front,f.rear,f.half].every(n=>finite(n)&&n>0&&n<=36))throw Error('Robot footprint must be 0–36 inches from its centre on each side.');return {front:f.front,rear:f.rear,half:f.half};}
+  function footprintOf(raw){const f=raw||{front:9,rear:9,half:9};if(![f.front,f.rear,f.half].every(n=>finite(n)&&n>0))throw Error('Robot footprint dimensions must be positive finite inches.');return {front:f.front,rear:f.rear,half:f.half};}
   function body(pose,footprint={front:9,rear:9,half:9}){const c=Math.cos(rad(pose.heading)),s=Math.sin(rad(pose.heading));return [{x:footprint.front,y:footprint.half},{x:-footprint.rear,y:footprint.half},{x:-footprint.rear,y:-footprint.half},{x:footprint.front,y:-footprint.half}].map(p=>({x:pose.x+p.x*c-p.y*s,y:pose.y+p.x*s+p.y*c}));}
   function segmentDistance(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy,t=l?clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/l,0,1):0;return Math.hypot(p.x-a.x-dx*t,p.y-a.y-dy*t);}
   function boundaryDistance(p,poly){let d=Infinity;for(let i=0;i<poly.length;i++)d=Math.min(d,segmentDistance(p,poly[i],poly[(i+1)%poly.length]));return d;}
@@ -77,17 +77,17 @@
   function validateZone(raw){
     if(raw?.type==='polygon'){
       if(!Array.isArray(raw.points)||raw.points.length<2||raw.points.length>40||!raw.points.every(q=>q&&finite(q.x)&&finite(q.y)))throw Error('A shape needs 2 to 40 points.');
-      const points=raw.points.map(q=>({x:clamp(q.x,-SIZE,2*SIZE),y:clamp(q.y,-SIZE,2*SIZE)}));
+      const points=raw.points.map(q=>({x:q.x,y:q.y}));
       if(points.length===2&&dist(points[0],points[1])<.25)throw Error('Make the wall at least 0.25 inches long.');
       return {id:String(raw.id||'zone').slice(0,80),type:'polygon',points,x:points.reduce((s,q)=>s+q.x,0)/points.length,y:points.reduce((s,q)=>s+q.y,0)/points.length,angle:0};
     }
     if(!raw||!['rect','circle','triangle'].includes(raw.type)||![raw.x,raw.y].every(finite))throw Error('Invalid barrier.');
-    const z={id:String(raw.id||'zone').slice(0,80),type:raw.type,x:clamp(raw.x,-SIZE,2*SIZE),y:clamp(raw.y,-SIZE,2*SIZE),angle:finite(raw.angle)?raw.angle%360:0};
-    if(z.type==='circle'){if(!finite(raw.radius)||raw.radius<.25||raw.radius>144)throw Error('Barrier radius must be 0.25–144 inches.');z.radius=raw.radius;}
-    else{if(![raw.width,raw.height].every(n=>finite(n)&&n>=.25&&n<=288))throw Error('Barrier size must be 0.25–288 inches.');z.width=raw.width;z.height=raw.height;}
+    const z={id:String(raw.id||'zone').slice(0,80),type:raw.type,x:raw.x,y:raw.y,angle:finite(raw.angle)?raw.angle%360:0};
+    if(z.type==='circle'){if(!finite(raw.radius)||raw.radius<.25)throw Error('Barrier radius must be at least 0.25 inches.');z.radius=raw.radius;}
+    else{if(![raw.width,raw.height].every(n=>finite(n)&&n>=.25))throw Error('Barrier size must be at least 0.25 inches.');z.width=raw.width;z.height=raw.height;}
     return z;
   }
-  function fieldOf(raw){const f=raw||FIELD;if(![f.x0,f.y0,f.x1,f.y1].every(finite)||f.x1-f.x0<24||f.y1-f.y0<24)throw Error('Invalid field bounds.');return {x0:f.x0,y0:f.y0,x1:f.x1,y1:f.y1};}
+  function fieldOf(raw){const f=raw||FIELD;if(![f.x0,f.y0,f.x1,f.y1].every(finite)||f.x1-f.x0<1||f.y1-f.y0<1)throw Error('Invalid field bounds.');return {x0:f.x0,y0:f.y0,x1:f.x1,y1:f.y1};}
   // A point on a Bezier curve of any degree (de Casteljau). Pedro's BezierCurve uses the same control points.
   function bezier(points,t){let p=points.map(q=>({x:q.x,y:q.y}));while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];}
   function plan(project,rawFootprint,fieldZones=[],rawField){
@@ -173,5 +173,5 @@
     for(let i=1;i<samples.length;i++)if(!sweepClear(samples[i-1],samples[i],heading,all,footprint,field))throw Error('The smoothed route failed the footprint sweep check. Increase clearance or move the pins.');
     return {style,segments:usable,samples,length,heading,clearance,footprint,field,vertices:route,pins:pins.length,stops};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,dist};
+  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,dist};
 });

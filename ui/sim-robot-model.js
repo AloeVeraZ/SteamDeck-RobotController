@@ -66,13 +66,31 @@
   // The body in the robot frame: scaled to inches, oriented, bottom on the floor, centred on the footprint.
   function place(geometry,m,footprint){
     const {THREE:T}=three(),[F,L,Up]=rows(m),s=UNITS[m.units]||1,rot=new T.Matrix4().set(F[0],F[1],F[2],0,L[0],L[1],L[2],0,Up[0],Up[1],Up[2],0,0,0,0,1);
-    const mesh=new T.Mesh(geometry,material()),inner=new T.Group(),holder=new T.Group();
-    mesh.matrixAutoUpdate=false;mesh.matrix.copy(new T.Matrix4().makeScale(s,s,s).premultiply(rot));inner.add(mesh);holder.add(inner);
+    const mesh=geometry.isObject3D?geometry.clone(true):new T.Mesh(geometry,material()),inner=new T.Group(),holder=new T.Group();
+    const transform=new T.Group();transform.matrixAutoUpdate=false;transform.matrix.copy(new T.Matrix4().makeScale(s,s,s).premultiply(rot));transform.add(mesh);inner.add(transform);holder.add(inner);
     // Measure after the scale and rotation reach the world matrices.
     holder.updateMatrixWorld(true);
     const box=new T.Box3().setFromObject(holder),c=box.getCenter(new T.Vector3()),f=footprint||{front:9,rear:9,half:9};
     inner.position.set((f.front-f.rear)/2-c.x,-c.y,-box.min.z);holder.updateMatrixWorld(true);
     const size=box.getSize(new T.Vector3());holder.userData.size={length:size.x,width:size.y,height:size.z};return holder;
+  }
+  async function builtin(bytes,meta){
+    const {THREE:T}=three(),scene=await parseMesh('glb',bytes),wheels=[],podParts=[];scene.traverse(o=>{if(o.userData.deckWheel)wheels.push(o);if(o.userData.deckSteerBody)podParts.push(o);if(o.isMesh){o.castShadow=true;o.receiveShadow=true;o.material.roughness=.52;o.material.metalness=.28;}});
+    for(const wheel of wheels){const spec=wheel.userData.deckWheel,location=wheel.position.clone();
+      if(spec.kind==='swerve'){const steer=new T.Group();steer.name='DeckSteer';steer.position.copy(location);steer.userData.deckSteer={x:location.x,y:location.y};wheel.parent.add(steer);steer.add(wheel);wheel.position.set(0,0,0);scene.updateMatrixWorld(true);for(const part of podParts)if(part.userData.deckSteerBody.pod===wheel.name)steer.attach(part);}
+      wheel.userData.deckWheel={...spec,x:location.x,y:location.y,angle:0};
+    }
+    scene.userData.builtin=meta?.id;return scene;
+  }
+  // Only the two curated CAD assets carry deckWheel metadata. User imports have none. Wheel
+  // speeds come from actual chassis velocity at each wheel, including the yaw contribution.
+  function animate(holder,frame){
+    if(!frame?.truth)return;const {THREE:T}=three(),t=frame.truth,h=t.heading*Math.PI/180,f=t.vx*Math.cos(h)+t.vy*Math.sin(h),left=-t.vx*Math.sin(h)+t.vy*Math.cos(h),omega=t.omega*Math.PI/180;
+    const previous=holder.userData.animationTime,dt=previous===undefined?0:Math.max(0,Math.min(.1,frame.time-previous));holder.userData.animationTime=frame.time;
+    holder.traverse(o=>{const s=o.userData.deckSteer;if(s){const vx=f-omega*s.y,vy=left+omega*s.x;if(Math.hypot(vx,vy)>.1)o.rotation.z=Math.atan2(vy,vx)-Math.PI/2;}
+      const w=o.userData.deckWheel;if(!w)return;const vx=f-omega*w.y,vy=left+omega*w.x,power=w.kind==='swerve'?Math.hypot(vx,vy):vx-Math.sign(w.x*w.y)*vy;
+      w.angle=(w.angle+power*dt/w.radius)%(Math.PI*2);o.quaternion.setFromAxisAngle(new T.Vector3(...w.axis),w.angle);
+    });
   }
   // Top-down picture of the placed body for the 2D field, with its extent in robot inches.
   function silhouette(holder){
@@ -97,7 +115,7 @@
     const controls=new L.OrbitControls(camera,renderer.domElement);controls.enablePan=false;
     scene.add(new T.HemisphereLight(0xffffff,0x4b525c,2.3));const sun=new T.DirectionalLight(0xffffff,1.4);sun.position.set(40,-30,60);scene.add(sun);
     const grid=new T.GridHelper(36,12,0x888888,0x888888);grid.rotation.x=Math.PI/2;grid.material.transparent=true;grid.material.opacity=.25;scene.add(grid);
-    let body=null,outline=null,raf=0,radius=18;
+    let body=null,bodyKey=null,outline=null,raf=0,radius=18;
     function frame(){raf=0;const w=Math.max(1,box.clientWidth),h=Math.max(1,box.clientHeight),size=renderer.getSize(new T.Vector2());if(size.x!==w||size.y!==h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
       controls.update();renderer.render(scene,camera);
       // The cube shows the robot frame the way the camera sees it (CSS y points down).
@@ -105,17 +123,18 @@
     const draw=()=>{if(!raf)raf=requestAnimationFrame(frame);};controls.addEventListener('change',draw);
     // Straight up/down is degenerate for orbit controls, so top/bottom views tilt a hair.
     function look(side){const d=side==='top'?[-.02,0,1]:side==='bottom'?[-.02,0,-1]:SIDES[side]||[1,-1,.8],dir=new T.Vector3(...d).normalize();
-      camera.position.copy(dir.multiplyScalar(radius*2.6)).add(controls.target);controls.update();draw();}
+      const aspect=Math.max(.1,box.clientWidth/Math.max(1,box.clientHeight)),halfAngle=Math.atan(Math.tan(camera.fov*Math.PI/360)*Math.min(1,aspect));
+      camera.position.copy(dir.multiplyScalar(radius*1.12/Math.sin(halfAngle))).add(controls.target);controls.update();draw();}
     cube.addEventListener('click',e=>{const side=e.target.closest('[data-side]')?.dataset.side;if(!side)return;for(const f of cube.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);look(side);onSide?.(side);});
     function update(holder,footprint){
       if(body){scene.remove(body);}body=holder?holder.clone():null;if(body)scene.add(body);
       if(outline){scene.remove(outline);outline.geometry.dispose();}const f=footprint||{front:9,rear:9,half:9};
       const pts=[[f.front,f.half],[-f.rear,f.half],[-f.rear,-f.half],[f.front,-f.half],[f.front,f.half]].map(([x,y])=>new T.Vector3(x,y,.05));
       outline=new T.Line(new T.BufferGeometry().setFromPoints([...pts,new T.Vector3(f.front,0,.05),new T.Vector3(f.front+4,0,.05)]),new T.LineBasicMaterial({color:0xe5484d}));scene.add(outline);
-      const size=holder?.userData.size||{length:18,width:18,height:12};radius=Math.max(10,Math.hypot(size.length,size.width,size.height)/2);controls.target.set(0,0,size.height/3);
-      if(!update.looked){update.looked=true;look(null);}draw();
+      const size=holder?.userData.size||{length:18,width:18,height:12},oldRadius=radius;radius=Math.max(10,Math.hypot(size.length,size.width,size.height)/2);controls.target.set(0,0,size.height/3);camera.far=Math.max(2000,radius*10);camera.updateProjectionMatrix();
+      if(bodyKey!==holder?.uuid||!update.looked||Math.abs(radius-oldRadius)>radius*.2){bodyKey=holder?.uuid;update.looked=true;for(const face of cube.querySelectorAll('.face'))face.classList.remove('selected');look(null);}draw();
     }
-    return {update,look,select(side){for(const f of cube.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);renderer.dispose();host.replaceChildren();}};
+    return {update,look,resize:draw,select(side){for(const f of cube.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);controls.dispose();renderer.dispose();host.replaceChildren();}};
   }
-  return {AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview};
+  return {AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview,builtin,animate};
 });
