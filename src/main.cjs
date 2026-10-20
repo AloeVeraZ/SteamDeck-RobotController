@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor,powerSaveBlocker}=require('electron');
+const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor,powerSaveBlocker,utilityProcess,protocol,dialog,net}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
 const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {shortcut}=require('./shortcuts.cjs');let build={};try{build=JSON.parse(fs.readFileSync(path.join(__dirname,'../build.json'),'utf8'));}catch{}const meta=require('../package.json');let updater;
@@ -20,8 +20,12 @@ let robotExitView=null,robotExitReady=null,robotFullscreenPrevious=false;
 let suspended=false,interruption=null,connectionEpoch=0,pageEpoch=0;const recoveryControllers=new Set();
 const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
 app.setName('Deck Driver Station');
+// Offline simulator: a utility process started by the Simulation view, never connected to a robot.
+const {SimulationHost,registerAssetScheme,serveAssets}=require('./sim-bridge.cjs');registerAssetScheme(protocol);let simulation=null;
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
 if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',()=>{win?.show();win?.focus();});
+// The shell's webContents, or null once the window is destroyed (late IPC during shutdown).
+function shellContents(){return win&&!win.isDestroyed()?win.webContents:null;}
 function emit(channel,value){try{if(win&&!win.isDestroyed())win.webContents.send(channel,value);}catch{}}
 function snapshot(){return {...state,zoom:currentZoom(),robots:library?.list(currentNetwork?.ssid),network:currentNetwork};}
 function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||state.error||!state.url)robotKeyboard?.hide({focus:false});if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);syncAwake();emit('state',snapshot());}
@@ -35,7 +39,7 @@ function currentZoom(){try{return Number(((managerView||robotView)?.webContents.
 function applyZoom(contents){const factor=zooms[zoomKey(contents)]||1;if(contents.getZoomFactor()!==factor){contents.setZoomFactor(factor);emit('state',snapshot());}}
 function setZoom(step){const contents=(managerView||robotView)?.webContents;if(!contents)return 1;const current=contents.getZoomFactor(),nearest=zoomSteps.reduce((best,z,i)=>Math.abs(z-current)<Math.abs(zoomSteps[best]-current)?i:best,0),next=step===0?1:zoomSteps[Math.max(0,Math.min(zoomSteps.length-1,nearest+step))],key=zoomKey(contents);
   if(key){if(next===1)delete zooms[key];else zooms[key]=next;try{fs.writeFileSync(zoomFile,JSON.stringify(zooms),{mode:0o600});}catch{}}contents.setZoomFactor(next);emit('state',snapshot());return next;}
-function trusted(e){if(!win||e.sender!==win.webContents||e.senderFrame!==win.webContents.mainFrame)throw Error('Only app settings can perform this action.');}
+function trusted(e){const shell=shellContents();if(!shell||e.sender!==shell||e.senderFrame!==shell.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
 function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,source1:keyboardSource?'keyboard':'controller',deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:suspended||state.recovering||state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
@@ -61,13 +65,15 @@ function sendControllers(force=false){
 const touchSessions=new WeakSet();
 function touchSession(session){if(!touchSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'touch-preload.cjs')});touchSessions.add(session);}}
 function controllerSession(session){if(!controllerSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'controller-preload.cjs')});touchSession(session);controllerSessions.add(session);}}
-function controllerSender(e){return e.sender===win?.webContents||e.sender===robotView?.webContents;}
+function controllerSender(e){return e.sender===shellContents()||e.sender===robotView?.webContents;}
 ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',inputConfig());});
 ipcMain.on('controller-input',(e,pads)=>{
-  if(!controllerHub||e.sender!==win?.webContents||e.senderFrame!==e.sender.mainFrame)return;
+  if(!controllerHub||e.sender!==shellContents()||e.senderFrame!==e.sender.mainFrame)return;
   lastControllerInput=performance.now();ingestPads(pads);
   for(const pad of controllerHub.pads)if(recoveryControllers.has(pad.id)){if(!pad.pressed&&!controllerHub.axesActive(pad))recoveryControllers.delete(pad.id);else controllerHub.blocked.add(`${pad.index}:${pad.id}`);}
   if(suspended||state.recovering)blockHeldControllers();sendControllers();
+  // Simulation drives with controller 1 through the same assignment and deadzone as a robot.
+  if(simulation?.running&&state.page==='simulation'&&!suspended)simulation.setGamepad(controllerOutput({...controllerState(),paused:false})[0]);
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -265,9 +271,14 @@ async function setPage(page){
   update({page});fitView();
   // Simulation is offline. Close the live robot, including its active FTC op mode.
   if(page==='simulation'){finding?.abort();await closeRobot();}
+  // Leaving Simulation ends its processes, including any running Java program.
+  else simulation?.stop();
   return snapshot();
 }
 handle('page',setPage);
+handle('sim',async(method,args)=>{if(state.page!=='simulation')throw Error('Open the Simulation view first.');return simulation.call(method,args);});
+handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
+ipcMain.on('sim-drive',(e,value)=>{if(e.sender===shellContents()&&e.senderFrame===e.sender.mainFrame&&state.page==='simulation'&&simulation?.running)simulation.setDrive(value);});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
 handle('discovery-info',async()=>{const context=await network.context();return {...context,reason:discovery.eligibility(context)};});
@@ -326,7 +337,8 @@ app.whenReady().then(async()=>{
   win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)ingestPads([]);sendControllers();},100);controllerTimer.unref();
-  win.webContents.on('render-process-gone',()=>{lastControllerInput=0;ingestPads([]);sendControllers(true);});
+  win.webContents.on('render-process-gone',()=>{lastControllerInput=0;ingestPads([]);sendControllers(true);simulation.stop();});
+  simulation=new SimulationHost({utilityProcess,dataDir:app.getPath('userData'),emit:message=>emit('sim-event',message)});serveAssets(win.webContents.session,net);
   // Install and update checks launch the packaged app with DECK_SMOKE_FILE and read back what started.
   if(process.env.DECK_SMOKE_FILE)win.webContents.once('did-finish-load',()=>{fs.writeFileSync(process.env.DECK_SMOKE_FILE,JSON.stringify({version:meta.version,electron:process.versions.electron,base:build.base||'',appPath:app.getAppPath(),pid:process.pid}));setTimeout(()=>app.exit(0),200);});
   keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
@@ -334,4 +346,4 @@ app.whenReady().then(async()=>{
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });
-let closing=false;app.on('before-quit',e=>{if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());
+let closing=false;app.on('before-quit',e=>{simulation?.stop();if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());

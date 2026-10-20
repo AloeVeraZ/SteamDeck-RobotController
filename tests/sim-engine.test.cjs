@@ -1,0 +1,97 @@
+'use strict';
+// Simulator engine: DSIM physics plus a genuine Pedro Pathing process, stepped tick by tick.
+// Needs the local simulation build (node tools/simulation/build.cjs).
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const runtime=path.join(__dirname,'../sim-runtime'),built=fs.existsSync(path.join(runtime,'dsim-host.cjs'))&&fs.existsSync(path.join(runtime,'pedro/classes/deck/sim/PedroBridge.class'));
+const skip=built?false:'run node tools/simulation/build.cjs first';
+const planner=built?require('../ui/sim-planner.js'):null;
+function engine(){
+  const {SimEngine}=require('../src/sim-engine.cjs'),events=[];
+  // A frozen wall clock: the pacing timer never steps, so each test drives ticks explicitly.
+  const e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-sim-test-')),emit:m=>{if(m.type!=='frame')events.push(m);},now:()=>0});
+  e.events=events;return e;
+}
+async function ticks(e,limit,until=()=>false){for(let i=0;i<limit&&e.mode==='program'&&!until();i++)await e.programTick();}
+const runEvent=(e,state)=>e.events.find(m=>m.type==='run'&&m.state===state);
+const source=body=>`import com.pedropathing.api.Paths;\nimport com.pedropathing.math.Pose;\nimport deck.sim.*;\npublic class T implements DeckAutonomous {\n${body}\n}\n`;
+
+test('manual driving moves through DSIM physics: acceleration limited, wall stops it',{skip},async()=>{
+  const e=engine();try{
+    await e.load({field:'empty',start:{x:20,y:72,heading:0}});e.manual({x:0,y:1,turn:0});
+    const xs=[];for(let i=0;i<60;i++){e.tick(e.manualCommand());xs.push(e.truth().x);}
+    const v1=(xs[1]-xs[0])*60,v59=(xs[59]-xs[58])*60;assert.ok(v1<20,'first tick is not a teleport');assert.ok(v59>60,'reaches speed');
+    for(let i=0;i<240;i++)e.tick(e.manualCommand());const t=e.truth(),front=t.x+e.info.footprint.front;assert.ok(front<=144.5&&front>143,`stopped by the wall at ${front}`);
+  }finally{e.dispose();}
+});
+test('Pedro follows a planned route around a no-go zone through physics',{skip},async()=>{
+  const e=engine();try{
+    const zones=[{id:'z',type:'rect',x:72,y:72,width:20,height:50,angle:0}],start={x:20,y:72,heading:0},pins=[{x:124,y:72}];
+    const info=await e.load({field:'empty',start,zones});
+    assert.equal(info.tuning.maxPathSpeed,.6);assert.ok(info.tuning.forwardDeceleration>200);
+    const route=planner.plan({start,zones,pins,clearance:2},info.footprint,info.fieldZones,info.bounds);
+    const r=await e.run({kind:'route',route:{heading:route.heading,segments:route.segments,pins}});assert.equal(r.ok,true);assert.equal(r.program,'deck.sim.RouteAutonomous');
+    let maxStep=0,prev=e.truth();await ticks(e,1200,()=>{const t=e.truth();maxStep=Math.max(maxStep,Math.hypot(t.x-prev.x,t.y-prev.y));prev=t;return false;});
+    const done=runEvent(e,'finished');assert.ok(done,'run finished');const t=done.result.truth;
+    assert.ok(Math.hypot(t.x-124,t.y-72)<1,`final error ${Math.hypot(t.x-124,t.y-72)}`);assert.deepEqual(done.result.violations,[]);
+    assert.ok(maxStep<2,'no teleporting: per-tick motion is physical');assert.ok(done.result.time>route.length/info.drive.maxSpeed,'takes at least path length / top speed');
+    assert.ok(done.result.estimate&&Math.hypot(done.result.estimate.x-t.x,done.result.estimate.y-t.y)>0,'estimate comes from simulated sensors, not truth');
+  }finally{e.dispose();}
+});
+test('Stop kills Pedro, zeroes the drive and ignores stale replies',{skip},async()=>{
+  const e=engine();try{
+    const start={x:20,y:72,heading:0},pins=[{x:120,y:72}],info=await e.load({field:'empty',start});
+    const route=planner.plan({start,zones:[],pins,clearance:1},info.footprint,[],info.bounds);await e.run({kind:'route',route:{heading:0,segments:route.segments,pins}});
+    await ticks(e,40);assert.ok(Math.abs(e.command.forward)>.1,'moving under Pedro');
+    const child=e.child.child,pending=e.programTick();e.stop();await pending.catch(()=>{});
+    assert.deepEqual(e.command,{forward:0,strafe:0,turn:0});assert.equal(e.mode,'idle');assert.equal(e.child,null);
+    await new Promise(r=>child.exitCode!==null||child.signalCode?r():child.once('exit',r));
+    for(let i=0;i<120;i++)e.tick(e.manualCommand());assert.ok(Math.hypot(e.truth().vx,e.truth().vy)<.5,'robot came to rest');assert.equal(e.command.forward,0);
+  }finally{e.dispose();}
+});
+test('user Java program: genuine Pedro API, telemetry and captured output',{skip},async()=>{
+  const e=engine();try{
+    await e.load({field:'empty',start:{x:30,y:30,heading:90}});
+    const r=await e.run({kind:'source',source:source(`com.pedropathing.follower.Follower f; public void init(SimRobot r){f=r.follower();f.setPose(r.startPose());System.out.println("init ok");f.follow(Paths.line(r.startPose(),new Pose(30,80,Math.PI/2)).constant(Math.PI/2));}
+public void loop(SimRobot r){f.update();r.telemetry("y",Math.round(f.pose().y()));if(!f.isBusy())r.finish();}`)});
+    assert.equal(r.ok,true,r.error);await ticks(e,900);
+    const done=runEvent(e,'finished');assert.ok(done,'finished');assert.ok(Math.abs(done.result.truth.y-80)<1.2,`y ${done.result.truth.y}`);
+    assert.ok(e.events.some(m=>m.type==='log'&&m.lines.includes('init ok'))||runEvent(e,'running').log?.includes('init ok'),'stdout captured, not mixed into the protocol');
+    assert.ok(e.telemetry?.y,'telemetry reported');
+  }finally{e.dispose();}
+});
+test('user code failures are readable and never hang the engine',{skip},async()=>{
+  const e=engine();try{
+    await e.load({field:'empty',start:{x:30,y:30,heading:0}});
+    let r=await e.run({kind:'source',source:source('public void init(SimRobot r){ int x = "text"; } public void loop(SimRobot r){}')});
+    assert.equal(r.ok,false);assert.match(r.error,/Compile error: T\.java:5: .*incompatible types/);
+    r=await e.run({kind:'source',source:'public class Nope { }'});assert.match(r.error,/must implement deck\.sim\.DeckAutonomous/);
+    e.events.length=0;r=await e.run({kind:'source',source:source('public void init(SimRobot r){} public void loop(SimRobot r){ if (r.time() > 0.05) throw new IllegalStateException("boom"); }')});
+    assert.equal(r.ok,true);await ticks(e,30);const err=runEvent(e,'error');assert.match(err.error,/loop\(\) failed: IllegalStateException: boom/);assert.ok(err.trace.some(f=>f.startsWith('T.loop')));
+    e.events.length=0;r=await e.run({kind:'source',source:source('public void init(SimRobot r){} public void loop(SimRobot r){ while (true) { } }')});
+    const t0=Date.now();await ticks(e,3);assert.match(runEvent(e,'error').error,/took longer than 5 s/);assert.ok(Date.now()-t0<9000);assert.equal(e.child,null);
+  }finally{e.dispose();}
+});
+test('gyro-only sensing refuses path following; pause holds time; reset restores the start',{skip},async()=>{
+  const e=engine();try{
+    const start={x:40,y:40,heading:45};await e.load({field:'empty',start,sensors:{localization:'gyro'}});
+    await assert.rejects(e.run({kind:'route',route:{heading:45,segments:[{type:'line',points:[{x:40,y:40},{x:60,y:60}]}],pins:[{x:60,y:60}]}}),/Gyro-only sensing cannot measure X\/Y/);
+    e.manual({x:0,y:1,turn:.3});for(let i=0;i<30;i++)e.tick(e.manualCommand());const moved=e.truth();assert.ok(Math.hypot(moved.x-40,moved.y-40)>3);
+    e.play();e.pause();const t=e.world.time;await new Promise(r=>setTimeout(r,60));await e.pump();assert.equal(e.world.time,t);
+    e.reset();const back=e.truth();assert.ok(Math.abs(back.x-40)<1e-6&&Math.abs(back.y-40)<1e-6&&Math.abs(back.heading-45*Math.PI/180)<1e-9);assert.equal(e.world.time,0);
+  }finally{e.dispose();}
+});
+test('DSIM fields: DECODE planar, BIOBUZZ Rapier 3D; reload disposes the 3D world',{skip},async()=>{
+  const e=engine();try{
+    const decode=await e.load({field:'decode',start:{x:30,y:72,heading:0}});assert.equal(decode.physics,'2d');assert.ok(decode.fieldZones.length>=4);assert.ok(e.world.balls.length>10);
+    const bb=await e.load({field:'biobuzz',start:{x:30,y:40,heading:0}});assert.equal(bb.physics,'3d');assert.equal(e.world.biobuzz.physics,'3d');assert.ok(bb.bounds.x0>1.3&&bb.bounds.x0<1.4);
+    const first=e.world;e.manual({x:0,y:1,turn:0});for(let i=0;i<30;i++)e.tick(e.manualCommand());assert.ok(e.truth().x>35);
+    e.reset();assert.notEqual(e.world,first,'reset builds a fresh world');assert.ok(Math.abs(e.truth().x-30)<1e-6);
+  }finally{e.dispose();}
+});
+test('Pedro core is compiled with every wall-clock read redirected to simulation time',{skip},()=>{
+  const manifest=JSON.parse(fs.readFileSync(path.join(runtime,'manifest.json'),'utf8'));assert.equal(manifest.java.pedroClockReadsPatched,12);
+  assert.equal(manifest.upstream.pedro,'cf4be31449a8963af3a7ce7951de09fd163bbb3d');assert.equal(manifest.upstream.dsim,'0df84143a52dde4c7c196fb21b94264a13da91b6');
+  for(const c of ['controllers/PIDController','controllers/Controller$TimedController','utils/Timer','follower/Follower']){
+    const bytes=fs.readFileSync(path.join(runtime,'pedro/classes/com/pedropathing',c+'.class')).toString('latin1');assert.ok(bytes.includes('deck/sim/SimClock'),c);
+  }
+});

@@ -1,28 +1,157 @@
 # Simulation view
 
-Open **⋮ → Simulation**. This first slice provides an empty 144 × 144-inch FTC field and an initial-pose editor. No dependencies or external services were added.
+Open **⋮ → Simulation**. Everything runs offline inside the driver station app on this computer. No robot is contacted, nothing needs a subscription or an online service, and live robot controls stay isolated. Entering Simulation closes the connected robot through the existing disconnect/FTC STOP path, and robot auto-open is suppressed while the view is open.
 
-The 18 × 18-inch square is a placement preview, not imported robot geometry. A new setup starts against the left wall, centered at **(9, 72)** inches. The preview follows the pointer until a click, touch release, or Enter sets the pose. Use **Place on field** to move it again, **Start at edge** for a wall placement, or enter X, Y and heading directly. Escape discards a draft. The preview footprint stays inside the field, including at rotated headings. Only confirmed poses are saved in this device's local storage.
+## What it does
 
-Coordinates use the bottom-left field origin: X right, Y up, headings counterclockwise, 0° right and 90° up. User placement changes the robot's initial pose; it does not move the field origin. All values are inches and degrees in this view. Future library adapters must explicitly transform units and coordinate frames.
+| Area | Implemented |
+|---|---|
+| Fields | Empty 144 in field, DECODE and BIOBUZZ, using DSIM's own field models, colliders and 2D renderers |
+| Physics | DSIM's drive model and Rapier solver. DECODE and the empty field are **planar (2D)**. BIOBUZZ uses DSIM's **Rapier 3D** world |
+| Start pose | Place by cursor, touch, keyboard or numbers. Default is against the left wall. Checked against the walls and DSIM field elements |
+| Driving | **Drive** tool: W A S D or arrows to move, Q / E to turn, Shift for precision, F to toggle field-centric. Controller 1 also drives, with its saved assignment and deadzone |
+| No-go zones | Draw, select, move, rotate, edit and delete rectangles, circles and triangles. Contact with a zone is reported live and in the run result |
+| Waypoints | Ordered pins, with reorder and remove |
+| Planning | Footprint-aware visibility-graph route (Clipper union + Dijkstra) in a Web Worker. Corners are rounded with collision-checked tangent Béziers, then the whole path is swept by the full footprint |
+| Autonomous | **Pedro Pathing 3.0.2** (genuine `Follower`, `Foresight`, `Paths`) in a Java process, in lockstep with the physics clock: the planned route, or your own Java program |
+| Controls | Play/Pause, Stop (kills the program, zeroes the drive, ignores late replies), Reset (fresh world at the start pose), 0.25×–4× speed |
+| Telemetry | Simulation time, ground truth, the localizer estimate and its error, Pedro mode/path/remaining distance, drive command, zone contact, and program telemetry/output |
+| Views | 2D (DSIM renderers plus an overlay). 3D Deck scene: on BIOBUZZ it uses DSIM's CAD field, elements and robot. 3D DSIM scene: DSIM's own BIOBUZZ renderer |
+| Projects | Autosaved on this device; **Save/Open project…** writes a JSON file, with any imported model embedded |
+| Robot model | Import `.glb`, `.gltf`, `.stl` or `.obj` with an explicit scale (inches per model unit), rotation and lift. **Visual only**: collisions and planning always use the footprint |
 
-Simulation is currently offline. Entering it closes the connected robot using the existing disconnect/FTC STOP path. Robot auto-open is suppressed while this view is active. Placement does not write any configuration or pose to a robot. Driving physics, live pose telemetry, geometry import and executable path generation are not implemented in this release.
+## Running a simulation
 
-## Ownership and next steps
+1. ⋮ → **Simulation**. Choose a field at the top right.
+2. **Setup**: place the starting pose (click the field, or type X, Y, heading).
+3. **Robot**: set drivetrain (mecanum or swerve), size, intake, mass and RPM. The panel shows the collision footprint DSIM applied, including the intake extension.
+4. Draw zones with **Rect / Circle / Triangle**, then add pins with **Pin**.
+5. **Plan** → **Plan route**.
+6. **Run** → **Planned route** → **Run with Pedro Pathing**. Or choose **Java program**, edit or open a `.java` file, and run it.
+7. Use **Pause**, **Stop**, **Reset** and the speed menu as needed. Switch **2D / 3D** at the top.
 
-The robot remains the source of truth for its configuration, code, sensors and localization. Do not add dashboard hardware maps, GPIO/encoder assignments, sensor drivers, localizer selection or calibration. These belong in the REV/FTC stack or MotionModule's robot software, including Raspberry Pi GPIO and Arduino services. The dashboard visualizes robot results; it does not replace a robot's localizer or run its feedback control loop over Wi-Fi.
+## Coordinates
 
-The first hardware targets are MotionModule and REV Control Hub. Robot-side implementations must accommodate the actual installed setup: gyro only; drivetrain encoders; two dead-wheel pods plus heading; three dead-wheel pods; and goBILDA Pinpoint. Do not infer position feedback from the platform name. A gyro-only MotionModule cannot measure X/Y. Swerve and mecanum motion/feedback are distinct robot-side implementations.
+Inches, bottom-left origin, +X right, +Y up, heading counter-clockwise from +X (0° right, 90° up). This matches Pedro's field frame. DSIM is centred, so `app = DSIM + 72` on both axes, and headings are identical. BIOBUZZ's walls are 70.674 in from the centre (CAD inner face), so its usable field is 141.35 in.
 
-Pinpoint already combines its pod readings and IMU into a pose. Read that robot-side pose, with the configured tracking-point offset and frame; do not fuse its raw inputs a second time in the dashboard. Control Hub encoder-port odometry should likewise publish the pose computed by the robot's existing localizer. Pod directions, offsets, resolution and encoder names stay on the robot.
+## Simulated robot vs. real robot
 
-Implement in stages:
+The Robot tab describes the **simulated** drivetrain and sensors only. It has no hardware ports, GPIO, encoder names, calibration or real localizer settings, and the driver station never writes those to a robot. REV Control Hub and MotionModule configuration and localization stay on the robot.
 
-1. Inspect and document each robot's existing telemetry endpoints. Agree a robot-owned pose record carrying schema version, field frame, tracking point, units, monotonic sample time, X/Y/heading and validity. Optional velocity, uncertainty and localizer description help diagnostics. Display stale/missing data honestly; never silently replace it with simulated ground truth. Robot-reported frames must be converted explicitly before overlaying them on this field. There is no universal live pose endpoint wired up yet.
-2. Add read-only pose visualization and recordings from those robot endpoints. Keep the chosen simulated start distinct from a measured robot pose. Applying an initial pose to real hardware must use an explicit robot-supported initialization action, rather than an automatic dashboard write.
-3. Add offline driving, trajectories and geometry. Reuse existing libraries through tested adapters, with separate simulation truth and sensor estimates. Render imported meshes, derive collision geometry, and configure physical properties explicitly. A model alone does not establish mass, friction or drivetrain behavior.
-4. Integrate version-pinned Pedro Pathing/Road Runner on their supported robot runtimes. Keep execution and mechanism scheduling on the robot. Road Runner parallel actions are cooperative, not an instruction to start competing hardware-writing threads. MotionModule's Python runtime needs a verified runtime/IO integration before claiming genuine Pedro/Road Runner execution. Do not label an approximation as the actual library. Calibrate and compare simulation with physical runs before asserting transfer accuracy.
+- **Ground truth** is DSIM's physics state.
+- **Estimate** is what a Pedro `Localizer` reports when fed simulated sensors: odometry pods + IMU, drive encoders + IMU, or ideal. Odometry noise, scale error and gyro drift are configurable and seeded, and the estimate is shown separately from the truth.
+- **Gyro only** cannot measure X/Y. The simulator refuses path following with that choice.
 
-The inspected MotionModule source already provides `GET /api/drive/telemetry` through `core/motion_module/dashboard.py`. Its normalized snapshot exposes the runtime IMU (`yaw` in degrees, `rate` in degrees/second) and bounded sensor readings. `core/motion_module/telemetry.py` does not currently define a structured X/Y pose record; arbitrary project keys are removed by the normalizer. A future robot-side pose publication must extend that existing contract deliberately. Raw gyro data alone is not a substitute for a robot-computed X/Y estimate. No MotionModule source or hardware configuration was changed for this field editor.
+The Pedro profile (max speeds, braking and coasting constants) is **measured from DSIM's drive model** when the robot loads: free-speed and brake tests at two speeds per axis, like Pedro's tuning OpModes. The feedback gains (translational P 0.5, heading P 1.6, path speed 0.6) were chosen by sweeping runs on that model, giving ~1 in tracking deviation. They are **not** values for your robot. Pedro's 100 ms default hold timeout is not a settling test, so the simulated profile uses 2 s, and the built-in route program also waits for the estimate to settle.
 
-Primary references: [Pedro coordinates](https://pedropathing.com/docs/pathing/reference/coordinates), [Pedro Pinpoint localizer](https://pedropathing.com/docs/pathing/tuning/localization/pinpoint), [goBILDA Pinpoint documentation](https://www.gobilda.com/pinpoint-odometry-computer-imu-sensor-fusion-for-2-wheel-odometry/), [Road Runner actions](https://rr.brott.dev/docs/v1-0/actions/). These are integration guidance, not claims of integrations already shipped.
+## Your own autonomous code
+
+Programs implement `deck.sim.DeckAutonomous` (`init` once, `loop` every 1/60 s of simulation time, like an iterative OpMode) and use the real Pedro API:
+
+```java
+import com.pedropathing.api.Paths;
+import com.pedropathing.math.Pose;
+import deck.sim.DeckAutonomous;
+import deck.sim.SimRobot;
+
+public class MyAuto implements DeckAutonomous {
+    public void init(SimRobot robot) {
+        robot.follower().setPose(robot.startPose());
+        robot.follower().follow(Paths.line(robot.startPose(), new Pose(72, 72, 0)).constant(0));
+    }
+    public void loop(SimRobot robot) {
+        robot.follower().update();
+        if (!robot.follower().isBusy()) robot.finish();
+    }
+}
+```
+
+`SimRobot` provides `follower()`, `foresight()`, `startPose()`, `plannedRoute()` (the planner's route as a Pedro path), `pins()`, `time()`, `telemetry(key, value)`, `near(...)` and `finish()`.
+
+Errors stay readable and contained:
+- Compile errors show file and line.
+- Exceptions in `init`/`loop` show the stack frames from your class.
+- A `loop()` that does not return within 0.75 s (5 s during warm-up) is stopped, and its Java process is killed.
+- `System.out`/`System.err` go to **Program output** and cannot corrupt the bridge protocol.
+
+**What transfers to a robot:** the Pedro path and follower logic (`Paths`, `follow`, `update`, `isBusy`, poses in the same frame). **What does not:** `deck.sim.*` itself. On a robot you need an OpMode adapter that builds the `Follower` from the robot's real drivetrain (e.g. Pedro's revhub `Mecanum`) and localizer (e.g. Pinpoint), with tuned constants. MotionModule's Python runtime has no Pedro integration yet.
+
+## Execution adapters
+
+- **Implemented:** Pedro Pathing 3.0.2 core, compiled from the pinned source (`cf4be31`). Its 12 `System.nanoTime()` reads (PID timing, Foresight hold timeout, `Follower.update()`, `FusionLocalizer`) are redirected to a simulation clock, so pause and speed changes cannot wind up integrals or expire timeouts. The build verifies that count and that no wall-clock read remains.
+- **Not implemented:** Road Runner, the FTC SDK (`OpMode`, `hardwareMap`), MotionModule's Python runtime, and live robot pose overlay. DSIM's own path feature is not used: it teleports the chassis, and BIOBUZZ does not run it.
+
+## Architecture
+
+- `ui/simulation.js`: the view. `ui/sim-planner.js` + `ui/simulation-worker.js`: planning. `ui/sim-3d.js`: 3D.
+- `src/sim-bridge.cjs` (main process):
+  - starts the simulation **utility process** when Simulation opens, and kills it when the view closes, the window's renderer dies, or the app quits;
+  - relays messages;
+  - merges keyboard and controller-1 driving;
+  - serves only `ui/vendor/dsim/**` on the read-only `deck-asset://dsim/` scheme;
+  - runs the file dialogs.
+- `src/sim-host.cjs` → `src/sim-engine.cjs`: DSIM physics at a fixed 60 Hz step, simulated sensors, and the Pedro Java process. Messages are NDJSON, one line each, capped at 1 MiB per line. Each run has a sequence number, so replies from a stopped run are discarded. The Java process exits when its stdin closes, so it cannot outlive the host.
+- CSP adds `'wasm-unsafe-eval'` (meshopt decoder), `worker-src 'self'`, `blob:`/`data:` for model textures, and `deck-asset:` for DSIM models. Nothing else is fetched; DSIM's online HDRIs are disabled (see below).
+
+## Building the simulator runtime
+
+Generated files are git-ignored and rebuilt reproducibly from pinned inputs under `.cache`:
+
+```bash
+node tools/simulation/build.cjs
+```
+
+Inputs (the build checks every one):
+- **DSIM** `0df84143…` (clean clone)
+- **Pedro** `cf4be314…` (clean clone)
+- **npm packages:** esbuild 0.25.12, @dimforge/rapier2d-compat 0.19.3, @dimforge/rapier3d-deterministic-compat 0.20.0, three 0.186.0, clipper-lib 6.4.2, dijkstrajs 1.0.3
+- **Java:** Temurin JDK 21.0.12.1 reduced runtime (with `jdk.compiler`) and Gson 2.11.0
+
+Outputs:
+- `ui/vendor/` (`planning.js/.cjs`, `dsim-view.js`, DSIM BIOBUZZ models, `licenses/`)
+- `sim-runtime/` (`dsim-host.cjs`, `pedro/classes`, `gson.jar`, `java/`, `manifest.json` with SHA-256 of every bundle)
+
+`tools/simulation/stubs/discordActivity.ts` replaces one DSIM module so DSIM's environment code takes its offline fallback. Without it, the bundle would pull in DSIM's Discord, authentication and multiplayer code.
+
+## Licenses
+
+- **DSIM** is **PolyForm Noncommercial 1.0.0**, not open source. It is used here for personal, noncommercial use only. Its `LICENSE`, `NOTICE` (Required Notice: Copyright 2026 Dohun Kim) and field-model README are copied to `ui/vendor/licenses/`. DSIM's BIOBUZZ CAD meshes derive from FIRST's field STEP; see `DSIM-FIELD-MODELS.md` for their terms. Do not redistribute these bundles commercially or relicense them.
+- **Pedro Pathing** is BSD-3-Clause (`PEDRO-LICENSE`).
+- **three.js** is MIT.
+- **Rapier** is Apache-2.0.
+- **Clipper** is Boost 1.0.
+- **dijkstrajs** is MIT.
+- **Gson** is Apache-2.0.
+- **Temurin** is GPLv2 with Classpath Exception; its notices are in `sim-runtime/java/legal`.
+
+## Tests
+
+```bash
+node --test tests/*.test.cjs
+```
+
+That command includes `sim-planner.test.cjs` and `sim-engine.test.cjs`. `sim-planner.test.cjs` covers:
+- geometry, narrow passages and blocked routes
+- the asymmetric footprint at walls
+- smoothing safety
+- a regression for Clipper-rounded boundary vertices
+- a grid-search completeness oracle
+
+`sim-engine.test.cjs` covers:
+- physics motion, and a Pedro run around a zone
+- Stop with stale replies discarded
+- user programs, compile and runtime errors, and infinite-loop timeouts
+- gyro-only refusal, pause and reset
+- DECODE and BIOBUZZ 3D
+- the clock patch
+
+The native app test is `tests/simulation-ui.cjs`. It needs `DECK_PLAYWRIGHT` and `DECK_ELECTRON`, and uses an isolated temporary data directory.
+
+## Known limits
+
+- DECODE and the empty field are planar. Perspective drawing does not make them 3D.
+- BIOBUZZ planning uses DSIM's planar robot obstacles (walls, A-frame legs, flower feet). Taller 3D structures the robot drives under are not planning obstacles.
+- The route keeps the starting heading. Turning-in-place routes are not planned, though user programs may turn.
+- Game mechanisms (intakes, launchers, scoring) are not driven by the simulator's programs.
+- The bundled Java runtime and build are for Windows x64. Linux and macOS packaging of the simulator runtime has not been done.
+- The live robot pose overlay still needs a robot-published pose contract. MotionModule's `GET /api/drive/telemetry` currently exposes IMU yaw/rate, not X/Y.
