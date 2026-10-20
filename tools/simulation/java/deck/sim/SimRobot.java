@@ -21,11 +21,20 @@ public final class SimRobot {
     private final Pose start;
     private final Path route;
     private final List<Pose> pins;
+    private final List<Path> legs;
+    private final List<Double> waits;
+    private final List<String> actions;
+    int waitingStop = -1;
+    String waitingAction = "";
+    double waitingRemaining;
     final Map<String, String> telemetry = new LinkedHashMap<>();
     private double time;
     private boolean finished;
 
-    SimRobot(Follower follower, ForesightConfig config, Pose start, Path route, List<Pose> pins) {
+    SimRobot(Follower follower, ForesightConfig config, Pose start, Path route, List<Pose> pins, List<Path> legs, List<Double> waits, List<String> actions) {
+        this.legs = Collections.unmodifiableList(new ArrayList<>(legs));
+        this.waits = Collections.unmodifiableList(new ArrayList<>(waits));
+        this.actions = Collections.unmodifiableList(new ArrayList<>(actions));
         this.follower = follower;
         this.config = config;
         this.start = start;
@@ -44,6 +53,25 @@ public final class SimRobot {
 
     /** The planner's collision-checked route as a Pedro path at constant heading, or null. */
     public Path plannedRoute() { return route; }
+
+    /** The planned route split at each pin that has a pause. Leg i ends at stop i. */
+    public List<Path> routeLegs() { return legs; }
+
+    /** Seconds to pause after leg i (0 for the final pin when no pause was set). */
+    public double stopWait(int leg) { return waits.get(leg); }
+
+    /** The action name entered for the stop after leg i ("" when none). */
+    public String stopAction(int leg) { return actions.get(leg); }
+
+    /** Report that the robot is pausing at a stop, for the simulator's telemetry. */
+    public void waiting(int leg, String action, double remainingSeconds) {
+        waitingStop = leg;
+        waitingAction = action == null ? "" : action;
+        waitingRemaining = remainingSeconds;
+    }
+
+    /** Clear the pause report. */
+    public void moving() { waitingStop = -1; }
 
     /** The ordered waypoint pins (heading = starting heading). */
     public List<Pose> pins() { return pins; }

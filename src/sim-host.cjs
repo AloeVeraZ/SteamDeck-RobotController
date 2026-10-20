@@ -2,11 +2,12 @@
 // Simulation utility process. The driver station's main process forks this only while the
 // Simulation view is open, relays messages to and from the window, and kills it on exit, so
 // physics and the Pedro Java process never run on the UI thread or outlive the view.
-const {SimEngine}=require('./sim-engine.cjs');
+const {SimEngine}=require('./sim-engine.cjs'),{convertStep}=require('./sim-model.cjs'),path=require('node:path');
 const port=process.parentPort,workDir=process.argv[2];
 const engine=new SimEngine({workDir,emit:message=>port.postMessage(message)});
 const calls={load:c=>engine.load(c),play:()=>engine.play(),pause:()=>engine.pause(),speed:s=>engine.setSpeed(s),manual:m=>engine.manual(m),
-  run:p=>engine.run(p),stop:()=>engine.stop(),reset:()=>engine.reset(),zones:z=>engine.setZones(z),start:s=>engine.setStart(s),step:n=>engine.step(Math.max(1,Math.min(600,n|0)))};
+  run:p=>engine.run(p),stop:()=>engine.stop(),reset:()=>engine.reset(),zones:z=>engine.setZones(z),start:s=>engine.setStart(s),step:n=>engine.step(Math.max(1,Math.min(600,n|0))),convertStep:file=>convertStep(file,path.join(__dirname,'../sim-runtime')),
+  evaluate:candidates=>engine.evaluate(candidates,(index,total)=>port.postMessage({type:'optimize',index,total}))};
 port.on('message',async({data})=>{
   const {id,method,args=[]}=data||{};
   if(method==='manual'){engine.manual(args[0]);return;}

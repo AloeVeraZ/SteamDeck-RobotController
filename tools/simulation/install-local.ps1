@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $install = Join-Path $env:LOCALAPPDATA 'DeckDriverStation'
 $app = Join-Path $install 'app'
 $userData = Join-Path $env:APPDATA 'Deck Driver Station'
-foreach ($required in 'sim-runtime\manifest.json', 'sim-runtime\java\bin\java.exe', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class', 'ui\vendor\dsim-view.js', 'ui\vendor\planning.js') {
+foreach ($required in 'sim-runtime\manifest.json', 'sim-runtime\java\bin\java.exe', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class', 'sim-runtime\occt\occt-import-js.wasm', 'ui\vendor\three-view.js', 'ui\vendor\planning.js') {
     if (-not (Test-Path (Join-Path $Source $required))) { throw "Missing $required. Run: node tools/simulation/build.cjs" }
 }
 if (-not (Test-Path (Join-Path $app 'package.json'))) { throw "No installed app at $app." }
@@ -41,15 +41,16 @@ foreach ($dir in 'src', 'ui', 'sim-runtime') {
 Copy-Item (Join-Path $Source 'package.json') (Join-Path $app 'package.json') -Force
 Set-Content -Path (Join-Path $app 'licenses\SIMULATION-THIRD-PARTY.txt') -Encoding utf8 -Value @'
 The offline simulator bundles third-party code and assets. Licenses and notices:
-  ui/vendor/licenses/   DSIM (PolyForm Noncommercial 1.0.0, noncommercial use only), DSIM field-model terms,
-                        Pedro Pathing (BSD-3-Clause), three.js (MIT), Rapier (Apache-2.0), Clipper (Boost 1.0), dijkstrajs (MIT)
+  ui/vendor/licenses/   DSIM (PolyForm Noncommercial 1.0.0, noncommercial use only), Pedro Pathing (BSD-3-Clause),
+                        three.js (MIT), Rapier (Apache-2.0), Clipper (Boost 1.0), dijkstrajs (MIT),
+                        occt-import-js and Open CASCADE Technology (LGPL-2.1) for STEP import
   sim-runtime/pedro/    Pedro Pathing license, Gson notice (Apache-2.0)
   sim-runtime/java/legal/  Eclipse Temurin OpenJDK 21 notices (GPLv2 with Classpath Exception)
 '@
 
 # Verify the copy byte for byte against the tested checkout.
 $checked = 0
-foreach ($rel in 'src\main.cjs', 'src\sim-engine.cjs', 'src\sim-bridge.cjs', 'ui\simulation.js', 'ui\sim-planner.js', 'ui\vendor\dsim-view.js', 'sim-runtime\dsim-host.cjs', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class') {
+foreach ($rel in 'src\main.cjs', 'src\sim-engine.cjs', 'src\sim-bridge.cjs', 'src\sim-model.cjs', 'ui\simulation.js', 'ui\sim-planner.js', 'ui\sim-export.js', 'ui\sim-robot-model.js', 'ui\vendor\three-view.js', 'sim-runtime\dsim-host.cjs', 'sim-runtime\occt\occt-import-js.wasm', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class') {
     if ((Get-FileHash (Join-Path $Source $rel)).Hash -ne (Get-FileHash (Join-Path $app $rel)).Hash) { throw "Installed $rel differs from the source." }
     $checked++
 }

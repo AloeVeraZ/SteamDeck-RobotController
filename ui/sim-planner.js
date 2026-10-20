@@ -9,12 +9,40 @@
   const finite=n=>typeof n==='number'&&Number.isFinite(n),clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
   const FIELD={x0:0,y0:0,x1:SIZE,y1:SIZE};
   function polygon(zone){
+    if(zone.type==='polygon')return zone.points.map(q=>({x:q.x,y:q.y}));
     let p;if(zone.type==='circle'){const count=24,r=zone.radius/Math.cos(Math.PI/count);p=Array.from({length:count},(_,i)=>({x:r*Math.cos(i*2*Math.PI/count),y:r*Math.sin(i*2*Math.PI/count)}));}
     else if(zone.type==='triangle')p=[{x:-zone.width/2,y:-zone.height/2},{x:zone.width/2,y:-zone.height/2},{x:0,y:zone.height/2}];
     else p=[{x:-zone.width/2,y:-zone.height/2},{x:zone.width/2,y:-zone.height/2},{x:zone.width/2,y:zone.height/2},{x:-zone.width/2,y:zone.height/2}];
     const c=Math.cos(rad(zone.angle||0)),s=Math.sin(rad(zone.angle||0));return p.map(v=>({x:zone.x+v.x*c-v.y*s,y:zone.y+v.x*s+v.y*c}));
   }
   const cross=(a,b,c)=>(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+  const area=p=>p.reduce((s,q,i)=>{const r=p[(i+1)%p.length];return s+q.x*r.y-r.x*q.y;},0)/2;
+  function convex(p){let sign=0;for(let i=0;i<p.length;i++){const c=cross(p[i],p[(i+1)%p.length],p[(i+2)%p.length]);if(Math.abs(c)<1e-9)continue;if(sign&&Math.sign(c)!==sign)return false;sign=Math.sign(c);}return true;}
+  // Ear clipping for a simple polygon; null when the outline crosses itself.
+  function triangulate(points){
+    let p=points.slice();if(area(p)<0)p.reverse();const out=[];let guard=0;
+    while(p.length>3&&guard++<500){
+      let clipped=false;
+      for(let i=0;i<p.length;i++){const a=p[(i+p.length-1)%p.length],b=p[i],c=p[(i+1)%p.length];if(cross(a,b,c)<=1e-9)continue;
+        if(p.some(q=>q!==a&&q!==b&&q!==c&&cross(a,b,q)>=-1e-9&&cross(b,c,q)>=-1e-9&&cross(c,a,q)>=-1e-9))continue;
+        out.push([a,b,c]);p.splice(i,1);clipped=true;break;}
+      if(!clipped)return null;
+    }
+    if(p.length===3)out.push(p);return out;
+  }
+  // Two non-adjacent edges that touch or cross mean the outline is not a simple polygon.
+  function selfCrossing(p){
+    const n=p.length,hits=(a,b,c,d)=>{const d1=cross(c,d,a),d2=cross(c,d,b),d3=cross(a,b,c),d4=cross(a,b,d);return ((d1>0&&d2<0)||(d1<0&&d2>0))&&((d3>0&&d4<0)||(d3<0&&d4>0));};
+    for(let i=0;i<n;i++)for(let j=i+2;j<n;j++){if(i===0&&j===n-1)continue;if(hits(p[i],p[(i+1)%n],p[j],p[(j+1)%n]))return true;}
+    return false;
+  }
+  // Convex pieces of a zone. A self-crossing outline is treated as its whole hull (safe side).
+  function parts(zone){
+    const p=polygon(zone);if(zone.type!=='polygon'||p.length<=3||convex(p))return [p];
+    if(selfCrossing(p))return [hull(p)];
+    return triangulate(p)||[hull(p)];
+  }
+  const zoneHits=(shape,zone)=>parts(zone).some(q=>overlap(shape,q));
   function hull(points){const sorted=points.slice().sort((a,b)=>a.x-b.x||a.y-b.y),lower=[],upper=[];for(const p of sorted){while(lower.length>1&&cross(lower.at(-2),lower.at(-1),p)<=EPS)lower.pop();lower.push(p);}for(const p of sorted.slice().reverse()){while(upper.length>1&&cross(upper.at(-2),upper.at(-1),p)<=EPS)upper.pop();upper.push(p);}return lower.slice(0,-1).concat(upper.slice(0,-1));}
   function footprintOf(raw){const f=raw||{front:9,rear:9,half:9};if(![f.front,f.rear,f.half].every(n=>finite(n)&&n>0&&n<=36))throw Error('Robot footprint must be 0–36 inches from its centre on each side.');return {front:f.front,rear:f.rear,half:f.half};}
   function body(pose,footprint={front:9,rear:9,half:9}){const c=Math.cos(rad(pose.heading)),s=Math.sin(rad(pose.heading));return [{x:footprint.front,y:footprint.half},{x:-footprint.rear,y:footprint.half},{x:-footprint.rear,y:-footprint.half},{x:footprint.front,y:-footprint.half}].map(p=>({x:pose.x+p.x*c-p.y*s,y:pose.y+p.x*s+p.y*c}));}
@@ -30,13 +58,13 @@
     if(Math.max(...A)<=Math.min(...B)+eps||Math.max(...B)<=Math.min(...A)+eps)return false;
   }return true;}
   const inField=(points,field)=>points.every(p=>p.x>=field.x0-1e-7&&p.y>=field.y0-1e-7&&p.x<=field.x1+1e-7&&p.y<=field.y1+1e-7);
-  function safePose(pose,zones,footprint,field=FIELD){if(!pose||![pose.x,pose.y,pose.heading].every(finite))return false;const corners=body(pose,footprint);return inField(corners,field)&&!zones.some(z=>overlap(corners,polygon(z)));}
+  function safePose(pose,zones,footprint,field=FIELD){if(!pose||![pose.x,pose.y,pose.heading].every(finite))return false;const corners=body(pose,footprint);return inField(corners,field)&&!zones.some(z=>zoneHits(corners,z));}
   // Exact swept check for a straight move at constant heading: the swept region of a convex
   // footprint is the convex hull of its start and end placements.
-  function sweepClear(a,b,heading,zones,footprint,field=FIELD){const swept=hull([...body({...a,heading},footprint),...body({...b,heading},footprint)]);return inField(swept,field)&&!zones.some(z=>overlap(swept,polygon(z)));}
+  function sweepClear(a,b,heading,zones,footprint,field=FIELD){const swept=hull([...body({...a,heading},footprint),...body({...b,heading},footprint)]);return inField(swept,field)&&!zones.some(z=>zoneHits(swept,z));}
   // Sampled sweep for moves that also turn (rotation makes the swept region non-convex).
   function safeSweep(a,b,zones,footprint,field=FIELD){const angle=((b.heading-a.heading+540)%360)-180;if(Math.abs(angle)<1e-9)return sweepClear(a,b,a.heading,zones,footprint,field);const n=Math.max(1,Math.ceil(dist(a,b)/.1),Math.ceil(Math.abs(angle)));for(let i=0;i<=n;i++){const t=i/n;if(!safePose({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,heading:a.heading+angle*t},zones,footprint,field))return false;}return true;}
-  function inflated(zones,footprint,heading,clearance){const offsets=body({x:0,y:0,heading},footprint).map(p=>({x:-p.x,y:-p.y}));const ring=clearance>0?Array.from({length:16},(_,i)=>({x:clearance/Math.cos(Math.PI/16)*Math.cos(i*Math.PI/8),y:clearance/Math.cos(Math.PI/16)*Math.sin(i*Math.PI/8)})):[{x:0,y:0}];return zones.map(zone=>hull(polygon(zone).flatMap(p=>offsets.flatMap(q=>ring.map(r=>({x:p.x+q.x+r.x,y:p.y+q.y+r.y}))))));}
+  function inflated(zones,footprint,heading,clearance){const offsets=body({x:0,y:0,heading},footprint).map(p=>({x:-p.x,y:-p.y}));const ring=clearance>0?Array.from({length:16},(_,i)=>({x:clearance/Math.cos(Math.PI/16)*Math.cos(i*Math.PI/8),y:clearance/Math.cos(Math.PI/16)*Math.sin(i*Math.PI/8)})):[{x:0,y:0}];return zones.flatMap(zone=>parts(zone).map(part=>hull(part.flatMap(p=>offsets.flatMap(q=>ring.map(r=>({x:p.x+q.x+r.x,y:p.y+q.y+r.y})))))));}
   function boxOf(poly){const xs=poly.map(p=>p.x),ys=poly.map(p=>p.y);return {x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys)};}
   function segmentClear(a,b,polys,tol=TOL){
     for(const poly of polys){const box=poly.box||boxOf(poly);if(Math.max(a.x,b.x)<box.x0-tol||Math.min(a.x,b.x)>box.x1+tol||Math.max(a.y,b.y)<box.y0-tol||Math.min(a.y,b.y)>box.y1+tol)continue;
@@ -47,6 +75,12 @@
     }return true;
   }
   function validateZone(raw){
+    if(raw?.type==='polygon'){
+      if(!Array.isArray(raw.points)||raw.points.length<2||raw.points.length>40||!raw.points.every(q=>q&&finite(q.x)&&finite(q.y)))throw Error('A shape needs 2 to 40 points.');
+      const points=raw.points.map(q=>({x:clamp(q.x,-SIZE,2*SIZE),y:clamp(q.y,-SIZE,2*SIZE)}));
+      if(points.length===2&&dist(points[0],points[1])<.25)throw Error('Make the wall at least 0.25 inches long.');
+      return {id:String(raw.id||'zone').slice(0,80),type:'polygon',points,x:points.reduce((s,q)=>s+q.x,0)/points.length,y:points.reduce((s,q)=>s+q.y,0)/points.length,angle:0};
+    }
     if(!raw||!['rect','circle','triangle'].includes(raw.type)||![raw.x,raw.y].every(finite))throw Error('Invalid barrier.');
     const z={id:String(raw.id||'zone').slice(0,80),type:raw.type,x:clamp(raw.x,-SIZE,2*SIZE),y:clamp(raw.y,-SIZE,2*SIZE),angle:finite(raw.angle)?raw.angle%360:0};
     if(z.type==='circle'){if(!finite(raw.radius)||raw.radius<.25||raw.radius>144)throw Error('Barrier radius must be 0.25–144 inches.');z.radius=raw.radius;}
@@ -54,14 +88,15 @@
     return z;
   }
   function fieldOf(raw){const f=raw||FIELD;if(![f.x0,f.y0,f.x1,f.y1].every(finite)||f.x1-f.x0<24||f.y1-f.y0<24)throw Error('Invalid field bounds.');return {x0:f.x0,y0:f.y0,x1:f.x1,y1:f.y1};}
-  function bezier(a,b,c,t){return {x:(1-t)**2*a.x+2*t*(1-t)*b.x+t*t*c.x,y:(1-t)**2*a.y+2*t*(1-t)*b.y+t*t*c.y};}
+  // A point on a Bezier curve of any degree (de Casteljau). Pedro's BezierCurve uses the same control points.
+  function bezier(points,t){let p=points.map(q=>({x:q.x,y:q.y}));while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];}
   function plan(project,rawFootprint,fieldZones=[],rawField){
     if(!project||!Array.isArray(project.pins)||project.pins.length>32||!Array.isArray(project.zones)||project.zones.length>24)throw Error('Use at most 32 pins and 24 barriers.');
     const footprint=footprintOf(rawFootprint),field=fieldOf(rawField);
     const start=project.start;if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Choose a finite starting pose.');
     const zones=project.zones.map(validateZone),all=zones.concat(fieldZones.map(validateZone));
     if(!safePose(start,all,footprint,field))throw Error('The starting footprint overlaps a barrier, a field element or the wall. Move it to a clear position.');
-    const pins=project.pins.map((p,i)=>{if(!p||![p.x,p.y].every(finite)||p.x<field.x0||p.y<field.y0||p.x>field.x1||p.y>field.y1)throw Error(`Pin ${i+1} must be inside the field.`);return {x:p.x,y:p.y,pin:true};});
+    const pins=project.pins.map((p,i)=>{if(!p||![p.x,p.y].every(finite)||p.x<field.x0||p.y<field.y0||p.x>field.x1||p.y>field.y1)throw Error(`Pin ${i+1} must be inside the field.`);return {x:p.x,y:p.y,pin:true,wait:finite(p.wait)?clamp(p.wait,0,30):0,action:typeof p.action==='string'?p.action.slice(0,40):''};});
     if(!pins.length)throw Error('Add a destination pin on the field first.');
     const clearance=clamp(finite(project.clearance)?project.clearance:1,MIN_CLEARANCE,6),heading=start.heading;
     const polys=inflated(all,footprint,heading,clearance),smoothPolys=inflated(all,footprint,heading,clearance/2),offsets=body({x:0,y:0,heading},footprint);
@@ -93,24 +128,50 @@
       route.push(...keys.slice(1).map(k=>k==='g'?{...goal}:{...vertices[Number(k.slice(1))],pin:false}));cursor=goal;
     }
     if(route.length<2)throw Error('Place a pin away from the starting position.');
-    // Round interior corners with a tangent quadratic Bezier (G1 continuous). A rounded
-    // corner may use at most half of the clearance buffer; otherwise it stays sharp.
-    const segments=[];let at=route[0];
-    for(let i=1;i<route.length;i++){
-      const p=route[i],next=route[i+1];let rounded=false;
-      if(project.smooth!==false&&!p.pin&&next&&dist(at,p)>1e-6&&dist(p,next)>1e-6){
-        for(const limit of [6,3,1.5]){const trim=Math.min(limit,dist(at,p)/2.5,dist(p,next)/2.5),a={x:p.x+(at.x-p.x)*trim/dist(at,p),y:p.y+(at.y-p.y)*trim/dist(at,p)},b={x:p.x+(next.x-p.x)*trim/dist(p,next),y:p.y+(next.y-p.y)*trim/dist(p,next)};
-          const sample=Array.from({length:33},(_,j)=>bezier(a,p,b,j/32));
-          if(sample.every(within)&&sample.every((v,j)=>!j||segmentClear(sample[j-1],v,smoothPolys))){segments.push({type:'line',points:[at,a]},{type:'curve',points:[a,{x:p.x,y:p.y},b]});at=b;rounded=true;break;}}
+    const style=['sharp','rounded','spline'].includes(project.style)?project.style:project.smooth===false?'sharp':'rounded';
+    const pt=p=>({x:p.x,y:p.y}),curveClear=points=>{const c=Array.from({length:41},(_,j)=>bezier(points,j/40));return c.every(within)&&c.every((v,j)=>!j||segmentClear(c[j-1],v,smoothPolys));};
+    let segments=[];
+    if(style==='spline'){
+      // Cubic curves through every waypoint and obstacle corner, tangent-continuous where the robot
+      // passes through. The start, the end and pins with a pause are full stops. Where a curve would
+      // come closer than half the clearance, the tension at its two corners halves (to a straight line).
+      const tension=finite(project.tension)?clamp(project.tension,0,1.5):1,n=route.length;
+      // Full stops: the ends, pins with a pause, and places where the route doubles back (a
+      // reversal cannot be taken at speed, and its tangent would be zero).
+      const turn=i=>{const a=route[i-1],p=route[i],b=route[i+1],ux=p.x-a.x,uy=p.y-a.y,vx=b.x-p.x,vy=b.y-p.y,lu=Math.hypot(ux,uy),lv=Math.hypot(vx,vy);return lu<1e-6||lv<1e-6?Math.PI:Math.acos(Math.max(-1,Math.min(1,(ux*vx+uy*vy)/(lu*lv))));};
+      const k=route.map((p,i)=>i===0||i===n-1||(p.pin&&p.wait>0)||turn(i)>150*Math.PI/180?0:tension);
+      for(let attempt=0;attempt<12;attempt++){
+        const tangent=route.map((p,i)=>{if(!k[i])return null;const a=route[i-1],b=route[i+1],dx=b.x-a.x,dy=b.y-a.y,l=Math.hypot(dx,dy),m=k[i]*Math.min(dist(a,p),dist(p,b))/3;return l<1e-6||m<.05?null:{x:dx/l*m,y:dy/l*m};});
+        segments=[];let failed=false;
+        for(let i=0;i<n-1;i++){
+          const a=route[i],b=route[i+1];if(dist(a,b)<1e-6)continue;
+          if(!tangent[i]&&!tangent[i+1]){segments.push({type:'line',points:[pt(a),pt(b)]});continue;}
+          const c1=tangent[i]?{x:a.x+tangent[i].x,y:a.y+tangent[i].y}:{x:a.x+(b.x-a.x)/3,y:a.y+(b.y-a.y)/3},c2=tangent[i+1]?{x:b.x-tangent[i+1].x,y:b.y-tangent[i+1].y}:{x:b.x-(b.x-a.x)/3,y:b.y-(b.y-a.y)/3};
+          const points=[pt(a),c1,c2,pt(b)];
+          if(curveClear(points))segments.push({type:'curve',points});else{failed=true;for(const j of [i,i+1])k[j]=k[j]*.5<.05?0:k[j]*.5;}
+        }
+        if(!failed)break;
       }
-      if(!rounded){segments.push({type:'line',points:[at,{x:p.x,y:p.y}]});at=p;}
+    }else{
+      // Round interior corners with a tangent quadratic Bezier (G1 continuous). A rounded
+      // corner may use at most half of the clearance buffer; otherwise it stays sharp.
+      let at=route[0];
+      for(let i=1;i<route.length;i++){
+        const p=route[i],next=route[i+1];let rounded=false;
+        if(style==='rounded'&&!p.pin&&next&&dist(at,p)>1e-6&&dist(p,next)>1e-6){
+          for(const limit of [6,3,1.5]){const trim=Math.min(limit,dist(at,p)/2.5,dist(p,next)/2.5),a={x:p.x+(at.x-p.x)*trim/dist(at,p),y:p.y+(at.y-p.y)*trim/dist(at,p)},b={x:p.x+(next.x-p.x)*trim/dist(p,next),y:p.y+(next.y-p.y)*trim/dist(p,next)};
+            if(curveClear([a,p,b])){segments.push({type:'line',points:[pt(at),a]},{type:'curve',points:[a,pt(p),b]});at=b;rounded=true;break;}}
+        }
+        if(!rounded){segments.push({type:'line',points:[pt(at),pt(p)]});at=p;}
+      }
     }
     const usable=segments.filter(s=>dist(s.points[0],s.points.at(-1))>1e-6);
-    const samples=[];let length=0;for(const s of usable){const n=s.type==='line'?Math.max(2,Math.ceil(dist(s.points[0],s.points[1])*2)):64;for(let i=0;i<=n;i++){if(samples.length&&i===0)continue;const t=i/n;const p=s.type==='line'?{x:s.points[0].x+(s.points[1].x-s.points[0].x)*t,y:s.points[0].y+(s.points[1].y-s.points[0].y)*t}:bezier(...s.points,t);if(samples.length)length+=dist(samples.at(-1),p);samples.push(p);}}
+    const samples=[];let length=0;for(const s of usable){const n=Math.max(s.type==='line'?2:24,Math.ceil(s.points.slice(1).reduce((d,q,i)=>d+dist(s.points[i],q),0)*2));for(let i=0;i<=n;i++){if(samples.length&&i===0)continue;const t=i/n;const p=s.type==='line'?{x:s.points[0].x+(s.points[1].x-s.points[0].x)*t,y:s.points[0].y+(s.points[1].y-s.points[0].y)*t}:bezier(s.points,t);if(samples.length)length+=dist(samples.at(-1),p);samples.push(p);}}
+    let cursorSeg=-1;const stops=pins.map(p=>{for(let i=Math.max(cursorSeg,0);i<usable.length;i++)if(dist(usable[i].points.at(-1),p)<1e-6){cursorSeg=i;break;}return {x:p.x,y:p.y,wait:p.wait,action:p.action,segment:cursorSeg};});
     // Independent final check against the REAL (ungrown) zones, field elements and walls:
     // every chord of the sampled path, swept by the full footprint at the route heading.
     for(let i=1;i<samples.length;i++)if(!sweepClear(samples[i-1],samples[i],heading,all,footprint,field))throw Error('The smoothed route failed the footprint sweep check. Increase clearance or move the pins.');
-    return {segments:usable,samples,length,heading,clearance,footprint,field,vertices:route,pins:pins.length};
+    return {style,segments:usable,samples,length,heading,clearance,footprint,field,vertices:route,pins:pins.length,stops};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,dist};
+  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,dist};
 });

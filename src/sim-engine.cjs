@@ -8,7 +8,9 @@
 const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:child_process');
 const planner=require('../ui/sim-planner.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
-const FIELDS={empty:'Empty field',decode:'DECODE (DSIM)',biobuzz:'BIOBUZZ (DSIM)'};
+const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
+// What each game's planning obstacles are, for the UI.
+const OBSTACLES={empty:'',decode:'goals and ramps',biobuzz:'hive legs and flower bases'};
 const LOCALIZATION={ideal:'Ideal (ground truth)',odometry:'Odometry pods + IMU',encoders:'Drive encoders + IMU',gyro:'Gyro only'};
 const finite=n=>typeof n==='number'&&Number.isFinite(n),clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const toApp=p=>({x:p.x+OFFSET,y:p.y+OFFSET}),toDsim=p=>({x:p.x-OFFSET,y:p.y-OFFSET});
@@ -54,7 +56,7 @@ class SimEngine{
 
   // ---------------------------------------------------------------- world
   async load(raw={}){
-    await this.init();this.stopProgram('Simulation reloaded.');
+    await this.init();this.stopProgram('Simulation reloaded.');this.lastLoad=raw;
     const field=Object.hasOwn(FIELDS,raw.field)?raw.field:'empty',physics=field==='biobuzz'&&raw.physics!=='2d'?'3d':'2d';
     const start=raw.start&&[raw.start.x,raw.start.y,raw.start.heading].every(finite)?{x:raw.start.x,y:raw.start.y,heading:raw.start.heading}:{x:9,y:72,heading:0};
     this.config={field,physics,start,robot:robotConfig(raw.robot),sensors:sensorConfig(raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};
@@ -63,7 +65,10 @@ class SimEngine{
     const r=this.world.robots[0],D=this.dsim,ext=D.footprintExtents(r.spec),dp=D.driveParams(r.spec);
     const mod=this.module(),walls=4,bounds=mod?mod.bounds:{halfX:OFFSET,halfY:OFFSET};
     const fieldZones=mod?mod.colliders.statics.slice(walls).map((s,i)=>({id:`field-${i}`,type:'rect',x:s.tx+OFFSET,y:s.ty+OFFSET,width:2*s.hx,height:2*s.hy,angle:s.rot*DEG})):[];
-    this.info={field,fieldName:FIELDS[field],physics,
+    // BIOBUZZ's 3D structures (hive frames, flower supports), for drawing only: planning uses the
+    // floor-level obstacles above, which are the same solids DSIM's planar solve uses.
+    const structures=field==='biobuzz'?D.cadStatics().map(s=>{const p=[];for(let i=0;i<s.points.length;i+=3)p.push(+(s.points[i]+OFFSET).toFixed(3),+(s.points[i+1]+OFFSET).toFixed(3),+s.points[i+2].toFixed(3));return p;}):[];
+    this.info={field,fieldName:FIELDS[field],obstacleName:OBSTACLES[field],physics,structures,
       bounds:{x0:OFFSET-bounds.halfX,y0:OFFSET-bounds.halfY,x1:OFFSET+bounds.halfX,y1:OFFSET+bounds.halfY},fieldZones,
       footprint:{front:ext.front,rear:ext.rear,half:ext.half},
       robot:{drivetrain:r.spec.drivetrain,intake:r.spec.intake,length:r.spec.length,width:r.spec.width,massLb:r.spec.massLb,driveRpm:r.spec.driveRpm},
@@ -78,7 +83,7 @@ class SimEngine{
     const setup={id:0,alliance:'blue',spec,assists:{fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false},startIndex:0};
     const mod=this.module();
     this.world=mod?mod.createWorld('free',1,[setup],undefined,c.physics):D.SIM_GAMES.decode.createWorld('free',1,[setup]);
-    if(!mod){this.world.balls=[];this.world.robots[0].hopper=[];}
+    this.world.balls=[];if(Array.isArray(this.world.robots[0].hopper))this.world.robots[0].hopper=[];
     const r=this.world.robots[0],p=toDsim(c.start);
     Object.assign(r,{pos:p,heading:c.start.heading/DEG,turretHeading:c.start.heading/DEG,vel:{x:0,y:0},angVel:0,fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false});
     this.sensors=new Sensors(c.sensors,this.truth());this.estimate=null;this.command={...ZERO};this.result=null;this.trail=[];
@@ -143,7 +148,7 @@ class SimEngine{
     this.command=cmd;this.physicsStep(this.world,cmd);const t=this.truth(),reading=this.sensors.read(t,this.dsim.SIM_DT);
     if(this.world.tick%3===0){this.trail.push({x:t.x,y:t.y,e:this.estimate?{x:this.estimate.x,y:this.estimate.y}:null});if(this.trail.length>2400)this.trail.splice(0,600);}
     const corners=planner.body({x:t.x,y:t.y,heading:t.heading*DEG},this.info.footprint);
-    const hit=this.zones.filter(z=>planner.overlap(corners,planner.polygon(z))).map(z=>z.id);
+    const hit=this.zones.filter(z=>planner.zoneHits(corners,z)).map(z=>z.id);
     if(hit.length){this.violations=this.violations||new Set();for(const id of hit)this.violations.add(id);}
     this.hit=hit;return reading;
   }
@@ -170,7 +175,7 @@ class SimEngine{
     child.on('error',e=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error('Java could not start: '+e.message));});
     child.on('exit',code=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error(`The Pedro process exited (code ${code}).${bridge.stderr?' '+bridge.stderr.trim().slice(-500):''}`));});
     child.stdin.on('error',()=>{});
-    const t=this.truth(),route=kind==='route'||program.route?.segments?.length?{heading:program.route.heading/DEG,segments:program.route.segments,pins:program.route.pins||[]}:null;
+    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?clamp(s.wait,0,30):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
     const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:this.info.robot.drivetrain,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);
@@ -197,7 +202,7 @@ class SimEngine{
     if(seq!==this.runSeq)return; // stopped while waiting: discard the stale reply
     if(reply.type==='error'){this.fail(this.describe(reply),seq,reply);return;}
     const d=reply.drive||{},n=v=>finite(v)?clamp(v,-1,1):0;this.command={forward:n(d.forward),strafe:n(d.strafe),turn:n(d.turn)};
-    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;
+    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;
     if(reply.log?.length)this.emit({type:'log',lines:reply.log.slice(-60)});
     if(reply.done)this.finish(seq);
   }
@@ -213,7 +218,7 @@ class SimEngine{
   }
   // Ends any program: invalidates pending replies, kills the Java process and zeroes the drive.
   stopProgram(reason){
-    const bridge=this.child;this.runSeq++;this.child=null;this.command={...ZERO};this.manualInput=null;
+    const bridge=this.child;this.runSeq++;this.child=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;
     if(this.mode==='program'||this.mode==='manual')this.mode='idle';
     if(bridge){for(const w of bridge.waiters.splice(0))w.reject(Error(reason||'Stopped.'));try{bridge.child.stdin.end(JSON.stringify({type:'stop'})+'\n');}catch{}try{bridge.child.kill();}catch{}setTimeout(()=>{try{fs.rmSync(bridge.dir,{recursive:true,force:true});}catch{}},2000).unref?.();}
   }
@@ -222,14 +227,32 @@ class SimEngine{
   setZones(zones){this.zones=Array.isArray(zones)?zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];}
   setStart(start){if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Invalid start pose.');this.config.start={...start};if(this.mode!=='program'){this.playing=false;this.build();this.emitFrame(true);}}
 
+  // Test-drive candidate routes on fresh, headless copies of this simulation (same field, robot,
+  // sensors and follower) as fast as the CPU allows. Nothing here moves the visible robot.
+  async evaluate(candidates,progress=()=>{}){
+    if(!this.lastLoad)throw Error('Load the simulation first.');
+    if(!Array.isArray(candidates)||!candidates.length||candidates.length>6)throw Error('Give 1 to 6 routes to compare.');
+    const results=[];
+    for(let i=0;i<candidates.length;i++){
+      progress(i,candidates.length);
+      let failure='';const trial=new SimEngine({runtimeDir:this.runtimeDir,workDir:path.join(this.workDir,'trial'),now:()=>0,emit:m=>{if(m.type==='run'&&m.state==='error')failure=m.error;}});
+      try{
+        await trial.load(this.lastLoad);const started=await trial.run({kind:'route',route:candidates[i]});
+        if(!started.ok){results.push({ok:false,error:started.error});continue;}
+        for(let guard=0;trial.mode==='program'&&guard<3600;guard++)await trial.programTick();
+        const r=trial.result;results.push(r?{ok:true,time:r.time,violations:r.violations.length,truth:r.truth}:{ok:false,error:trial.mode==='program'?'Did not finish within 60 s.':failure||'The test drive stopped early.'});
+      }catch(e){results.push({ok:false,error:e.message});}finally{trial.dispose();}
+    }
+    return results;
+  }
+
   // ---------------------------------------------------------------- frames
   frame(){
     const t=this.truth();
     return {type:'frame',time:this.world.time,tick:this.world.tick,mode:this.mode,playing:this.playing,speed:this.speed,
       truth:{x:t.x,y:t.y,heading:t.heading*DEG,vx:t.vx,vy:t.vy,omega:t.omega*DEG,z:t.z},command:this.command,
       estimate:this.estimate?{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG}:null,
-      follower:this.follower||null,telemetry:this.telemetry||null,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,
-      world:this.world};
+      follower:this.follower||null,telemetry:this.telemetry||null,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null};
   }
   emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<32)return;this.lastFrame=now;this.emit(this.frame());}
   dispose(){this.stopProgram('Closed.');this.playing=false;if(this.timer)clearInterval(this.timer);this.timer=null;if(this.world?.game==='biobuzz')this.dsim.disposePhysics3dFor(this.world);this.world=null;}

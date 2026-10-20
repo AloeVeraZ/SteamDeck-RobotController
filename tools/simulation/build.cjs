@@ -7,7 +7,8 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{execFileSync}=require('node:child_process');
 const root=path.join(__dirname,'../..'),cache=path.join(root,'.cache'),deps=path.join(cache,'simulation-deps/node_modules'),runtime=path.join(cache,'simulation-runtime');
 const upstream={dsim:{dir:path.join(cache,'upstream/dsim'),commit:'0df84143a52dde4c7c196fb21b94264a13da91b6'},pedro:{dir:path.join(cache,'upstream/pedro'),commit:'cf4be31449a8963af3a7ce7951de09fd163bbb3d'}};
-const versions={esbuild:'0.25.12','@dimforge/rapier2d-compat':'0.19.3','@dimforge/rapier3d-deterministic-compat':'0.20.0',three:'0.186.0','clipper-lib':'6.4.2',dijkstrajs:'1.0.3'};
+// Must match tools/simulation/deps-package.json (installed into .cache/simulation-deps).
+const versions={esbuild:'0.25.12','@dimforge/rapier2d-compat':'0.19.3','@dimforge/rapier3d-deterministic-compat':'0.20.0',three:'0.186.0','clipper-lib':'6.4.2',dijkstrajs:'1.0.3','occt-import-js':'0.0.23'};
 const vendor=path.join(root,'ui/vendor'),out=path.join(root,'sim-runtime'),skipJava=process.argv.includes('--skip-java');
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function check(){
@@ -29,13 +30,14 @@ async function bundles(){
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'planning-entry.js')],format:'iife',globalName:'DeckPlanningLibs',platform:'browser',outfile:path.join(vendor,'planning.js')});
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'planning-entry.js')],format:'cjs',platform:'node',outfile:path.join(vendor,'planning.cjs')});
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'dsim-host-entry.ts')],format:'cjs',platform:'node',outfile:path.join(out,'dsim-host.cjs')});
-  await esbuild.build({...common,entryPoints:[path.join(__dirname,'dsim-view-entry.ts')],format:'iife',globalName:'DeckDsimView',platform:'browser',outfile:path.join(vendor,'dsim-view.js'),loader:{'.svg':'dataurl','.png':'dataurl','.css':'empty'}});
+  await esbuild.build({...common,entryPoints:[path.join(__dirname,'view-entry.js')],format:'iife',globalName:'DeckThree',platform:'browser',outfile:path.join(vendor,'three-view.js')});
 }
 function assets(){
-  for(const file of ['field.glb','field-low.glb','elements.glb'])copy(path.join(upstream.dsim.dir,'public/models/biobuzz',file),path.join(vendor,'dsim/models/biobuzz',file));
-  const licenses=path.join(vendor,'licenses');fs.mkdirSync(licenses,{recursive:true});
-  const notices={'DSIM-LICENSE':path.join(upstream.dsim.dir,'LICENSE'),'DSIM-NOTICE':path.join(upstream.dsim.dir,'NOTICE'),'DSIM-FIELD-MODELS.md':path.join(upstream.dsim.dir,'public/models/biobuzz/README.md'),
-    'PEDRO-LICENSE':path.join(upstream.pedro.dir,'LICENSE'),'THREE-LICENSE':path.join(deps,'three/LICENSE'),
+  for(const stale of ['dsim','dsim-view.js'])fs.rmSync(path.join(vendor,stale),{recursive:true,force:true});
+  const occt=path.join(deps,'occt-import-js/dist');for(const file of ['occt-import-js.js','occt-import-js.wasm'])copy(path.join(occt,file),path.join(out,'occt',file));
+  const licenses=path.join(vendor,'licenses');fs.rmSync(licenses,{recursive:true,force:true});fs.mkdirSync(licenses,{recursive:true});
+  const notices={'DSIM-LICENSE':path.join(upstream.dsim.dir,'LICENSE'),'DSIM-NOTICE':path.join(upstream.dsim.dir,'NOTICE'),
+    'PEDRO-LICENSE':path.join(upstream.pedro.dir,'LICENSE'),'OCCT-IMPORT-JS-LICENSE':path.join(deps,'occt-import-js/dist/license.occt-import-js.txt'),'OPENCASCADE-LICENSE':path.join(deps,'occt-import-js/dist/license.occt.txt'),'THREE-LICENSE':path.join(deps,'three/LICENSE'),
     'RAPIER3D-LICENSE':path.join(deps,'@dimforge/rapier3d-deterministic-compat/LICENSE'),'DIJKSTRAJS-LICENSE':path.join(deps,'dijkstrajs/LICENSE.md')};
   for(const [name,file] of Object.entries(notices)){if(!fs.existsSync(file))throw Error('Missing license file '+file);fs.copyFileSync(file,path.join(licenses,name));}
   // These two packages ship their terms in package metadata or a source header, not a file.
@@ -71,7 +73,7 @@ function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.
 (async()=>{
   check();fs.mkdirSync(vendor,{recursive:true});fs.mkdirSync(out,{recursive:true});
   await bundles();assets();const clockReads=skipJava?null:java();
-  const files=[...walk(vendor),...['dsim-host.cjs'].map(f=>path.join(out,f))].filter(f=>!f.includes(path.sep+'licenses'+path.sep));
+  const files=[...walk(vendor),...['dsim-host.cjs','occt/occt-import-js.js','occt/occt-import-js.wasm'].map(f=>path.join(out,f))].filter(f=>!f.includes(path.sep+'licenses'+path.sep));
   let previous=null;try{previous=JSON.parse(fs.readFileSync(path.join(out,'manifest.json'),'utf8')).java;}catch{}
   const manifest={upstream:Object.fromEntries(Object.entries(upstream).map(([k,v])=>[k,v.commit])),versions,java:skipJava?previous:{runtime:fs.readFileSync(path.join(runtime,'java/release'),'utf8').match(/JAVA_VERSION="([^"]+)"/)[1],gson:'2.11.0',pedroClockReadsPatched:clockReads},
     outputs:Object.fromEntries(files.map(f=>[path.relative(root,f).replace(/\\/g,'/'),sha(f)]))};

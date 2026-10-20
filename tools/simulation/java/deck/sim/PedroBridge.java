@@ -168,6 +168,9 @@ public final class PedroBridge {
         Follower follower = new Follower(localizer, drivetrain, new Foresight(config));
         Pose startPose = new Pose(num(start, "x"), num(start, "y"), num(start, "heading"));
         List<Pose> pins = new ArrayList<>();
+        List<Path> legs = new ArrayList<>();
+        List<Double> waits = new ArrayList<>();
+        List<String> actions = new ArrayList<>();
         Path route = null;
         if (m.has("route") && m.get("route").isJsonObject()) {
             JsonObject r = m.getAsJsonObject("route");
@@ -180,13 +183,30 @@ public final class PedroBridge {
                 Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Vector2D[0]));
                 parts.add(part.constant(heading));
             }
-            if (!parts.isEmpty()) route = parts.size() == 1 ? parts.get(0) : Paths.path(parts.toArray(new Path[0])).constant(heading);
-            for (JsonElement e : r.getAsJsonArray("pins")) pins.add(new Pose(num(e.getAsJsonObject(), "x"), num(e.getAsJsonObject(), "y"), heading));
+            if (!parts.isEmpty()) route = chain(parts, heading);
+            // A pin with a pause ends a leg: the robot stops there, waits, then follows the next leg.
+            JsonArray stops = r.getAsJsonArray("stops");
+            int from = 0;
+            for (int i = 0; i < stops.size(); i++) {
+                JsonObject s = stops.get(i).getAsJsonObject();
+                pins.add(new Pose(num(s, "x"), num(s, "y"), heading));
+                double wait = num(s, "wait");
+                int end = Math.min(s.get("segment").getAsInt(), parts.size() - 1);
+                boolean last = i == stops.size() - 1;
+                if ((wait > 0 || last) && end >= from) {
+                    legs.add(chain(parts.subList(from, end + 1), heading));
+                    waits.add(wait);
+                    actions.add(s.get("action").getAsString());
+                    from = end + 1;
+                } else if (wait > 0 && !legs.isEmpty()) {
+                    waits.set(waits.size() - 1, waits.get(waits.size() - 1) + wait);
+                }
+            }
         }
         localizer.ingest(0, 0, num(start, "heading"), 0);
         localizer.update();
         localizer.setPose(startPose);
-        robot = new SimRobot(follower, config, startPose, route, pins);
+        robot = new SimRobot(follower, config, startPose, route, pins, legs, waits, actions);
         JsonObject programSpec = m.getAsJsonObject("program");
         String kindName = programSpec.get("kind").getAsString();
         if ("route".equals(kindName)) program = new RouteAutonomous();
@@ -256,7 +276,18 @@ public final class PedroBridge {
         robot.telemetry.forEach(telemetry::addProperty);
         cmd.add("telemetry", telemetry);
         cmd.addProperty("done", done);
+        if (robot.waitingStop >= 0) {
+            JsonObject wait = new JsonObject();
+            wait.addProperty("stop", robot.waitingStop);
+            wait.addProperty("action", robot.waitingAction);
+            wait.addProperty("remaining", Math.max(0, robot.waitingRemaining));
+            cmd.add("wait", wait);
+        }
         return cmd;
+    }
+
+    private static Path chain(List<Path> parts, double heading) {
+        return parts.size() == 1 ? parts.get(0) : Paths.path(parts.toArray(new Path[0])).constant(heading);
     }
 
     private interface DoubleGetter { double get(); }

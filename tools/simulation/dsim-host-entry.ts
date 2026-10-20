@@ -12,3 +12,4 @@ export { SIM_GAMES } from 'dsim/src/games/sim';
 export { initPhysics3d, disposePhysics3dFor } from 'dsim/src/games/biobuzz/sim3d/engine';
 export { SIM_DT, FIELD_HALF, INTAKE_PRESETS, ROBOT_MAX_SIZE } from 'dsim/src/config';
 export { lengthLimits, widthLimits, rpmLimits } from 'dsim/src/sim/drivetrain';
+export { cadStatics } from 'dsim/src/games/biobuzz/sim3d/fieldColliders';

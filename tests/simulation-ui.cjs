@@ -34,66 +34,89 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results/simulation
   await touch.send('Emulation.setTouchEmulationEnabled',{enabled:false});
   await page.reload();await page.waitForFunction(()=>typeof hardware==='object'&&!!hardware.model);await page.evaluate(()=>window.deck.page('simulation'));await graph.waitFor({state:'visible'});assert.deepEqual(await pose(),saved);assert.equal(await graph.getAttribute('data-placing'),'false');
   console.log('PASS: cursor, numeric, keyboard, touch and persistence checks.');
-  // ---- Offline simulator: zones, pins, planning, Pedro run through DSIM physics, stop/reset, 3D.
-  await page.evaluate(()=>localStorage.removeItem('deck-simulation-project-v1'));await page.reload();await page.waitForFunction(()=>typeof hardware==='object'&&!!hardware.model);await page.evaluate(()=>window.deck.page('simulation'));await graph.waitFor({state:'visible'});
+  // ---- Path-planning simulator: zones, pins, automatic routes, test drives, run, export, robot model, 3D.
+  await page.evaluate(()=>{localStorage.removeItem('deck-simulation-project-v2');localStorage.removeItem('deck-simulation-project-v1');});await page.reload();await page.waitForFunction(()=>typeof hardware==='object'&&!!hardware.model);await page.evaluate(()=>window.deck.page('simulation'));await graph.waitFor({state:'visible'});
   await page.waitForFunction(()=>document.querySelector('#sim-telemetry').children.length>0,null,{timeout:30000});
   await page.locator('#start-x').fill('20');await page.locator('#start-y').fill('72');await page.locator('#start-heading').fill('0');await page.locator('#start-form button').click();
-  const project=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('deck-simulation-project-v1')));
+  const layout=()=>page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('deck-simulation-project-v2'));return p.layouts.find(l=>l.id===p.active);});
   const dragOn=async(a,b)=>{const p=await point(...a),q=await point(...b);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(q.x,q.y,{steps:6});await page.mouse.up();};
   await page.locator('[data-tool=rect]').click();await dragOn([62,50],[82,95]);
   await page.locator('[data-tool=circle]').click();await dragOn([110,110],[118,110]);
-  await page.locator('[data-tool=triangle]').click();await dragOn([30,110],[50,130]);
-  let zones=(await project()).zones;assert.deepEqual(zones.map(z=>z.type),['rect','circle','triangle']);assert.ok(Math.abs(zones[0].width-20)<.6&&Math.abs(zones[1].radius-8)<.6);
-  // Select, edit numerically, move by keyboard, then delete the triangle.
-  await page.locator('[data-tool=select]').click();await click(40,118);await page.locator('#zone-angle').fill('30');await page.locator('#zone-angle').press('Enter');
-  assert.equal((await project()).zones[2].angle,30);await graph.focus();await page.keyboard.press('ArrowRight');assert.ok(Math.abs((await project()).zones[2].x-41)<.6);
-  await page.keyboard.press('Delete');zones=(await project()).zones;assert.deepEqual(zones.map(z=>z.type),['rect','circle']);
-  await page.locator('[data-tool=pin]').click();await click(124,72);await click(120,130);assert.equal((await project()).pins.length,2);
-  await page.locator('[data-tab=plan]').click();await page.locator('#sim-plan').click();await page.waitForFunction(()=>/Route:/.test(document.querySelector('#sim-plan-status').textContent));
-  const route=(await project()).route;assert.ok(route.samples.length>10&&route.length>110);
-  // Run the planned route with the real Pedro process; motion comes from DSIM physics.
+  // Triangle: pressed at its base, the tip follows the cursor (here pointing right).
+  await page.locator('[data-tool=triangle]').click();await dragOn([30,112],[50,112]);
+  await page.locator('[data-tool=shape]').click();for(const [x,y] of [[30,20],[50,20],[40,34]])await click(x,y);await click(30,20);
+  await page.locator('[data-tool=shape]').click();await click(96,24);await click(120,24);await graph.press('Enter');
+  let zones=(await layout()).zones;assert.deepEqual(zones.map(z=>z.type),['rect','circle','triangle','polygon','polygon']);
+  assert.ok(Math.abs(zones[0].width-20)<.6&&Math.abs(zones[1].radius-8)<.6);assert.ok(Math.abs(zones[2].angle-270)<1&&Math.abs(zones[2].height-20)<.6,'triangle tip points right');
+  assert.equal(zones[3].points.length,3);assert.equal(zones[4].points.length,2,'two clicks make a wall line');
+  // Select the circle and stretch it with its edge handle; edit the triangle numerically; delete the wall.
+  await page.locator('[data-tool=select]').click();await click(110,110);await dragOn([118,110],[122,110]);assert.ok(Math.abs((await layout()).zones[1].radius-12)<.6,'circle resized by its handle');
+  await click(40,112);await page.locator('#zone-angle').fill('30');await page.locator('#zone-angle').press('Enter');assert.equal((await layout()).zones[2].angle,30);
+  await click(108,24);await page.keyboard.press('Delete');assert.equal((await layout()).zones.length,4);
+  // Pins: the route plans itself, and a pause marks a stop.
+  await page.locator('[data-tool=pin]').click();await click(124,72);await click(130,134);assert.equal((await layout()).pins.length,2);
+  await page.locator('[data-tab=plan]').click();await page.waitForFunction(()=>/Route ready/.test(document.querySelector('#sim-plan-status').textContent)).catch(async e=>{throw Error('Plan: '+await page.locator('#sim-plan-status').textContent());});
+  await page.locator('.pin-wait').first().fill('1');await page.locator('.pin-wait').first().press('Tab');await page.locator('.pin-action').first().fill('Intake');await page.locator('.pin-action').first().press('Tab');
+  await page.waitForFunction(()=>/1 pause/.test(document.querySelector('#sim-plan-status').textContent));
+  const route=(await layout()).route;assert.equal(route.style,'spline');assert.ok(route.stops[0].wait===1&&route.stops[0].action==='Intake');
+  await page.locator('#sim-optimize').click();await page.waitForFunction(()=>/Fastest:/.test(document.querySelector('#sim-plan-status').textContent),null,{timeout:120000});
+  console.log('PASS: find fastest route: '+(await page.locator('#sim-tested').innerText()).replace(/\n/g,' | '));
+  // Export once with "keep updated": moving a pin rewrites the file.
+  const exportFile=path.join(data,'PlannedRoute.java');await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},exportFile);
+  await page.locator('#sim-export-keep').check();await page.locator('#sim-export-java').click();await page.waitForFunction(()=>/Exported/.test(document.querySelector('#sim-export-status').textContent));
+  const exported=fs.readFileSync(exportFile,'utf8');assert.match(exported,/public final class PlannedRoute/);assert.match(exported,/WAIT_SECONDS = \{1, 0\}/);assert.match(exported,/"Intake"/);
+  await page.locator('[data-tool=select]').click();await dragOn([130,134],[126,132]);await page.waitForFunction(()=>/Updated/.test(document.querySelector('#sim-export-status').textContent),null,{timeout:15000});
+  assert.notEqual(fs.readFileSync(exportFile,'utf8'),exported,'exported file follows the route');
+  // Run the planned route with the real Pedro process; motion comes from the physics.
   await page.locator('[data-tab=run]').click();await page.locator('#sim-run').click();
-  await page.waitForFunction(()=>/Finished/.test(document.querySelector('#sim-run-status').textContent),null,{timeout:60000});
-  const report=await page.locator('#sim-run-status').textContent();assert.match(report,/No no-go zone was touched/);const err=Number(/error ([\d.]+) in/.exec(report)[1]);assert.ok(err<1.5,report);
-  console.log('PASS: Pedro route run: '+report);
+  await page.waitForFunction(()=>/Finished/.test(document.querySelector('#sim-run-status').textContent),null,{timeout:90000});
+  const report=await page.locator('#sim-run-status').textContent();assert.match(report,/No zones touched/);assert.ok(Number(/Ended ([\d.]+) in/.exec(report)[1])<1.5,report);
+  console.log('PASS: route run: '+report);
   // Stop mid-run: the robot comes to rest and no stale reply restarts it.
   await page.locator('#sim-run').click();await page.waitForFunction(()=>/Running/.test(document.querySelector('#sim-run-status').textContent),null,{timeout:30000});await page.waitForTimeout(500);
   await page.locator('#sim-stop').click();await page.waitForFunction(()=>/Stopped/.test(document.querySelector('#sim-run-status').textContent));await page.waitForTimeout(1500);
-  const rest=await page.locator('#sim-telemetry').textContent();assert.match(rest,/0\.0 in\/s/);assert.match(rest,/fwd 0\.00 · strafe 0\.00 · turn 0\.00/);
-  await page.locator('#sim-reset').click();await page.waitForFunction(()=>/Truth20\.0, 72\.0 in/.test(document.querySelector('#sim-telemetry').textContent));
-  // A Java program with a compile error reports a readable diagnostic.
+  const robotRow=()=>page.evaluate(()=>[...document.querySelectorAll('#sim-telemetry dt')].find(d=>d.textContent==='Robot').nextElementSibling.textContent);
+  assert.match(await robotRow(),/· 0\.0 in\/s$/);
+  await page.locator('#sim-reset').click();await page.waitForFunction(()=>/Back at the starting pose/.test(document.querySelector('#sim-run-status').textContent));assert.match(await robotRow(),/^20\.0, 72\.0 in/);
+  // A Java program with a compile error reports a readable diagnostic; the example runs.
   await page.locator('[data-program=source]').click();await page.locator('#sim-source').fill('import deck.sim.*;\npublic class Broken implements DeckAutonomous {\n public void init(SimRobot r) { int x = "no"; }\n public void loop(SimRobot r) {}\n}\n');
   await page.locator('#sim-run').click();await page.locator('#sim-error').waitFor({state:'visible',timeout:30000});assert.match(await page.locator('#sim-error').textContent(),/Compile error: Broken\.java:3/);
-  await page.locator('#sim-java-example').click();await page.locator('#sim-run').click();await page.waitForFunction(()=>/Finished/.test(document.querySelector('#sim-run-status').textContent),null,{timeout:60000});
+  await page.locator('#sim-java-example').click();await page.locator('#sim-run').click();await page.waitForFunction(()=>/Finished/.test(document.querySelector('#sim-run-status').textContent),null,{timeout:90000});
   console.log('PASS: Java program: '+await page.locator('#sim-run-status').textContent());
   // Manual driving with the keyboard moves the simulated robot, never a real one.
-  await page.locator('[data-tool=drive]').click();const truthText=()=>page.evaluate(()=>[...document.querySelectorAll('#sim-telemetry dt')].find(d=>d.textContent==='Truth').nextElementSibling.textContent);const before=await truthText();
-  await page.keyboard.down('KeyW');await page.waitForTimeout(700);await page.keyboard.up('KeyW');await page.waitForTimeout(300);
-  assert.notEqual(await truthText(),before,'keyboard drive moved the robot');
-  // Persistence and 3D.
+  await page.locator('[data-tool=drive]').click();const before=await robotRow();
+  await page.keyboard.down('KeyW');await page.waitForTimeout(700);await page.keyboard.up('KeyW');await page.waitForTimeout(300);assert.notEqual(await robotRow(),before,'keyboard drive moved the robot');
+  // Robot CAD: a STEP assembly becomes one body; the view cube sets which side is the front.
+  const step=path.join(root,'.cache/simulation-deps/node_modules/occt-import-js/test/testfiles/cax-if/as1-oc-214.stp');
+  if(fs.existsSync(step)){
+    await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},step);
+    await page.locator('[data-tab=setup]').click();const footprint=await page.locator('#sim-footprint').textContent();await page.locator('#sim-model-open').click();
+    await page.waitForFunction(()=>/Imported 18 parts as one body/.test(document.querySelector('#start-status').textContent),null,{timeout:90000});
+    assert.match(await page.locator('#sim-mesh-size').textContent(),/7\.\d long × 5\.\d wide × 3\.\d in tall, as one solid body/);
+    await page.locator('.view-cube [data-side=left]').dispatchEvent('click');await page.locator('#sim-model-front').click();
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('deck-simulation-project-v2')).model.front==='+y');
+    await page.waitForFunction(()=>/5\.\d long × 7\.\d wide/.test(document.querySelector('#sim-mesh-size').textContent),null,{timeout:10000}).catch(async()=>{throw Error('Model text: '+await page.locator('#sim-mesh-size').textContent()+' / '+await page.locator('#start-status').textContent());});
+    assert.equal(await page.locator('#sim-footprint').textContent(),footprint,'a model never changes the collision footprint');
+    assert.ok(await page.locator('#sim-robot-image').evaluate(i=>i.getAttribute('href').startsWith('data:image/png')&&Number(i.getAttribute('width'))>0),'2D shows the robot model from above');
+    console.log('PASS: STEP import as one body, view-cube orientation, top-down robot picture.');
+  }
+  // Layouts persist; a new empty field starts clean; BIOBUZZ runs 3D physics; 3D view renders.
   await page.reload();await page.waitForFunction(()=>typeof hardware==='object'&&!!hardware.model);await page.evaluate(()=>window.deck.page('simulation'));await graph.waitFor({state:'visible'});
-  assert.equal((await project()).zones.length,2);assert.equal((await project()).pins.length,2);
-  // Visual mesh import: stored through the app, scaled explicitly, never used for collision.
-  const stl=['solid t','facet normal 0 0 1','outer loop','vertex 0 0 0','vertex 10 0 0','vertex 0 10 0','endloop','endfacet','endsolid t',''].join(String.fromCharCode(10));
-  const stored=await page.evaluate(async s=>{const r=await window.deck.simFile('mesh-store',{name:'tri.stl',bytes:new TextEncoder().encode(s)});const back=await window.deck.simFile('mesh-read',r.id);return {id:r.id,format:r.format,same:back.bytes.length===r.bytes.length};},stl);
-  assert.equal(stored.format,'stl');assert.ok(stored.same);
-  await page.evaluate(id=>{const p=JSON.parse(localStorage.getItem('deck-simulation-project-v1'));p.mesh={id,name:'tri.stl',format:'stl',scale:2,rx:0,ry:0,rz:0,dz:0};localStorage.setItem('deck-simulation-project-v1',JSON.stringify(p));},stored.id);
-  await page.reload();await page.waitForFunction(()=>typeof hardware==='object'&&!!hardware.model);await page.evaluate(()=>window.deck.page('simulation'));await graph.waitFor({state:'visible'});
-  const footprintBefore=await page.locator('#sim-footprint').textContent();
-  await page.selectOption('#sim-field','biobuzz');await page.waitForFunction(()=>/Rapier 3D/.test(document.querySelector('#sim-subtitle').textContent),null,{timeout:30000});
-  await page.locator('[data-view="3d"]').click();await page.locator('#sim-3d canvas').first().waitFor({state:'visible',timeout:30000});await page.waitForTimeout(3000);
-  await page.waitForFunction(()=>/20.0 × 20.0 × 0.0 in/.test(document.querySelector('#sim-mesh-size').textContent),null,{timeout:15000});
-  assert.match(await page.locator('#sim-footprint').textContent(),/Collision footprint: 10.50 in front, 7.50 in rear/,'mesh did not change the collision footprint');void footprintBefore;
+  assert.equal((await layout()).zones.length,4);assert.equal((await layout()).pins.length,2);
+  await page.selectOption('#sim-field','new:empty');await page.waitForFunction(()=>/Empty field 2/.test(document.querySelector('#sim-subtitle').textContent));assert.equal((await layout()).zones.length,0);
+  await page.selectOption('#sim-field',{label:'BIOBUZZ'});await page.waitForFunction(()=>/3D physics/.test(document.querySelector('#sim-subtitle').textContent),null,{timeout:30000});
+  assert.match(await page.locator('#sim-field-note').textContent(),/hive legs and flower bases/);
+  await page.locator('[data-view="3d"]').click();await page.locator('#sim-3d canvas').first().waitFor({state:'visible',timeout:30000});await page.waitForTimeout(2000);
   await page.screenshot({path:path.join(out,'biobuzz-3d.png'),scale:'css'});await page.locator('[data-view="2d"]').click();
-  await page.selectOption('#sim-field','empty');await page.waitForFunction(()=>/Empty field/.test(document.querySelector('#sim-subtitle').textContent));
+  await page.selectOption('#sim-field',{label:'Empty field 1'});await page.waitForFunction(()=>/Empty field 1/.test(document.querySelector('#sim-subtitle').textContent));
   assert.deepEqual(errors,[]);
-  // Leaving Simulation ends its utility process (and with it any Java program).
+  // Leaving Simulation ends its utility process and any running Java program.
   const utility=()=>app.evaluate(({app})=>app.getAppMetrics().filter(m=>m.type==='Utility'&&/simulation/i.test(m.name||'')).length);
   const javaRunning=()=>Number(require('node:child_process').execFileSync('powershell.exe',['-NoProfile','-Command',"@(Get-Process java -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*sim-runtime*' }).Count"],{encoding:'utf8'}).trim()||0);
   assert.equal(await utility(),1);await page.locator('[data-tab=run]').click();await page.locator('[data-program=route]').click();await page.locator('#sim-run').click();await page.waitForFunction(()=>/Running/.test(document.querySelector('#sim-run-status').textContent),null,{timeout:30000});
   assert.ok(javaRunning()>=1,'Pedro process running');await page.evaluate(()=>window.deck.page('drive'));await page.waitForTimeout(1500);assert.equal(await utility(),0);assert.equal(javaRunning(),0,'leaving Simulation ended the Pedro process');
   await page.evaluate(()=>window.deck.page('simulation'));await page.waitForFunction(()=>document.querySelector('#sim-telemetry').children.length>0,null,{timeout:30000});
-  console.log('PASS: zones (rect/circle/triangle draw, edit, delete), pins, planning, Pedro run, stop, reset, Java diagnostics, keyboard drive, persistence, BIOBUZZ 3D, process cleanup.');
+  console.log('PASS: box/circle/triangle/shape/wall zones with handles, pins with pauses, automatic spline route, export auto-update, run, stop, reset, Java diagnostics, keyboard drive, layouts, BIOBUZZ 3D, process cleanup.');
   const win=await app.browserWindow(page);
   for(const [width,height,name] of [[1280,800,'steamdeck-lcd'],[1280,720,'steamdeck-oled'],[800,600,'small-landscape'],[390,844,'narrow']]){
     await win.evaluate((w,size)=>{w.setMinimumSize(0,0);w.setContentSize(...size);},[width,height]);await page.waitForTimeout(80);

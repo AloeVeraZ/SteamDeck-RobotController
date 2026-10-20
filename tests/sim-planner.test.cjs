@@ -112,3 +112,60 @@ test('24 barriers and many pins plan quickly',()=>{
   const t=performance.now(),r=plan(zones,[{x:130,y:130},{x:130,y:14},{x:60,y:130}],{clearance:.25});
   assert.ok(performance.now()-t<5000,'planning took too long');assertSafe(r,zones);
 });
+test('spline routes: cubic, tangent-continuous through waypoints, safe, and tension relaxes near zones',()=>{
+  const zones=[rect(60,60,26,30),rect(100,100,24,24)],pins=[{x:128,y:20},{x:128,y:128},{x:20,y:128}];
+  const r=planner.plan({start:{x:12,y:72,heading:0},zones,pins,clearance:2,style:'spline'},square);assertSafe(r,zones);assert.equal(r.style,'spline');
+  assert.ok(r.segments.some(s=>s.type==='curve'&&s.points.length===4),'cubic Bezier segments');
+  for(let i=1;i<r.segments.length;i++){const a=r.segments[i-1],b=r.segments[i];assert.ok(planner.dist(a.points.at(-1),b.points[0])<1e-9);
+    const t0={x:a.points.at(-1).x-a.points.at(-2).x,y:a.points.at(-1).y-a.points.at(-2).y},t1={x:b.points[1].x-b.points[0].x,y:b.points[1].y-b.points[0].y};
+    const cross=t0.x*t1.y-t0.y*t1.x,dot=t0.x*t1.x+t0.y*t1.y;if(Math.hypot(t0.x,t0.y)>1e-6&&Math.hypot(t1.x,t1.y)>1e-6)assert.ok(Math.abs(cross)<1e-6*Math.hypot(t0.x,t0.y)*Math.hypot(t1.x,t1.y)&&dot>0,`G1 at joint ${i}`);}
+  assert.ok(clearanceOf(r,zones)>=r.clearance/2-1e-3);
+  // Tight space: tension must give way rather than cut into the zone.
+  const tight=[rect(72,72,40,40)],t=planner.plan({start:{x:12,y:72,heading:0},zones:tight,pins:[{x:132,y:72}],clearance:.5,style:'spline'},square);assertSafe(t,tight);
+});
+test('pins with a pause end a leg; stops map to the segment that reaches each pin',()=>{
+  const pins=[{x:60,y:30,wait:1.5,action:'Intake'},{x:110,y:40},{x:120,y:110,wait:0}],r=planner.plan({start:{x:12,y:72,heading:0},zones:[rect(72,72,16,16)],pins,clearance:1,style:'spline'},square);
+  assert.equal(r.stops.length,3);r.stops.forEach((s,i)=>{assert.ok(planner.dist(r.segments[s.segment].points.at(-1),pins[i])<1e-6,`stop ${i}`);});
+  assert.equal(r.stops[0].wait,1.5);assert.equal(r.stops[0].action,'Intake');
+  const into=r.segments[r.stops[0].segment],out=r.segments[r.stops[0].segment+1];
+  // A full stop: the curve arrives and leaves along its own chord (no tangent carried through).
+  const chordIn={x:into.points.at(-1).x-into.points[0].x,y:into.points.at(-1).y-into.points[0].y},arrive={x:into.points.at(-1).x-into.points.at(-2).x,y:into.points.at(-1).y-into.points.at(-2).y};
+  assert.ok(Math.abs(chordIn.x*arrive.y-chordIn.y*arrive.x)<1e-6*Math.hypot(chordIn.x,chordIn.y)*Math.hypot(arrive.x,arrive.y));assert.ok(out);
+});
+test('export: Pedro Java (compiles against Pedro core) and .pp with waits and zones',()=>{
+  const exporter=require('../ui/sim-export.js'),zones=[rect(72,72,16,16,0,'z1')],start={x:12,y:72,heading:0},pins=[{x:60,y:30,wait:1.5,action:'Intake "front"'},{x:120,y:110}];
+  const r=planner.plan({start,zones,pins,clearance:1,style:'spline'},square),layout={name:'Empty field 1',field:'empty',fieldName:'Empty field',start,zones};
+  assert.deepEqual(exporter.legs(r).map(l=>l.pin),[1,2]);
+  const java=exporter.java(r,layout,{className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode',polygon:planner.polygon});
+  assert.match(java,/public static final double\[\] WAIT_SECONDS = \{1\.5, 0\};/);assert.match(java,/"Intake \\"front\\""/);assert.match(java,/Paths\.curve\(v\(/);assert.match(java,/NO_GO_ZONES = \{\n {8}\{\{/);
+  assert.throws(()=>exporter.java(r,layout,{className:'bad name',polygon:planner.polygon}),/Class name/);
+  const pp=JSON.parse(exporter.pp(r,layout,{polygon:planner.polygon,timestamp:'t'}));
+  assert.deepEqual(pp.startPoint,{x:12,y:72,heading:'constant',degrees:0});assert.equal(pp.lines.length,r.segments.length);
+  const stopLine=pp.lines[r.stops[0].segment];assert.equal(stopLine.waitAfterMs,1500);assert.equal(stopLine.waitAfterName,'Intake "front"');
+  assert.ok(pp.lines.some(l=>l.controlPoints?.length===2),'cubic control points');assert.equal(pp.shapes[0].vertices.length,4);
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{execFileSync}=require('node:child_process');
+  const runtime=path.join(__dirname,'../sim-runtime'),javac=path.join(runtime,'java/bin',process.platform==='win32'?'javac.exe':'javac');
+  if(!fs.existsSync(javac))return;
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-export-')),src=path.join(dir,'org/firstinspires/ftc/teamcode');fs.mkdirSync(src,{recursive:true});fs.writeFileSync(path.join(src,'PlannedRoute.java'),java);
+  execFileSync(javac,['-cp',path.join(runtime,'pedro/classes'),'-d',path.join(dir,'out'),path.join(src,'PlannedRoute.java')],{stdio:'pipe'});
+  assert.ok(fs.existsSync(path.join(dir,'out/org/firstinspires/ftc/teamcode/PlannedRoute.class')));
+});
+test('free-form shapes: a two-point wall, a concave U whose pocket stays reachable, and a self-crossing outline',()=>{
+  const wall=[{id:'w',type:'polygon',points:[{x:72,y:30},{x:72,y:114}]}];
+  const r=plan(wall,[{x:130,y:72}],{start:{x:20,y:72,heading:0},clearance:1});assertSafe(r,wall);assert.ok(Math.max(...r.samples.map(p=>p.y))>114||Math.min(...r.samples.map(p=>p.y))<30,'goes around an end of the wall');
+  assert.throws(()=>plan([{id:'w2',type:'polygon',points:[{x:72,y:16},{x:72,y:128}]}],[{x:130,y:72}],{start:{x:20,y:72,heading:0},clearance:1}),/No safe route/,'gaps narrower than the robot are refused');
+  // U open to the right: the robot can drive into the pocket, which a convex hull would wrongly fill.
+  const u={id:'u',type:'polygon',points:[{x:60,y:40},{x:120,y:40},{x:120,y:52},{x:76,y:52},{x:76,y:92},{x:120,y:92},{x:120,y:104},{x:60,y:104}]};
+  assert.equal(planner.parts(planner.validateZone(u)).length,6,'concave outline split into triangles');
+  const inside=plan([u],[{x:100,y:72}],{start:{x:132,y:72,heading:180},clearance:.5});assertSafe(inside,[u]);
+  assert.ok(planner.safePose({x:100,y:72,heading:180},[u],square),'pocket is free space');
+  assert.equal(planner.zoneHits(planner.body({x:68,y:72,heading:0},square),planner.validateZone(u)),true,'the U itself is solid');
+  const bow={id:'b',type:'polygon',points:[{x:40,y:40},{x:80,y:80},{x:80,y:40},{x:40,y:80}]};assert.equal(planner.parts(planner.validateZone(bow)).length,1,'self-crossing falls back to its outline hull');
+  assert.throws(()=>planner.validateZone({type:'polygon',points:[{x:1,y:1}]}),/2 to 40 points/);
+});
+test('spline: a dead-end pin the route leaves the way it came becomes a stop, never a zero-length tangent',()=>{
+  // Pin 1 sits in a pocket: the route goes in and back out along the same line.
+  const zones=[rect(72,100,60,8,0,'top'),rect(72,44,60,8,0,'bottom')],pins=[{x:80,y:72},{x:20,y:120}];
+  const r=planner.plan({start:{x:20,y:72,heading:0},zones,pins,clearance:1,style:'spline'},square);assertSafe(r,zones);
+  for(const s of r.segments){const a=s.points[0],b=s.points[1],c=s.points.at(-2),d=s.points.at(-1);assert.ok(planner.dist(a,b)>1e-6&&planner.dist(c,d)>1e-6,'non-zero end tangents');}
+});

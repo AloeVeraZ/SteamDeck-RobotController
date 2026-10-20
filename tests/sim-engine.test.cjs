@@ -29,7 +29,7 @@ test('Pedro follows a planned route around a no-go zone through physics',{skip},
     const info=await e.load({field:'empty',start,zones});
     assert.equal(info.tuning.maxPathSpeed,.6);assert.ok(info.tuning.forwardDeceleration>200);
     const route=planner.plan({start,zones,pins,clearance:2},info.footprint,info.fieldZones,info.bounds);
-    const r=await e.run({kind:'route',route:{heading:route.heading,segments:route.segments,pins}});assert.equal(r.ok,true);assert.equal(r.program,'deck.sim.RouteAutonomous');
+    const r=await e.run({kind:'route',route:{heading:route.heading,segments:route.segments,stops:route.stops}});assert.equal(r.ok,true);assert.equal(r.program,'deck.sim.RouteAutonomous');
     let maxStep=0,prev=e.truth();await ticks(e,1200,()=>{const t=e.truth();maxStep=Math.max(maxStep,Math.hypot(t.x-prev.x,t.y-prev.y));prev=t;return false;});
     const done=runEvent(e,'finished');assert.ok(done,'run finished');const t=done.result.truth;
     assert.ok(Math.hypot(t.x-124,t.y-72)<1,`final error ${Math.hypot(t.x-124,t.y-72)}`);assert.deepEqual(done.result.violations,[]);
@@ -40,7 +40,7 @@ test('Pedro follows a planned route around a no-go zone through physics',{skip},
 test('Stop kills Pedro, zeroes the drive and ignores stale replies',{skip},async()=>{
   const e=engine();try{
     const start={x:20,y:72,heading:0},pins=[{x:120,y:72}],info=await e.load({field:'empty',start});
-    const route=planner.plan({start,zones:[],pins,clearance:1},info.footprint,[],info.bounds);await e.run({kind:'route',route:{heading:0,segments:route.segments,pins}});
+    const route=planner.plan({start,zones:[],pins,clearance:1},info.footprint,[],info.bounds);await e.run({kind:'route',route:{heading:0,segments:route.segments,stops:route.stops}});
     await ticks(e,40);assert.ok(Math.abs(e.command.forward)>.1,'moving under Pedro');
     const child=e.child.child,pending=e.programTick();e.stop();await pending.catch(()=>{});
     assert.deepEqual(e.command,{forward:0,strafe:0,turn:0});assert.equal(e.mode,'idle');assert.equal(e.child,null);
@@ -82,8 +82,8 @@ test('gyro-only sensing refuses path following; pause holds time; reset restores
 });
 test('DSIM fields: DECODE planar, BIOBUZZ Rapier 3D; reload disposes the 3D world',{skip},async()=>{
   const e=engine();try{
-    const decode=await e.load({field:'decode',start:{x:30,y:72,heading:0}});assert.equal(decode.physics,'2d');assert.ok(decode.fieldZones.length>=4);assert.ok(e.world.balls.length>10);
-    const bb=await e.load({field:'biobuzz',start:{x:30,y:40,heading:0}});assert.equal(bb.physics,'3d');assert.equal(e.world.biobuzz.physics,'3d');assert.ok(bb.bounds.x0>1.3&&bb.bounds.x0<1.4);
+    const decode=await e.load({field:'decode',start:{x:30,y:72,heading:0}});assert.equal(decode.physics,'2d');assert.ok(decode.fieldZones.length>=4);assert.equal(e.world.balls.length,0,'path planning only: no game pieces');assert.equal(decode.obstacleName,'goals and ramps');
+    const bb=await e.load({field:'biobuzz',start:{x:30,y:40,heading:0}});assert.equal(bb.physics,'3d');assert.equal(e.world.balls.length,0);assert.ok(bb.structures.length>=4,'3D hive and flower structures for drawing');assert.equal(e.world.biobuzz.physics,'3d');assert.ok(bb.bounds.x0>1.3&&bb.bounds.x0<1.4);
     const first=e.world;e.manual({x:0,y:1,turn:0});for(let i=0;i<30;i++)e.tick(e.manualCommand());assert.ok(e.truth().x>35);
     e.reset();assert.notEqual(e.world,first,'reset builds a fresh world');assert.ok(Math.abs(e.truth().x-30)<1e-6);
   }finally{e.dispose();}
@@ -94,4 +94,36 @@ test('Pedro core is compiled with every wall-clock read redirected to simulation
   for(const c of ['controllers/PIDController','controllers/Controller$TimedController','utils/Timer','follower/Follower']){
     const bytes=fs.readFileSync(path.join(runtime,'pedro/classes/com/pedropathing',c+'.class')).toString('latin1');assert.ok(bytes.includes('deck/sim/SimClock'),c);
   }
+});
+test('pins with a pause: the robot stops, waits, then continues',{skip},async()=>{
+  const e=engine();try{
+    const start={x:20,y:40,heading:0},pins=[{x:60,y:40,wait:1,action:'Intake'},{x:100,y:40}],info=await e.load({field:'empty',start});
+    const route=planner.plan({start,zones:[],pins,clearance:1,style:'spline'},info.footprint,[],info.bounds);
+    await e.run({kind:'route',route:{heading:route.heading,segments:route.segments,stops:route.stops}});
+    let still=0,sawAction=false;
+    await ticks(e,1200,()=>{if(e.waiting){sawAction=sawAction||e.waiting.action==='Intake';const t=e.truth();if(Math.hypot(t.vx,t.vy)<.5&&Math.abs(t.x-60)<1.5)still++;}return false;});
+    const done=runEvent(e,'finished');assert.ok(done,'finished');assert.ok(sawAction,'reported the pause action');
+    assert.ok(still>=45,`robot held still at the stop for about 1 s (${still} ticks)`);assert.ok(Math.abs(done.result.truth.x-100)<1);
+  }finally{e.dispose();}
+});
+test('find fastest route: test-drives candidates headlessly and reports times',{skip},async()=>{
+  const e=engine();try{
+    const start={x:20,y:72,heading:0},zones=[{id:'z',type:'rect',x:72,y:72,width:24,height:40,angle:0}],pins=[{x:124,y:72}],info=await e.load({field:'empty',start,zones});
+    const routes=['sharp','rounded','spline'].map(style=>planner.plan({start,zones,pins,clearance:2,style},info.footprint,[],info.bounds)).map(r=>({heading:r.heading,segments:r.segments,stops:r.stops}));
+    const progress=[],results=await e.evaluate(routes,(i,n)=>progress.push(`${i}/${n}`));
+    assert.deepEqual(progress,['0/3','1/3','2/3']);assert.equal(results.length,3);
+    for(const r of results){assert.equal(r.ok,true,r.error);assert.equal(r.violations,0);assert.ok(Math.hypot(r.truth.x-124,r.truth.y-72)<1.5);}
+    assert.ok(Math.min(...results.map(r=>r.time))<Math.max(...results.map(r=>r.time)),'styles differ in time');
+    assert.equal(e.world.time,0,'the visible simulation did not move');
+  }finally{e.dispose();}
+});
+test('STEP assembly import merges every part into one rigid body, in inches',{skip},async()=>{
+  const step=path.join(__dirname,'../.cache/simulation-deps/node_modules/occt-import-js/test/testfiles/cax-if/as1-oc-214.stp');
+  if(!fs.existsSync(step)||!fs.existsSync(path.join(runtime,'occt/occt-import-js.wasm')))return;
+  const {convertStep}=require('../src/sim-model.cjs'),m=await convertStep(step,runtime);
+  assert.ok(m.parts>10,'a multi-part assembly');assert.equal(m.index.length,m.triangles*3);assert.equal(m.positions.length,m.colors.length);
+  let max=0;for(const i of m.index)max=Math.max(max,i);assert.ok(max<m.positions.length/3,'one index buffer over all parts');
+  let x0=Infinity,x1=-Infinity;for(let i=0;i<m.positions.length;i+=3){x0=Math.min(x0,m.positions[i]);x1=Math.max(x1,m.positions[i]);}
+  assert.ok(x1-x0>7&&x1-x0<8.5,`size in inches (${(x1-x0).toFixed(2)})`);
+  await assert.rejects(convertStep(path.join(__dirname,'sim-engine.test.cjs'),runtime),/\.step or \.stp/);
 });
