@@ -75,6 +75,29 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node tests/install-e2e.cjs dist 9.0.0 9.0.1
           else node tests/install-e2e.cjs dist 9.0.0 9.0.1; fi
+      - name: Check simulation in native Windows and Apple Silicon Electron
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm install --prefix .cache/ui-check --no-save playwright@1.62.1
+          export DECK_PLAYWRIGHT="$(node -p 'require("path").resolve(".cache/ui-check/node_modules/playwright")')"
+          electron=$(node -p 'require("./package.json").devDependencies.electron')
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            ditto -x -k ".cache/electron-v$electron-darwin-arm64.zip" .cache/simulation-runtime
+            export DECK_ELECTRON="$PWD/.cache/simulation-runtime/Electron.app/Contents/MacOS/Electron"
+            sudo ifconfig lo0 alias 127.0.0.2
+            sudo ifconfig lo0 alias 127.0.0.3
+          else
+            export DECK_ELECTRON="$(node -p 'require("path").resolve(".cache/runtime-win32-x64-"+require("./package.json").devDependencies.electron+"/electron.exe")')"
+          fi
+          node tests/simulation-ui.cjs
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os != 'Linux'
+        with:
+          name: simulation-${{ matrix.target }}
+          path: test-results/simulation/*.png
   desktop:
     needs: verify
     runs-on: ubuntu-latest
