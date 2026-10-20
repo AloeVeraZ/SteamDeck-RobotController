@@ -23,3 +23,6 @@ test('stored model metadata is validated',()=>{
   assert.deepEqual(model.meta({id:'0123456789abcdef0123456789abcdef.glb',name:'Bot',units:'mm',front:'-y',top:'+x',source:'step'}),{id:'0123456789abcdef0123456789abcdef.glb',name:'Bot',units:'mm',front:'-y',top:'+x',source:'step'});
   assert.equal(model.meta({id:'0123456789abcdef0123456789abcdef.glb',units:'furlong'}).units,'in');
 });
+test('all six assigned sides preserve a right-handed orientation and map the selected source face',()=>{
+  for(const front of Object.keys(model.AXES))for(const top of Object.keys(model.AXES)){const initial=model.orientation({front,top});for(const selected of Object.keys(model.SIDES))for(const target of Object.keys(model.SIDES)){const axis=model.modelAxisAt(initial,selected),next=model.assignSide(initial,selected,target);assert.equal(det(model.rows(next)),1);assert.equal(model.modelAxisAt(next,target),axis,`${front}/${top}: ${selected} -> ${target}`);}}
+});

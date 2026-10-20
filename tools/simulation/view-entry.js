@@ -1,5 +1,5 @@
-// three.js (MIT) for the simulator's own 3D view and robot-model import. No DSIM code is drawn
-// in the window: DSIM provides physics only, in the simulation process.
+// three.js (MIT), CAD import and the requested DSIM field rendering for this local build.
+// DSIM: PolyForm Noncommercial 1.0.0; see vendor/licenses/DSIM-LICENSE and DSIM-NOTICE.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -10,3 +10,4 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 export { THREE, GLTFLoader, GLTFExporter, STLLoader, OBJLoader, OrbitControls, MeshoptDecoder, ConvexGeometry, mergeGeometries, mergeVertices };
+export * from './field-view-entry.ts';

@@ -18,21 +18,21 @@
     butterfly:{name:'Butterfly · mecanum set lowered',engine:'butterfly',holonomic:true}
   };
   const sensors={
-    none:{name:'None · no sensors',translation:false,imu:false,error:[0,0,0]},
+    none:{name:'Legacy sensor-free test fixture',translation:false,imu:false,error:[0,0,0],hidden:true},
     odometry:{name:'2 odometry pods + IMU',translation:true,imu:true,error:[.003,.02,.5]},
-    odometry3:{name:'3 odometry pods · no IMU',translation:true,imu:false,error:[.003,.02,1]},
+    odometry3:{name:'3 odometry pods + IMU',translation:true,imu:true,error:[.003,.02,.5]},
     encoders:{name:'Drive encoders + IMU',translation:true,imu:true,error:[.015,.05,.5]},
-    encodersOnly:{name:'Drive encoders · no IMU',translation:true,imu:false,error:[.015,.05,2]},
-    optical:{name:'Optical odometry + IMU',translation:true,imu:true,error:[.005,.025,.5]},
-    fused:{name:'Fused odometry computer + IMU',translation:true,imu:true,error:[.002,.01,.2]},
-    vision:{name:'Vision pose + IMU',translation:true,imu:true,error:[.01,.06,.5]},
+    encodersOnly:{name:'Legacy encoder test fixture',translation:true,imu:false,error:[.015,.05,2],hidden:true},
+    optical:{name:'SparkFun OTOS · optical + IMU',translation:true,imu:true,error:[.005,.025,.5]},
+    fused:{name:'goBILDA Pinpoint · 2 pods + IMU',translation:true,imu:true,error:[.002,.01,.2]},
+    vision:{name:'Legacy vision test fixture',translation:true,imu:true,error:[.01,.06,.5],hidden:true},
     gyro:{name:'IMU only · no position',translation:false,imu:true,error:[0,0,.5]},
-    ideal:{name:'Simulation ground truth · ideal',translation:true,imu:true,error:[0,0,0]}
+    ideal:{name:'Internal deterministic test fixture',translation:true,imu:true,error:[0,0,0],hidden:true}
   };
   const finite=n=>typeof n==='number'&&Number.isFinite(n),positive=(n,f)=>finite(n)&&n>=.25?n:f;
   const intake=r=>finite(r?.intakeIn)?Math.max(0,r.intakeIn):({sloped:3,vector:3.5,triangle:3}[r?.intake]??0);
   function robot(raw={}){return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
-    length:positive(raw.length,17.56),width:positive(raw.width,17.79),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),
+    length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),
     appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer'};}
   function footprint(raw){const r=robot(raw);return {front:r.length/2+r.intakeIn,rear:r.length/2,half:r.width/2};}
   function bounds(layout){if(layout?.field!=='empty')return {x0:0,y0:0,x1:144,y1:144};

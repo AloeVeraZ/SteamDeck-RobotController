@@ -18,7 +18,7 @@ from OCP.IFSelect import IFSelect_RetDone
 from OCP.RWMesh import RWMesh_CoordinateSystem
 
 source, name = sys.argv[1:3]
-assert name in ('strafer', 'swechanum')
+assert name in ('strafer', 'swechanum', 'decode-field')
 root = Path(__file__).resolve().parents[2]
 doc = TDocStd_Document(TCollection_ExtendedString('Deck CAD'))
 reader = STEPCAFControl_Reader()

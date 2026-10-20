@@ -15,3 +15,4 @@ export { initPhysics3d, disposePhysics3dFor } from 'dsim/src/games/biobuzz/sim3d
 export { SIM_DT, FIELD_HALF, INTAKE_PRESETS, ROBOT_MAX_SIZE } from 'dsim/src/config';
 export { lengthLimits, widthLimits, rpmLimits } from 'dsim/src/sim/drivetrain';
 export { cadStatics, fieldColliders3d, cadCaptureTheta } from 'dsim/src/games/biobuzz/sim3d/fieldColliders';
+export { Earcut } from 'three/src/extras/Earcut.js';

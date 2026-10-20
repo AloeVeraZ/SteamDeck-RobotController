@@ -10,6 +10,7 @@ const fs=require('node:fs'),path=require('node:path'),{spawn}=require('node:chil
 const planner=require('../ui/sim-planner.js');
 const config=require('../ui/sim-config.js');
 const {PracticeClock}=require('./sim-practice.cjs');
+const Timed=require('../ui/sim-timed.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
 const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
 // What each game's planning obstacles are, for the UI.
@@ -21,7 +22,7 @@ const finite=n=>typeof n==='number'&&Number.isFinite(n),clamp=(n,a,b)=>Math.max(
 function rng(seed){let s=(seed>>>0)||1;const u=()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return (s+.5)/4294967296;};return ()=>Math.sqrt(-2*Math.log(u()))*Math.cos(2*Math.PI*u());}
 
 function sensorConfig(raw={}){
-  const mode=Object.hasOwn(LOCALIZATION,raw.localization)?raw.localization:'none';
+  const mode=Object.hasOwn(LOCALIZATION,raw.localization)?raw.localization:'gyro';
   const defaults=config.sensors[mode].error;
   const num=(v,d,max)=>finite(v)?clamp(v,0,max):d;
   return {localization:mode,scaleError:num(raw.scaleError,defaults[0],.1),noise:num(raw.noise,defaults[1],.5),gyroDrift:num(raw.gyroDrift,defaults[2],10),seed:finite(raw.seed)?raw.seed>>>0:1};
@@ -61,13 +62,14 @@ class SimEngine{
     await this.init();this.stopProgram('Simulation reloaded.');this.practice=null;this.playing=false;this.lastLoad=raw;
     const field=Object.hasOwn(FIELDS,raw.field)?raw.field:'empty',physics=field==='biobuzz'&&raw.physics!=='2d'?'3d':'2d';
     const start=raw.start&&[raw.start.x,raw.start.y,raw.start.heading].every(finite)?{x:raw.start.x,y:raw.start.y,heading:raw.start.heading}:{x:9,y:72,heading:0};
-    this.config={field,physics,start,robot:robotConfig(raw.robot),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
+    this.config={field,physics,start,controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:robotConfig(raw.robot),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:'gyro'}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
     this.origin=field==='empty'?{x:this.config.bounds.x1/2,y:this.config.bounds.y1/2}:{x:OFFSET,y:OFFSET};
     this.zones=Array.isArray(raw.zones)?raw.zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];
     this.build();
     const r=this.world.robots[0],D=this.dsim,ext=D.footprintExtents(r.spec),dp=D.driveParams(r.spec);
     const mod=this.module(),walls=4,bounds=mod?mod.bounds:{halfX:OFFSET,halfY:OFFSET};
     const fieldZones=mod?mod.colliders.statics.slice(walls).map((s,i)=>({id:`field-${i}`,type:'rect',x:s.tx+OFFSET,y:s.ty+OFFSET,width:2*s.hx,height:2*s.hy,angle:s.rot*DEG})):[];
+    if(field==='decode')for(const a of ['red','blue'])fieldZones.push({id:'goal-'+a,type:'polygon',points:D.goalTriangle(a).map(p=>({x:p.x+OFFSET,y:p.y+OFFSET}))});
     // BIOBUZZ's 3D structures (hive frames, flower supports), for drawing only: planning uses the
     // floor-level obstacles above, which are the same solids DSIM's planar solve uses.
     const structures=field==='biobuzz'?D.cadStatics().map(s=>{const p=[];for(let i=0;i<s.points.length;i+=3)p.push(+(s.points[i]+OFFSET).toFixed(3),+(s.points[i+1]+OFFSET).toFixed(3),+s.points[i+2].toFixed(3));return p;}):[];
@@ -75,7 +77,8 @@ class SimEngine{
     if(field==='biobuzz'){const data=D.fieldColliders3d();for(const a of ['red','blue']){const tray=data.trays[a],angle=D.cadCaptureTheta(a),c=Math.cos(angle),s=Math.sin(angle);for(const hull of tray.hulls){const points=[];for(let i=0;i<hull.points.length;i+=3){const [x,y,z]=hull.points.slice(i,i+3);points.push(x+tray.pivot[0]+OFFSET,y*c-z*s+tray.pivot[1]+OFFSET,y*s+z*c+tray.pivot[2]);}structureParts.push({name:a+' '+hull.name,kind:hull.class,alliance:a,points});}}}
     const flowers=field==='biobuzz'?D.fieldColliders3d().flowers.map(f=>({name:f.id,rings:f.rings.map(r=>({z:r.z,hole:r.hole,x:r.bore[0]+OFFSET,y:r.bore[1]+OFFSET}))})):[];
     const goals=field==='decode'?['red','blue'].map(alliance=>{const rect=D.classifierRect(alliance);return {alliance,triangle:D.goalTriangle(alliance).map(p=>({x:p.x+OFFSET,y:p.y+OFFSET})),openingZ:D.GOAL_OPENING_Z,classifier:{x0:rect.x0+OFFSET,x1:rect.x1+OFFSET,y0:rect.y0+OFFSET,y1:rect.y1+OFFSET,height:D.CLASSIFIER_HEIGHT}};}):[];
-    this.info={field,fieldName:FIELDS[field],obstacleName:OBSTACLES[field],physics,structures,structureParts,flowers,goals,
+    const trays=field==='biobuzz'?Object.fromEntries(['red','blue'].map(a=>[a,{pivot:D.fieldColliders3d().trays[a].pivot.map((v,i)=>v+(i<2?OFFSET:0)),reference:D.cadCaptureTheta(a)}])):{};
+    this.info={field,fieldName:FIELDS[field],obstacleName:OBSTACLES[field],physics,structures,structureParts,flowers,goals,trays,
       bounds:field==='empty'?this.config.bounds:{x0:OFFSET-bounds.halfX,y0:OFFSET-bounds.halfY,x1:OFFSET+bounds.halfX,y1:OFFSET+bounds.halfY},fieldZones,
       footprint:{front:ext.front,rear:ext.rear,half:ext.half},
       robot:{...this.config.robot},driveProfile:config.drives[this.config.robot.drivetrain],
@@ -90,20 +93,22 @@ class SimEngine{
     const setup={id:0,alliance:'blue',spec,assists:{fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false},startIndex:0};
     const mod=this.module();
     this.world=mod?mod.createWorld('free',1,[setup],undefined,c.physics):D.SIM_GAMES.decode.createWorld('free',1,[setup]);
-    this.world.balls=[];if(Array.isArray(this.world.robots[0].hopper))this.world.robots[0].hopper=[];
+    this.world.balls=c.elements?this.world.balls.filter(b=>b.state?.kind!=='held'):[];if(Array.isArray(this.world.robots[0].hopper))this.world.robots[0].hopper=[];
+    this.applyBarriers();
     const r=this.world.robots[0],p={x:c.start.x-this.origin.x,y:c.start.y-this.origin.y};
     // The game engine's competition limits do not apply to an offline pushbot. Override after
     // spawn coercion, before the first physics step (including lazy Rapier body construction).
-    Object.assign(r.spec,{length:c.robot.length,width:c.robot.width,massLb:c.robot.massLb,driveRpm:c.robot.driveRpm,drivetrain:engineDrive,deckIntakeReach:c.robot.intakeIn});
+    Object.assign(r.spec,{length:c.robot.length,width:c.robot.width,heightIn:c.robot.heightIn,stowHeightIn:c.robot.heightIn,massLb:c.robot.massLb,driveRpm:c.robot.driveRpm,drivetrain:engineDrive,deckIntakeReach:c.robot.intakeIn});
     Object.assign(r,{pos:p,heading:c.start.heading/DEG,turretHeading:c.start.heading/DEG,vel:{x:0,y:0},angVel:0,fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false});
     this.sensors=new Sensors(c.sensors,this.truth());this.estimate=null;this.command={...ZERO};this.result=null;this.trail=[];
   }
   colliders(){const T=10,b=this.config.bounds,x0=b.x0-this.origin.x,x1=b.x1-this.origin.x,y0=b.y0-this.origin.y,y1=b.y1-this.origin.y,w=x1-x0,h=y1-y0,wall=(tx,ty,hx,hy)=>({tx,ty,hx,hy,rot:0});return this._empty||(this._empty={statics:[wall(x0-T,(y0+y1)/2,T,h/2+2*T),wall(x1+T,(y0+y1)/2,T,h/2+2*T),wall((x0+x1)/2,y0-T,w/2+2*T,T),wall((x0+x1)/2,y1+T,w/2+2*T,T)],bounds:{halfX:w/2,halfY:h/2}});}
+  applyBarriers(){const triangles=[];for(const zone of this.zones){let p=planner.polygon(zone);if(p.length===2){const [a,b]=p,angle=Math.atan2(b.y-a.y,b.x-a.x)*DEG;p=planner.polygon({type:'rect',x:(a.x+b.x)/2,y:(a.y+b.y)/2,width:Math.hypot(b.x-a.x,b.y-a.y),height:1,angle});}const points=p.flatMap(q=>[q.x-this.origin.x,q.y-this.origin.y]),indices=this.dsim.Earcut.triangulate(points);for(let i=0;i<indices.length;i+=3)triangles.push(indices.slice(i,i+3).flatMap(j=>points.slice(j*2,j*2+2)));}this.world.deckPolygons=triangles;}
   physicsStep(world,cmd){
     const D=this.dsim,dt=D.SIM_DT,input={driveX:-cmd.strafe,driveY:cmd.forward,rotate:cmd.turn,leftDrive:clamp(cmd.forward-cmd.turn,-1,1),rightDrive:clamp(cmd.forward+cmd.turn,-1,1),intake:false,fire:false};
     const mod=world===this.world?this.module():null;
-    if(mod)mod.step(world,dt,new Map([[0,input]]));
-    else{world.time+=dt;world.tick++;const r=world.robots[0],wrench=D.updateRobot(world,r,input,dt);D.solveRobots(world,dt,this.colliders(),undefined,new Map([[r.id,wrench]]));}
+    if(mod){const previous=mod.colliders.deckPolygons;mod.colliders.deckPolygons=world.deckPolygons;try{mod.step(world,dt,new Map([[0,input]]));}finally{mod.colliders.deckPolygons=previous;}}
+    else{world.time+=dt;world.tick++;const r=world.robots[0],wrench=D.updateRobot(world,r,input,dt),colliders={...this.colliders(),deckPolygons:world.deckPolygons};D.solveRobots(world,dt,colliders,undefined,new Map([[r.id,wrench]]));}
   }
   truth(){const r=this.world.robots[0];return {x:r.pos.x+this.origin.x,y:r.pos.y+this.origin.y,heading:r.heading,vx:r.vel.x,vy:r.vel.y,omega:r.angVel,z:r.z||0};}
 
@@ -181,12 +186,12 @@ class SimEngine{
   async practiceTick(){
     const practice=this.practice,seq=this.runSeq;
     if(practice&&practice.phase==='teleop'&&this.now()-this.practiceInputAt>500){this.manualInput=null;practice.neutralRequired=true;}
-    if(this.mode==='program')await this.programTick();else this.tick(practice&&practice.phase!=='teleop'?ZERO:this.manualCommand());
+    if(this.mode==='program')await this.programTick();else if(this.mode==='timed')this.timedTick();else this.tick(practice&&practice.phase!=='teleop'?ZERO:this.manualCommand());
     if(!practice||practice!==this.practice||!this.playing)return;
     // A run failure invalidates the session; a clean early finish holds still until AUTO ends.
     if(seq!==this.runSeq&&this.child)return;
     const change=practice.advance(this.dsim.SIM_DT);if(!change)return;
-    if(change.from==='auto'&&this.child){const t=this.truth();this.result={reason:'time-limit',kind:this.child.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},violations:[...(this.violations||[])]};this.emit({type:'run',state:'auto-time-limit',result:this.result});}
+    if(change.from==='auto'&&(this.child||this.timed)){const t=this.truth();this.result={reason:'time-limit',kind:this.child?.kind||'timed',time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},violations:[...(this.violations||[])]};this.emit({type:'run',state:'auto-time-limit',result:this.result});}
     this.stopProgram('Practice phase ended.');const r=this.world.robots[0];r.vel={x:0,y:0};r.angVel=0;this.practiceInputAt=-Infinity;
     if(change.to==='teleop'){this.mode='manual';this.estimate=null;this.follower=null;this.telemetry=null;}
     if(change.to==='finished'){this.playing=false;this.emit({type:'run',state:'practice-finished',result:this.result});}
@@ -197,11 +202,13 @@ class SimEngine{
     if(!planner.safePose(this.config.start,[],this.info.footprint,this.info.bounds))throw Error('The starting robot footprint must fit inside this field. Change the field size, robot size or starting pose.');
     const kind=program.kind==='source'?'source':'route';
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');
-    if(!config.sensors[this.config.sensors.localization].translation)throw Error(this.config.sensors.localization==='none'?'No sensors selected. Planning and export work without sensors; choose position sensing in Setup to test a Pedro follower.':'Gyro-only sensing cannot measure X/Y, so Pedro cannot follow a path. Choose simulated odometry pods or drive encoders.');
+    const timed=kind==='route'&&(this.config.controller==='motionmodule'||!config.sensors[this.config.sensors.localization].translation);
+    if(kind==='source'&&!config.sensors[this.config.sensors.localization].translation)throw Error('IMU-only sensing cannot measure X/Y for this Pedro Java program. Run the timed planned route, or select odometry in the FTC setup.');
     if(kind==='route'&&!config.drives[this.config.robot.drivetrain].holonomic){const h=program.route.heading/DEG,s=this.config.start;for(const q of program.route.segments.flatMap(segment=>segment.points||[]))if(Math.abs(-(q.x-s.x)*Math.sin(h)+(q.y-s.y)*Math.cos(h))>.05)throw Error('This tank drivetrain cannot strafe. Use a straight route along its starting heading; turning routes need heading planning.');}
     if(kind==='source'&&(typeof program.source!=='string'||!program.source.trim()))throw Error('Choose a Java program first.');
     if(kind==='source'&&program.source.length>200000)throw Error('Program source is limited to 200 KB.');
     this.stopProgram('Restarted.');this.build();this.violations=new Set();
+    if(timed){this.timed=new Timed.Runner(program.route,this.config.timing);this.mode='timed';this.estimate=null;this.follower=null;this.emit({type:'run',state:'starting',kind:'timed'});this.emit({type:'run',state:'running',kind:'timed'});this.play();return {ok:true,program:'Timed power + IMU heading hold'};}
     const seq=++this.runSeq,java=path.join(this.runtimeDir,'java/bin',process.platform==='win32'?'java.exe':'java');
     if(!fs.existsSync(java))throw Error('The simulator Java runtime is missing. Rebuild with tools/simulation/build.cjs.');
     const dir=path.join(this.workDir,`run-${process.pid}-${seq}`);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
@@ -247,9 +254,10 @@ class SimEngine{
   }
   finish(seq){
     if(seq!==this.runSeq)return;const t=this.truth();
-    this.result={reason:'finished',kind:this.child?.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},estimate:this.estimate&&{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG},violations:[...(this.violations||[])]};
+    this.result={reason:'finished',kind:this.timed?'timed':this.child?.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},estimate:this.estimate&&{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG},violations:[...(this.violations||[])]};
     this.stopProgram();this.emit({type:'run',state:'finished',result:this.result});this.emitFrame(true);
   }
+  timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),next=runner.advance(this.dsim.SIM_DT,reading.imu);this.command=next.drive;this.waiting=next.wait;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
   describe(reply){const where={compile:'Compile error',load:'Could not load the program',init:'init() failed',loop:'loop() failed',bridge:'Pedro bridge error'}[reply.stage]||'Program error';return `${where}: ${reply.message}`;}
   fail(message,seq=this.runSeq,reply){
     if(seq!==this.runSeq)return;this.stopProgram();this.playing=false;this.practice=null;
@@ -257,14 +265,14 @@ class SimEngine{
   }
   // Ends any program: invalidates pending replies, kills the Java process and zeroes the drive.
   stopProgram(reason){
-    const bridge=this.child;this.runSeq++;this.child=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;
-    if(this.mode==='program'||this.mode==='manual')this.mode='idle';
+    const bridge=this.child;this.runSeq++;this.child=null;this.timed=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;
+    if(['program','manual','timed'].includes(this.mode))this.mode='idle';
     if(bridge){for(const w of bridge.waiters.splice(0))w.reject(Error(reason||'Stopped.'));try{bridge.child.stdin.end(JSON.stringify({type:'stop'})+'\n');}catch{}try{bridge.child.kill();}catch{}setTimeout(()=>{try{fs.rmSync(bridge.dir,{recursive:true,force:true});}catch{}},2000).unref?.();}
   }
-  stop(){const running=!!this.child||!!this.practice;this.practice=null;this.playing=false;this.stopProgram('Stopped.');if(this.world){this.world.robots[0].vel={x:0,y:0};this.world.robots[0].angVel=0;}if(running)this.emit({type:'run',state:'stopped'});this.emitFrame(true);}
+  stop(){const running=!!this.child||!!this.timed||!!this.practice;this.practice=null;this.playing=false;this.stopProgram('Stopped.');if(this.world){this.world.robots[0].vel={x:0,y:0};this.world.robots[0].angVel=0;}if(running)this.emit({type:'run',state:'stopped'});this.emitFrame(true);}
   reset(){this.practice=null;this.stopProgram('Reset.');this.playing=false;this.build();this.violations=new Set();this.estimate=null;this.follower=null;this.telemetry=null;this.emit({type:'run',state:'reset'});this.emitFrame(true);}
-  setZones(zones){this.zones=Array.isArray(zones)?zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];}
-  setStart(start){if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Invalid start pose.');if(this.practice)this.stop();this.config.start={...start};if(this.mode!=='program'){this.playing=false;this.build();this.emitFrame(true);}}
+  setZones(zones){this.zones=Array.isArray(zones)?zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];this.lastLoad={...this.lastLoad,zones:structuredClone(this.zones)};if(this.world){if(this.world.game==='biobuzz')this.dsim.disposePhysics3dFor(this.world);this.applyBarriers();}}
+  setStart(start){if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Invalid start pose.');if(this.practice||this.timed)this.stop();this.config.start={...start};this.lastLoad={...this.lastLoad,start:{...start}};if(this.mode!=='program'){this.playing=false;this.build();this.emitFrame(true);}}
 
   // Test-drive candidate routes on fresh, headless copies of this simulation (same field, robot,
   // sensors and follower) as fast as the CPU allows. Nothing here moves the visible robot.
@@ -278,8 +286,8 @@ class SimEngine{
       try{
         await trial.load(request);const started=await trial.run({kind:'route',route:candidates[i]});
         if(!started.ok){results.push({ok:false,error:started.error});continue;}
-        for(let guard=0;trial.mode==='program'&&guard<3600;guard++)await trial.programTick();
-        const r=trial.result;results.push(r?{ok:true,time:r.time,violations:r.violations.length,truth:r.truth}:{ok:false,error:trial.mode==='program'?'Did not finish within 60 s.':failure||'The test drive stopped early.'});
+        for(let guard=0;['program','timed'].includes(trial.mode)&&guard<3600;guard++)if(trial.mode==='timed')trial.timedTick();else await trial.programTick();
+        const r=trial.result;results.push(r?{ok:true,time:r.time,violations:r.violations.length,truth:r.truth}:{ok:false,error:['program','timed'].includes(trial.mode)?'Did not finish within 60 s.':failure||'The test drive stopped early.'});
       }catch(e){results.push({ok:false,error:e.message});}finally{trial.dispose();}
     }
     return results;
@@ -291,7 +299,8 @@ class SimEngine{
     return {type:'frame',time:this.world.time,tick:this.world.tick,mode:this.mode,playing:this.playing,speed:this.speed,
       truth:{x:t.x,y:t.y,heading:t.heading*DEG,vx:t.vx,vy:t.vy,omega:t.omega*DEG,z:t.z},command:this.command,
       estimate:this.estimate?{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG}:null,
-      follower:this.follower||null,telemetry:this.telemetry||null,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,practice:this.practice?.snapshot()||null};
+      follower:this.follower||null,telemetry:this.telemetry||null,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'pedro':null,
+      fieldState:{game:this.config.field,time:this.world.time,tick:this.world.tick,balls:this.world.balls.map(b=>({...b,pos:{...b.pos},state:{...b.state}})),robots:[],biobuzz:this.world.biobuzz?structuredClone(this.world.biobuzz):undefined}};
   }
   emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<32)return;this.lastFrame=now;this.emit(this.frame());}
   dispose(){this.stopProgram('Closed.');this.playing=false;if(this.timer)clearInterval(this.timer);this.timer=null;if(this.world?.game==='biobuzz')this.dsim.disposePhysics3dFor(this.world);this.world=null;}

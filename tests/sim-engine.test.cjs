@@ -74,10 +74,10 @@ test('user code failures are readable and never hang the engine',{skip},async()=
     const t0=Date.now();await ticks(e,3);assert.match(runEvent(e,'error').error,/took longer than 5 s/);assert.ok(Date.now()-t0<9000);assert.equal(e.child,null);
   }finally{e.dispose();}
 });
-test('gyro-only sensing refuses path following; pause holds time; reset restores the start',{skip},async()=>{
+test('gyro-only sensing refuses Pedro Java; pause holds time; reset restores the start',{skip},async()=>{
   const e=engine();try{
     const start={x:40,y:40,heading:45};await e.load({field:'empty',start,sensors:{localization:'gyro'}});
-    await assert.rejects(e.run({kind:'route',route:{heading:45,segments:[{type:'line',points:[{x:40,y:40},{x:60,y:60}]}],pins:[{x:60,y:60}]}}),/Gyro-only sensing cannot measure X\/Y/);
+    await assert.rejects(e.run({kind:'source',source:'test'}),/IMU-only sensing cannot measure X\/Y/);
     e.manual({x:0,y:1,turn:.3});for(let i=0;i<30;i++)e.tick(e.manualCommand());const moved=e.truth();assert.ok(Math.hypot(moved.x-40,moved.y-40)>3);
     e.play();e.pause();const t=e.world.time;await new Promise(r=>setTimeout(r,60));await e.pump();assert.equal(e.world.time,t);
     e.reset();const back=e.truth();assert.ok(Math.abs(back.x-40)<1e-6&&Math.abs(back.y-40)<1e-6&&Math.abs(back.heading-45*Math.PI/180)<1e-9);assert.equal(e.world.time,0);
@@ -85,9 +85,9 @@ test('gyro-only sensing refuses path following; pause holds time; reset restores
 });
 test('DSIM fields: DECODE planar, BIOBUZZ Rapier 3D; reload disposes the 3D world',{skip},async()=>{
   const e=engine();try{
-    const decode=await e.load({field:'decode',start:{x:30,y:72,heading:0}});assert.equal(decode.physics,'2d');assert.ok(decode.fieldZones.length>=4);assert.equal(e.world.balls.length,0,'path planning only: no game pieces');assert.equal(decode.obstacleName,'goals and ramps');
+    const decode=await e.load({field:'decode',start:{x:30,y:72,heading:0}});assert.equal(decode.physics,'2d');assert.ok(decode.fieldZones.length>=4);assert.equal(e.world.balls.length,24,'loose game pieces remain in the physics world');assert.equal(decode.obstacleName,'goals and ramps');
     const red=decode.goals.find(g=>g.alliance==='red'),blue=decode.goals.find(g=>g.alliance==='blue');assert.equal(red.openingZ,38.75);assert.ok(red.triangle.every(p=>p.x>100)&&blue.triangle.every(p=>p.x<44),'goal colors and measured triangles match the physics frame');
-    const bb=await e.load({field:'biobuzz',start:{x:30,y:40,heading:0}});assert.equal(bb.physics,'3d');assert.equal(e.world.balls.length,0);assert.ok(bb.structures.length>=4,'3D hive and flower structures for drawing');assert.equal(e.world.biobuzz.physics,'3d');assert.ok(bb.bounds.x0>1.3&&bb.bounds.x0<1.4);
+    const bb=await e.load({field:'biobuzz',start:{x:30,y:40,heading:0}});assert.equal(bb.physics,'3d');assert.equal(e.world.balls.length,52);assert.ok(bb.structures.length>=4,'3D hive and flower structures for drawing');assert.equal(e.world.biobuzz.physics,'3d');assert.ok(bb.bounds.x0>1.3&&bb.bounds.x0<1.4);
     const first=e.world;e.manual({x:0,y:1,turn:0});for(let i=0;i<30;i++)e.tick(e.manualCommand());assert.ok(e.truth().x>35);
     e.reset();assert.notEqual(e.world,first,'reset builds a fresh world');assert.ok(Math.abs(e.truth().x-30)<1e-6);
   }finally{e.dispose();}

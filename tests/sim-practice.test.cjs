@@ -20,12 +20,12 @@ test('robot families, numeric intake and large custom fields retain their dimens
 const built=fs.existsSync(path.join(__dirname,'../sim-runtime/dsim-host.cjs'));
 function engine(now=()=>0){const {SimEngine}=require('../src/sim-engine.cjs');return new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-practice-')),now});}
 const pad=(x=0,y=0,turn=0)=>({mapping:'standard',axes:[x,y,turn,0],buttons:[]});
-test('sensor-free defaults do not invent odometry; teleop works with no sensors and requires neutral',{skip:!built},async()=>{
+test('IMU-only defaults do not invent odometry; teleop works without odometry and requires neutral',{skip:!built},async()=>{
   let wallTime=0;const e=engine(()=>wallTime);try{
     const info=await e.load({field:'empty',width:300,height:180,start:{x:35,y:72,heading:0},robot:{length:24,width:23,intakeIn:2.5}});
-    assert.equal(info.sensors.localization,'none');assert.equal(info.bounds.x1,300);assert.equal(info.robot.length,24);assert.equal(info.footprint.front,14.5);
-    assert.deepEqual(e.sensors.read(e.truth(),1/60),{odo:null,imu:0});
-    await assert.rejects(e.run({kind:'route',route:{heading:0,segments:[{type:'line',points:[{x:35,y:72},{x:80,y:72}]}]}}),/No sensors/);
+    assert.equal(info.sensors.localization,'gyro');assert.equal(info.bounds.x1,300);assert.equal(info.robot.length,24);assert.equal(info.footprint.front,14.5);
+    const reading=e.sensors.read(e.truth(),1/60);assert.equal(reading.odo,null);assert.ok(Number.isFinite(reading.imu)&&Math.abs(reading.imu)<.01);
+    await assert.rejects(e.run({kind:'source',source:'test'}),/IMU-only/);
     await e.startPractice({mode:'teleop',timing:{teleopSeconds:2}});e.practiceInput(pad(0,-1));assert.equal(e.manualInput,null,'held sticks cannot start driving');
     e.practiceInput(pad());assert.equal(e.practice.neutralRequired,false);wallTime+=17;await e.practiceTick();assert.equal(e.practice.neutralRequired,false,'neutral arming survives the next physics tick');e.practiceInput(pad(0,-1));
     const x=e.truth().x;for(let i=0;i<30;i++)await e.practiceTick();assert.ok(e.truth().x>x+5,'controller drove the pushbot through physics');

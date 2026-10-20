@@ -6,7 +6,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MESH_TYPES={'.glb':'glb','.gltf':'gltf','.stl':'stl','.obj':'obj'},STEP_TYPES=['.step','.stp'];
 const MODEL_LIMIT=200*1024*1024,STORED_LIMIT=150*1024*1024,SOURCE_LIMIT=200*1024,PROJECT_LIMIT=150*1024*1024,EXPORT_LIMIT=4*1024*1024;
-const EXPORTS={java:{name:'Pedro Java',extensions:['java']},pp:{name:'Pedro path file',extensions:['pp']}};
+const EXPORTS={java:{name:'Pedro Java',extensions:['java']},pp:{name:'Pedro path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']}};
 const validKey=key=>typeof key==='string'&&/^[\w-]{1,64}$/.test(key);
 
 class SimulationHost{

@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $install = Join-Path $env:LOCALAPPDATA 'DeckDriverStation'
 $app = Join-Path $install 'app'
 $userData = Join-Path $env:APPDATA 'Deck Driver Station'
-foreach ($required in 'sim-runtime\manifest.json', 'sim-runtime\java\bin\java.exe', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class', 'sim-runtime\occt\occt-import-js.wasm', 'ui\vendor\three-view.js', 'ui\vendor\planning.js', 'ui\assets\robots\catalog.json', 'ui\assets\robots\strafer.glb.gz', 'ui\assets\robots\swechanum.glb.gz') {
+foreach ($required in 'sim-runtime\manifest.json', 'sim-runtime\java\bin\java.exe', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class', 'sim-runtime\occt\occt-import-js.wasm', 'ui\sim-timed.js', 'ui\vendor\three-view.js', 'ui\vendor\planning.js', 'ui\vendor\models\decode\field.glb', 'ui\vendor\models\biobuzz\field.glb', 'ui\vendor\models\biobuzz\elements.glb', 'ui\assets\fields\NOTICES.md', 'ui\assets\robots\catalog.json', 'ui\assets\robots\strafer.glb.gz', 'ui\assets\robots\swechanum.glb.gz') {
     if (-not (Test-Path (Join-Path $Source $required))) { throw "Missing $required. Run: node tools/simulation/build.cjs" }
 }
 if (-not (Test-Path (Join-Path $app 'package.json'))) { throw "No installed app at $app." }
@@ -47,14 +47,19 @@ The offline simulator bundles third-party code and assets. Licenses and notices:
   sim-runtime/pedro/    Pedro Pathing license, Gson notice (Apache-2.0)
   sim-runtime/java/legal/  Eclipse Temurin OpenJDK 21 notices (GPLv2 with Classpath Exception)
   ui/assets/robots/NOTICES.md  goBILDA Strafer and NYC FIRST A301 Swechanum CAD sources and local preparation
+  ui/assets/fields/NOTICES.md  DSIM BIOBUZZ and official FIRST DECODE field CAD; local noncommercial use
 '@
 
 # Verify the copy byte for byte against the tested checkout.
 $checked = 0
-foreach ($rel in 'src\main.cjs', 'src\sim-engine.cjs', 'src\sim-bridge.cjs', 'src\sim-model.cjs', 'src\sim-practice.cjs', 'ui\simulation.js', 'ui\sim-planner.js', 'ui\sim-export.js', 'ui\sim-config.js', 'ui\sim-field-art.js', 'ui\assets\robots\catalog.json', 'ui\assets\robots\strafer.glb.gz', 'ui\assets\robots\swechanum.glb.gz', 'ui\sim-robot-model.js', 'ui\vendor\three-view.js', 'sim-runtime\dsim-host.cjs', 'sim-runtime\occt\occt-import-js.wasm', 'sim-runtime\pedro\classes\deck\sim\PedroBridge.class') {
+$sourceRoot = (Resolve-Path -LiteralPath $Source).Path.TrimEnd('\')
+$sourceFiles = @((Get-Item -LiteralPath (Join-Path $sourceRoot 'package.json')))
+foreach ($dir in 'src', 'ui', 'sim-runtime') { $sourceFiles += Get-ChildItem -LiteralPath (Join-Path $sourceRoot $dir) -File -Recurse }
+foreach ($file in $sourceFiles) {
+    $rel = $file.FullName.Substring($sourceRoot.Length + 1)
     if ((Get-FileHash (Join-Path $Source $rel)).Hash -ne (Get-FileHash (Join-Path $app $rel)).Hash) { throw "Installed $rel differs from the source." }
     $checked++
 }
-Write-Output "Installed and verified $checked key files into $app."
-if (-not $NoLaunch) { Start-Process (Join-Path $install 'DeckDriverStation.exe'); Write-Output 'Launched Deck Driver Station.' }
+Write-Output "Installed and verified all $checked copied files into $app."
+if (-not $NoLaunch) { Start-Process (Join-Path $install 'DeckDriverStation.exe') -WindowStyle Hidden; Write-Output 'Launched Deck Driver Station.' }
 exit 0
