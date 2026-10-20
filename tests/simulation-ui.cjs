@@ -8,6 +8,9 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results/simulation
  let fixture;
  try{
   const page=await app.firstWindow(),errors=[];page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof state==='object'&&!!hardware.model);
+  // macOS can select the robot's loopback alias itself as the outgoing source.
+  // Pin the station side of this two-host fixture to a different loopback address.
+  await app.evaluate(({app})=>{const req=process.getBuiltinModule('node:module').createRequire(app.getAppPath()+'/package.json'),{FtcSocket}=req('./src/ftc.cjs'),open=FtcSocket.prototype.open;FtcSocket.prototype.open=function(){if(['127.0.0.2','127.0.0.3'].includes(this.host))this.localAddress='127.0.0.1';return open.call(this);};});
   await page.locator('#more').click();await page.locator('#menu-simulation').click();await page.locator('#simulation-field').waitFor({state:'visible'});
   const graph=page.locator('#simulation-field'),pose=()=>page.evaluate(()=>JSON.parse(localStorage.getItem(DeckField.KEY))?.start||null);
   const point=async(x,y)=>graph.evaluate((element,{x,y})=>{const p=element.createSVGPoint();p.x=x;p.y=144-y;const result=p.matrixTransform(element.getScreenCTM());return {x:result.x,y:result.y};},{x,y});
@@ -40,7 +43,7 @@ const root=path.join(__dirname,'..'),out=path.join(root,'test-results/simulation
   }
   await win.evaluate(w=>w.setContentSize(1280,800));
   // Entry disconnects an existing FTC station; automatic reconnect cannot hijack this view.
-  fixture=await startUdpRobot({address:'127.0.0.2'});await page.evaluate(()=>window.deck.open({url:'127.0.0.2',kind:'ftc',name:'Field test fixture'}));await page.waitForFunction(()=>state.kind==='ftc'&&!state.loading);
+  fixture=await startUdpRobot({address:'127.0.0.2'});const opened=await page.evaluate(()=>window.deck.open({url:'127.0.0.2',kind:'ftc',name:'Field test fixture'}));assert.equal(opened.opened,true,await page.evaluate(()=>state.error));await page.waitForFunction(()=>state.kind==='ftc'&&!state.loading);
   const station=app.context().pages().find(p=>p.url().includes('ui/ftc/index.html'));await station.waitForFunction(()=>document.querySelector('#link-text').textContent==='Robot Connected');
   fixture.sim.setOpMode('Field Centric TeleOp','running');await station.waitForFunction(()=>document.body.dataset.robotState==='running');
   await page.evaluate(()=>window.deck.page('simulation'));assert.equal(fixture.sim.opState,'stopped');assert.equal(await page.evaluate(()=>state.url),'');assert.equal(await page.evaluate(()=>state.page),'simulation');
