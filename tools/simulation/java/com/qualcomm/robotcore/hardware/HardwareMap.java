@@ -25,6 +25,9 @@ public class HardwareMap implements Iterable<HardwareDevice> {
     public final DeviceMapping<DcMotor> dcMotor = new DeviceMapping<>(DcMotor.class);
     public final DeviceMapping<VoltageSensor> voltageSensor = new DeviceMapping<>(VoltageSensor.class);
 
+    // On a robot the SDK builds the map from the configuration; the virtual hub subclasses it.
+    protected HardwareMap() {}
+
     public void put(String deviceName, HardwareDevice device) { devices.put(deviceName, device); }
 
     public <T> T get(Class<? extends T> classOrInterface, String deviceName) {

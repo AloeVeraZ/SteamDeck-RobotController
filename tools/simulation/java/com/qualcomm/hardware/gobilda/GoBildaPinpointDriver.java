@@ -14,6 +14,7 @@ public abstract class GoBildaPinpointDriver implements HardwareDevice {
     public enum GoBildaOdometryPods { goBILDA_SWINGARM_POD, goBILDA_4_BAR_POD }
     public enum DeviceStatus { NOT_READY, READY, CALIBRATING, FAULT_X_POD_NOT_DETECTED, FAULT_Y_POD_NOT_DETECTED, FAULT_NO_PODS_DETECTED, FAULT_IMU_RUNAWAY, FAULT_BAD_READ }
     public enum ReadData { ONLY_UPDATE_HEADING }
+    protected GoBildaPinpointDriver() {}
     public abstract void update();
     public void update(ReadData data) { update(); }
     public abstract void setOffsets(double xOffset, double yOffset, DistanceUnit distanceUnit);

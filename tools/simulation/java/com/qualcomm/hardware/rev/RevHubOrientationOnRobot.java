@@ -7,8 +7,8 @@ import com.qualcomm.robotcore.hardware.ImuOrientationOnRobot;
 public class RevHubOrientationOnRobot implements ImuOrientationOnRobot {
     public enum LogoFacingDirection { UP, DOWN, FORWARD, BACKWARD, LEFT, RIGHT }
     public enum UsbFacingDirection { UP, DOWN, FORWARD, BACKWARD, LEFT, RIGHT }
-    public final LogoFacingDirection logoFacingDirection;
-    public final UsbFacingDirection usbFacingDirection;
+    private final LogoFacingDirection logoFacingDirection;
+    private final UsbFacingDirection usbFacingDirection;
     public RevHubOrientationOnRobot(LogoFacingDirection logoFacingDirection, UsbFacingDirection usbFacingDirection) {
         if (logoFacingDirection.ordinal() / 2 == usbFacingDirection.ordinal() / 2) throw new IllegalArgumentException("The logo and USB port cannot face along the same axis.");
         this.logoFacingDirection = logoFacingDirection;

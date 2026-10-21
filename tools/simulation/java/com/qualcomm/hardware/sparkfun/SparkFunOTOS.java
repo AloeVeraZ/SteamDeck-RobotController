@@ -15,6 +15,7 @@ public abstract class SparkFunOTOS implements HardwareDevice {
         public Pose2D(Pose2D pose) { this(pose.x, pose.y, pose.h); }
         public void set(Pose2D pose) { x = pose.x; y = pose.y; h = pose.h; }
     }
+    protected SparkFunOTOS() {}
     public abstract DistanceUnit getLinearUnit();
     public abstract void setLinearUnit(DistanceUnit unit);
     public abstract AngleUnit getAngularUnit();

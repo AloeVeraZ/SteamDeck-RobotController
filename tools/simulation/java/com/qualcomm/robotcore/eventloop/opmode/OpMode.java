@@ -7,10 +7,10 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
 // Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset Pedro Pathing and exported
 // autonomous code use). Same package, names and signatures; backed by the simulator. Not FIRST code.
 public abstract class OpMode {
-    public Gamepad gamepad1 = new Gamepad(), gamepad2 = new Gamepad();
+    public volatile Gamepad gamepad1 = new Gamepad(), gamepad2 = new Gamepad();
     public Telemetry telemetry;
-    public HardwareMap hardwareMap;
-    public double time;
+    public volatile HardwareMap hardwareMap;
+    public volatile double time;
     private long startNanos = deck.sim.SimClock.nanoTime();
     public abstract void init();
     public void init_loop() {}

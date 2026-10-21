@@ -52,7 +52,7 @@ public final class VirtualHub {
         }
     }
 
-    private final HardwareMap map = new HardwareMap();
+    private final HardwareMap map = new HardwareMap() {};
     private final Map<String, SimMotor> drive = new LinkedHashMap<>();
     private final List<Pod> pods = new ArrayList<>();
     private final SimTelemetry telemetry = new SimTelemetry();
