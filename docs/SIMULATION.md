@@ -6,14 +6,14 @@ Plan routes around physical barriers, add pauses/action labels, test autonomous 
 
 ## Using it
 
-Three tabs span the workspace: **Setup → Path planning → Run & review**. Setup has its own page; the field appears in planning and run. **Saved setup** switches between independently saved robots, controller profiles, sensing, fields, routes, models and practice timings. New setups start with **FTC Control Hub / IMU only**. Rename with ✎ and remove with ×; at least one setup and one field always remain. Existing projects are retained; legacy sensor-free choices migrate to IMU-only and encoder-only choices gain IMU.
+Three tabs span the workspace: **Setup → Path planning → Run & review**. Setup has its own page; the field appears in planning and run. **Saved setup** switches between independently saved robots, controller profiles, sensing, fields, routes, models and practice timings. New setups start with **FTC Control Hub / drive encoders + built-in IMU**. Rename with ✎ and remove with ×; at least one setup and one field always remain. Existing sensing choices are retained; legacy sensor-free choices migrate to IMU-only and encoder-only choices gain IMU.
 
 ### Setup
 
 - **Field.** Choose a saved field: an empty field, DECODE or BIOBUZZ. Keep as many as you like (for example "Empty field 1", "Empty field 2", each with its own zones and pins). Use ✎ to rename a field and × to delete it.
   - Empty fields have editable width and depth in inches. Their dimensions affect drawing, placement, route planning and the physics walls. New empty fields can be named independently.
   - DECODE and BIOBUZZ have fixed game geometry. Add another instance to save another plan; its structures and size cannot be edited. Routes avoid floor obstacles (DECODE goals and ramps; BIOBUZZ hive legs and flower bases). **Physical game elements** is on by default for game fields. User barriers supplement the fixed structures.
-- **Controller profile.** Choose **FTC Control Hub** or **MotionModule**. Switching back to FTC restores its previous odometry choice. These are simulation profiles, not firmware deployment or hardware configuration.
+- **Controller profile.** Choose **FTC Control Hub** or **MotionModule**. Each remembers its own odometry and IMU choices when switching. These are simulation profiles, not firmware deployment or hardware configuration.
 - **Robot.** Choose a drivetrain family: mecanum, independent/coaxial/differential swerve, differential/tank with 2/4/6/8 wheels, tracks, X-drive, Kiwi, H/U-drive, or butterfly with its mecanum set lowered. Type the **front intake reach** (0 for a pushbot), chassis length and width. There is no 18-inch cap. The whole footprint must fit in the selected field.
   - Tank variants share skid-steer physics. Kiwi and H/U-drive use a generic omni-wheel approximation, and swerve variants share swerve physics. These are family models, not detailed models of every mechanism or motor arrangement. The UI identifies approximations.
   - Mecanum defaults to the actual **goBILDA Strafer 104 mm GripForce** CAD, with its default front reversed as requested. Swerve defaults to the full **NYC FIRST A301 Swechanum** CAD, inverted so its swerve wheels are below the mecanum frame. Both are grounded. Strafer's four mecanum wheels roll; A301's four lower swerve wheels roll and their holders steer, while its elevated mecanum wheels stay still. Geometry remains visual only; physics dimensions are explicit settings, including chassis height for BIOBUZZ.
@@ -30,9 +30,11 @@ Three tabs span the workspace: **Setup → Path planning → Run & review**. Set
   - **3 odometry pods + IMU:** two parallel passive wheels plus one perpendicular wheel, with IMU.
   - **goBILDA Pinpoint:** two tracking pods and the device's integrated IMU.
   - **SparkFun OTOS:** optical tracking and integrated IMU, with zero tracking pods.
-  - **MotionModule:** onboard IMU only; no motor encoders or odometry. Its planned autonomous is timed driving with IMU heading correction. It never reads physics X/Y for translation feedback. Power, forward/strafe speed at full power, start compensation and heading correction are editable. Slip, collisions and poor calibration can produce a large endpoint miss.
+  - **MotionModule:** onboard IMU by default, with optional two-pod, three-pod or SparkFun OTOS odometry. Drive motor encoders and Pinpoint are excluded. With external odometry the local simulator uses Pedro and simulated measurements; this adds no MotionModule firmware integration. With IMU only, translation uses timed power and heading correction without X/Y feedback. Power, forward/strafe speed at full power, start compensation and heading correction are editable. Slip, collisions and poor calibration can produce a large endpoint miss.
   - These are seeded measurement-error models, not vendor SDKs, I²C transactions or optical processing. Selecting IMU source records the intended setup; noise/drift settings determine simulated errors. Sources: [REV IMU](https://docs.revrobotics.com/duo-control/sensors/i2c/imu), [Pedro localization](https://pedropathing.com/docs/pathing/tuning/localization), [Pinpoint](https://www.gobilda.com/pinpoint-v2-odometry-computer-imu-sensor-fusion-for-2-wheel-odometry/) and [SparkFun FTC OTOS](https://docs.sparkfun.com/SparkFun_Optical_Tracking_Odometry_Sensor/hardware_assembly_FTC/).
-- **More settings.** Mass, wheel RPM, sensing noise/drift, path speed and correction strength. These describe the simulated robot only.
+- **Robot specs.** Length, width, height and mass are visible together. Wheel RPM is adjustable from **50 to 6,000**, with a matching slider. **Drive current budget** (1–40 A, default 20 A) scales acceleration and pushing torque relative to a 20 A reference. This is an approximation; it does not calculate battery voltage, wiring, motor count or actual electrical current draw.
+- **Driving style.** Robot-centric follows the chassis. Field-centric stick up means field +Y regardless of heading. Tank robots turn toward the stick direction before moving. Right stick turns and left bumper reduces power in both modes.
+- **More settings.** Sensing noise/drift, path speed and correction strength. These describe the simulated robot only.
 - **Open setup file… / Save setup file…** transfers one setup, including all its field layouts and its imported model, as JSON. Opening a file adds a saved setup rather than discarding the other saved setups.
 
 ### Path planning
@@ -52,6 +54,8 @@ This local build uses DSIM's actual 2D field drawing and BIOBUZZ CAD/renderer, i
 
 **Route shape** can be **Smooth curves** (cubic splines through the waypoints, the default), **Rounded corners** or **Straight lines**. Curves never come closer than half of **Space around zones**; where a curve would, that corner tightens, down to a straight line if needed. Pins with a pause, and places where the route doubles back, are full stops.
 
+Tank/differential/tracked robots use **Straight lines** with a stop and chassis turn at each corner. Planning checks the full rotation and translation sweeps against walls and obstacles. With odometry, Pedro holds the new heading until it stays within 1.5° for 0.15 s with an average rotation below 0.08 rad/s (averaged so sensor noise cannot stall the turn), then follows the next leg. IMU-only runs turn from measured heading, then drive by time. RPM, footprint, mass and current budget affect physical turn time, which counts toward autonomous time. Reverse travel avoids unnecessary 180° turns. Tank Java exports carry per-leg headings and instructions to turn before following; `.pp` adds `stopAndTurn`, which external consumers must handle explicitly.
+
 **Find fastest route** test-drives the generated shapes headlessly through physics using the selected controller: Pedro with odometry, timed power + IMU without position sensing. It keeps the fastest clean candidate that reaches the last pin and lists times. Poorly calibrated timed driving may have no qualifying candidate.
 
 **Export the route**:
@@ -62,7 +66,7 @@ This local build uses DSIM's actual 2D field drawing and BIOBUZZ CAD/renderer, i
   - `NO_GO_ZONES` as polygons.
 
   It uses the Pedro Pathing 3.x API and is checked by compiling it against Pedro's real classes.
-- **Timed commands…**, for IMU-only/MotionModule, writes JSON with powers, durations, pauses and heading settings. It states that there is no X/Y feedback. This is a simulation schedule, not a MotionModule firmware integration.
+- **Timed commands…**, for either controller with IMU-only sensing, writes JSON with powers, durations, pauses and heading settings. Tank schedules include IMU-settled turns with a 30-second failure timeout; total duration is null because turn completion depends on measured heading. There is no X/Y feedback. This is a simulation schedule, not a MotionModule firmware integration.
 - **Path file (.pp)…** writes the start point, lines, Bézier control points, and `waitAfterMs`/`waitAfterName` on each stop. Zones are included as polygon `shapes`; that part has not been checked against Pedro's visualizer.
 - **Keep the exported file updated** rewrites the file you picked every time this field's route changes. The app can only write to a file you chose in a save dialog.
 
@@ -116,6 +120,18 @@ Errors are readable and contained:
 - Printed output appears under **Program output**.
 
 **Transfers to a robot:** the route (via the Java export or `.pp`), and Pedro follower logic in the same field frame. **Does not transfer:** `deck.sim.*`. On a robot you need an OpMode that builds the `Follower` from your real drivetrain and localizer with tuned constants. MotionModule's Python runtime has no Pedro integration yet.
+
+## Research behind these changes
+
+Reviewed the pinned Pedro follower/Foresight/localizer source and DSIM drivetrain/motor model, then rebuilt both locally. Commands advance through physics at 60 Hz. The extended RPM range required longer free-speed/braking measurements and a guard against degenerate fits. Fitted linear braking terms keep a 1 ms floor: Foresight's braking quadratic divides 0/0 at a path end when that term is exactly zero. Calibration is cached per drivetrain, geometry, mass, RPM and current budget.
+
+These are references, not additional execution engines:
+- [Road Runner actions](https://rr.brott.dev/docs/v1-0/actions/): separate interruptible driving, turning and waiting stages informed the tank turn/drive sequence.
+- [PathPlanner trajectory source](https://github.com/FTC-SigmaCorns-22377/pathplanner-ftc/blob/main/lib/services/generator/trajectory.dart): curvature limits, acceleration passes and accumulated time. Our optimizer measures physics time, including turns and pauses. Per-pin speed overrides are not implemented here.
+- [Stampede](https://github.com/robovines6955/Stampede): target positions/orientations, sensor selection and heading correction reinforce separating IMU-only timing from odometry feedback. No AprilTag processing is added.
+- [Virtual Robot](https://github.com/Beta8397/virtual_robot): robot/sensor configurations and physical versus simpler kinematic models. Our setup labels drivetrain-family and sensor-error approximations.
+
+No performance or accuracy superiority over these projects has been established. Tests verify this app's behavior and regressions; real robots still need hardware-specific configuration and tuning.
 
 ## Execution adapters
 
@@ -207,7 +223,8 @@ That command includes these simulator suites:
   - IMU-only Java refusal, test drives, DECODE and BIOBUZZ 3D;
   - STEP merging and the clock patch.
 - `sim-robot-model.test.cjs`: model orientation, including every six-side assignment.
-- `sim-practice.test.cjs`: phase timing, controller arming/stale input, IMU-only teleop, large-field walls and tank limits.
+- `sim-practice.test.cjs`: phase timing, controller arming/stale input, IMU-only teleop, large-field walls and tank driving.
+- `sim-drive-profiles.test.cjs`: sensor restrictions, external MotionModule odometry, driving frames, current-limited acceleration, RPM extremes, swept tank turns, export headings and physical turn duration.
 - `sim-assets.test.cjs`: curated CAD hashes, drive-wheel groups and grounded swerve orientation.
 - `sim-field-practice.test.cjs`: A301 BIOBUZZ route completion, moving/resettable pieces, solid pushbot/hive collisions, physical custom barriers and pushing balls.
 - `sim-timed.test.cjs`: timed compilation, IMU-only execution without X/Y or Java, deliberate calibration error, FTC defaults and full transition-clock regression.
@@ -219,7 +236,7 @@ The native test is `tests/simulation-ui.cjs`. It needs `DECK_PLAYWRIGHT` and `DE
 - **Planar physics:** DECODE and the empty field are planar; drawing them in 3D does not make their physics 3D.
 - **BIOBUZZ planning:** uses floor-level hive legs/flower bases. Overhead structures collide in 3D physics, but route planning does not yet account for robot-height clearance beneath them.
 - **Heading:** routes keep the starting heading; turning while driving is not planned (your own programs may turn).
-- **Tank autonomous:** fixed-heading routes must run straight along the robot's heading; lateral or turning routes are refused. Tank teleop supports forward/reverse and turning. Holonomic families support the existing full route planner.
+- **Tank autonomous:** straight legs separated by stop-and-turn maneuvers, with full-footprint rotation checks. Planning retries with a conservative rotation envelope when needed; it can reject tight routes that a more sophisticated search might find. Continuous-curvature tank trajectories are not implemented. Holonomic routes retain constant heading.
 - **Timed driving:** translation is open-loop. IMU supplies heading, not position; calibration error, collisions and slip can cause large misses, without positional recovery.
 - **Practice scope:** driving, loose-piece contacts and autonomous timing. No user-controlled mechanisms, throwing/scoring controls, refereeing, opponents or full FTC match rules. The timer is configurable practice behavior, not an FTC SDK runtime.
 - **Models:** bundled CAD is simplified for rendering. Wheel/pod animation is visual kinematics, not articulated contact physics. User CAD stays one rigid body; very large or unsupported STEP assemblies can exceed the runtime importer's limits.

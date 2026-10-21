@@ -6,6 +6,7 @@
   const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
   // Legs end at pins with a pause, and at the last pin. Leg i is followed, then stop i's pause.
   function legs(route){
+    if(route.nonholonomic)return route.segments.map((s,i)=>{const stops=(route.stops||[]).filter(p=>p.segment===i);return {segments:[s],wait:stops.reduce((sum,p)=>sum+p.wait,0),action:stops.map(p=>p.action).filter(Boolean).join(', '),pin:i+1};});
     const out=[];let from=0;const stops=route.stops||[];
     stops.forEach((s,i)=>{const end=Math.min(s.segment,route.segments.length-1),last=i===stops.length-1;
       if((s.wait>0||last)&&end>=from){out.push({segments:route.segments.slice(from,end+1),wait:s.wait,action:s.action||'',pin:i+1});from=end+1;}
@@ -19,7 +20,7 @@
   function java(route,layout,options={}){
     const className=options.className||'PlannedRoute',packageName=options.packageName??'org.firstinspires.ftc.teamcode';validName(className,packageName);
     const parts=legs(route),zones=(layout.zones||[]).map(z=>options.polygon(z)),start=layout.start;
-    const segment=s=>s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)})).constant(HEADING)`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')}).constant(HEADING)`;
+    const segment=s=>s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)})).constant(${Number.isFinite(s.heading)?`Math.toRadians(${n(s.heading)})`:'HEADING'})`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')}).constant(HEADING)`;
     const leg=l=>l.segments.length===1?`            ${segment(l.segments[0])}`:`            Paths.path(\n${l.segments.map(s=>'                '+segment(s)).join(',\n')}\n            ).constant(HEADING)`;
     return `${packageName?`package ${packageName};\n\n`:''}import com.pedropathing.api.Paths;
 import com.pedropathing.math.Pose;
@@ -31,6 +32,7 @@ import com.pedropathing.paths.Path;
  * Pedro Pathing 3.x API. Field frame: inches, origin bottom-left, +X right, +Y up, heading CCW.
  * Robot footprint: ${n(route.footprint.front)} in front, ${n(route.footprint.rear)} in rear, ${n(route.footprint.half)} in each side; clearance ${n(route.clearance)} in.
  * Follow legs()[i], then pause WAIT_SECONDS[i] while running ACTIONS[i], then the next leg.
+ * ${route.nonholonomic?'TANK: stop and turn to legs()[i].heading(0) BEFORE each leg; wait for the IMU to settle.':'Holonomic: keep the starting heading throughout.'}
  * Generated file: change the route in the simulator and export again.
  */
 public final class ${className} {
@@ -69,12 +71,12 @@ ${parts.map(leg).join(',\n')}
   function pp(route,layout,options={}){
     const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map();
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
-    const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant}};
+    const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant,degrees:+n(s.heading??route.heading)}};
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
       const l=endsLeg.get(i);if(l&&l.wait>0){line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));
-    return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:'deck-sim-1',timestamp:options.timestamp||new Date().toISOString(),
+    return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:'deck-sim-1',stopAndTurn:!!route.nonholonomic,timestamp:options.timestamp||new Date().toISOString(),
       field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
   }
   return {legs,java,pp,validName};

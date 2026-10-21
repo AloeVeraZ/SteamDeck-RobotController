@@ -32,10 +32,12 @@
   const finite=n=>typeof n==='number'&&Number.isFinite(n),positive=(n,f)=>finite(n)&&n>=.25?n:f;
   const intake=r=>finite(r?.intakeIn)?Math.max(0,r.intakeIn):({sloped:3,vector:3.5,triangle:3}[r?.intake]??0);
   function robot(raw={}){return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
-    length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),
+    length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:Math.max(50,Math.min(6000,positive(raw.driveRpm,312))),driveAmps:Math.max(1,Math.min(40,positive(raw.driveAmps,20))),driveStyle:raw.driveStyle==='field'?'field':'robot',
     appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer'};}
   function footprint(raw){const r=robot(raw);return {front:r.length/2+r.intakeIn,rear:r.length/2,half:r.width/2};}
   function bounds(layout){if(layout?.field!=='empty')return {x0:0,y0:0,x1:144,y1:144};
     return {x0:0,y0:0,x1:positive(layout.width,144),y1:positive(layout.height,144)};}
-  return {drives,sensors,robot,intake,footprint,bounds,finite};
+  const sensorChoices=controller=>controller==='motionmodule'?['gyro','odometry','odometry3','optical']:['encoders','odometry','odometry3','fused','optical','gyro'];
+  const localization=(controller,mode)=>sensorChoices(controller).includes(mode)?mode:controller==='motionmodule'?'gyro':'encoders';
+  return {drives,sensors,sensorChoices,localization,robot,intake,footprint,bounds,finite};
 });

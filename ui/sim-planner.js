@@ -91,6 +91,14 @@
   // A point on a Bezier curve of any degree (de Casteljau). Pedro's BezierCurve uses the same control points.
   function bezier(points,t){let p=points.map(q=>({x:q.x,y:q.y}));while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];}
   function plan(project,rawFootprint,fieldZones=[],rawField){
+    if(project?.nonholonomic){
+      const request={...project,nonholonomic:false,style:'sharp'},all=(project.zones||[]).concat(fieldZones),fp=footprintOf(rawFootprint),bounds=fieldOf(rawField);
+      try{return tankRoute(plan(request,fp,fieldZones,bounds),all,fp,bounds);}catch(first){
+        // A square enclosing the rotation circle makes obstacle detours safe at any heading.
+        const radius=Math.hypot(Math.max(fp.front,fp.rear),fp.half)+.1;
+        try{return tankRoute(plan(request,{front:radius,rear:radius,half:radius},fieldZones,bounds),all,fp,bounds);}catch{throw Error('Tank route needs room to turn the whole chassis. Move the start or pins farther from obstacles and walls. '+first.message);}
+      }
+    }
     if(!project||!Array.isArray(project.pins)||project.pins.length>32||!Array.isArray(project.zones)||project.zones.length>24)throw Error('Use at most 32 pins and 24 barriers.');
     const footprint=footprintOf(rawFootprint),field=fieldOf(rawField);
     const start=project.start;if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Choose a finite starting pose.');
@@ -173,5 +181,16 @@
     for(let i=1;i<samples.length;i++)if(!sweepClear(samples[i-1],samples[i],heading,all,footprint,field))throw Error('The smoothed route failed the footprint sweep check. Increase clearance or move the pins.');
     return {style,segments:usable,samples,length,heading,clearance,footprint,field,vertices:route,pins:pins.length,stops};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,dist};
+  function tankRoute(route,zones,footprint,field){
+    let heading=route.heading;const segments=route.segments.map((s,i)=>{
+      if(s.type!=='line'||s.points.length!==2)throw Error('Replan this tank route as straight legs with chassis turns.');
+      const [a,b]=s.points,target=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+      // Preserve a straight reverse instead of making an unnecessary 180-degree turn.
+      const difference=(target-heading)*Math.PI/180,delta=Math.atan2(Math.sin(difference),Math.cos(difference))*180/Math.PI,next=Math.abs(delta)>90?target+180:target;
+      if(!safeSweep({...a,heading},{...a,heading:next},zones,footprint,field)||!sweepClear(a,b,next,zones,footprint,field))throw Error(`Leg ${i+1} lacks chassis turning or driving clearance.`);
+      heading=next;return {...s,heading};
+    });
+    return {...route,style:'sharp',nonholonomic:true,footprint,segments};
+  }
+  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,tankRoute,dist};
 });

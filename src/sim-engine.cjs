@@ -22,7 +22,7 @@ const finite=n=>typeof n==='number'&&Number.isFinite(n),clamp=(n,a,b)=>Math.max(
 function rng(seed){let s=(seed>>>0)||1;const u=()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return (s+.5)/4294967296;};return ()=>Math.sqrt(-2*Math.log(u()))*Math.cos(2*Math.PI*u());}
 
 function sensorConfig(raw={}){
-  const mode=Object.hasOwn(LOCALIZATION,raw.localization)?raw.localization:'gyro';
+  const mode=Object.hasOwn(LOCALIZATION,raw.localization)?raw.localization:'encoders';
   const defaults=config.sensors[mode].error;
   const num=(v,d,max)=>finite(v)?clamp(v,0,max):d;
   return {localization:mode,scaleError:num(raw.scaleError,defaults[0],.1),noise:num(raw.noise,defaults[1],.5),gyroDrift:num(raw.gyroDrift,defaults[2],10),seed:finite(raw.seed)?raw.seed>>>0:1};
@@ -62,7 +62,7 @@ class SimEngine{
     await this.init();this.stopProgram('Simulation reloaded.');this.practice=null;this.playing=false;this.lastLoad=raw;
     const field=Object.hasOwn(FIELDS,raw.field)?raw.field:'empty',physics=field==='biobuzz'&&raw.physics!=='2d'?'3d':'2d';
     const start=raw.start&&[raw.start.x,raw.start.y,raw.start.heading].every(finite)?{x:raw.start.x,y:raw.start.y,heading:raw.start.heading}:{x:9,y:72,heading:0};
-    this.config={field,physics,start,controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:robotConfig(raw.robot),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:'gyro'}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
+    this.config={field,physics,start,controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:robotConfig(raw.robot),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:config.localization('motionmodule',raw.sensors?.localization)}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
     this.origin=field==='empty'?{x:this.config.bounds.x1/2,y:this.config.bounds.y1/2}:{x:OFFSET,y:OFFSET};
     this.zones=Array.isArray(raw.zones)?raw.zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];
     this.build();
@@ -98,7 +98,7 @@ class SimEngine{
     const r=this.world.robots[0],p={x:c.start.x-this.origin.x,y:c.start.y-this.origin.y};
     // The game engine's competition limits do not apply to an offline pushbot. Override after
     // spawn coercion, before the first physics step (including lazy Rapier body construction).
-    Object.assign(r.spec,{length:c.robot.length,width:c.robot.width,heightIn:c.robot.heightIn,stowHeightIn:c.robot.heightIn,massLb:c.robot.massLb,driveRpm:c.robot.driveRpm,drivetrain:engineDrive,deckIntakeReach:c.robot.intakeIn});
+    Object.assign(r.spec,{length:c.robot.length,width:c.robot.width,heightIn:c.robot.heightIn,stowHeightIn:c.robot.heightIn,massLb:c.robot.massLb,driveRpm:c.robot.driveRpm,deckDriveAmps:c.robot.driveAmps,drivetrain:engineDrive,deckIntakeReach:c.robot.intakeIn});
     Object.assign(r,{pos:p,heading:c.start.heading/DEG,turretHeading:c.start.heading/DEG,vel:{x:0,y:0},angVel:0,fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false});
     this.sensors=new Sensors(c.sensors,this.truth());this.estimate=null;this.command={...ZERO};this.result=null;this.trail=[];
   }
@@ -115,17 +115,20 @@ class SimEngine{
   // Measure the simulated drivetrain the way Pedro's tuning OpModes measure a robot: free speed,
   // then braking distance from two speeds (forward, strafe, turn) on a separate empty world.
   tuning(spec){
-    const D=this.dsim,key=JSON.stringify([spec.drivetrain,spec.length,spec.width,spec.intake,spec.deckIntakeReach,spec.massLb,spec.driveRpm]);
+    const D=this.dsim,key=JSON.stringify([spec.drivetrain,spec.length,spec.width,spec.intake,spec.deckIntakeReach,spec.massLb,spec.driveRpm,spec.deckDriveAmps]);
     if(this._tuning?.key===key)return {...this._tuning.value,...this.userTuning()};
     const make=()=>{const w=D.SIM_GAMES.decode.createWorld('free',1,[{id:0,alliance:'blue',spec,assists:{fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false},startIndex:0}]);w.balls=[];Object.assign(w.robots[0].spec,spec);Object.assign(w.robots[0],{pos:{x:0,y:0},heading:0,vel:{x:0,y:0},angVel:0,fieldCentric:false,autoIntake:false,autoFire:false,aimAssist:false,hopper:[]});return w;};
     const brake=(axis,power)=>{if(axis==='strafe'&&D.driveParams(spec).strafeMult===0)return brake('forward',power);const w=make(),r=w.robots[0],cmd={...ZERO,[axis]:power};
       // Far walls: measure free motion, not a collision.
       const saved=this._empty;this._empty={statics:[],bounds:{halfX:1e6,halfY:1e6}};
-      try{for(let i=0;i<90;i++)this.physicsStep(w,cmd);const v=axis==='turn'?r.angVel:Math.hypot(r.vel.x,r.vel.y),p0={...r.pos},h0=r.heading;for(let i=0;i<120;i++)this.physicsStep(w,ZERO);
+      const dp=D.driveParams(spec),limit=axis==='turn'?dp.maxTurn:dp.maxSpeed*(axis==='strafe'?dp.strafeMult:1),accel=axis==='turn'?dp.turnAccel:dp.accel,steps=Math.min(18000,Math.max(90,Math.ceil(4*limit/Math.max(.01,accel)/D.SIM_DT)));
+      try{for(let i=0;i<steps;i++)this.physicsStep(w,cmd);const v=axis==='turn'?r.angVel:Math.hypot(r.vel.x,r.vel.y),p0={...r.pos},h0=r.heading;for(let i=0;i<Math.max(120,steps);i++){this.physicsStep(w,ZERO);if(Math.hypot(r.vel.x,r.vel.y)<1e-5&&Math.abs(r.angVel)<1e-5)break;}
         return {v:Math.abs(v),d:axis==='turn'?Math.abs(r.heading-h0):Math.hypot(r.pos.x-p0.x,r.pos.y-p0.y)};}finally{this._empty=saved;}};
-    const fit=(a,b)=>{const det=a.v*a.v*b.v-b.v*b.v*a.v,q=(a.d*b.v-b.d*a.v)/det,l=(a.v*a.v*b.d-b.v*b.v*a.d)/det;return {q:Math.max(q,1e-6),l:Math.max(l,0)};};
-    const f=fit(brake('forward',1),brake('forward',.5)),s=fit(brake('strafe',1),brake('strafe',.5)),h=fit(brake('turn',1),brake('turn',.5));
-    const fwd=brake('forward',1),str=brake('strafe',1);
+    // Foresight solves q·v² + l·v = distance; with l = 0 and distance 0 its root is 0/0 = NaN at
+    // the end of a path. Keep a 1 ms linear term (≤ 0.1 in of braking at full speed).
+    const LINEAR_MIN=1e-3,fit=(a,b)=>{const det=a.v*a.v*b.v-b.v*b.v*a.v;if(Math.abs(det)<1e-9)return {q:Math.max(1e-6,a.d/Math.max(1e-9,a.v*a.v)),l:LINEAR_MIN};const q=(a.d*b.v-b.d*a.v)/det,l=(a.v*a.v*b.d-b.v*b.v*a.d)/det;return {q:Math.max(q,1e-6),l:Math.max(l,LINEAR_MIN)};};
+    const fwd=brake('forward',1),f=fit(fwd,brake('forward',.5)),tank=D.driveParams(spec).strafeMult===0;
+    const str=tank?fwd:brake('strafe',1),s=tank?f:fit(str,brake('strafe',.5)),h=fit(brake('turn',1),brake('turn',.5));
     const value={maxForward:fwd.v,maxStrafe:str.v,forwardDeceleration:fwd.v*fwd.v/(2*fwd.d),strafeDeceleration:str.v*str.v/(2*str.d),
       linearBrakeForward:f.l,linearBrakeStrafe:s.l,quadraticBrakeForward:f.q,quadraticBrakeStrafe:s.q,headingBrakeLinear:h.l,headingBrakeQuadratic:h.q,
       // Feedback gains and the path-speed cap were chosen by sweeping runs on DSIM's drive model
@@ -146,7 +149,7 @@ class SimEngine{
   }
   manualCommand(){
     const m=this.manualInput;if(!m)return {...ZERO};const h=this.world.robots[0].heading,k=m.precision?.4:1;let forward=m.y,left=-m.x;
-    if(m.fieldCentric){forward=m.x*Math.cos(h)+m.y*Math.sin(h);left=-m.x*Math.sin(h)+m.y*Math.cos(h);}
+    if(m.fieldCentric){forward=m.x*Math.cos(h)+m.y*Math.sin(h);left=-m.x*Math.sin(h)+m.y*Math.cos(h);if(!config.drives[this.config.robot.drivetrain].holonomic){const magnitude=Math.hypot(m.x,m.y),error=wrap(Math.atan2(m.y,m.x)-h);return {forward:magnitude>.05?Math.min(1,magnitude)*Math.max(0,Math.cos(error))*(Math.abs(error)<.2?1:0)*k:0,strafe:0,turn:clamp((magnitude>.05?error*1.5:0)-m.turn,-1,1)*k};}}
     return {forward:forward*k,strafe:left*k,turn:-m.turn*k};
   }
   async pump(){
@@ -181,7 +184,7 @@ class SimEngine{
     const n=v=>finite(v)?clamp(v,-1,1):0,valid=pad&&pad.mapping==='standard',x=valid?n(pad.axes?.[0]):0,y=valid?-n(pad.axes?.[1]):0,turn=valid?n(pad.axes?.[2]):0;
     if(!valid){this.manualInput=null;this.practice.neutralRequired=true;return;}
     if(this.practice.neutralRequired){this.manualInput=null;if(Math.max(Math.abs(x),Math.abs(y),Math.abs(turn))<=.06){this.practice.neutralRequired=false;this.practiceInputAt=this.now();}return;}
-    this.practiceInputAt=this.now();this.manualInput={x,y,turn,fieldCentric:false,precision:!!pad.buttons?.[4]?.pressed};
+    this.practiceInputAt=this.now();this.manualInput={x,y,turn,fieldCentric:this.config.robot.driveStyle==='field',precision:!!pad.buttons?.[4]?.pressed};
   }
   async practiceTick(){
     const practice=this.practice,seq=this.runSeq;
@@ -202,9 +205,9 @@ class SimEngine{
     if(!planner.safePose(this.config.start,[],this.info.footprint,this.info.bounds))throw Error('The starting robot footprint must fit inside this field. Change the field size, robot size or starting pose.');
     const kind=program.kind==='source'?'source':'route';
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');
-    const timed=kind==='route'&&(this.config.controller==='motionmodule'||!config.sensors[this.config.sensors.localization].translation);
+    const timed=kind==='route'&&!config.sensors[this.config.sensors.localization].translation;
     if(kind==='source'&&!config.sensors[this.config.sensors.localization].translation)throw Error('IMU-only sensing cannot measure X/Y for this Pedro Java program. Run the timed planned route, or select odometry in the FTC setup.');
-    if(kind==='route'&&!config.drives[this.config.robot.drivetrain].holonomic){const h=program.route.heading/DEG,s=this.config.start;for(const q of program.route.segments.flatMap(segment=>segment.points||[]))if(Math.abs(-(q.x-s.x)*Math.sin(h)+(q.y-s.y)*Math.cos(h))>.05)throw Error('This tank drivetrain cannot strafe. Use a straight route along its starting heading; turning routes need heading planning.');}
+    if(kind==='route'&&!config.drives[this.config.robot.drivetrain].holonomic)program={...program,route:planner.tankRoute(program.route,this.zones.concat(this.info.fieldZones),this.info.footprint,this.info.bounds)};
     if(kind==='source'&&(typeof program.source!=='string'||!program.source.trim()))throw Error('Choose a Java program first.');
     if(kind==='source'&&program.source.length>200000)throw Error('Program source is limited to 200 KB.');
     this.stopProgram('Restarted.');this.build();this.violations=new Set();

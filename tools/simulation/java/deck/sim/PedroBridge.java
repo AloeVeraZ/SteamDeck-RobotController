@@ -182,18 +182,26 @@ public final class PedroBridge {
                 List<Vector2D> points = new ArrayList<>();
                 for (JsonElement p : s.getAsJsonArray("points")) points.add(Vector2D.cartesian(num(p.getAsJsonObject(), "x"), num(p.getAsJsonObject(), "y")));
                 Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Vector2D[0]));
-                parts.add(part.constant(heading));
+                parts.add(part.constant(kind == SimDrivetrain.Kind.TANK && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading));
             }
             if (!parts.isEmpty()) route = chain(parts, heading);
             // A pin with a pause ends a leg: the robot stops there, waits, then follows the next leg.
             JsonArray stops = r.getAsJsonArray("stops");
             int from = 0;
+            if (kind == SimDrivetrain.Kind.TANK) {
+                for (int i = 0; i < parts.size(); i++) {
+                    legs.add(parts.get(i)); double pause = 0; String action = "";
+                    for (JsonElement e : stops) { JsonObject stop = e.getAsJsonObject(); if (stop.get("segment").getAsInt() == i) { pause += num(stop, "wait"); action = stop.get("action").getAsString(); } }
+                    waits.add(pause); actions.add(action);
+                }
+            }
             for (int i = 0; i < stops.size(); i++) {
                 JsonObject s = stops.get(i).getAsJsonObject();
                 pins.add(new Pose(num(s, "x"), num(s, "y"), heading));
                 double wait = num(s, "wait");
                 int end = Math.min(s.get("segment").getAsInt(), parts.size() - 1);
                 boolean last = i == stops.size() - 1;
+                if (kind == SimDrivetrain.Kind.TANK) continue;
                 if ((wait > 0 || last) && end >= from) {
                     legs.add(chain(parts.subList(from, end + 1), heading));
                     waits.add(wait);
@@ -210,7 +218,7 @@ public final class PedroBridge {
         robot = new SimRobot(follower, config, startPose, route, pins, legs, waits, actions);
         JsonObject programSpec = m.getAsJsonObject("program");
         String kindName = programSpec.get("kind").getAsString();
-        if ("route".equals(kindName)) program = new RouteAutonomous();
+        if ("route".equals(kindName)) program = new RouteAutonomous(kind == SimDrivetrain.Kind.TANK);
         else program = compile(programSpec.get("source").getAsString(), new File(m.get("workDir").getAsString()));
         try {
             program.init(robot);

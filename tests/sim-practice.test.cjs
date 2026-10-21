@@ -22,7 +22,7 @@ function engine(now=()=>0){const {SimEngine}=require('../src/sim-engine.cjs');re
 const pad=(x=0,y=0,turn=0)=>({mapping:'standard',axes:[x,y,turn,0],buttons:[]});
 test('IMU-only defaults do not invent odometry; teleop works without odometry and requires neutral',{skip:!built},async()=>{
   let wallTime=0;const e=engine(()=>wallTime);try{
-    const info=await e.load({field:'empty',width:300,height:180,start:{x:35,y:72,heading:0},robot:{length:24,width:23,intakeIn:2.5}});
+    const info=await e.load({field:'empty',width:300,height:180,start:{x:35,y:72,heading:0},sensors:{localization:'gyro'},robot:{length:24,width:23,intakeIn:2.5}});
     assert.equal(info.sensors.localization,'gyro');assert.equal(info.bounds.x1,300);assert.equal(info.robot.length,24);assert.equal(info.footprint.front,14.5);
     const reading=e.sensors.read(e.truth(),1/60);assert.equal(reading.odo,null);assert.ok(Number.isFinite(reading.imu)&&Math.abs(reading.imu)<.01);
     await assert.rejects(e.run({kind:'source',source:'test'}),/IMU-only/);
@@ -46,14 +46,14 @@ test('full practice blocks controllers through autonomous and transition, preser
   }finally{e.dispose();}
 });
 test('custom field walls use the configured dimensions in physics, not the standard 144-inch square',{skip:!built},async()=>{
-  const e=engine();try{await e.load({field:'empty',width:240,height:180,start:{x:35,y:72,heading:0},robot:{length:24,width:22,intakeIn:0}});
+  const e=engine();try{await e.load({field:'empty',width:240,height:180,start:{x:35,y:72,heading:0},sensors:{localization:'gyro'},robot:{length:24,width:22,intakeIn:0}});
     for(let i=0;i<600;i++)e.tick({forward:1,strafe:0,turn:0});assert.ok(e.truth().x>220&&e.truth().x+12<=240.5,JSON.stringify(e.truth()));
     for(let i=0;i<600;i++)e.tick({forward:0,strafe:1,turn:0});assert.ok(e.truth().y>160&&e.truth().y+11<=180.5,JSON.stringify(e.truth()));
   }finally{e.dispose();}
 });
 test('tank families cannot strafe; their straight autonomous uses Pedro and reaches its pin',{skip:!built},async()=>{
   const e=engine();try{const start={x:30,y:72,heading:0},info=await e.load({field:'empty',start,robot:{drivetrain:'tank6',length:24,width:22,intakeIn:0,massLb:23.5,driveRpm:400},sensors:{localization:'ideal'}});assert.equal(info.drive.maxStrafe,0);
-    const lateral=P.plan({start,pins:[{x:30,y:110}],zones:[]},info.footprint,[],info.bounds);await assert.rejects(e.run({kind:'route',route:lateral}),/cannot strafe/);
+    const lateral=P.plan({start,pins:[{x:30,y:110}],zones:[]},info.footprint,[],info.bounds);assert.equal((await e.run({kind:'route',route:lateral})).ok,true);for(let i=0;i<1200&&e.mode==='program';i++)await e.programTick();assert.ok(e.result);assert.ok(Math.hypot(e.result.truth.x-30,e.result.truth.y-110)<1.5,JSON.stringify(e.result));
     const straight=P.plan({start,pins:[{x:110,y:72}],zones:[]},info.footprint,[],info.bounds);assert.equal((await e.run({kind:'route',route:straight})).ok,true);
     for(let i=0;i<1200&&e.mode==='program';i++)await e.programTick();assert.ok(e.result,'tank autonomous finished');assert.ok(Math.hypot(e.result.truth.x-110,e.result.truth.y-72)<1.5,JSON.stringify(e.result));
   }finally{e.dispose();}
