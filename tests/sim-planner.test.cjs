@@ -2,7 +2,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const planner=require('../ui/sim-planner.js'),{ClipperLib}=require('../ui/vendor/planning.cjs');
 const square={front:9,rear:9,half:9};
-const plan=(zones,pins,options={})=>planner.plan({start:options.start||{x:12,y:72,heading:0},zones,pins,clearance:options.clearance??1,smooth:options.smooth},options.footprint||square,options.fieldZones||[],options.field);
+const plan=(zones,pins,options={})=>planner.plan({start:options.start||{x:12,y:72,heading:0},zones,pins,clearance:options.clearance??1,smooth:options.smooth,rotate:options.rotate},options.footprint||square,options.fieldZones||[],options.field);
 const rect=(x,y,width,height,angle=0,id)=>({id:id||`r${x}-${y}`,type:'rect',x,y,width,height,angle});
 
 // Distance between two convex polygons that do not overlap.
@@ -63,11 +63,14 @@ test('blocked and invalid goals give readable errors',()=>{
 });
 test('asymmetric intake footprint is respected at the wall',()=>{
   const intake={front:14,rear:7,half:8};
-  assert.throws(()=>plan([],[{x:131,y:72}],{footprint:intake,start:{x:20,y:72,heading:0}}),/insufficient/);
+  // At the starting heading the intake cannot reach x=131; turning around puts the short rear there.
+  assert.throws(()=>plan([],[{x:131,y:72}],{footprint:intake,start:{x:20,y:72,heading:0},rotate:false}),/insufficient/);
+  const turned=plan([],[{x:131,y:72}],{footprint:intake,start:{x:20,y:72,heading:0}});assert.equal(turned.turns,true);assert.ok(planner.safePose({x:131,y:72,heading:turned.segments.at(-1).heading},[],intake));
+  for(const s of turned.segments)assert.ok(planner.sweepClear(s.points[0],s.points[1],s.heading,[],intake));
   const r=plan([],[{x:129,y:72}],{footprint:intake,start:{x:20,y:72,heading:0}});assertSafe(r,[],intake);
   // Facing left the long intake side swaps walls.
   const back=plan([],[{x:16,y:72}],{footprint:intake,start:{x:100,y:72,heading:180}});assertSafe(back,[],intake);
-  assert.throws(()=>plan([],[{x:13.5,y:72}],{footprint:intake,start:{x:100,y:72,heading:180}}),/insufficient/);
+  assert.throws(()=>plan([],[{x:13.5,y:72}],{footprint:intake,start:{x:100,y:72,heading:180},rotate:false}),/insufficient/);
   const flush=plan([],[{x:14,y:72}],{footprint:intake,start:{x:100,y:72,heading:180}});assertSafe(flush,[],intake);
 });
 test('circles, triangles and rotated rectangles in one ordered multi-pin route',()=>{

@@ -12,7 +12,7 @@ const {deadzone}=require('../ui/controller-calibration.js');let calibrationFile,
 const discovery=require('./discovery.cjs');let finding=null;
 const {RobotKeyboard}=require('./touch-keyboard.cjs');let robotKeyboard;
 const controllerSessions=new WeakSet(),controllerArguments=process.env.DECK_CONTROLLER_TEST==='1'?['--deck-controller-fixtures']:[];
-const robotArguments=()=>[...controllerArguments,...(device.builtInController?['--deck-touch-first']:[])];
+const robotArguments=()=>[...controllerArguments,...(device.builtInController?['--deck-touch-first']:[]),...(touchKeyboard?[]:['--deck-touch-keyboard-off'])];
 const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=null,pollTimer,active=null,currentNetwork=null,opening=false,viewBounds={x:0,y:127,width:1280,height:643};
 // FTC robots: robotView is the bundled Driver Station page, bridge its UDP socket; managerView is Program & Manage.
 let managerView=null,managerProxy=null;
@@ -30,7 +30,9 @@ function emit(channel,value){try{if(win&&!win.isDestroyed())win.webContents.send
 function snapshot(){return {...state,zoom:currentZoom(),robots:library?.list(currentNetwork?.ssid),network:currentNetwork};}
 function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||state.error||!state.url)robotKeyboard?.hide({focus:false});if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);syncAwake();emit('state',snapshot());}
 // Keep the display on while a robot is open (Settings preference, on by default).
-let keepAwake=true,awakeBlocker=null;
+let keepAwake=true,awakeBlocker=null,touchKeyboard=true;
+// Robot pages learn the on-screen keyboard preference on load and whenever it changes.
+function sendTouchKeyboard(contents){if(contents&&!contents.isDestroyed())contents.send('deck-touch-keyboard-enabled',touchKeyboard);}
 function syncAwake(){const wanted=keepAwake&&!!robotView&&!suspended;if(wanted&&awakeBlocker===null)awakeBlocker=powerSaveBlocker.start('prevent-display-sleep');else if(!wanted&&awakeBlocker!==null){powerSaveBlocker.stop(awakeBlocker);awakeBlocker=null;}}
 // Robot page zoom, remembered per saved robot (and separately for Program & Manage).
 const zoomSteps=[.5,.67,.75,.8,.9,1,1.1,1.25,1.5,1.75,2];let zoomFile='',zooms={};
@@ -149,7 +151,7 @@ async function runShortcut(action){
 // menu or dialog is open, where it only closes that. The key still reaches the page.
 function leaveFullscreen(){if(state.robotFullscreen)void setRobotFullscreen(false);else if(win&&!win.isDestroyed()&&win.isFullScreen())win.setFullScreen(false);}
 function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{if(keyboardSource&&state.page!=='simulation'&&DeckKeyboard.used.has(input.code))keyboardKey(input);if(input.type==='keyDown'&&input.key==='Escape'&&!(shell&&(overlay||auth)))leaveFullscreen();const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
-function robotEscape(contents){keys(contents);contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape')robotKeyboard?.hide();});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
+function robotEscape(contents){keys(contents);contents.on('dom-ready',()=>sendTouchKeyboard(contents));contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape')robotKeyboard?.hide();});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
 handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
 async function refreshNetwork(){
@@ -294,7 +296,7 @@ handle('bounds',bounds=>{if(!bounds||!['x','y','width','height'].every(k=>Number
 handle('overlay',visible=>{const previous=overlay;overlay=!!visible;if(overlay)robotKeyboard?.hide({focus:false});fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
 handle('robot-focus',()=>{if(state.page==='drive'&&!overlay&&!auth&&!robotKeyboard?.visible&&win.isFocused())(managerView||robotView)?.webContents.focus();});
 async function goBack(){const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();}
-handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',goBack);handle('zoom',step=>setZoom(Math.sign(Number(step))||0));handle('keep-awake',enabled=>{keepAwake=enabled!==false;syncAwake();return keepAwake;});
+handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',goBack);handle('zoom',step=>setZoom(Math.sign(Number(step))||0));handle('keep-awake',enabled=>{keepAwake=enabled!==false;syncAwake();return keepAwake;});handle('touch-keyboard',enabled=>{touchKeyboard=enabled!==false;if(!touchKeyboard)robotKeyboard?.hide({focus:false});for(const view of [robotView,managerView])sendTouchKeyboard(view?.webContents);return touchKeyboard;});
 handle('controllers',()=>controllerHub.state().slots);
 handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
 handle('controller-source',source=>{if(!['controller','keyboard'].includes(source))throw Error('Choose a controller or the keyboard.');keyboardSource=source==='keyboard';keysDown.clear();try{fs.writeFileSync(sourceFile,JSON.stringify({controller1:source}),{mode:0o600});}catch{}ingestPads(lastPads);if(!keyboardSource){controllerHub.promote();ingestPads(lastPads);}sendControllers(true);return controllerState();});
@@ -335,7 +337,7 @@ app.whenReady().then(async()=>{
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
   win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
-  robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
+  robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>touchKeyboard&&!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)ingestPads([]);sendControllers();},100);controllerTimer.unref();
   win.webContents.on('render-process-gone',()=>{lastControllerInput=0;ingestPads([]);sendControllers(true);simulation.stop();});
   simulation=new SimulationHost({utilityProcess,dataDir:app.getPath('userData'),emit:message=>emit('sim-event',message)});

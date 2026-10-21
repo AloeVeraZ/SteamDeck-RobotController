@@ -21,7 +21,7 @@ function renderLibrary(force=false){
   $('#library-empty').hidden=robots.length>0;$('#library-empty').textContent=all.length?'No robots match your search.':'No saved robots yet. Opened addresses appear here.';
   $('#quick-robots').replaceChildren(...all.filter(r=>!r.ssid||r.ssid===wifi.ssid).slice(0,4).map(r=>{const b=el('button'),name=el('strong','',r.name);name.title=r.name;b.append(name,el('small','',r.ssid===wifi.ssid&&r.ssid?'On this network':new URL(r.url).host));b.onclick=()=>void task(()=>openRobot({id:r.id}));return b;}));
 }
-const robotFullscreen=window.DeckRobotFullscreen.create(api),touchscreen=window.DeckTouchUI.create({handheld:()=>hardware.builtInController});
+const robotFullscreen=window.DeckRobotFullscreen.create(api),touchscreen=window.DeckTouchUI.create({handheld:()=>hardware.builtInController,enabled:()=>$('#touch-keyboard-auto').checked});window.DeckNumberSliders.attach(document.body);
 document.addEventListener('click',event=>{if(event.pointerType==='touch'&&state.page==='drive')setTimeout(()=>void api.robotFocus?.().catch(()=>{}),0);});
 const simulation=window.DeckSimulation.create($('#simulation-view'));
 const robotDiscovery=window.DeckRobotDiscovery.create({api,found:robot=>{$('#robot-id').value='';$('#robot-url').value=robot.url;$('#robot-name').value='';$('#robot-ftc').checked=robot.kind==='ftc';}});
@@ -73,13 +73,15 @@ $('#update-main').onclick=()=>{if(selectedChannel!=='main')void switchChannel('m
 $('#update-testing').onclick=()=>{if(selectedChannel==='testing')return;resetUpdateResult();$('#testing-warning').hidden=false;$('#update-check').disabled=true;$('#testing-confirm').focus();};
 $('#testing-confirm').onclick=()=>void switchChannel('testing',true);$('#testing-cancel').onclick=()=>{$('#testing-warning').hidden=true;$('#update-check').disabled=false;$('#update-main').focus();};
 
-// Preferences stay on this device: theme, keep-awake and shortcut labels.
+// Preferences stay on this device: theme, keep-awake, on-screen keyboard and shortcut labels.
 const prefs={get:(key,fallback)=>{try{return localStorage.getItem(key)??fallback;}catch{return fallback;}},set:(key,value)=>{try{localStorage.setItem(key,value);}catch{}}};
 function applyTheme(theme){if(theme==='light'||theme==='dark')document.documentElement.dataset.theme=theme;else delete document.documentElement.dataset.theme;for(const b of document.querySelectorAll('[data-theme-choice]'))b.setAttribute('aria-pressed',String(b.dataset.themeChoice===theme));}
 for(const b of document.querySelectorAll('[data-theme-choice]'))b.onclick=()=>{prefs.set('deck-theme',b.dataset.themeChoice);applyTheme(b.dataset.themeChoice);};
 applyTheme(prefs.get('deck-theme','system'));
 const sendKeepAwake=()=>void api.keepAwake?.($('#keep-awake').checked).catch(()=>{});
 $('#keep-awake').checked=prefs.get('deck-keep-awake','on')!=='off';$('#keep-awake').onchange=()=>{prefs.set('deck-keep-awake',$('#keep-awake').checked?'on':'off');sendKeepAwake();};sendKeepAwake();
+const sendTouchKeyboard=()=>void api.touchKeyboard?.($('#touch-keyboard-auto').checked).catch(()=>{});
+$('#touch-keyboard-auto').checked=prefs.get('deck-touch-keyboard','on')!=='off';$('#touch-keyboard-auto').onchange=()=>{prefs.set('deck-touch-keyboard',$('#touch-keyboard-auto').checked?'on':'off');if(!$('#touch-keyboard-auto').checked)touchscreen.hide();sendTouchKeyboard();};sendTouchKeyboard();
 if(/Mac/i.test(navigator.platform)){for(const key of document.querySelectorAll('kbd.mod'))key.textContent='⌘';$('.back-key').replaceChildren(el('kbd','','⌘'),' ',el('kbd','','['));}
 $('#zoom-reset').onclick=()=>void task(()=>api.zoom(0));
 

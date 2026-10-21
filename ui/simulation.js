@@ -40,7 +40,7 @@ public class MyAuto implements DeckAutonomous {
   // ------------------------------------------------------------------ project
   const ROBOT=C.robot();
   const newId=()=>'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-  const layout=(game,name)=>({id:newId(),name,field:game,width:144,height:144,elements:true,start:null,zones:[],pins:[],clearance:2,style:'spline',route:null,tested:null});
+  const layout=(game,name)=>({id:newId(),name,field:game,width:144,height:144,elements:true,start:null,zones:[],pins:[],clearance:2,style:'spline',rotate:true,route:null,tested:null});
   function defaults(){const layouts=[layout('empty','Empty field 1'),layout('decode','DECODE'),layout('biobuzz','BIOBUZZ')];
     return {version:2,setupId:newId(),setupName:'Setup 1',setups:[],controller:'ftc',imuSource:'hub',ftcSensors:null,motionSensors:null,timing:window.DeckTimed.settings(),orientations:{},hitboxes:false,robot:{...ROBOT},sensors:{localization:'encoders',gyroDrift:.5,noise:.05},tuning:{maxPathSpeed:.6},practice:{mode:'autonomous',autoSeconds:30,transitionSeconds:8,teleopSeconds:120},program:{kind:'route',name:'',source:EXAMPLE},model:null,view:'2d',layouts,active:layouts[0].id,export:{packageName:'org.firstinspires.ftc.teamcode',className:'PlannedRoute',keep:false}};}
   function cleanLayout(raw){
@@ -49,7 +49,7 @@ public class MyAuto implements DeckAutonomous {
     if(raw?.start&&[raw.start.x,raw.start.y,raw.start.heading].every(finite))l.start={x:raw.start.x,y:raw.start.y,heading:field.heading(raw.start.heading)};
     if(Array.isArray(raw?.zones))l.zones=raw.zones.slice(0,24).map((z,i)=>{try{return planner.validateZone({...z,id:z.id||'zone-'+i});}catch{return null;}}).filter(Boolean);
     if(Array.isArray(raw?.pins))l.pins=raw.pins.slice(0,32).filter(q=>q&&finite(q.x)&&finite(q.y)).map(q=>({x:q.x,y:q.y,wait:finite(q.wait)?Math.min(30,Math.max(0,q.wait)):0,action:typeof q.action==='string'?q.action.slice(0,40):''}));
-    if(finite(raw?.clearance))l.clearance=Math.min(6,Math.max(planner.MIN_CLEARANCE,raw.clearance));if(Object.hasOwn(STYLES,raw?.style))l.style=raw.style;
+    if(finite(raw?.clearance))l.clearance=Math.min(6,Math.max(planner.MIN_CLEARANCE,raw.clearance));if(Object.hasOwn(STYLES,raw?.style))l.style=raw.style;l.rotate=raw?.rotate!==false;
     if(raw?.route&&Array.isArray(raw.route.segments)&&Array.isArray(raw.route.samples)&&Array.isArray(raw.route.stops))l.route=raw.route;if(Array.isArray(raw?.tested))l.tested=raw.tested.slice(0,6);
     return l;
   }
@@ -81,7 +81,7 @@ public class MyAuto implements DeckAutonomous {
   let tab='setup',planningStep='start',runAttempt=0,loadError='';
   const L=()=>project.layouts.find(l=>l.id===project.active)||project.layouts[0];
   if(!L().start){try{const legacy=field.restore(localStorage.getItem(field.KEY));if(legacy&&L().field==='empty')L().start=legacy;}catch{}}
-  let planError='',blockedPin=-1,sketch=null,cursor=null,info=null,frame=null,selected=null,tool=L().start?'select':'start',active=false,pointer=null,drag=null,planSeq=0,keys=new Set(),trail=[],loading=null,view3d=null,runState='idle',logLines=[],model=null,modelPreview=null,selectedSide=null,optimizing=false;
+  let planError='',blockedPin=-1,sketch=null,cursor=null,info=null,frame=null,selected=null,tool='start',active=false,pointer=null,startGrab={dx:0,dy:0},stroke=null,drag=null,planSeq=0,keys=new Set(),trail=[],loading=null,view3d=null,runState='idle',logLines=[],model=null,modelPreview=null,selectedSide=null,optimizing=false;
   const fallbackFootprint=()=>C.footprint(project.robot);
   const geometry=()=>({footprint:info?.footprint||fallbackFootprint(),bounds:info?.bounds||C.bounds(L())});
   const fieldHeight=()=>L().field==='empty'?L().height:144;
@@ -97,7 +97,7 @@ public class MyAuto implements DeckAutonomous {
     <div class="sim-setup-bar"><label for="sim-setup">Saved setup</label><select id="sim-setup"></select><button id="sim-setup-new" type="button" class="secondary">New setup</button><button id="sim-setup-rename" type="button" class="icon-button" aria-label="Rename setup">✎</button><button id="sim-setup-delete" type="button" class="icon-button" aria-label="Delete setup">×</button><span class="hint">Saved on this computer</span></div>
     <div class="simulation-layout"><section class="field-area" aria-label="Simulation field">
       <div class="sim-toolbar">
-        ${segmented('tool',{select:'Select',rect:'Box',circle:'Circle',triangle:'Triangle',shape:'Shape',pin:'Pin'},'Field tool')}
+        ${segmented('tool',{select:'Select',rect:'Box',circle:'Circle',triangle:'Triangle',shape:'Shape',pin:'Pin',draw:'Draw path'},'Field tool')}
         <div class="sim-transport"><button type="button" id="sim-play" class="secondary">Play</button><button type="button" id="sim-stop" class="secondary">Stop</button><button type="button" id="sim-reset" class="secondary">Reset</button><button type="button" id="sim-hitboxes" class="secondary" aria-pressed="false" hidden>Hitboxes</button>${segmented('view',{'2d':'2D','3d':'3D'},'View')}</div>
       </div>
       <div class="sim-stage" id="sim-stage">
@@ -113,18 +113,18 @@ public class MyAuto implements DeckAutonomous {
       <div data-panel="setup" id="sim-panel-setup" role="tabpanel" aria-labelledby="sim-tab-setup"><section class="sim-controller-setup"><h2>Robot controller</h2>${segmented('controller',{ftc:'FTC Control Hub',motionmodule:'MotionModule'},'Robot controller')}<p id="sim-controller-note" class="hint"></p></section><div class="sim-setup-grid"><section class="sim-card sim-field-card">
         <h2>Field</h2><div class="sim-row"><label class="sr-only" for="sim-field">Field</label><select id="sim-field"></select><button type="button" id="sim-layout-rename" class="icon-button" aria-label="Rename this field" title="Rename">✎</button><button type="button" id="sim-layout-delete" class="icon-button" aria-label="Delete this field" title="Delete">×</button></div>
         <p id="sim-field-note" class="hint"></p>
-        <div class="start-xy"><div><label for="sim-field-width">Field width · in</label><input id="sim-field-width" type="number" min="1" step="any"></div><div><label for="sim-field-height">Field depth · in</label><input id="sim-field-height" type="number" min="1" step="any"></div></div><p class="hint" id="sim-field-size-note"></p>
+        <div class="start-xy"><div><label for="sim-field-width">Field width · in</label><input id="sim-field-width" type="number" min="1" step="any" data-slider-min="24" data-slider-max="288" data-slider-step="1"></div><div><label for="sim-field-height">Field depth · in</label><input id="sim-field-height" type="number" min="1" step="any" data-slider-min="24" data-slider-max="288" data-slider-step="1"></div></div><p class="hint" id="sim-field-size-note"></p>
         <label class="check"><input id="sim-game-elements" type="checkbox"> Physical game elements</label><p class="hint">Balls and field pieces use the game engine's physics. This is driving practice; robot mechanisms and scoring controls are not included.</p>
         <section id="sim-start-controls"><h2 id="start-title">Starting pose</h2>
-        <form id="start-form"><div class="sim-grid3"><div><label for="start-x">X · in</label><input id="start-x" type="number" step="any" required inputmode="decimal"></div><div><label for="start-y">Y · in</label><input id="start-y" type="number" step="any" required inputmode="decimal"></div><div><label for="start-heading">Heading °</label><input id="start-heading" type="number" step="any" required inputmode="decimal"></div></div>
+        <form id="start-form"><div class="sim-grid3"><div><label for="start-x">X · in</label><input id="start-x" type="number" step="any" required inputmode="decimal" data-slider-min="0" data-slider-max="144" data-slider-step="0.5" data-slider-submit></div><div><label for="start-y">Y · in</label><input id="start-y" type="number" step="any" required inputmode="decimal" data-slider-min="0" data-slider-max="144" data-slider-step="0.5" data-slider-submit></div><div><label for="start-heading">Heading °</label><input id="start-heading" type="number" step="any" required inputmode="decimal" data-slider-min="-180" data-slider-max="180" data-slider-step="1" data-slider-submit></div></div>
         <button class="primary" type="submit">Set starting pose</button></form>
-        <div class="button-row"><button id="start-place" class="secondary" type="button">Place on field</button><button id="start-edge" class="secondary" type="button">Start at edge</button></div>
+        <div class="button-row"><button id="start-edge" class="secondary" type="button">Start at edge</button></div><p class="hint">Or drag the robot on the field in Path planning → Starting pose.</p>
         <p id="start-status" role="status"></p></section>
         </section><section class="sim-card sim-robot-card"><h2>Robot</h2>
-        <div class="start-xy"><div><label for="sim-drivetrain">Drivetrain</label><select id="sim-drivetrain">${options(Object.fromEntries(Object.entries(C.drives).map(([k,v])=>[k,v.name])),project.robot.drivetrain)}</select></div><div><label for="sim-intake">Front intake reach · in</label><input id="sim-intake" type="number" min="0" step="any"></div></div><p id="sim-drive-note" class="hint"></p>
-        <div class="start-xy"><div><label for="sim-length">Chassis length · in</label><input id="sim-length" type="number" min="0.25" step="any"></div><div><label for="sim-width">Chassis width · in</label><input id="sim-width" type="number" min="0.25" step="any"></div></div>
-        <div class="start-xy"><div><label for="sim-height">Chassis height · in</label><input id="sim-height" type="number" min="0.25" step="any"></div><div><label for="sim-mass">Mass · lb</label><input id="sim-mass" type="number" min="0.25" step="any"></div></div>
-        <div class="start-xy"><div><label for="sim-rpm">Wheel RPM</label><input id="sim-rpm" type="number" min="50" max="6000" step="any"><input id="sim-rpm-slider" aria-label="Wheel RPM slider" type="range" min="50" max="6000" step="1"></div><div><label for="sim-amps">Drive current budget · A</label><input id="sim-amps" type="number" min="1" max="40" step="any"></div></div><p class="hint">Current budget scales available drive torque around a 20 A reference. This is an approximate drive model, not an electrical circuit simulation.</p>
+        <div class="start-xy"><div><label for="sim-drivetrain">Drivetrain</label><select id="sim-drivetrain">${options(Object.fromEntries(Object.entries(C.drives).map(([k,v])=>[k,v.name])),project.robot.drivetrain)}</select></div><div><label for="sim-intake">Front intake reach · in</label><input id="sim-intake" type="number" min="0" step="any" data-slider-max="12" data-slider-step="0.25"></div></div><p id="sim-drive-note" class="hint"></p>
+        <div class="start-xy"><div><label for="sim-length">Chassis length · in</label><input id="sim-length" type="number" min="0.25" step="any" data-slider-min="4" data-slider-max="48" data-slider-step="0.25"></div><div><label for="sim-width">Chassis width · in</label><input id="sim-width" type="number" min="0.25" step="any" data-slider-min="4" data-slider-max="48" data-slider-step="0.25"></div></div>
+        <div class="start-xy"><div><label for="sim-height">Chassis height · in</label><input id="sim-height" type="number" min="0.25" step="any" data-slider-min="1" data-slider-max="36" data-slider-step="0.25"></div><div><label for="sim-mass">Mass · lb</label><input id="sim-mass" type="number" min="0.25" step="any" data-slider-min="1" data-slider-max="60" data-slider-step="0.1"></div></div>
+        <div class="start-xy"><div><label for="sim-rpm">Wheel RPM</label><input id="sim-rpm" type="number" min="50" max="6000" step="any" data-slider-step="1"></div><div><label for="sim-amps">Drive current budget · A</label><input id="sim-amps" type="number" min="1" max="40" step="any" data-slider-step="0.5"></div></div><p class="hint">Current budget scales available drive torque around a 20 A reference. This is an approximate drive model, not an electrical circuit simulation.</p>
         <label for="sim-drive-style">Teleop driving style</label><select id="sim-drive-style"><option value="robot">Robot-centric</option><option value="field">Field-centric</option></select><p class="hint">Field-centric: stick up is field +Y. Tank drivetrains turn toward that direction before driving.</p>
         <p id="sim-footprint" class="hint"></p>
         <h3>Your robot</h3>
@@ -135,21 +135,22 @@ public class MyAuto implements DeckAutonomous {
           <div class="sim-side-assignments">${['front','back','left','right','top','bottom'].map(side=>`<button id="sim-model-${side}" data-assign-side="${side}" class="secondary" type="button" disabled>Make ${side}</button>`).join('')}</div>
           <div id="sim-units-box"><label for="sim-model-units">File units</label><select id="sim-model-units">${options({mm:'Millimetres',cm:'Centimetres',m:'Metres',in:'Inches'},'mm')}</select></div><p id="sim-orientation-summary" class="hint"></p>
           <p id="sim-mesh-size" class="hint"></p><p id="sim-model-status" role="status"></p><button id="sim-model-remove" class="text-button" type="button">Remove model</button></div>
-        </section><section class="sim-card sim-advanced-card"><h2>Sensing & physics</h2><label for="sim-imu-source">IMU source</label><select id="sim-imu-source"></select><p id="sim-imu-note" class="hint"></p><label for="sim-localization">Odometry</label><select id="sim-localization">${options(Object.fromEntries(Object.entries(C.sensors).filter(([,v])=>!v.hidden).map(([k,v])=>[k,v.name])),project.sensors.localization)}</select><p id="sim-sensor-note" class="hint"></p><section id="sim-timed-settings"><h3>Timed driving · no position feedback</h3><p class="hint">Translation uses power and elapsed time. The IMU corrects heading only; wheel slip, collisions and speed changes can make the robot miss a pin.</p><div class="sim-grid3"><div><label for="sim-timed-power">Drive power · 0–1</label><input id="sim-timed-power" type="number" min="0.05" max="1" step="0.05"></div><div><label for="sim-timed-forward">Forward at full power · in/s</label><input id="sim-timed-forward" type="number" min="1" max="500" step="any"></div><div><label for="sim-timed-strafe">Strafe at full power · in/s</label><input id="sim-timed-strafe" type="number" min="1" max="500" step="any"></div></div><div class="start-xy"><div><label for="sim-timed-startup">Start compensation · s</label><input id="sim-timed-startup" type="number" min="0" max="3" step="0.05"></div><div><label for="sim-timed-heading">IMU heading correction</label><input id="sim-timed-heading" type="number" min="0" max="10" step="0.1"></div></div></section><details class="sim-more"><summary>More settings</summary>
+        </section><section class="sim-card sim-advanced-card"><h2>Sensing & physics</h2><label for="sim-imu-source">IMU source</label><select id="sim-imu-source"></select><p id="sim-imu-note" class="hint"></p><label for="sim-localization">Odometry</label><select id="sim-localization">${options(Object.fromEntries(Object.entries(C.sensors).filter(([,v])=>!v.hidden).map(([k,v])=>[k,v.name])),project.sensors.localization)}</select><p id="sim-sensor-note" class="hint"></p><section id="sim-timed-settings"><h3>Timed driving · no position feedback</h3><p class="hint">Translation uses power and elapsed time. The IMU corrects heading only; wheel slip, collisions and speed changes can make the robot miss a pin.</p><div class="sim-grid3"><div><label for="sim-timed-power">Drive power · 0–1</label><input id="sim-timed-power" type="number" min="0.05" max="1" step="0.05"></div><div><label for="sim-timed-forward">Forward at full power · in/s</label><input id="sim-timed-forward" type="number" min="1" max="500" step="any" data-slider-step="1"></div><div><label for="sim-timed-strafe">Strafe at full power · in/s</label><input id="sim-timed-strafe" type="number" min="1" max="500" step="any" data-slider-step="1"></div></div><div class="start-xy"><div><label for="sim-timed-startup">Start compensation · s</label><input id="sim-timed-startup" type="number" min="0" max="3" step="0.05"></div><div><label for="sim-timed-heading">IMU heading correction</label><input id="sim-timed-heading" type="number" min="0" max="10" step="0.1"></div></div></section><section class="sim-advanced"><h3>Advanced settings</h3>
 
           <div class="start-xy"><div><label for="sim-noise">Odometry noise · %</label><input id="sim-noise" type="number" min="0" max="50" step="0.5"></div><div><label for="sim-drift">Gyro drift · °/min</label><input id="sim-drift" type="number" min="0" max="10" step="0.1"></div></div>
           <div class="start-xy"><div><label for="sim-maxspeed">Path speed · 0–1</label><input id="sim-maxspeed" type="number" min="0.1" max="1" step="0.05"></div><div><label for="sim-transp">Correction strength</label><input id="sim-transp" type="number" min="0" max="5" step="0.05"></div></div>
-          <p class="hint">These describe the simulated robot only. Hardware ports, sensors and localizers stay on your robot.</p></details>
+          <p class="hint">These describe the simulated robot only. Hardware ports, sensors and localizers stay on your robot.</p></section>
         </section></div><div class="button-row sim-project"><button id="sim-open" class="text-button" type="button">Open setup file…</button><button id="sim-save" class="text-button" type="button">Save setup file…</button><button id="sim-setup-next" class="primary" type="button">Next: set up the field →</button></div></div>
       <div data-panel="plan" id="sim-panel-plan" role="tabpanel" aria-labelledby="sim-tab-plan" hidden>
         <div class="sim-planning-steps" role="tablist" aria-label="Planning step"><button id="sim-step-start" role="tab" type="button" class="secondary">1 · Starting pose</button><button id="sim-step-zones" role="tab" type="button" class="secondary">2 · Field obstacles</button><button id="sim-step-pins" role="tab" type="button" class="secondary">3 · Route pins</button></div>
-        <div id="sim-start-step"><p class="hint">Click once to set your robot's starting pose. The red rectangle is its collision footprint.</p><button id="sim-start-next" class="primary" type="button">Next: field obstacles →</button></div>
-        <div id="sim-obstacle-step"><h2>Set up the field</h2><p class="hint">Mark the places your robot must avoid. Game structures are fixed. Your zones are saved with this layout.</p><button id="sim-zones-next" class="primary" type="button">Next: place route pins →</button></div>
-        <div id="sim-route-step" hidden><h2>Plan your route</h2><p class="hint">Place the starting pose, then drop pins in order. The whole robot must fit inside the field.</p><button id="sim-route-start" class="secondary" type="button">Place starting pose</button>
+        <div id="sim-start-step"><p class="hint">Drag the robot to where it starts. If you let go over an obstacle it moves to the nearest clear spot. The red rectangle is its collision footprint.</p><button id="start-edge-plan" class="secondary" type="button">Start at edge</button><button id="sim-start-next" class="primary" type="button">Next: field obstacles →</button></div>
+        <div id="sim-obstacle-step"><h2>Set up the field</h2><p class="hint">Mark the places your robot must avoid. Game structures are fixed. Your zones are saved with this layout.</p><div id="sim-shape-bar" class="sim-shape-bar" hidden><p id="sim-shape-status" class="hint" role="status"></p><div class="sim-row"><button id="sim-shape-finish" class="primary" type="button">Finish shape</button><button id="sim-shape-undo" class="secondary" type="button">Undo corner</button><button id="sim-shape-cancel" class="text-button" type="button">Cancel</button></div></div><button id="sim-zones-next" class="primary" type="button">Next: place route pins →</button></div>
+        <div id="sim-route-step" hidden><h2>Plan your route</h2><p class="hint">Drop pins in order, or choose Draw path and drag the robot's route on the field. Pins tapped in a red area move to the nearest clear spot.</p><button id="sim-route-start" class="secondary" type="button">Place starting pose</button>
         <div id="sim-zone-editor" class="sim-editor" hidden></div>
         <ol id="sim-pin-list" class="sim-list"></ol>
         <label>Route shape</label>${segmented('style',STYLES,'Route shape')}
-        <div class="start-xy"><div><label for="sim-clearance">Space around zones · in</label><input id="sim-clearance" type="number" min="0.05" max="6" step="0.25"></div><div><label>&nbsp;</label><button id="sim-optimize" class="secondary" type="button">Find fastest route</button></div></div>
+        <label>Turning</label>${segmented('rotate',{auto:'Turn to fit',off:'Keep heading'},'Turning')}<p id="sim-rotate-note" class="hint"></p>
+        <div class="start-xy"><div><label for="sim-clearance">Space around zones · in</label><input id="sim-clearance" type="number" min="0.05" max="6" step="0.25" data-slider-step="0.05"></div><div><label>&nbsp;</label><button id="sim-optimize" class="secondary" type="button">Find fastest route</button></div></div>
         <p id="sim-plan-status" role="status"></p><div id="sim-tested" class="sim-tested"></div>
         <div class="button-row"><button id="sim-clear-pins" class="text-button" type="button">Clear pins</button><button id="sim-clear-zones" class="text-button" type="button">Clear zones</button></div>
         <h3>Export the route</h3><div class="button-row"><button id="sim-export-java" class="secondary" type="button">Pedro Java…</button><button id="sim-export-timed" class="secondary" type="button">Timed commands (.json)…</button><button id="sim-export-pp" class="secondary" type="button">Path file (.pp)…</button></div><p id="sim-execution-note" class="hint"></p>
@@ -157,7 +158,7 @@ public class MyAuto implements DeckAutonomous {
         <details class="sim-more"><summary>Java names</summary><div class="start-xy"><div><label for="sim-export-package">Package</label><input id="sim-export-package" type="text" spellcheck="false"></div><div><label for="sim-export-class">Class</label><input id="sim-export-class" type="text" spellcheck="false"></div></div></details>
         <p id="sim-export-status" class="hint"></p><button id="sim-plan-next" class="primary" type="button">Next: run & review →</button></div></div>
       <div data-panel="run" id="sim-panel-run" role="tabpanel" aria-labelledby="sim-tab-run" hidden><h2>Practice mode</h2>${segmented('practice',{autonomous:'Autonomous',teleop:'Teleop',match:'Full match'},'Practice mode')}
-        <div class="sim-grid3"><div><label for="sim-auto-seconds">Auto · seconds</label><input id="sim-auto-seconds" type="number" min="0.1" max="3600" step="any"></div><div><label for="sim-transition-seconds">Transition · seconds</label><input id="sim-transition-seconds" type="number" min="0" max="3600" step="any"></div><div><label for="sim-teleop-seconds">Teleop · seconds</label><input id="sim-teleop-seconds" type="number" min="0.1" max="3600" step="any"></div></div><div id="sim-practice-clock" class="sim-practice-clock" role="timer" aria-live="off"><span id="sim-practice-phase">Ready</span><strong id="sim-practice-time">0:30</strong></div>
+        <div class="sim-grid3"><div><label for="sim-auto-seconds">Auto · seconds</label><input id="sim-auto-seconds" type="number" min="0.1" max="3600" step="any" data-slider-min="1" data-slider-max="120" data-slider-step="1"></div><div><label for="sim-transition-seconds">Transition · seconds</label><input id="sim-transition-seconds" type="number" min="0" max="3600" step="any" data-slider-max="60" data-slider-step="1"></div><div><label for="sim-teleop-seconds">Teleop · seconds</label><input id="sim-teleop-seconds" type="number" min="0.1" max="3600" step="any" data-slider-min="1" data-slider-max="300" data-slider-step="1"></div></div><div id="sim-practice-clock" class="sim-practice-clock" role="timer" aria-live="off"><span id="sim-practice-phase">Ready</span><strong id="sim-practice-time">0:30</strong></div>
         <p class="hint" id="sim-run-readiness"></p><button id="sim-run-sensors" type="button" class="secondary" hidden>Choose position sensing</button><p class="hint" id="sim-practice-help"></p>
         ${segmented('program',{route:'Planned route',source:'Java program'},'Program')}
         <div class="sim-run-row"><button id="sim-run" class="primary" type="button">Run</button><label class="sr-only" for="sim-speed">Speed</label><select id="sim-speed">${options({'0.25':'0.25×','0.5':'0.5×','1':'1×','2':'2×','4':'4×'},'1')}</select></div>
@@ -181,7 +182,7 @@ public class MyAuto implements DeckAutonomous {
   }
   const pts=list=>list.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(' ');
   const status=(id,text)=>{$(id).textContent=text;if(id==='#start-status'&&tab==='setup')$('#sim-model-status').textContent=text;};
-  const inputValue=(id,value)=>{const element=$(id);if(document.activeElement!==element)element.value=value;};
+  const inputValue=(id,value)=>{const element=$(id);if(document.activeElement!==element)element.value=value;window.DeckNumberSliders?.sync(element);};
   const pressed=(attr,value)=>{for(const b of $$(`[data-${attr}]`))b.setAttribute('aria-pressed',String(b.dataset[attr]===value));};
 
   // ------------------------------------------------------------------ engine
@@ -200,7 +201,8 @@ public class MyAuto implements DeckAutonomous {
       const g=geometry();try{field.validate(start,g);}catch{start=field.constrain(start,g);preview={...start};}
       if(!L().start&&!planner.safePose(start,info.fieldZones,info.footprint,info.bounds)){const clear=clearStart(g);if(clear){start=clear;preview={...start};}}
       if(!planner.safePose(start,info.fieldZones,info.footprint,info.bounds))status('#start-status','The robot overlaps a field part here. Place it somewhere clear.');
-      if(!L().start&&L().pins.length){L().start={...start};save();}
+      // The robot starts at the clear default spot automatically; dragging it moves it from there.
+      if(!L().start){L().start={...start};save();}
       await api.sim('start',start);if(seq!==load.seq)return;fieldArtKey='';inputs();robotPanel();layoutPanel();draw();view3d?.setField(info,L());schedulePlan();
     }catch(e){if(seq===load.seq){loadError=e.message;status('#sim-run-status',e.message);}}})();loading=operation;return operation.finally(()=>{if(loading===operation)loading=null;});
   }
@@ -255,18 +257,18 @@ public class MyAuto implements DeckAutonomous {
     for(const [k,v] of Object.entries({x:b.x0,y:b.y0,width:b.x1-b.x0,height:b.y1-b.y0}))$('#sim-walls').setAttribute(k,v);
     const sel=selected?.kind==='zone'&&zoneById(selected.id);
     $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel&&tool==='select'?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4})):[]));
-    $('#sim-route').replaceChildren(...(l.route?[svg('polyline',{class:'sim-path',points:pts(l.route.samples)})]:[]));
+    $('#sim-route').replaceChildren(...(l.route?[svg('polyline',{class:'sim-path',points:pts(l.route.samples)}),...turnGhosts(l.route)]:[]));
     $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0?' stop':'')+(blockedPin===i?' blocked':''),transform:`translate(${p.x} ${p.y})`,'data-pin':i});n.append(svg('circle',{r:2.8}),svg('text',{y:1.1,transform:'scale(1 -1)','text-anchor':'middle'},i+1));return n;}));
     const est=trail.filter(t=>t.e).map(t=>t.e);
     $('#sim-trail').replaceChildren(...(trail.length>1?[svg('polyline',{class:'sim-trail',points:pts(trail)})]:[]),...(est.length>1?[svg('polyline',{class:'sim-trail estimate',points:pts(est)})]:[]));
     $('#sim-start').setAttribute('points',frame&&tool!=='start'?pts(planner.body(start,fp)):'');
     $('#field-coordinates').textContent=`X ${field.round(preview.x)} in · Y ${field.round(preview.y)} in · ${field.round(preview.heading)}°`;
-    $('#field-help').textContent={start:'Move the pointer and click to place the robot. Arrow keys move 1 inch; Enter places; Escape cancels.',select:planningStep==='start'?'Set the starting pose with the controls, or choose Place on field.':planningStep==='zones'?'Select a zone to move it or resize its handles. Delete removes it.':'Select a pin to move it. Pins stay inside the field.',rect:'Drag on the field to draw a box the robot must avoid.',circle:'Press at the centre, then drag outwards to set the circle radius.',triangle:'Press where the base goes and drag: the tip follows your cursor.',shape:'Click to add corners. Two make a wall line. Click the first corner, double-click or press Enter to finish.',pin:'Click where the robot should go next. The whole footprint must fit inside the field.'}[tool]||'';
-    $('#start-place').disabled=tab==='plan'&&tool==='start';pressed('tool',tool);
+    $('#field-help').textContent={start:'Press and drag the robot to move its starting pose. Arrow keys move 1 inch; Enter places; Escape cancels.',select:planningStep==='start'?'Set the starting pose with the controls, or choose Place on field.':planningStep==='zones'?'Select a zone to move it or resize its handles. Delete removes it.':'Select a pin to move it. Pins stay inside the field.',rect:'Drag on the field to draw a box the robot must avoid.',circle:'Press at the centre, then drag outwards to set the circle radius.',triangle:'Press where the base goes and drag: the tip follows your cursor.',draw:'Drag along the field to draw the route. It becomes pins kept out of red areas. Starting near the end of the route extends it; starting elsewhere replaces it.',shape:'Tap to add corners; the outline closes back to the first corner as you go. Two corners make a wall. Press Enter or Finish shape to confirm.',pin:'Click where the robot should go next. The whole footprint must fit inside the field.'}[tool]||'';
+    pressed('tool',tool);
     $('#sim-subtitle').textContent=`${l.name}${l.field==='empty'?' · empty field':''}${info?.physics==='3d'?' · 3D physics':''}`;
     paint();
   }
-  function inputs(){for(const key of ['x','y','heading'])inputValue('#start-'+key,String(field.round(start[key])));}
+  function inputs(){const b=geometry().bounds;$('#start-x').dataset.sliderMax=b.x1;$('#start-y').dataset.sliderMax=b.y1;for(const key of ['x','y','heading'])inputValue('#start-'+key,String(field.round(start[key])));}
   function telemetry(){
     // At most ~8 updates a second, but never drop the last frame (a paused simulation sends no more).
     const now=performance.now(),wait=120-(now-(telemetry.at||0));clearTimeout(telemetry.timer);
@@ -300,14 +302,38 @@ public class MyAuto implements DeckAutonomous {
   function commit(pose){
     const g=geometry(),next=field.validate(pose,g);
     if(info&&!planner.safePose(next,[...info.fieldZones,...L().zones],info.footprint,info.bounds))throw Error('That spot overlaps an obstacle. Choose a clear position outside the red boundary.');
-    start=next;preview={...start};tool='select';pointer=null;inputs();L().start=start;
+    start=next;preview={...start};tool=planningStep==='start'?'start':'select';pointer=null;inputs();L().start=start;
     let saved=save();try{localStorage.setItem(field.KEY,field.serialize(start,g));}catch{saved=false;}
     status('#start-status',saved?'Starting pose saved.':'Starting pose set for this session. Device storage is unavailable.');
     changed('start');if(native&&info)void api.sim('start',start).catch(e=>status('#start-status',e.message));
   }
   function toField(event){const m=graph.getScreenCTM();if(!m)return null;const p=graph.createSVGPoint();p.x=event.clientX;p.y=event.clientY;const l=p.matrixTransform(m.inverse());return {x:l.x,y:fieldHeight()-l.y};}
-  function validPin(p){const g=geometry();return planner.safePose({...p,heading:start.heading},[...(info?.fieldZones||[]),...L().zones],g.footprint,g.bounds);}
+  function validPin(p,heading=start.heading){const g=geometry();return planner.safePose({...p,heading},[...(info?.fieldZones||[]),...L().zones],g.footprint,g.bounds);}
   function pinPosition(p,fallback){const q=field.constrain({...p,heading:start.heading},geometry()),r=field.constrain({x:field.round(q.x),y:field.round(q.y),heading:start.heading},geometry());return validPin(r)?{x:r.x,y:r.y}:fallback||{x:p.x,y:p.y};}
+  // Pins tapped or dragged into a red area move to the nearest spot where the whole robot fits,
+  // searched in growing half-inch rings so the first ring with a clear spot holds the closest one.
+  function nearestPin(p,limit=36,heading=start.heading){
+    const g=geometry(),snap=q=>{const c=field.constrain({...q,heading},g);return {x:field.round(c.x),y:field.round(c.y)};},first=snap(p);if(validPin(first,heading))return first;
+    for(let r=.5;r<=limit;r+=.5){let best=null;const n=Math.max(8,Math.ceil(4*Math.PI*r));
+      for(let i=0;i<n;i++){const a=2*Math.PI*i/n,q=snap({x:p.x+r*Math.cos(a),y:p.y+r*Math.sin(a)}),d=Math.hypot(q.x-p.x,q.y-p.y);if((!best||d<best.d)&&validPin(q,heading))best={...q,d};}
+      if(best)return {x:best.x,y:best.y};}
+    return null;
+  }
+  const dist2=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+  // Ramer-Douglas-Peucker: keep the points that carry the drawing's shape within `tolerance` inches.
+  function simplify(points,tolerance){if(points.length<3)return points.slice();const a=points[0],b=points.at(-1);let worst=0,index=0;
+    for(let i=1;i<points.length-1;i++){const d=Math.abs((b.x-a.x)*(a.y-points[i].y)-(a.x-points[i].x)*(b.y-a.y))/(dist2(a,b)||1);if(d>worst){worst=d;index=i;}}
+    return worst>tolerance?[...simplify(points.slice(0,index+1),tolerance).slice(0,-1),...simplify(points.slice(index),tolerance)]:[a,b];}
+  // A drawn stroke becomes route pins: simplified, each moved clear of red areas. Starting near the
+  // end of the current route extends it; starting anywhere else replaces the pins.
+  function drawnPath(points){
+    const l=L(),end=l.pins.at(-1)||start;if(points.length<2||dist2(points[0],points.at(-1))<2)return status('#sim-plan-status','Drag a longer path to draw the route.');
+    const extend=l.pins.length&&dist2(points[0],end)<=12;let keep=[];for(let tolerance=2;tolerance<64;tolerance*=1.5){keep=simplify(points,tolerance);if(keep.length-1+(extend?l.pins.length:0)<=32)break;}
+    const pins=[];for(const q of keep.slice(1)){const c=nearestPin(q);if(c&&!pins.some(p=>dist2(p,c)<1))pins.push({x:c.x,y:c.y,wait:0,action:''});}
+    if(!pins.length)return status('#sim-plan-status','No clear spot along that path: the whole robot must fit inside the field and outside red areas.');
+    l.pins=extend?l.pins.concat(pins).slice(0,32):pins.slice(0,32);selected=null;changed('pins');
+    status('#sim-plan-status',`${extend?'Added':'Drew'} ${pins.length} pin${pins.length>1?'s':''} from your path. Planning…`);
+  }
   function hit(p){
     const l=L();if(planningStep==='pins'){for(let i=l.pins.length-1;i>=0;i--)if(Math.hypot(l.pins[i].x-p.x,l.pins[i].y-p.y)<=3.2)return {kind:'pin',index:i};return null;}
     const z0=selected?.kind==='zone'&&zoneById(selected.id);if(z0&&tool==='select'){const i=handles(z0).findIndex(h=>Math.hypot(h.x-p.x,h.y-p.y)<=2.2);if(i>=0)return {kind:'handle',id:z0.id,index:i};}
@@ -332,33 +358,42 @@ public class MyAuto implements DeckAutonomous {
     if(z.type==='rect')return [{...world(z.width/2,z.height/2),set:p=>{const l=local(p);return {width:Math.max(1,2*Math.abs(l.x)),height:Math.max(1,2*Math.abs(l.y))};}}];
     const base=world(0,-z.height/2);return [{...world(0,z.height/2),set:p=>triangleFrom(base,p,z.width)}];
   }
+  // Dashed outlines of the robot at its new heading wherever a turning route turns in place.
+  function turnGhosts(route){if(!route.turns||!route.footprint)return [];const out=[];let heading=route.heading;
+    for(const s of route.segments){if(Number.isFinite(s.heading)&&Math.abs(((s.heading-heading)%360+540)%360-180)>.5){out.push(svg('polygon',{class:'sim-turn-ghost',points:pts(planner.body({...s.points[0],heading:s.heading},route.footprint))}));heading=s.heading;}}
+    return out;}
   function zoneShape(z,extra=''){const p=planner.polygon(z);return p.length===2?svg('polyline',{class:'sim-zone wall'+extra,points:pts(p),'data-zone':z.id}):svg('polygon',{class:'sim-zone'+extra,points:pts(p),'data-zone':z.id});}
   function showDraft(z){
     const nodes=[];if(z)nodes.push(zoneShape(z,' draft'));
-    if(sketch){const path=cursor?[...sketch,cursor]:sketch;if(path.length>1)nodes.push(svg('polyline',{class:'sim-zone wall draft',points:pts(path)}));for(const [i,q] of sketch.entries())nodes.push(svg('circle',{class:'sim-corner'+(i===0&&sketch.length>2?' close':''),cx:q.x,cy:q.y,r:1.1}));}
-    $('#sim-draft').replaceChildren(...nodes);
+    // The outline is always shown closed back to the first corner, so the shape is mapped out as corners are placed.
+    if(sketch){const path=cursor?[...sketch,cursor]:sketch;if(path.length>2)nodes.push(svg('polygon',{class:'sim-zone draft',points:pts(path)}));else if(path.length>1)nodes.push(svg('polyline',{class:'sim-zone wall draft',points:pts(path)}));for(const [i,q] of sketch.entries())nodes.push(svg('circle',{class:'sim-corner'+(i===0&&sketch.length>2?' close':''),cx:q.x,cy:q.y,r:1.1}));}
+    $('#sim-draft').replaceChildren(...nodes);shapeBar();
   }
+  function shapeBar(){const n=sketch?.length||0;$('#sim-shape-bar').hidden=!n;if(!n)return;$('#sim-shape-status').textContent=n===1?'1 corner. Tap the next corner.':n===2?'2 corners: a wall line. Add a third to make a closed shape.':`${n} corners, closed back to the first. Press Enter or Finish shape to confirm.`;$('#sim-shape-finish').disabled=n<2;}
   function finishShape(){const points=sketch;sketch=null;cursor=null;showDraft(null);if(!points||points.length<2)return;
     if(L().zones.length>=24)return status('#sim-plan-status','Use at most 24 zones.');
     try{const z=planner.validateZone({id:'zone-'+Date.now().toString(36),type:'polygon',points});L().zones.push(z);selected={kind:'zone',id:z.id};selectTab('plan');changed('zones');}catch(e){status('#sim-plan-status',e.message);}}
   graph.addEventListener('contextmenu',event=>{if(!active||tab!=='plan')return;const p=toField(event);const h=p&&hit(p);if(!h)return;event.preventDefault();selected=h;removeSelected();});
   graph.addEventListener('pointermove',event=>{
     if(!active)return;const p=toField(event);if(!p)return;
-    if(tool==='start'&&(event.pointerType!=='touch'||pointer===event.pointerId)){preview=field.constrain({x:field.round(p.x),y:field.round(p.y),heading:preview.heading},geometry());draw();return;}
+    // While dragging, the robot moves freely (even over obstacles); release snaps it clear.
+    if(tool==='start'&&pointer===event.pointerId){preview=field.constrain({x:field.round(p.x+startGrab.dx),y:field.round(p.y+startGrab.dy),heading:preview.heading},geometry());draw();return;}
     if(drag?.kind==='draw'){drag.zone=draftZone(drag.from,p);showDraft(drag.zone);return;}
     if(drag?.kind==='zone'){const z=zoneById(drag.id);if(z){const dx=p.x-drag.from.x,dy=p.y-drag.from.y;z.x=drag.zone.x+dx;z.y=drag.zone.y+dy;if(z.type==='polygon')z.points=drag.zone.points.map(q=>({x:q.x+dx,y:q.y+dy}));drag.moved=true;draw();}return;}
     if(drag?.kind==='handle'){const z=zoneById(drag.id);if(z){try{Object.assign(z,planner.validateZone({...drag.zone,...handles(drag.zone)[drag.index].set(p)}));drag.moved=true;draw();zonePanel();}catch{}}return;}
     if(tool==='shape'&&sketch){cursor=p;showDraft(null);}
-    if(drag?.kind==='pin'){Object.assign(L().pins[drag.index],pinPosition(p,L().pins[drag.index]));drag.moved=true;draw();return;}
+    if(tool==='draw'&&stroke&&pointer===event.pointerId){if(dist2(stroke.at(-1),p)>=1)stroke.push({x:p.x,y:p.y});$('#sim-draft').replaceChildren(svg('polyline',{class:'sim-draw-stroke',points:pts(stroke)}));return;}
+    if(drag?.kind==='pin'){Object.assign(L().pins[drag.index],nearestPin(p,12)||L().pins[drag.index]);drag.moved=true;draw();return;}
     $('#field-coordinates').textContent=`X ${field.round(p.x)} in · Y ${field.round(p.y)} in`;
   });
   graph.addEventListener('pointerdown',event=>{
     if(!active||tab!=='plan'||event.button!==0||project.view==='3d')return;const p=toField(event);if(!p)return;event.preventDefault();graph.focus();pointer=event.pointerId;graph.setPointerCapture(event.pointerId);
-    if(tool==='start'){preview=field.constrain({x:field.round(p.x),y:field.round(p.y),heading:preview.heading},geometry());draw();return;}
+    if(tool==='start'){const onRobot=planner.contains(p,planner.body(preview,geometry().footprint));startGrab=onRobot?{dx:preview.x-p.x,dy:preview.y-p.y}:{dx:0,dy:0};preview=field.constrain({x:field.round(p.x+startGrab.dx),y:field.round(p.y+startGrab.dy),heading:preview.heading},geometry());draw();return;}
     if(['rect','circle','triangle'].includes(tool)){drag={kind:'draw',from:p,zone:null};return;}
+    if(tool==='draw'){stroke=[{x:p.x,y:p.y}];return;}
     if(tool==='pin'){const h=hit(p);if(h?.kind==='pin'){selected=h;drag={kind:'pin',index:h.index};draw();pinPanel();return;}
-      if(!validPin(p))return status('#sim-plan-status','Keep the robot inside the field and outside red physical boundaries and your no-go zones.');
-      if(L().pins.length>=32)return status('#sim-plan-status','Use at most 32 pins.');L().pins.push({x:field.round(p.x),y:field.round(p.y),wait:0,action:''});selected={kind:'pin',index:L().pins.length-1};selectTab('plan');changed('pins');return;}
+      if(L().pins.length>=32)return status('#sim-plan-status','Use at most 32 pins.');const q=nearestPin(p);if(!q)return status('#sim-plan-status','No clear spot nearby: the whole robot must fit inside the field and outside red areas.');
+      L().pins.push({x:q.x,y:q.y,wait:0,action:''});selected={kind:'pin',index:L().pins.length-1};selectTab('plan');changed('pins');if(Math.hypot(q.x-p.x,q.y-p.y)>.75)status('#sim-plan-status',`Pin ${L().pins.length} moved to the nearest clear spot outside the red area.`);return;}
     if(tool==='shape'){if(sketch&&sketch.length>2&&Math.hypot(sketch[0].x-p.x,sketch[0].y-p.y)<=2.5)return finishShape();const last=sketch?.at(-1);if(last&&Math.hypot(last.x-p.x,last.y-p.y)<.3)return;
       sketch=[...(sketch||[]),{x:field.round(p.x),y:field.round(p.y)}];if(sketch.length>=40)return finishShape();showDraft(null);return;}
     if(tool==='select'){const h=hit(p);if(h?.kind==='handle'){drag={kind:'handle',id:h.id,index:h.index,zone:JSON.parse(JSON.stringify(zoneById(h.id)))};return;}
@@ -366,19 +401,20 @@ public class MyAuto implements DeckAutonomous {
   });
   graph.addEventListener('pointerup',event=>{
     if(!active||pointer!==event.pointerId)return;pointer=null;
-    if(tool==='start'){const p=toField(event);if(p)preview=field.constrain({x:field.round(p.x),y:field.round(p.y),heading:preview.heading},geometry());try{commit(preview);}catch(e){status('#start-status',e.message);preview={...start};tool='start';draw();}return;}
+    if(tool==='start'){const clear=nearestPin(preview,72,preview.heading);if(clear&&Math.hypot(clear.x-preview.x,clear.y-preview.y)>.75)status('#start-status','Moved to the nearest clear spot outside the red area.');if(clear)preview={...preview,...clear};try{commit(preview);}catch(e){status('#start-status',e.message);preview={...start};tool='start';draw();}return;}
+    if(tool==='draw'&&stroke){const drawn=stroke;stroke=null;$('#sim-draft').replaceChildren();drawnPath(drawn);return;}
     if(drag?.kind==='draw'){const z=drag.zone;drag=null;showDraft(null);if(z&&(z.type==='circle'?z.radius>=.75:z.width>=1&&z.height>=1)){if(L().zones.length>=24)status('#sim-plan-status','Use at most 24 zones.');else{L().zones.push(planner.validateZone(z));selected={kind:'zone',id:z.id};selectTab('plan');changed('zones');}}return;}
     if(drag){const moved=drag.moved,kind=drag.kind;drag=null;if(moved)changed(kind==='pin'?'pins':'zones');}
   });
   graph.addEventListener('dblclick',event=>{if(active&&tool==='shape'&&sketch){event.preventDefault();finishShape();}});
-  graph.addEventListener('pointercancel',()=>{pointer=null;drag=null;showDraft(null);preview={...start};draw();});
+  graph.addEventListener('pointercancel',()=>{pointer=null;drag=null;stroke=null;showDraft(null);preview={...start};draw();});
   graph.addEventListener('keydown',event=>{
     if(!active||tab!=='plan'||event.ctrlKey||event.metaKey||event.altKey)return;
     if(tool==='start'){
       const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[event.key];
       if(delta){event.preventDefault();preview=field.constrain({...preview,x:preview.x+delta[0],y:preview.y+delta[1]},geometry());draw();}
       else if(event.key==='Enter'){event.preventDefault();try{commit(preview);}catch(e){status('#start-status',e.message);}}
-      else if(event.key==='Escape'){event.preventDefault();tool='select';preview={...start};draw();}
+      else if(event.key==='Escape'){event.preventDefault();if(planningStep!=='start')tool='select';preview={...start};draw();}
       return;
     }
     if(tool==='shape'&&sketch){if(event.key==='Enter'){event.preventDefault();finishShape();return;}if(event.key==='Escape'){event.preventDefault();sketch=null;cursor=null;showDraft(null);return;}if(event.key==='Backspace'){event.preventDefault();sketch.pop();if(!sketch.length)sketch=null;showDraft(null);return;}}
@@ -394,13 +430,18 @@ public class MyAuto implements DeckAutonomous {
     const l=L();if(selected?.kind==='zone')l.zones=l.zones.filter(z=>z.id!==selected.id);else if(selected?.kind==='pin')l.pins.splice(selected.index,1);else return;
     const kind=selected.kind;selected=null;changed(kind==='zone'?'zones':'pins');
   }
-  function setTool(next){if(!['select','rect','circle','triangle','shape','pin','start'].includes(next))return;if(sketch&&next!=='shape')finishShape();tool=next;if(next==='start')preview={...start};draw();graph.focus();}
+  function setTool(next){if(!['select','rect','circle','triangle','shape','pin','draw','start'].includes(next))return;if(sketch&&next!=='shape')finishShape();tool=next;if(next==='start')preview={...start};draw();graph.focus();}
   for(const b of $$('[data-tool]'))b.onclick=()=>setTool(b.dataset.tool);
+  $('#sim-shape-finish').onclick=()=>finishShape();
+  $('#sim-shape-undo').onclick=()=>{if(!sketch)return;sketch.pop();if(!sketch.length)sketch=null;showDraft(null);};
+  $('#sim-shape-cancel').onclick=()=>{sketch=null;cursor=null;showDraft(null);};
+  document.addEventListener('keydown',event=>{if(active&&tab==='plan'&&tool==='shape'&&sketch&&event.key==='Enter'&&!event.target.closest?.('input,textarea,select,#simulation-field')){event.preventDefault();finishShape();}});
   function zonePanel(){
     const box=$('#sim-zone-editor'),z=selected?.kind==='zone'&&zoneById(selected.id);box.hidden=!z;if(!z)return;
+    const b=geometry().bounds,span=Math.max(b.x1,b.y1),zoneSlider=k=>({x:`data-slider-min="0" data-slider-max="${b.x1}" data-slider-step="0.5"`,y:`data-slider-min="0" data-slider-max="${b.y1}" data-slider-step="0.5"`,width:`data-slider-min="1" data-slider-max="${span}" data-slider-step="0.5"`,height:`data-slider-min="1" data-slider-max="${span}" data-slider-step="0.5"`,radius:`data-slider-min="0.5" data-slider-max="${span/2}" data-slider-step="0.5"`,angle:'data-slider-min="0" data-slider-max="360" data-slider-step="1"'})[k]||'';
     const fields=z.type==='polygon'?[]:z.type==='circle'?[['x','X'],['y','Y'],['radius','Radius']]:[['x','X'],['y','Y'],['width','Width'],['height','Height'],['angle','Turn °']];
     const name=z.type==='polygon'?(z.points.length===2?'Wall':`Shape · ${z.points.length} corners`):{rect:'Box',circle:'Circle',triangle:'Triangle'}[z.type];
-    box.innerHTML=`<div class="sim-editor-head"><h3>${name}</h3><button type="button" class="text-button" id="zone-delete">Remove</button></div>${fields.length?`<div class="sim-grid3">${fields.map(([k,l])=>`<div><label for="zone-${k}">${l}</label><input id="zone-${k}" data-key="${k}" type="number" step="any" value="${field.round(z[k]||0)}"></div>`).join('')}</div>`:''}<p class="hint">Drag the ${z.type==='circle'?'edge dot to resize':z.type==='triangle'?'tip dot to turn and stretch':z.type==='rect'?'corner dot to resize':'corner dots to reshape'}. Drag inside to move.</p>`;
+    box.innerHTML=`<div class="sim-editor-head"><h3>${name}</h3><button type="button" class="text-button" id="zone-delete">Remove</button></div>${fields.length?`<div class="sim-grid3">${fields.map(([k,l])=>`<div><label for="zone-${k}">${l}</label><input id="zone-${k}" data-key="${k}" type="number" step="any" value="${field.round(z[k]||0)}" ${zoneSlider(k)}></div>`).join('')}</div>`:''}<p class="hint">Drag the ${z.type==='circle'?'edge dot to resize':z.type==='triangle'?'tip dot to turn and stretch':z.type==='rect'?'corner dot to resize':'corner dots to reshape'}. Drag inside to move.</p>`;
     for(const input of box.querySelectorAll('input'))input.onchange=()=>{const next={...z,[input.dataset.key]:input.valueAsNumber};try{Object.assign(z,planner.validateZone(next));changed('zones');}catch(e){status('#sim-plan-status',e.message);zonePanel();}};
     $('#zone-delete').onclick=removeSelected;
   }
@@ -426,7 +467,7 @@ public class MyAuto implements DeckAutonomous {
     return script('vendor/planning.js').then(()=>planner.plan(request.project,request.footprint,request.fieldZones,request.field));
   }
   planWith.id=0;
-  const planRequest=(style,tension)=>{const l=L(),g=geometry();return {project:{start,zones:l.zones,pins:l.pins,clearance:l.clearance,style,tension,nonholonomic:!C.drives[project.robot.drivetrain].holonomic},footprint:g.footprint,fieldZones:info?.fieldZones||[],field:g.bounds};};
+  const planRequest=(style,tension)=>{const l=L(),g=geometry();return {project:{start,zones:l.zones,pins:l.pins,clearance:l.clearance,style,tension,rotate:l.rotate!==false,nonholonomic:!C.drives[project.robot.drivetrain].holonomic},footprint:g.footprint,fieldZones:info?.fieldZones||[],field:g.bounds};};
   const schedulePlan=(()=>{let t;const schedule=()=>{clearTimeout(t);t=setTimeout(()=>void plan(),220);};schedule.cancel=()=>clearTimeout(t);return schedule;})();
   async function plan(){
     if(native){try{await ready();}catch(e){planError=e.message;status('#sim-plan-status',e.message);return null;}}
@@ -446,7 +487,7 @@ public class MyAuto implements DeckAutonomous {
       const shapes=C.drives[project.robot.drivetrain].holonomic?[['sharp'],['rounded'],['spline',.6],['spline',1]]:[['sharp']],routes=[];
       let reason=null;for(const [style,tension] of shapes){try{routes.push({style,tension,route:await planWith(planRequest(style,tension))});}catch(e){reason=reason||e;}}
       if(!routes.length){const m=/pin (\d+)/i.exec(reason?.message||'');blockedPin=m?Number(m[1])-1:-1;planError=reason?.message||'';draw();throw Error((reason?.message||'No safe route.')+(m?' It is shown in red.':''));}status('#sim-plan-status','Test-driving routes…');
-      const results=await call('evaluate',routes.map(r=>({heading:r.route.heading,segments:r.route.segments,stops:r.route.stops,preview:true})));
+      const results=await call('evaluate',routes.map(r=>({heading:r.route.heading,segments:r.route.segments,stops:r.route.stops,turns:!!r.route.turns,nonholonomic:!!r.route.nonholonomic,preview:true})));
       if(seq!==planSeq||generation!==load.seq||l!==L())throw Error('The setup or route changed while testing. Run Find fastest route again.');
       const last=l.pins.at(-1),rows=routes.map((r,i)=>{const x=results[i];const ok=!!(x?.ok&&x.violations===0&&Math.hypot(x.truth.x-last.x,x.truth.y-last.y)<1.5);return {style:r.style,tension:r.tension,time:x?.time,ok,note:!x?.ok?x?.error:x.violations?'touched a zone':ok?'':'missed the last pin'};});
       const best=rows.filter(r=>r.ok).sort((a,b)=>a.time-b.time)[0];if(!best)throw Error('None of the route shapes finished cleanly. Try more space around zones.');
@@ -457,6 +498,9 @@ public class MyAuto implements DeckAutonomous {
   function tested(){const rows=L().tested||[];$('#sim-tested').replaceChildren(...rows.map(r=>{const d=document.createElement('div');d.className='sim-tested-row'+(r.best?' best':'');d.textContent=`${STYLES[r.style]}${r.style==='spline'?(r.tension===1?' (wide)':' (tight)'):''}: ${finite(r.time)&&r.ok?r.time.toFixed(2)+' s':r.note}${r.best?' · fastest':''}`;return d;}));}
   $('#sim-optimize').onclick=()=>void optimize();
   for(const b of $$('[data-style]'))b.onclick=()=>{L().style=b.dataset.style;pressed('style',L().style);changed('plan');};
+  for(const b of $$('[data-rotate]'))b.onclick=()=>{L().rotate=b.dataset.rotate==='auto';rotatePanel();changed('plan');};
+  function rotatePanel(){const holonomic=C.drives[project.robot.drivetrain].holonomic;pressed('rotate',holonomic?(L().rotate===false?'off':'auto'):'auto');for(const b of $$('[data-rotate]'))b.disabled=!holonomic;
+    $('#sim-rotate-note').textContent=!holonomic?'Tank drivetrains always turn the whole chassis between straight legs, backing out to line up when there is no room to turn.':L().rotate===false?'The robot keeps its starting heading for the whole route.':'The planner turns the robot in place when that fits it past an obstacle more quickly than driving around. Dashed outlines show where it turns.';}
   $('#sim-clearance').onchange=e=>{L().clearance=Math.min(6,Math.max(planner.MIN_CLEARANCE,e.target.valueAsNumber||2));e.target.value=L().clearance;changed('plan');};
   $('#sim-clear-pins').onclick=()=>{L().pins=[];selected=null;changed('pins');};
   $('#sim-clear-zones').onclick=()=>{L().zones=[];selected=null;changed('zones');};
@@ -518,11 +562,11 @@ public class MyAuto implements DeckAutonomous {
 
   // ------------------------------------------------------------------ robot and model
   function robotPanel(){
-    const r=project.robot;for(const [id,value] of Object.entries({'#sim-drivetrain':r.drivetrain,'#sim-intake':r.intakeIn,'#sim-length':r.length,'#sim-width':r.width,'#sim-height':r.heightIn,'#sim-mass':r.massLb,'#sim-rpm':r.driveRpm,'#sim-rpm-slider':r.driveRpm,'#sim-amps':r.driveAmps,'#sim-drive-style':r.driveStyle,'#sim-appearance':r.appearance,'#sim-localization':project.sensors.localization,'#sim-noise':+(project.sensors.noise*100).toFixed(2),'#sim-drift':project.sensors.gyroDrift,'#sim-maxspeed':project.tuning.maxPathSpeed??.6,'#sim-transp':project.tuning.translationalP??(info?.tuning.translationalP||.5)}))inputValue(id,value);
+    const r=project.robot;for(const [id,value] of Object.entries({'#sim-drivetrain':r.drivetrain,'#sim-intake':r.intakeIn,'#sim-length':r.length,'#sim-width':r.width,'#sim-height':r.heightIn,'#sim-mass':r.massLb,'#sim-rpm':r.driveRpm,'#sim-amps':r.driveAmps,'#sim-drive-style':r.driveStyle,'#sim-appearance':r.appearance,'#sim-localization':project.sensors.localization,'#sim-noise':+(project.sensors.noise*100).toFixed(2),'#sim-drift':project.sensors.gyroDrift,'#sim-maxspeed':project.tuning.maxPathSpeed??.6,'#sim-transp':project.tuning.translationalP??(info?.tuning.translationalP||.5)}))inputValue(id,value);
     const f=geometry().footprint;let text=`Collision footprint: ${f.front.toFixed(2)} in front, ${f.rear.toFixed(2)} in rear, ${f.half.toFixed(2)} in each side. Routes keep this whole area clear.`;
     const ext=field.extents(start.heading,C.footprint(r)),bounds=geometry().bounds;if(ext[1]-ext[0]>bounds.x1-bounds.x0||ext[3]-ext[2]>bounds.y1-bounds.y0)text+=' This robot does not fit in this field at the selected heading. Increase the field size or reduce the robot size.';
     if(info){const e=info.robot;if(e.length!==r.length||e.width!==r.width)text+=` (Applied ${e.length} × ${e.width} in: the closest size the physics supports.)`;}
-    $('#sim-footprint').textContent=text;inputValue('#sim-clearance',L().clearance);pressed('style',C.drives[r.drivetrain].holonomic?L().style:'sharp');for(const button of $$('[data-style]'))button.disabled=!C.drives[r.drivetrain].holonomic&&button.dataset.style!=='sharp';
+    $('#sim-footprint').textContent=text;inputValue('#sim-clearance',L().clearance);pressed('style',C.drives[r.drivetrain].holonomic?L().style:'sharp');rotatePanel();for(const button of $$('[data-style]'))button.disabled=!C.drives[r.drivetrain].holonomic&&button.dataset.style!=='sharp';
     const d=C.drives[r.drivetrain];$('#sim-drive-note').textContent=d.approximation?d.approximation+'. This is a family approximation, not a motor-by-motor model.':!d.holonomic?'Tank routes stop, turn the chassis, then drive each straight leg. Turns use physical time and need clearance around the whole robot.':'Holonomic drivetrain: routes may move sideways while keeping their starting heading.';
     const s=C.sensors[project.sensors.localization],motion=project.controller==='motionmodule';pressed('controller',project.controller);$('#sim-controller-note').textContent=motion?'MotionModule: onboard IMU, with optional 2-pod, 3-pod or OTOS odometry. No drive motor encoders or Pinpoint. Odometry is simulated here; firmware integration remains separate.':'FTC Control Hub: drive motor encoders and built-in IMU by default. Select tracking pods, Pinpoint or OTOS to match your robot.';
     const select=$('#sim-localization');if(select.dataset.controller!==project.controller){select.innerHTML=options(Object.fromEntries(C.sensorChoices(project.controller).map(k=>[k,C.sensors[k].name])),project.sensors.localization);select.dataset.controller=project.controller;}inputValue('#sim-localization',project.sensors.localization);select.disabled=false;
@@ -539,7 +583,7 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-drivetrain').onchange=e=>{project.robot.drivetrain=e.target.value;if(!project.model)project.robot.appearance=C.drives[e.target.value].engine==='swerve'?'swechanum':e.target.value==='mecanum'?'strafer':'plain';settle();robotPanel();void placeModel();};
   num('#sim-intake',v=>project.robot.intakeIn=Math.max(0,v));
   num('#sim-length',v=>project.robot.length=v);num('#sim-width',v=>project.robot.width=v);num('#sim-mass',v=>project.robot.massLb=v);num('#sim-rpm',v=>project.robot.driveRpm=v);
-  num('#sim-height',v=>project.robot.heightIn=v);num('#sim-amps',v=>project.robot.driveAmps=v);num('#sim-rpm-slider',v=>project.robot.driveRpm=v);$('#sim-rpm-slider').oninput=e=>inputValue('#sim-rpm',e.target.value);$('#sim-drive-style').onchange=e=>{project.robot.driveStyle=e.target.value;settle();};
+  num('#sim-height',v=>project.robot.heightIn=v);num('#sim-amps',v=>project.robot.driveAmps=v);$('#sim-drive-style').onchange=e=>{project.robot.driveStyle=e.target.value;settle();};
   num('#sim-noise',v=>project.sensors.noise=v/100);num('#sim-drift',v=>project.sensors.gyroDrift=v);
   num('#sim-maxspeed',v=>project.tuning.maxPathSpeed=Math.min(1,Math.max(.1,v)));num('#sim-transp',v=>project.tuning.translationalP=Math.min(5,Math.max(0,v)));
   $('#sim-localization').onchange=e=>{project.sensors.localization=e.target.value;const error=C.sensors[e.target.value].error;project.sensors.noise=error[1];project.sensors.gyroDrift=error[2];save();robotPanel();reload();};
@@ -645,10 +689,10 @@ public class MyAuto implements DeckAutonomous {
   for(const b of $$('[data-view]'))b.onclick=()=>void setView(b.dataset.view);
   $('#sim-hitboxes').onclick=()=>{project.hitboxes=!project.hitboxes;save();$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));view3d?.update(frame,state3d());};
   $('#sim-game-elements').onchange=e=>{L().elements=e.target.checked;save();reload();};
-  function selectTab(name){if(tab!==name){pointer=null;drag=null;}tab=name;root.dataset.tab=name;$('#start-place').disabled=name==='plan'&&tool==='start';for(const b of $$('[data-tab]')){b.setAttribute('aria-selected',String(b.dataset.tab===name));b.tabIndex=b.dataset.tab===name?0:-1;}for(const p of $$('[data-panel]'))p.hidden=p.dataset.panel!==name;$('.field-area').hidden=name==='setup';$('.sim-toolbar [data-tool]').parentElement.hidden=name==='run'||planningStep==='start';$('#sim-telemetry').hidden=name!=='run';$('.sim-planning-steps').hidden=name!=='plan';
+  function selectTab(name){if(tab!==name){pointer=null;drag=null;}tab=name;root.dataset.tab=name;if(name==='plan'&&planningStep==='start')tool='start';for(const b of $$('[data-tab]')){b.setAttribute('aria-selected',String(b.dataset.tab===name));b.tabIndex=b.dataset.tab===name?0:-1;}for(const p of $$('[data-panel]'))p.hidden=p.dataset.panel!==name;$('.field-area').hidden=name==='setup';$('.sim-toolbar [data-tool]').parentElement.hidden=name==='run'||planningStep==='start';$('#sim-telemetry').hidden=name!=='run';$('.sim-planning-steps').hidden=name!=='plan';
     if(name==='plan')planningPanel();if(name!=='run'&&frame?.playing)void call('pause');view3d?.resize();modelPreview?.resize?.();}
-  function planningPanel(){root.dataset.step=planningStep;$('#sim-start-step').hidden=planningStep!=='start';$('#sim-obstacle-step').hidden=planningStep!=='zones';$('#sim-route-step').hidden=planningStep!=='pins';for(const step of ['start','zones','pins']){const button=$('#sim-step-'+step);button.setAttribute('aria-pressed',String(planningStep===step));button.setAttribute('aria-selected',String(planningStep===step));}$('.sim-toolbar [data-tool]').parentElement.hidden=tab==='run'||planningStep==='start';for(const b of $$('[data-tool]'))b.hidden=b.dataset.tool==='pin'?planningStep!=='pins':b.dataset.tool==='select'?false:planningStep!=='zones';}
-  function setStep(next){if(sketch)finishShape();planningStep=next;selected=null;tool=next==='pins'?'pin':next==='start'?'start':'select';preview={...start};planningPanel();draw();}
+  function planningPanel(){root.dataset.step=planningStep;$('#sim-start-step').hidden=planningStep!=='start';$('#sim-obstacle-step').hidden=planningStep!=='zones';$('#sim-route-step').hidden=planningStep!=='pins';for(const step of ['start','zones','pins']){const button=$('#sim-step-'+step);button.setAttribute('aria-pressed',String(planningStep===step));button.setAttribute('aria-selected',String(planningStep===step));}$('.sim-toolbar [data-tool]').parentElement.hidden=tab==='run'||planningStep==='start';for(const b of $$('[data-tool]'))b.hidden=['pin','draw'].includes(b.dataset.tool)?planningStep!=='pins':b.dataset.tool==='select'?false:planningStep!=='zones';}
+  function setStep(next){if(sketch)finishShape();planningStep=next;selected=null;tool=next==='pins'?'pin':next==='start'?'start':'shape';preview={...start};planningPanel();draw();}
   const steps=$('.sim-planning-steps');root.insertBefore(steps,$('.simulation-layout'));steps.hidden=true;
   $('#sim-start-step').prepend($('#sim-start-controls'));
   $('#sim-setup-next').onclick=()=>{selectTab('plan');setStep('start');void setView('2d');};$('#sim-step-start').onclick=()=>setStep('start');$('#sim-step-zones').onclick=()=>setStep('zones');$('#sim-step-pins').onclick=()=>setStep('pins');$('#sim-zones-next').onclick=()=>setStep('pins');$('#sim-plan-next').onclick=()=>selectTab('run');
@@ -658,8 +702,9 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-obstacle-step').append($('#sim-zone-editor'),$('#sim-clear-zones'));
   for(const b of $$('[data-tab]'))b.onclick=()=>selectTab(b.dataset.tab);
   $('#start-form').addEventListener('submit',event=>{event.preventDefault();try{commit(Object.fromEntries(['x','y','heading'].map(key=>[key,$('#start-'+key).valueAsNumber])));}catch(error){status('#start-status',error.message);}});
-  $('#start-place').onclick=()=>{selectTab('plan');setStep('start');void setView('2d');preview={...start};setTool('start');status('#start-status','Click the field where the robot starts.');};
-  $('#start-edge').onclick=()=>{selectTab('plan');setStep('start');void setView('2d');preview=clearStart(geometry())||field.edgePose(start.heading,geometry());preview.heading=start.heading;tool='start';pointer=null;status('#start-status','At a clear spot by the left wall. Move and click, or press Enter to use it.');draw();graph.focus();};
+  // Start at edge places the robot at a clear spot by the left wall immediately; drag it from there.
+  const startAtEdge=()=>{const next={...(clearStart(geometry())||field.edgePose(start.heading,geometry())),heading:start.heading};try{commit(next);status('#start-status','At a clear spot by the left wall. Drag the robot to move it.');}catch(e){status('#start-status',e.message);}};
+  $('#start-edge').onclick=startAtEdge;$('#start-edge-plan').onclick=startAtEdge;
   addEventListener('resize',()=>paint());
   function refreshAll(){setupPanel();layoutPanel();inputs();robotPanel();programPanel();practicePanel(null);modelUi();zonePanel();pinPanel();tested();void exportPanel();pressed('view',project.view);draw();transport();}
   save();selectTab('setup');refreshAll();

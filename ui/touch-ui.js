@@ -1,5 +1,5 @@
 'use strict';
-window.DeckTouchUI={create({handheld=()=>false}={}){
+window.DeckTouchUI={create({handheld=()=>false,enabled=()=>true}={}){
  const editable=target=>target instanceof HTMLElement&&!target.closest('.touch-keyboard')&&!target.disabled&&!target.readOnly&&(target.matches('textarea')||target.matches('input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):not([type=button]):not([type=submit]):not([type=hidden]):not([type=date]):not([type=time])'));
  const host=document.createElement('div');host.id='touch-keyboard';host.setAttribute('popover','manual');host.hidden=true;
  let field=null,originalMode=null,keyboard;
@@ -21,8 +21,8 @@ window.DeckTouchUI={create({handheld=()=>false}={}){
  }
  keyboard=window.DeckTouchKeyboard.mount(host,{press,close:hide});
  const touch=event=>['touch','pen'].includes(event.pointerType)||event.sourceCapabilities?.firesTouchEvents||((handheld()||navigator.maxTouchPoints>0||matchMedia('(any-pointer: coarse)').matches)&&event.pointerType==='mouse');
- document.addEventListener('pointerdown',event=>{if(event.isTrusted&&touch(event)&&editable(event.target)){const target=event.target;if(field!==target){hide();field=target;originalMode=target.getAttribute('inputmode');keyboard.reset();}target.setAttribute('inputmode','none');}});
- document.addEventListener('click',event=>{if(!event.isTrusted||!touch(event)||event.composedPath().includes(host))return;if(editable(event.target))show(event.target);else hide();});
+ document.addEventListener('pointerdown',event=>{if(!enabled()){hide();return;}if(event.isTrusted&&touch(event)&&editable(event.target)){const target=event.target;if(field!==target){hide();field=target;originalMode=target.getAttribute('inputmode');keyboard.reset();}target.setAttribute('inputmode','none');}});
+ document.addEventListener('click',event=>{if(!event.isTrusted||!touch(event)||event.composedPath().includes(host))return;if(enabled()&&editable(event.target))show(event.target);else hide();});
  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&field){event.stopImmediatePropagation();hide();}},true);
  document.addEventListener('close',hide,true);window.addEventListener('blur',hide);
  return {hide};

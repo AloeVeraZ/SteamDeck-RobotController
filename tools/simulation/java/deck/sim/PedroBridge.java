@@ -173,26 +173,40 @@ public final class PedroBridge {
         List<Double> waits = new ArrayList<>();
         List<String> actions = new ArrayList<>();
         Path route = null;
+        boolean turning = kind == SimDrivetrain.Kind.TANK;
         if (m.has("route") && m.get("route").isJsonObject()) {
             JsonObject r = m.getAsJsonObject("route");
             double heading = num(r, "heading");
+            // Turning routes (tank, or holonomic routes that turn to fit past obstacles) give each
+            // segment its own heading; the robot stops and turns in place where the heading changes.
+            turning = turning || (r.has("turns") && r.get("turns").getAsBoolean());
             List<Path> parts = new ArrayList<>();
+            List<Double> partHeadings = new ArrayList<>();
             for (JsonElement e : r.getAsJsonArray("segments")) {
                 JsonObject s = e.getAsJsonObject();
                 List<Vector2D> points = new ArrayList<>();
                 for (JsonElement p : s.getAsJsonArray("points")) points.add(Vector2D.cartesian(num(p.getAsJsonObject(), "x"), num(p.getAsJsonObject(), "y")));
                 Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Vector2D[0]));
-                parts.add(part.constant(kind == SimDrivetrain.Kind.TANK && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading));
+                double partHeading = turning && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading;
+                parts.add(part.constant(partHeading));
+                partHeadings.add(partHeading);
             }
             if (!parts.isEmpty()) route = chain(parts, heading);
             // A pin with a pause ends a leg: the robot stops there, waits, then follows the next leg.
             JsonArray stops = r.getAsJsonArray("stops");
             int from = 0;
-            if (kind == SimDrivetrain.Kind.TANK) {
+            if (turning) {
+                // A turning leg also ends wherever the next segment needs a different heading.
+                double pause = 0; String action = "";
                 for (int i = 0; i < parts.size(); i++) {
-                    legs.add(parts.get(i)); double pause = 0; String action = "";
-                    for (JsonElement e : stops) { JsonObject stop = e.getAsJsonObject(); if (stop.get("segment").getAsInt() == i) { pause += num(stop, "wait"); action = stop.get("action").getAsString(); } }
-                    waits.add(pause); actions.add(action);
+                    for (JsonElement e : stops) { JsonObject stop = e.getAsJsonObject(); if (stop.get("segment").getAsInt() == i) { pause += num(stop, "wait"); if (!stop.get("action").getAsString().isEmpty()) action = stop.get("action").getAsString(); } }
+                    boolean last = i == parts.size() - 1;
+                    boolean turnNext = !last && Math.abs(Math.atan2(Math.sin(partHeadings.get(i + 1) - partHeadings.get(i)), Math.cos(partHeadings.get(i + 1) - partHeadings.get(i)))) > 1e-6;
+                    if (last || turnNext || pause > 0) {
+                        legs.add(chain(parts.subList(from, i + 1), partHeadings.get(i)));
+                        waits.add(pause); actions.add(action);
+                        from = i + 1; pause = 0; action = "";
+                    }
                 }
             }
             for (int i = 0; i < stops.size(); i++) {
@@ -201,7 +215,7 @@ public final class PedroBridge {
                 double wait = num(s, "wait");
                 int end = Math.min(s.get("segment").getAsInt(), parts.size() - 1);
                 boolean last = i == stops.size() - 1;
-                if (kind == SimDrivetrain.Kind.TANK) continue;
+                if (turning) continue;
                 if ((wait > 0 || last) && end >= from) {
                     legs.add(chain(parts.subList(from, end + 1), heading));
                     waits.add(wait);
@@ -218,7 +232,7 @@ public final class PedroBridge {
         robot = new SimRobot(follower, config, startPose, route, pins, legs, waits, actions);
         JsonObject programSpec = m.getAsJsonObject("program");
         String kindName = programSpec.get("kind").getAsString();
-        if ("route".equals(kindName)) program = new RouteAutonomous(kind == SimDrivetrain.Kind.TANK);
+        if ("route".equals(kindName)) program = new RouteAutonomous(turning);
         else program = compile(programSpec.get("source").getAsString(), new File(m.get("workDir").getAsString()));
         try {
             program.init(robot);

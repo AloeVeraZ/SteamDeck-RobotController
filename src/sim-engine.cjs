@@ -224,7 +224,7 @@ class SimEngine{
     child.on('error',e=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error('Java could not start: '+e.message));});
     child.on('exit',code=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error(`The Pedro process exited (code ${code}).${bridge.stderr?' '+bridge.stderr.trim().slice(-500):''}`));});
     child.stdin.on('error',()=>{});
-    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?clamp(s.wait,0,30):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
+    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?clamp(s.wait,0,30):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
     const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:config.drives[this.info.robot.drivetrain].engine,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);

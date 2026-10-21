@@ -50,13 +50,13 @@
 .view-cube .cube{position:absolute;inset:0;transform-style:preserve-3d}
 .view-cube .face{position:absolute;left:0;top:0;width:64px;height:64px;min-height:0;padding:0;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:600 10px var(--font);opacity:.94;backface-visibility:hidden;cursor:pointer}
 .view-cube .face:hover{background:var(--well)}.view-cube .face.selected{background:var(--accent);color:var(--bg)}
-.sim-more{margin:12px 0;font-size:13px}.sim-more summary{cursor:pointer;color:var(--muted)}.sim-more[open] summary{margin-bottom:10px}
+.sim-advanced{margin:14px 0 4px;padding-top:12px;border-top:1px solid var(--line)}.sim-advanced h3{margin:0 0 8px}.sim-more{margin:12px 0;font-size:13px}.sim-more summary{cursor:pointer;color:var(--muted)}.sim-more[open] summary{margin-bottom:10px}
 .sim-project{justify-content:center}
 .sim-steps{margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.5}.sim-steps li{margin-bottom:4px}
 .sim-editor{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px}.sim-editor-head{display:flex;justify-content:space-between;align-items:center}.sim-editor h3{margin:0 0 8px}
 .sim-list{list-style:none;padding:0;margin:0 0 12px;max-height:220px;overflow:auto}
 .sim-pin-row{display:grid;grid-template-columns:24px 64px 12px 1fr 30px 30px;gap:4px;align-items:center;padding:2px 0}
-.sim-pin-row input{min-height:32px;margin:0;font-size:12px}.sim-pin-row.selected .sim-badge{background:var(--text)}.sim-pin-head{font-size:11px;margin-bottom:2px}
+.sim-pin-row input{min-height:32px;margin:0;font-size:12px}.sim-pin-row input.num-slider{grid-column:2/-1;grid-row:2;margin:0 0 4px}.sim-pin-row.selected .sim-badge{background:var(--text)}.sim-pin-head{font-size:11px;margin-bottom:2px}
 .sim-badge{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--accent);color:var(--bg);font:700 11px var(--font)}
 .sim-list .icon-button{width:30px;height:30px;min-height:30px;padding:0}
 .sim-tested{font-size:12px;margin-bottom:8px}.sim-tested-row{padding:2px 0;color:var(--muted)}.sim-tested-row.best{color:var(--text);font-weight:700}
@@ -70,6 +70,7 @@
 @media(max-height:720px) and (min-width:901px){.driver-station #simulation-view{padding-top:12px}.simulation-layout{grid-template-columns:minmax(0,1fr) 300px;gap:24px}#simulation-field{max-height:calc(100dvh - 250px)}.sim-telemetry{font-size:11px}}
 .sim-zone.wall{fill:none;stroke-width:1.4;stroke-linecap:round}.sim-zone.wall.selected{stroke-width:2}
 .sim-handle{fill:var(--bg);stroke:var(--danger);stroke-width:.6;cursor:grab}
+.sim-shape-bar{margin:8px 0;padding:8px;border:1px dashed var(--danger);border-radius:8px}.sim-shape-bar .hint{margin:0 0 6px}.sim-shape-bar .sim-row{flex-wrap:wrap}
 .sim-corner{fill:var(--danger)}.sim-corner.close{fill:var(--bg);stroke:var(--danger);stroke-width:.6}
 .sim-pin.blocked circle{fill:var(--danger)}
 .sim-list{overflow-x:hidden}.sim-list .icon-button{min-width:0}
@@ -112,3 +113,5 @@
 .sim-model-preview{height:310px}.sim-model-preview .view-cube{right:20px;top:20px}
 #simulation-view[data-tab=plan] #sim-hitboxes:not([hidden]){display:block}.sim-controller-setup{padding:0 0 16px}.sim-controller-setup h2{margin-top:0}.sim-controller-setup .hint{margin:10px 0 0}#sim-timed-settings{border-top:1px solid var(--line);margin-top:16px;padding-top:4px}
 @media(max-width:450px){.sim-planning-steps{gap:4px}.sim-planning-steps button{font-size:11px;min-width:90px;padding:7px}.sim-side-assignments{grid-template-columns:repeat(2,1fr)}}
+.sim-draw-stroke{fill:none;stroke:var(--accent);stroke-width:.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.sim-turn-ghost{fill:none;stroke:var(--accent);stroke-width:.4;stroke-dasharray:1 .8;pointer-events:none}

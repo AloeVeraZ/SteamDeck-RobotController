@@ -119,6 +119,8 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station :is(input, select):hover, .driver-station .wifi-picker:hover { border-color: var(--input-hover); }
 .driver-station :is(input, select):focus, .driver-station .wifi-picker[aria-expanded=true] { border-color: var(--text); }
 .driver-station input::placeholder { color: var(--placeholder); }
+.driver-station input.num-slider { display: block; width: 100%; min-height: 32px; height: 32px; margin: 4px 0 0; padding: 0; background: transparent; border: 0; border-radius: 0; accent-color: var(--accent); cursor: pointer; touch-action: pan-y; }
+.driver-station input.num-slider:disabled { opacity: .45; cursor: default; }
 .driver-station .wifi-popover { margin-top: 8px; padding: 4px; background: var(--well); border: 1px solid var(--line-strong); border-radius: var(--radius-control); }
 .driver-station .wifi-row { border: 0; border-radius: var(--radius-detail); }
 .driver-station .wifi-row:hover { background: var(--raised); }
