@@ -63,6 +63,25 @@ public final class SimRobot {
     /** The action name entered for the stop after leg i ("" when none). */
     public String stopAction(int leg) { return actions.get(leg); }
 
+    // Per-leg details from the simulator's leg plan (pin turns, action paths); empty for older routes.
+    private List<Double> legHeadings = Collections.emptyList(), turnsAfter = Collections.emptyList();
+    private List<String> moving = Collections.emptyList();
+
+    void legDetails(List<Double> headings, List<Double> turnAfter, List<String> movingActions) {
+        legHeadings = Collections.unmodifiableList(new ArrayList<>(headings));
+        turnsAfter = Collections.unmodifiableList(new ArrayList<>(turnAfter));
+        moving = Collections.unmodifiableList(new ArrayList<>(movingActions));
+    }
+
+    /** Heading (radians) to face before following leg i. */
+    public double legHeading(int leg) { return leg < legHeadings.size() ? legHeadings.get(leg) : legs.get(leg).endPose().heading(); }
+
+    /** Heading (radians) to turn to in place after leg i, or NaN for none. */
+    public double turnAfter(int leg) { return leg < turnsAfter.size() ? turnsAfter.get(leg) : Double.NaN; }
+
+    /** The action run while driving leg i (an action path), or "" for a regular path. */
+    public String movingAction(int leg) { return leg < moving.size() ? moving.get(leg) : ""; }
+
     /** Report that the robot is pausing at a stop, for the simulator's telemetry. */
     public void waiting(int leg, String action, double remainingSeconds) {
         waitingStop = leg;

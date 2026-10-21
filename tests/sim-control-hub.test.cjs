@@ -49,8 +49,24 @@ test('the virtual hub catches wiring and compile mistakes that would fail on a r
   }finally{e.dispose();}
 });
 
-test('IMU-only and non-mecanum setups are refused for Pedro on a Control Hub with a clear reason',()=>{
+test('IMU-only and unsupported drivetrains are refused for Pedro on a Control Hub with a clear reason',()=>{
+  assert.throws(()=>F.hardware({drivetrain:'swerve',length:17,width:17,driveRpm:500},'odometry'),/mecanum and tank-style/);assert.equal(F.hardware({drivetrain:'tank6',length:17,width:17,driveRpm:500},'odometry').drive.kind,'tank');
   assert.throws(()=>F.hardware({length:17,width:17,driveRpm:500},'gyro'),/IMU-only setups export timed commands/);
   const h=F.hardware({length:17,width:17,driveRpm:500},'encoders');assert.equal(h.drive.ticksPerRev,336);assert.ok(Math.abs(h.drive.ticksPerInch-336/(Math.PI*104/25.4))<1e-9);
   assert.deepEqual(Object.values(h.drive.motors).map(m=>m.mount),[-1,1,-1,1]);
 });
+// Tank-style robots: TankDrive (Pedro has no tank drivetrain) on two or four motors, turning in place
+// to face each straight leg, with drive encoders or odometry pods.
+for(const [drivetrain,localization] of [['tank','encoders'],['tank2','encoders'],['tracks','odometry']])
+  test(`exported Control Hub OpMode drives a ${drivetrain} robot with ${F.SUPPORTED[localization]} on the virtual hub`,{skip},async()=>{
+    let error='';const e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-hub-tank-')),now:()=>0,emit:m=>{if(m?.state==='error')error=m.error;}});
+    try{const start={x:24,y:24,heading:0},robot={drivetrain,length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},pins=[{x:100,y:24},{x:100,y:100,wait:.5,action:'Score'}];
+      const info=await e.load({field:'empty',start,robot,zones:[],sensors:{localization}});
+      const route=P.plan({start,zones:[],pins,clearance:2,style:'sharp',nonholonomic:true},info.footprint,[],info.bounds),layout={name:'Tank check',field:'empty',width:144,height:144,start,zones:[]};
+      const out=F.files({route,layout,tuning:info.tuning,robot:info.robot,localization,routeJava:X.java(route,layout,{polygon:P.polygon})});
+      const dir='org/firstinspires/ftc/teamcode/pedro/';assert.ok(out.files[dir+'TankDrive.java']);assert.equal(!!out.files[dir+'TankEncoderLocalizer.java'],localization==='encoders');assert.match(out.files[dir+'Constants.java'],drivetrain==='tank2'?/LEFT_MOTORS = new String\[\] \{"left_drive"\}/:/LEFT_MOTORS = new String\[\] \{"front_left", "back_left"\}/);
+      assert.equal((await e.run({kind:'opmode',files:out.files,opMode:out.opMode})).ok,true,error);
+      const phases=await finish(e,3000);assert.ok(['Turning','Driving','Waiting','Done'].every(p=>phases.has(p)),[...phases].join());
+      const t=e.truth();assert.ok(Math.hypot(t.x-100,t.y-100)<2.5,JSON.stringify(t));assert.equal(e.violations.size,0);
+    }finally{e.dispose();}
+  });

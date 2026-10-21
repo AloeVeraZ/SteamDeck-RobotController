@@ -251,6 +251,10 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station .segmented > button[aria-pressed=true] { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong); }
 .driver-station .shortcuts { margin-top: 20px; border-top: 1px solid var(--line); }
 .driver-station .shortcut-list { margin: 0 0 4px; }
+.driver-station .credits { margin-top: 0; }
+.driver-station .credit-list { margin: 0 0 8px; padding: 0; list-style: none; }
+.driver-station .credit-list li { padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.driver-station .credit-list li b { color: var(--text); }
 .driver-station .shortcut-list > div { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .driver-station .shortcut-list > div:first-child { border-top: 0; }
 .driver-station .shortcut-list dt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--quiet); }

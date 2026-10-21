@@ -41,7 +41,7 @@ Three tabs span the workspace: **Setup → Path planning → Run & review**. Set
 
 Planning has three adjacent tabs: **1 · Starting pose → 2 · Field obstacles → 3 · Route pins**. Starting pose belongs here, outside Setup. The robot starts at a clear spot by the left wall. Drag it on the field to move it (it moves freely while dragged; letting go over an obstacle moves it to the nearest clear spot), set X/Y/heading with the boxes or sliders, or use **Start at edge**, then **Next**. The whole footprint must be inside the field and clear of structures/barriers. Switch between **2D** (editing) and **3D** (inspection). Red dotted outlines show physical floor boundaries; optional **Hitboxes** in 3D outline the robot, structures and loose pieces. The field cube reorients the camera and zoom-out is bounded.
 
-This local build uses DSIM's actual 2D field drawing and BIOBUZZ CAD/renderer, including moving trays and live elements. DSIM has no corresponding DECODE 3D CAD renderer; that view uses locally prepared official FIRST DECODE field CAD aligned to the engine's coordinates. The app keeps its own theme-aware controls.
+Fields use DSIM's 2D field drawing and its BIOBUZZ renderer, including moving trays and live elements. Public releases contain no field or chassis CAD whose terms forbid redistribution: DECODE is shown as DSIM's drawing with its structures raised from the physics outlines, BIOBUZZ as DSIM's own constants-built field, and robots as their footprint (or your imported model). A personal local build can add the official FIRST DECODE field CAD, DSIM's BIOBUZZ CAD and the bundled chassis CAD; nothing else changes. The app keeps its own theme-aware controls.
 
 1. **Mark where not to go.**
    - **Box**: drag corner to corner.
@@ -49,8 +49,21 @@ This local build uses DSIM's actual 2D field drawing and BIOBUZZ CAD/renderer, i
    - **Triangle**: press where the base goes and drag. The tip follows your cursor, so it turns, flips and stretches as you move.
    - **Shape** (the default tool here): tap corners. The outline is drawn closed back to the first corner as you go, so three corners show a triangle, four a quadrilateral and so on. Two points make a wall line. Press **Enter** or **Finish shape** to confirm (tapping the first corner or double-clicking also works); **Undo corner**/Backspace removes the last corner and **Cancel**/Escape discards it.
    - **Change a zone**: click it with **Select**, then drag it, or drag its handle (box corner, circle edge, triangle tip, shape corners). Delete or right-click removes it. Zones are physical barriers as well as planning exclusions. Concave outlines are triangulated; wall lines are one inch thick; BIOBUZZ barriers are twelve inches tall.
-2. **Drop pins in order** with **Pin**, or choose **Draw path** and drag the route on the field: the stroke is simplified into pins (starting near the end of the route extends it; elsewhere replaces it). The whole footprint must fit inside the field and outside physical structures/barriers; a pin tapped or drawn in a red area moves to the nearest clear spot, and a dragged pin slides along the edge instead of entering it. Give pins pauses and action names in the list. Actions are labels for future mechanism work; the simulator does not execute an intake/shooter action.
+2. **Drop pins in order** with **Pin**, or choose **Draw path** and drag the route on the field: the stroke is simplified into pins (starting near the end of the route extends it; elsewhere replaces it). The whole footprint must fit inside the field and outside physical structures/barriers; a pin tapped or drawn in a red area moves to the nearest clear spot, and a dragged pin slides along the edge instead of entering it. Give pins pauses and actions in the list, or open their settings (below).
 3. **The route draws itself** whenever you change something. If a pin can't be reached safely, it turns red and the message says why.
+
+#### Pins, paths and actions
+
+The simulator plans and drives the **movement**. What the mechanisms do (intake, shooter, arm…) is your code; the simulator gives every action you name its own labeled slot in the exported code and shows where and when it runs.
+
+**Right-click a pin or a path** (on a touchscreen, press and hold it), or press **⋯** in the pin list, to open its settings. Each path is named after the pin it leads to: *path to pin 2* runs from pin 1 to pin 2.
+
+- **Regular path**: the robot only drives.
+- **Action path** (dashed, in the action colour): the robot runs an action *while it drives*, such as intaking along the way or shooting while moving. Name the action and describe what the path does.
+- **While driving** (holonomic drivetrains): **Keep heading**, **Turn to…** a heading by the end of the path, or **Spin** 1 to 10 full turns left or right. A turning or spinning path is planned for the robot's whole rotation circle, so it needs about the footprint's diagonal of clear width; the message says which pin's path has no room. ↻ and ↷ mark these paths on the field. Tank-style robots cannot rotate while driving; turn at a pin instead.
+- **At a pin**: a **pause** (seconds), an **action** run there, a **turn in place** to a heading (the short line on the pin shows it), and a note. The robot stops at a pin with any of these: it turns first, then runs the action, and leaves once the action is done and the pause is over. Set the pause to how long the action takes on the real robot; in the simulator the pause stands in for it.
+
+The same action name at several pins or paths runs the same code. The run readout shows the action path being driven and the pin action and pause.
 
 **Route shape** can be **Smooth curves** (cubic splines through the waypoints, the default), **Rounded corners** or **Straight lines**. Curves never come closer than half of **Space around zones**; where a curve would, that corner tightens, down to a straight line if needed. Pins with a pause, and places where the route doubles back, are full stops.
 
@@ -67,21 +80,25 @@ Tank/differential/tracked robots use **Straight lines** with a stop and chassis 
 **Export the route**:
 - **Pedro Java…**, for FTC with odometry, writes a class (default `PlannedRoute`) with:
   - `START` and `HEADING`;
-  - `legs()`, the route split at each pause;
-  - `WAIT_SECONDS` and `ACTIONS` for each stop;
+  - `legs()`, the route split where the robot stops (pins with a pause, an action or a turn), where an action path starts or ends, and where a turning route turns in place. Paths the robot turns or spins along use a heading interpolator that may span whole turns;
+  - per leg: `START_HEADING` (face it first), `MOVING_ACTIONS` (action paths), `TURN_AFTER` (turn at the pin, `NaN` for none), `ACTIONS` and `WAIT_SECONDS` (the pin's action and pause), `PATH` and `PIN`;
+  - a comment describing every leg, with your notes;
   - `NO_GO_ZONES` as polygons.
 
   It uses the Pedro Pathing 3.x API and is checked by compiling it against Pedro's real classes.
-- **Control Hub TeamCode…**, for an FTC mecanum setup with position sensing, writes everything a Control Hub needs under the folder you pick (normally `TeamCode/src/main/java`):
+- **Control Hub TeamCode…**, for an FTC mecanum or tank-style setup (tank, two-wheel differential, 6- and 8-wheel, tracks) with position sensing, writes everything a Control Hub needs under the folder you pick (normally `TeamCode/src/main/java`):
   - `PlannedRoute.java` (the route, as above);
-  - `PlannedRouteAuto.java`, an `@Autonomous` `LinearOpMode` that follows each leg, turns in place first where a turning route needs it, settles, then holds each pin's pause;
-  - `pedro/Constants.java` with `Constants.create(hardwareMap)` in the form Pedro 3's AutoTune generates: `MecanumConfig` (motor names `front_left`, `front_right`, `back_left`, `back_right`; left side REVERSE), the localizer for the setup (`TwoWheelLocalizer`, `ThreeWheelIMULocalizer`, `PinpointLocalizer` or `OTOSLocalizer`) and a `ForesightConfig` measured on the simulated robot;
-  - `pedro/DriveEncoderLocalizer.java` for drive-encoder setups, because Pedro 3 ships no drive-encoder localizer.
+  - `PlannedRouteAuto.java`, an `@Autonomous` `LinearOpMode` that, for each leg, turns in place first where the plan changes heading, follows the leg (calling the action path's action every loop while it drives), settles, turns if the pin asks, then runs the pin's action until it reports done and its pause is over;
+  - `RouteActions.java`, the **action slots**: one method per action you named, documented with where it runs. Export rewrites this file;
+  - `RobotActions.java`, **your mechanism code**: it extends `RouteActions` with a method stub per action. It is written only when it does not exist yet, so your code is never overwritten. Each method is called every loop with a `Step` (`elapsed`, `first`, `last`, `moving`, `pin`, `pose`) and returns `true` when finished; an action path's action gets a final call with `step.last` when the path ends. `init` and `stop` set up and stop the mechanisms. After adding or renaming an action, copy its method from `RouteActions.java`;
+  - `pedro/Constants.java` with `Constants.create(hardwareMap)` in the form Pedro 3's AutoTune generates: `MecanumConfig` (motor names `front_left`, `front_right`, `back_left`, `back_right`; left side REVERSE) or, for tank-style robots, `LEFT_MOTORS`/`RIGHT_MOTORS` (the same four names, or `left_drive`/`right_drive` for a two-wheel differential), the localizer for the setup (`TwoWheelLocalizer`, `ThreeWheelIMULocalizer`, `PinpointLocalizer` or `OTOSLocalizer`) and a `ForesightConfig` measured on the simulated robot;
+  - `pedro/TankDrive.java` for tank-style robots, because Pedro 3 ships only mecanum and swerve drivetrains: it mixes and saturates like Pedro's `Mecanum`, without strafe;
+  - `pedro/DriveEncoderLocalizer.java` (mecanum) or `pedro/TankEncoderLocalizer.java` for drive-encoder setups, because Pedro 3 ships no drive-encoder localizer.
 
   Hardware names, pod offsets and Foresight numbers are the simulated robot's. Rename to your configuration and run Pedro AutoTune on the real robot before competing. Every export is compiled and run on the virtual Control Hub (below).
-- **MotionModule autonomous.py…**, for a MotionModule setup, writes an `autonomous.py` for MotionModule's runtime: `create_autonomous(module, drive)` returning a routine with `run(stop)`, the route as a timed `PLAN` of `("drive", forward, strafe, seconds)`, `("turn", degrees)` and `("hold", seconds)` steps, MotionModule's own `TurnPID`/`Settle`/`HeadingController`, its confirmed `MecanumTestDrive` mixer and `IMU_TO_MIXER_SIGN = -1`, like its Mecanum autonomous example. It is run on MotionModule's real runtime by the virtual MotionModule.
+- **MotionModule autonomous.py…**, for a MotionModule setup, writes an `autonomous.py` for MotionModule's runtime: `create_autonomous(module, drive)` returning a routine with `run(stop)`, the route as a timed `PLAN` of `("drive", forward, strafe, seconds[, action])`, `("turn", degrees)`, `("hold", seconds)`, `("action", name, seconds)`, `("aim", degrees)` and `("glide", x, y, seconds, degrees[, action])` steps, MotionModule's own `TurnPID`/`Settle`/`HeadingController` with its example's approach and overshoot-correction turn, its confirmed `MecanumTestDrive` mixer and `IMU_TO_MIXER_SIGN = -1`, like its Mecanum autonomous example. Turning or spinning while driving uses `glide` steps: the robot holds a direction on the field from the IMU heading whatever way it faces, and each step lasts until its planned travel is done, because turning takes wheel power from driving. Your mechanism code goes in `robot_actions.py` beside it: the export creates that file once (never overwriting it) with a function per action; `autonomous.py` calls them with a `step` (`elapsed`, `first`, `last`, `moving`, `module`). It is run on MotionModule's real runtime by the virtual MotionModule.
 - **Timed commands…**, for either controller with IMU-only sensing, writes JSON with powers, durations, pauses and heading settings. Tank schedules include IMU-settled turns with a 30-second failure timeout; total duration is null because turn completion depends on measured heading. There is no X/Y feedback.
-- **Path file (.pp)…** writes the start point, lines, Bézier control points, and `waitAfterMs`/`waitAfterName` on each stop. Zones are included as polygon `shapes`; that part has not been checked against Pedro's visualizer.
+- **Path file (.pp)…** writes the start point, lines, Bézier control points, `waitAfterMs`/`waitAfterName` on each stop, `turnAfterDegrees` for pin turns, `actionPath`/`actionName` on action-path lines and `linear` headings for paths the robot turns or spins along. Zones are included as polygon `shapes`; that part has not been checked against Pedro's visualizer.
 - **Keep the exported file updated** rewrites the file you picked every time this field's route changes. The app can only write to a file you chose in a save dialog.
 
 ### Run & review
@@ -104,6 +121,12 @@ Choose **Autonomous**, **Teleop**, or **Full match**. These share the selected s
 There is no manual Drive tool in autonomous planning. Arrow keys there are for placement/editing. Driving becomes available only after explicitly starting a teleop practice phase; real robot outputs remain paused throughout Simulation.
 
 The readout shows simulation time, true position/speed, the current leg/pause and zone contact. Odometry runs show sensor-estimate error. IMU-only runs show timed execution and final miss, without a position estimate. Loose pieces move through DSIM physics and can be pushed by the rectangular chassis.
+
+## Games and robots
+
+**Every FTC season.** A custom field (**New field…**, any size) with your own obstacles drawn as boxes, circles, triangles, shapes and walls covers any game: draw that season's structures as no-go zones, place the start and plan. DECODE (2025–26) and BIOBUZZ (DSIM's 2026–27 game) also come with their structures and loose pieces as physics. Exports use the FTC SDK's Android Robot Controller API (`LinearOpMode`, `HardwareMap`, `DcMotorEx`, `IMU`), which teams have used since the 2015–16 season; the Control Hub files target SDK 12.0 and Pedro Pathing 3, and the route maths (inches, field frame, headings) is the same for any season. Seasons before 2015 ran LEGO NXT/Samantha with RobotC and are not a target.
+
+**Robot types.** Mecanum, swerve (coaxial, differential), X-drive, Kiwi, H-drive, butterfly, tank (4, 6 and 8 wheels), two-wheel differential and tracks are simulated with their own kinematics, any size, mass, motor RPM (50–6000) and current budget. Holonomic robots can turn to fit, turn and spin while driving; tank-style robots drive straight legs and turn in place. Complete Control Hub TeamCode is exported for mecanum and tank-style robots; every drivetrain can export the route as Pedro Java (`PlannedRoute`) and `.pp` for its own drive code, and IMU-only robots export timed commands. MotionModule exports target its mecanum mixer.
 
 ## Coordinates
 
@@ -148,9 +171,9 @@ These run the exported files themselves, not the simulator's own route program, 
 - stand-ins for the FTC SDK 12.0 classes they use (`LinearOpMode`, `HardwareMap`, `DcMotorEx`, `IMU`, `RevHubOrientationOnRobot`, `GoBildaPinpointDriver`, `SparkFunOTOS`, `Telemetry`, `ElapsedTime`…), with the SDK's names and signatures;
 - Pedro Pathing's real FTC adapter (`com.pedropathing.revhub`: `Mecanum`, the two-wheel, three-wheel and IMU localizers, Pinpoint and OTOS), compiled from the same pinned source with the same clock patch.
 
-The OpMode runs in lockstep with physics: each `opModeIsActive()`, `idle()` or `sleep()` waits for the next 1/60 s tick. Four drive motors report goBILDA-style encoder counts (28 per motor revolution × gearing, 104 mm wheels); left motors are mirrored, and REVERSE flips power and encoder as on the real SDK. Odometry pods, Pinpoint, OTOS and the Control Hub IMU are fed from the simulated sensors (with their noise and drift). Motor powers become chassis motion through mecanum kinematics, coasting where the motors are in FLOAT. A wrong motor direction, an `int` where Pedro wants a `Double`, or a missing class fails here as it would on a robot. Not emulated: OctoQuad, servo-steered swerve and `setVelocity`.
+The OpMode runs in lockstep with physics: each `opModeIsActive()`, `idle()` or `sleep()` waits for the next 1/60 s tick. Drive motors (four mecanum, or two or four tank) report goBILDA-style encoder counts (28 per motor revolution × gearing, 104 mm wheels); left motors are mirrored, and REVERSE flips power and encoder as on the real SDK. Odometry pods, Pinpoint, OTOS and the Control Hub IMU are fed from the simulated sensors (with their noise and drift). Motor powers become chassis motion through mecanum or tank kinematics, coasting where the motors are in FLOAT. In the simulator the generated `RobotActions` stubs stand in for your mechanism code (each action finishes at once, so the pin's pause sets its time). A wrong motor direction, an `int` where Pedro wants a `Double`, or a missing class fails here as it would on a robot. Not emulated: OctoQuad, servo-steered swerve and `setVelocity`.
 
-**Checked against the real FTC SDK.** `node tools/simulation/check-ftc-sdk.cjs` downloads FTC SDK 12.0.0 `RobotCore` and `Hardware` from Maven Central into a temporary folder, verifies their SHA-1, compiles Pedro's `revhub` and a Control Hub export for every localizer (plus a turning route) against them with all lint warnings enabled, and checks that every public member the stand-ins declare exists in the real SDK. It then deletes the download; the SDK is a reference only and is never bundled. Last result (21 October 2026): all exports compile with no warnings, and all 226 stand-in members match (5 are inherited from `OpModeInternal` in the real SDK).
+**Checked against the real FTC SDK.** `node tools/simulation/check-ftc-sdk.cjs` downloads FTC SDK 12.0.0 `RobotCore` and `Hardware` from Maven Central into a temporary folder, verifies their SHA-1, compiles Pedro's `revhub` and a Control Hub export for every localizer, a turning route, a route with action paths, spins and pin turns, and tank, differential and tracked robots against them with all lint warnings enabled, and checks that every public member the stand-ins declare exists in the real SDK. It then deletes the download; the SDK is a reference only and is never bundled. Last result (21 October 2026): all eleven exports compile with no warnings, and all 226 stand-in members match (5 are inherited from `OpModeInternal` in the real SDK).
 
 **Virtual MotionModule** (development check). `tools/simulation/motionmodule-bridge.py` loads the exported `autonomous.py` with MotionModule's own `load_autonomous()` and runs it on MotionModule's real controller with `MockGPIO` (no hardware is opened) and its confirmed mixer. Only the clock (`time.monotonic`/`time.sleep` follow simulation time), the built-in IMU (degrees, counter-clockwise) and the chassis are simulated; channels 1–4 drive the chassis through the inverse of the confirmed mixer, including its clockwise-positive rotation. It needs Python 3 and the MotionModule source (`DECK_PYTHON`, `DECK_MOTIONMODULE_SOURCE`), so the installed app does not offer it; the tests run it.
 
@@ -192,7 +215,7 @@ Discrepancies found by running the simulator against those sources, and what cha
 | Results were recorded while a timed robot was still rolling | Results are recorded at rest; timed driving gained stop compensation and floor-style calibration |
 | A pause at a pin counted from the end of the path, not from the robot stopping | Counted from the stop (bounded at 3 s) |
 
-Not adopted: Road Runner's motion profiles and kS/kV/kA feedforward (Pedro remains the follower) and PathPlanner per-point speed overrides. Pedro 3's `revhub` has no tank/differential drivetrain, so tank exports are not runnable on the virtual Control Hub.
+Not adopted: Road Runner's motion profiles and kS/kV/kA feedforward (Pedro remains the follower) and PathPlanner per-point speed overrides. Pedro 3's `revhub` has no tank/differential drivetrain, so tank exports bring their own `TankDrive`; they run on the virtual Control Hub like mecanum exports.
 
 ## Execution adapters
 
@@ -201,7 +224,7 @@ Not adopted: Road Runner's motion profiles and kS/kV/kA feedforward (Pedro remai
 
 ## How it is built
 
-The window uses SVG/canvas in 2D and three.js in 3D. At the user's request, this personal noncommercial build now uses DSIM's field visuals and BIOBUZZ CAD. DECODE 3D uses official FIRST CAD. Pedro remains the path-following engine. Third-party licenses/notices accompany the assets.
+The window uses SVG/canvas in 2D and three.js in 3D, with DSIM's field visuals (and, in personal local builds, the field and chassis CAD described above). Pedro remains the path-following engine. Third-party licenses and notices accompany the code.
 
 - **`ui/simulation.js`**: the view.
   - `sim-planner.js` and `simulation-worker.js`: route planning.
@@ -227,11 +250,17 @@ The CSP adds `'wasm-unsafe-eval'` (three.js mesh decoding) and `blob:`/`data:` f
 
 ## Building the simulator runtime
 
-Generated files are git-ignored and rebuilt reproducibly from pinned inputs. First install the pinned dependencies from `tools/simulation/deps-package.json` (with its lockfile) into `.cache/simulation-deps`, then run:
+Generated files are git-ignored and rebuilt reproducibly from pinned inputs. Fetch them (clones, npm packages from the lockfile, Temurin JDKs and Gson, each checked against a pinned SHA-256; `--targets` adds a reduced Java runtime for each release platform), then build:
 
 ```bash
-node tools/simulation/build.cjs
+node tools/simulation/fetch.cjs --targets win32-x64,linux-x64,darwin-arm64
 ```
+
+```bash
+node tools/simulation/build.cjs --public
+```
+
+`--public` leaves out every asset whose terms forbid redistribution (FIRST field CAD, DSIM's BIOBUZZ CAD, the chassis CAD and their notices); without it a personal local build includes them when present. Releases are built this way by the GitHub workflows, and `tools/package.py` refuses to package those files in any case. Each release carries the simulator inside `app/` and its platform's Java runtime beside Electron (`runtime/java`, or `Contents/Resources/runtime-java` on macOS), so users download only the app.
 
 Inputs (the build checks every one):
 - **DSIM** `0df84143…` (clean clone)
@@ -243,7 +272,7 @@ Outputs:
 - `ui/vendor/` (`planning.js/.cjs`, `three-view.js`, field models and `licenses/`)
 - `sim-runtime/` (`dsim-host.cjs`, `occt/`, `pedro/`, `java/`, `manifest.json` with SHA-256 hashes)
 
-Prepared CAD is tracked as compressed GLBs under `ui/assets/robots/` and `ui/assets/fields/`; notices record sources and hashes. Installed operation needs no download/conversion. STEP originals stay in `.cache/simulation-cad/`. Optional preparation uses native Open CASCADE (`cadquery-ocp-novtk==7.9.3.1.1`) and `meshoptimizer@0.25.0`; `prepare-decode-field.mjs` removes static loose pieces so physics bodies replace them. Ordinary runtime builds need no Python; user STEP imports use bundled OpenCascade WASM and merge to one body. BIOBUZZ assets are copied from the verified pinned DSIM clone.
+Prepared CAD for personal local builds lives as compressed GLBs under `ui/assets/robots/` and `ui/assets/fields/` (git-ignored, never committed or packaged); notices record sources and hashes. Installed operation needs no download/conversion. STEP originals stay in `.cache/simulation-cad/`. Optional preparation uses native Open CASCADE (`cadquery-ocp-novtk==7.9.3.1.1`) and `meshoptimizer@0.25.0`; `prepare-decode-field.mjs` removes static loose pieces so physics bodies replace them. Ordinary runtime builds need no Python; user STEP imports use bundled OpenCascade WASM and merge to one body. BIOBUZZ assets are copied from the verified pinned DSIM clone.
 
 `tools/simulation/stubs/discordActivity.ts` keeps DSIM's online-only modules out of the physics bundle.
 
@@ -255,8 +284,9 @@ powershell -File tools/simulation/install-local.ps1
 
 ## Licenses
 
-- **DSIM** is **PolyForm Noncommercial 1.0.0**, not open source. This personal noncommercial build uses its physics, field rendering and BIOBUZZ assets. Its `LICENSE` and `NOTICE` (Required Notice: Copyright 2026 Dohun Kim) are in `ui/vendor/licenses/`. Keep those notices; do not commercially redistribute or relicense its code/assets.
-- **FIRST field CAD/assets** retain their owners' terms. Redistribution permission is not asserted; nothing is published. See `ui/assets/fields/NOTICES.md` and the copied upstream BIOBUZZ asset README.
+The app's own code is MIT (`LICENSE`); credits and every third-party notice are in `THIRD-PARTY-NOTICES.md` and in Settings → Preferences → **Licenses and credits**.
+- **DSIM** is **PolyForm Noncommercial 1.0.0**, not open source: it may be used, changed and shared for noncommercial purposes such as team practice. Its `LICENSE` and `NOTICE` (Required Notice: Copyright 2026 Dohun Kim) are in `ui/vendor/licenses/`. Keep those notices; do not sell or relicense its code.
+- **FIRST field CAD, DSIM's BIOBUZZ CAD and the chassis CAD** keep their owners' terms, which do not permit redistribution. They are never committed or packaged; only personal local builds use them (see `ui/assets/fields/NOTICES.md` and `ui/assets/robots/NOTICES.md`).
 - **Pedro Pathing** is BSD-3-Clause.
 - **three.js** is MIT.
 - **Rapier** is Apache-2.0.
@@ -264,7 +294,7 @@ powershell -File tools/simulation/install-local.ps1
 - **dijkstrajs** is MIT.
 - **Gson** is Apache-2.0.
 - **occt-import-js and Open CASCADE Technology** are LGPL-2.1; their notices are in `ui/vendor/licenses/`.
-- **Temurin** is GPLv2 with Classpath Exception; its notices are in `sim-runtime/java/legal`.
+- **Temurin** is GPLv2 with Classpath Exception; its notices travel with the runtime (`legal/`), and its source is at https://github.com/adoptium/jdk21u.
 
 ## Tests
 
@@ -287,7 +317,8 @@ That command includes these simulator suites:
 - `sim-practice.test.cjs`: phase timing, controller arming/stale input, IMU-only teleop, large-field walls and tank driving.
 - `sim-drive-profiles.test.cjs`: sensor restrictions, external MotionModule odometry, driving frames, current-limited acceleration, RPM extremes, swept tank turns, export headings and physical turn duration.
 - `sim-turning.test.cjs`: holonomic turn-to-fit through a narrow gap, unchanged open-field routes, taut turning routes that keep every pin, tank back-out from a corridor, Pedro execution of a turning route, timed/export turn legs and stall back-out.
-- `sim-control-hub.test.cjs`: exported Control Hub TeamCode on the virtual Control Hub with every localizer, agreement with the simulated follower, and caught wiring/compile mistakes.
+- `sim-control-hub.test.cjs`: exported Control Hub TeamCode on the virtual Control Hub with every localizer, agreement with the simulated follower, caught wiring/compile mistakes, and tank, differential and tracked robots.
+- `sim-actions.test.cjs`: action paths, spins, turns while driving and pin turns, planned, exported (Java, `.pp`, TeamCode action slots, MotionModule, timed) and run through physics, on the virtual Control Hub and on the virtual MotionModule.
 - `sim-motionmodule.test.cjs`: the MotionModule `autonomous.py` export, timed calibration, and the export on MotionModule's real runtime (skipped without Python and the MotionModule source).
 - `sim-setups.test.cjs`: both example setups, exported and run on their virtual devices, against the simulation.
 - `sim-assets.test.cjs`: curated CAD hashes, drive-wheel groups and grounded swerve orientation.
@@ -300,8 +331,10 @@ The native test is `tests/simulation-ui.cjs`. It needs `DECK_PLAYWRIGHT` and `DE
 
 - **Planar physics:** DECODE and the empty field are planar; drawing them in 3D does not make their physics 3D.
 - **BIOBUZZ planning:** uses floor-level hive legs/flower bases. Overhead structures collide in 3D physics, but route planning does not yet account for robot-height clearance beneath them.
-- **Heading:** holonomic routes keep the starting heading unless **Turn to fit** finds that turning in place (in 45° steps) is shorter; turning while driving is not planned (your own programs may turn).
-- **Tank autonomous:** straight legs separated by stop-and-turn maneuvers, with full-footprint rotation checks. Planning retries with a conservative rotation envelope when needed; it can reject tight routes that a more sophisticated search might find. Continuous-curvature tank trajectories are not implemented. Holonomic routes retain constant heading.
+- **Heading:** holonomic routes keep the starting heading unless **Turn to fit** finds that turning in place (in 45° steps) is shorter, a pin turns the robot, or a path turns or spins it while driving (planned for the whole rotation circle, which needs more room than the footprint).
+- **Actions:** the simulator does not model mechanisms; a pin's pause stands in for its action's time, and an action path's action is assumed to fit in the drive. Your `RobotActions`/`robot_actions.py` code runs only on the robot.
+- **MotionModule turns:** the export uses MotionModule's own turn routine. On some simulated robot sizes it settles slowly within ±4° in its overshoot-correction phase; spinning while driving with IMU-only timing lands a few inches off, as any open-loop drive can.
+- **Tank autonomous:** straight legs separated by stop-and-turn maneuvers, with full-footprint rotation checks. Planning retries with a conservative rotation envelope when needed; it can reject tight routes that a more sophisticated search might find. Continuous-curvature tank trajectories are not implemented.
 - **Timed driving:** translation is open-loop. IMU supplies heading, not position; calibration error, collisions and slip can cause large misses, without positional recovery.
 - **Practice scope:** driving, loose-piece contacts and autonomous timing. No user-controlled mechanisms, throwing/scoring controls, refereeing, opponents or full FTC match rules. The timer is configurable practice behavior, not an FTC SDK runtime.
 - **Models:** bundled CAD is simplified for rendering. Wheel/pod animation is visual kinematics, not articulated contact physics. User CAD stays one rigid body; very large or unsupported STEP assemblies can exceed the runtime importer's limits.

@@ -1,14 +1,18 @@
 """Verify the final downloadable artifacts against their checksums and app source."""
-import hashlib,json,plistlib,tarfile,zipfile
+import hashlib,importlib.util,json,plistlib,tarfile,zipfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
+# The packager's own rule for what never ships (restricted CAD, and Java, which goes beside Electron).
+_spec=importlib.util.spec_from_file_location('package',ROOT/'tools'/'package.py');package=importlib.util.module_from_spec(_spec);_spec.loader.exec_module(package)
 VERSION=json.loads((ROOT/'package.json').read_text())['version']
 OUT=ROOT/'dist'
 def sources():
     yield ROOT/'package.json','package.json'
-    for directory in ('src','ui'):
+    for name in ('LICENSE','THIRD-PARTY-NOTICES.md'):yield ROOT/name,name
+    for directory in ('src','ui','sim-runtime'):
         for f in (ROOT/directory).rglob('*'):
-            if f.is_file():yield f,f.relative_to(ROOT).as_posix()
+            relative=f.relative_to(ROOT).as_posix()
+            if f.is_file() and not package.restricted(relative):yield f,relative
 def main():
     names=[f'DeckDriverStation-{VERSION}-SteamDeck.tar.gz',f'DeckDriverStation-{VERSION}-Windows.zip',f'DeckDriverStation-{VERSION}-macOS-arm64.zip']
     sums=[]
@@ -23,6 +27,8 @@ def main():
                 for src,relative in sources():assert archive.extractfile(prefix+'app/'+relative).read()==src.read_bytes(),name+': '+relative
                 assert archive.getmember(prefix+'install.sh').mode&0o111
                 assert archive.getmember(prefix+'runtime/electron').mode&0o111
+                assert archive.getmember(prefix+'runtime/java/bin/java').mode&0o111
+                assert not any(package.restricted(m.name.split('/app/',1)[1]) for m in archive.getmembers() if '/app/' in m.name),name+': restricted file packaged'
                 assert b'Deck Driver Station.desktop' in archive.extractfile(prefix+'install.sh').read()
         elif name.endswith('.zip'):
             with zipfile.ZipFile(file) as archive:
@@ -32,9 +38,13 @@ def main():
                 if is_mac:
                     assert archive.getinfo('Install-Mac.command').external_attr>>16&0o111
                     assert archive.getinfo('Deck Driver Station.app/Contents/MacOS/Electron').external_attr>>16&0o111
+                    assert archive.getinfo('Deck Driver Station.app/Contents/Resources/runtime-java/bin/java').external_attr>>16&0o111
                     info=plistlib.loads(archive.read('Deck Driver Station.app/Contents/Info.plist'))
                     assert info['CFBundleIdentifier']=='dev.deckdriverstation.app'
-                else:assert archive.read(f'DeckDriverStation-{VERSION}-Windows/runtime/electron.exe')[:2]==b'MZ'
+                else:
+                    assert archive.read(f'DeckDriverStation-{VERSION}-Windows/runtime/electron.exe')[:2]==b'MZ'
+                    assert archive.read(f'DeckDriverStation-{VERSION}-Windows/runtime/java/bin/java.exe')[:2]==b'MZ'
+                assert not any(package.restricted(n.split('/app/',1)[1]) for n in archive.namelist() if '/app/' in n),name+': restricted file packaged'
         print('Verified: '+name,flush=True)
     for suffix in ('SteamDeck.run','Windows-Setup.exe'):
         file=OUT/f'DeckDriverStation-{VERSION}-{suffix}'

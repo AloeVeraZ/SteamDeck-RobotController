@@ -27,9 +27,10 @@ import javax.tools.ToolProvider;
 /**
  * A virtual REV Control Hub for exported autonomous code. The team files (OpMode, Constants,
  * route) are compiled against the FTC SDK stand-ins and Pedro's real revhub drivetrain and
- * localizers, then run in lockstep with the simulation: four mecanum drive motors with encoders,
- * odometry pods, Pinpoint/OTOS and the built-in IMU are fed from the simulated sensors, and the
- * motor powers the OpMode sets are turned back into chassis motion through mecanum kinematics.
+ * localizers, then run in lockstep with the simulation: the drive motors with encoders (four
+ * mecanum, or two or four tank), odometry pods, Pinpoint/OTOS and the built-in IMU are fed from the
+ * simulated sensors, and the motor powers the OpMode sets are turned back into chassis motion
+ * through mecanum or tank kinematics.
  */
 public final class VirtualHub {
     /** A problem in the team code, reported with the stage it happened in. */
@@ -60,13 +61,16 @@ public final class VirtualHub {
     private SimSensors.Pinpoint pinpoint;
     private SimSensors.Otos otos;
     private final double wheelTicksPerInch, turnArm;
+    private final boolean tank;
     private final String className;
     private double gyro;
 
     private VirtualHub(JsonObject hub, double heading) {
         JsonObject d = hub.getAsJsonObject("drive");
         wheelTicksPerInch = d.get("ticksPerInch").getAsDouble();
-        turnArm = d.get("halfLength").getAsDouble() + d.get("halfWidth").getAsDouble();
+        tank = d.has("kind") && "tank".equals(d.get("kind").getAsString());
+        // Mecanum wheels turn on the sum of half-length and half-width; tank wheels on the half-track.
+        turnArm = tank ? d.get("halfWidth").getAsDouble() : d.get("halfLength").getAsDouble() + d.get("halfWidth").getAsDouble();
         int port = 0;
         for (Map.Entry<String, JsonElement> e : d.getAsJsonObject("motors").entrySet()) {
             JsonObject m = e.getValue().getAsJsonObject();
@@ -173,11 +177,16 @@ public final class VirtualHub {
         gyro = heading;
         imu.heading = heading;
         imu.rate = dt > 0 ? turn / dt : 0;
-        // Mecanum wheel travel (forward-positive) for dx, dy, turn: the same mixing Pedro's Mecanum uses.
         double k = turnArm * turn;
-        double[] travel = {dx - dy - k, dx + dy + k, dx + dy - k, dx - dy + k};
-        String[] corners = {"frontLeft", "frontRight", "backLeft", "backRight"};
-        for (int i = 0; i < 4; i++) { SimMotor m = drive.get(corners[i]); if (m != null) m.advance(travel[i] * wheelTicksPerInch, dt); }
+        if (tank) {
+            // Tank wheel travel: each side rolls forward, plus or minus the turn at the half-track.
+            for (Map.Entry<String, SimMotor> e : drive.entrySet()) e.getValue().advance((left(e.getKey()) ? dx - k : dx + k) * wheelTicksPerInch, dt);
+        } else {
+            // Mecanum wheel travel (forward-positive) for dx, dy, turn: the same mixing Pedro's Mecanum uses.
+            double[] travel = {dx - dy - k, dx + dy + k, dx + dy - k, dx - dy + k};
+            String[] corners = {"frontLeft", "frontRight", "backLeft", "backRight"};
+            for (int i = 0; i < 4; i++) { SimMotor m = drive.get(corners[i]); if (m != null) m.advance(travel[i] * wheelTicksPerInch, dt); }
+        }
         for (Pod p : pods) p.port.advance((p.forward ? dx - p.y * turn : dy + p.x * turn) * p.ticksPerInch, dt);
         if (pinpoint != null) { pinpoint.gyro = heading; pinpoint.tracker.advance(dx, dy, heading, dt); }
         if (otos != null) { otos.gyro = heading; otos.tracker.advance(dx, dy, heading, dt); }
@@ -189,12 +198,26 @@ public final class VirtualHub {
         return org.firstinspires.ftc.robotcore.external.navigation.AngleUnit.normalizeRadians(radians);
     }
 
-    /** Chassis command (forward, strafe left, turn CCW, float) from the four wheel commands. */
+    /** Chassis command (forward, strafe left, turn CCW, float) from the wheel commands. */
     public double[] command() {
-        double fl = wheel("frontLeft"), fr = wheel("frontRight"), bl = wheel("backLeft"), br = wheel("backRight");
         boolean coast = true;
         for (SimMotor m : drive.values()) coast &= m.getZeroPowerBehavior() == DcMotor.ZeroPowerBehavior.FLOAT;
+        if (tank) {
+            double l = 0, r = 0;
+            int nl = 0, nr = 0;
+            for (Map.Entry<String, SimMotor> e : drive.entrySet()) {
+                if (left(e.getKey())) { l += e.getValue().wheelCommand(); nl++; } else { r += e.getValue().wheelCommand(); nr++; }
+            }
+            l /= Math.max(1, nl);
+            r /= Math.max(1, nr);
+            return new double[] {(l + r) / 2, 0, (r - l) / 2, coast ? 1 : 0};
+        }
+        double fl = wheel("frontLeft"), fr = wheel("frontRight"), bl = wheel("backLeft"), br = wheel("backRight");
         return new double[] {(fl + fr + bl + br) / 4, (-fl + fr + bl - br) / 4, (-fl + fr - bl + br) / 4, coast ? 1 : 0};
+    }
+
+    private static boolean left(String key) {
+        return key.toLowerCase(Locale.ROOT).contains("left");
     }
 
     private double wheel(String corner) {

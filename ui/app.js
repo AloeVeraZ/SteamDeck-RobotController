@@ -10,7 +10,7 @@ async function openRobot(robot){setBusy(true);try{const result=await api.open(ro
     try{const info=await api.join(result.needsWifi.ssid,'');if(info.needsPassword){promptWifi(result.needsWifi.ssid,robot);return;}await openRobot(robot);}catch{promptWifi(result.needsWifi.ssid,robot);}
   }}finally{setBusy(false);}}
 function setMenu(open){$('#menu').hidden=!open;$('#more').setAttribute('aria-expanded',String(open));syncOverlay();}
-function showPage(page){void task(()=>api.page(page));setMenu(false);if(page==='settings')void task(scan);}
+function showPage(page){if(page===state.page)window.scrollTo({top:0,behavior:'instant'});void task(()=>api.page(page));setMenu(false);if(page==='settings')void task(scan);}
 function network(info){wifi=info||{};robotDiscovery.network(wifi);$('#network-chip span').textContent=wifi.ssid||'Connect Wi-Fi';$('#network-chip').title=wifi.ssid||'Connect Wi-Fi';$('#network-chip').setAttribute('aria-label',wifi.connected?'Wi-Fi connected to '+wifi.ssid:'Wi-Fi disconnected. Open network settings');$('#network-chip .dot').className=`dot${wifi.connected?' live':''}`;$('#wifi-summary').textContent=wifi.ssid?`Connected to ${wifi.ssid}`:wifi.message||'Connect to a robot hotspot or your home network.';$('#robot-network').textContent=wifi.ssid||'No Wi-Fi connected';$('#wifi-picker-label').textContent=wifi.ssid||'Choose a network';renderLibrary(true);}
 function edit(robot){$('#robot-id').value=robot?.id||'';$('#robot-url').value=robot?.url||'';$('#robot-name').value=robot?.autoName?'':robot?.name||'';$('#robot-ftc').checked=robot?.kind==='ftc';$('#robot-controllers').value=String(robot?.controllerCount||1);showPage('settings');$('#robot-url').focus();}
 function renderLibrary(force=false){
@@ -90,6 +90,8 @@ let sessionStart=0,sessionUrl='',lastPage='';
 function clock(ms){const t=Math.floor(ms/1000),h=Math.floor(t/3600),m=Math.floor(t/60)%60,s=String(t%60).padStart(2,'0');return h?`${h}:${String(m).padStart(2,'0')}:${s}`:`${m}:${s}`;}
 function renderSession(){$('#session-time').hidden=!sessionStart;if(sessionStart)$('#session-time').textContent='Connected '+clock(Date.now()-sessionStart);}
 function renderExtras(){
+  // Each view starts at its own heading rather than inheriting another view's scroll.
+  if(lastPage!==state.page)window.scrollTo({top:0,behavior:'instant'});
   if(!state.url||state.error)sessionStart=0;else if(!state.loading&&(!sessionStart||sessionUrl!==state.url)){sessionStart=Date.now();sessionUrl=state.url;}renderSession();
   const zoom=state.zoom||1;$('#zoom-reset').hidden=!state.url||Math.abs(zoom-1)<.01;$('#zoom-reset').textContent=Math.round(zoom*100)+'%';
   if(state.page==='settings'&&lastPage&&lastPage!=='settings')void task(scan);lastPage=state.page;

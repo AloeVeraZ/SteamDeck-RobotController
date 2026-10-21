@@ -12,6 +12,7 @@ const config=require('../ui/sim-config.js');
 const {PracticeClock}=require('./sim-practice.cjs');
 const Timed=require('../ui/sim-timed.js');
 const Ftc=require('../ui/sim-ftc.js');
+const Export=require('../ui/sim-export.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
 const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
 // What each game's planning obstacles are, for the UI.
@@ -241,18 +242,19 @@ class SimEngine{
     if(kind==='opmode'){
       if(!program.files||typeof program.files!=='object'||typeof program.opMode!=='string')throw Error('Export the Control Hub files first.');
       const size=Object.values(program.files).reduce((s,v)=>s+(typeof v==='string'?v.length:Infinity),0);if(size>400000)throw Error('TeamCode files are limited to 400 KB.');
-      if(config.drives[this.config.robot.drivetrain].engine!=='mecanum')throw Error('The virtual Control Hub runs the Pedro mecanum drivetrain; choose a mecanum robot.');
+      if(!['mecanum','tank'].includes(config.drives[this.config.robot.drivetrain].engine))throw Error('The virtual Control Hub runs mecanum and tank-style drivetrains; choose one of those robots.');
       hub={...Ftc.hardware(this.config.robot,this.config.sensors.localization),files:program.files,opmode:program.opMode};
     }
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');
     const timed=kind==='route'&&!config.sensors[this.config.sensors.localization].translation;
     if(kind==='source'&&!config.sensors[this.config.sensors.localization].translation)throw Error('IMU-only sensing cannot measure X/Y for this Pedro Java program. Run the timed planned route, or select odometry in the FTC setup.');
-    if(kind==='route'&&!config.drives[this.config.robot.drivetrain].holonomic)program={...program,route:planner.tankRoute(program.route,this.zones.concat(this.info.fieldZones),this.info.footprint,this.info.bounds)};
+    if(kind==='route'&&!config.drives[this.config.robot.drivetrain].holonomic&&!program.route.effects)program={...program,route:planner.tankRoute(program.route,this.zones.concat(this.info.fieldZones),this.info.footprint,this.info.bounds)};
     if(kind==='source'&&(typeof program.source!=='string'||!program.source.trim()))throw Error('Choose a Java program first.');
     if(kind==='source'&&program.source.length>200000)throw Error('Program source is limited to 200 KB.');
     this.stopProgram('Restarted.');this.build();this.violations=new Set();
     if(timed){this.timed=new Timed.Runner(program.route,this.config.timing);this.mode='timed';this.estimate=null;this.follower=null;this.emit({type:'run',state:'starting',kind:'timed'});this.emit({type:'run',state:'running',kind:'timed'});this.play();return {ok:true,program:'Timed power + IMU heading hold'};}
-    const seq=++this.runSeq,java=path.join(this.runtimeDir,'java/bin',process.platform==='win32'?'java.exe':'java');
+    // Java ships beside the app in releases (runtime-java, per platform) and inside sim-runtime in local builds.
+    const bin=process.platform==='win32'?'java.exe':'java',seq=++this.runSeq,java=[path.join(this.runtimeDir,'java/bin',bin),path.join(this.runtimeDir,'../../runtime/java/bin',bin),path.join(this.runtimeDir,'../../runtime-java/bin',bin)].find(f=>fs.existsSync(f))||path.join(this.runtimeDir,'java/bin',bin);
     if(kind!=='motionmodule'&&!fs.existsSync(java))throw Error('The simulator Java runtime is missing. Rebuild with tools/simulation/build.cjs.');
     const dir=path.join(this.workDir,`run-${process.pid}-${seq}`);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
     const cp=[path.join(this.runtimeDir,'pedro/classes'),path.join(this.runtimeDir,'pedro/gson.jar')].join(path.delimiter);
@@ -266,7 +268,9 @@ class SimEngine{
     child.on('exit',code=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error(`The Pedro process exited (code ${code}).${bridge.stderr?' '+bridge.stderr.trim().slice(-500):''}`));});
     child.stdin.on('error',()=>{});
     const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic||program.route.segments.some(s=>finite(s.heading))),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?clamp(s.wait,0,30):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
-    const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,motionModule:program.motionModule,deps:program.deps||''}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
+    // The leg plan every export shares: where the robot stops, turns at pins and runs action paths.
+    if(route){let last=-1;route.legs=Export.legs(program.route).map(l=>{last+=l.segments.length;return {last,wait:clamp(l.wait,0,60),action:String(l.action||'').slice(0,40),moving:String(l.moving?.action||(l.moving?'Action path':'')).slice(0,40),heading:finite(l.heading)?l.heading:program.route.heading,turn:finite(l.turn)?l.turn:null};});}
+    const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,actions:typeof program.actions==='string'?program.actions:'',motionModule:program.motionModule,deps:program.deps||''}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:config.drives[this.info.robot.drivetrain].engine,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);
     let ready;try{ready=await this.request(bridge,init,30000,'Compiling and starting the program');}catch(e){if(seq===this.runSeq)this.fail(e.message,seq);return {ok:false,error:e.message};}
@@ -305,7 +309,7 @@ class SimEngine{
     this.result={reason:'finished',kind:this.timed?'timed':this.child?.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},estimate:this.estimate&&{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG},violations:[...(this.violations||[])]};
     this.stopProgram();this.emit({type:'run',state:'finished',result:this.result});this.emitFrame(true);
   }
-  timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),next=runner.advance(this.dsim.SIM_DT,reading.imu);this.command=next.drive;this.waiting=next.wait;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
+  timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),next=runner.advance(this.dsim.SIM_DT,reading.imu);this.command=next.drive;this.waiting=next.wait;this.acting=next.acting||null;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
   describe(reply){const where={compile:'Compile error',load:'Could not load the program',init:'init() failed',loop:'loop() failed',bridge:'Pedro bridge error'}[reply.stage]||'Program error';return `${where}: ${reply.message}`;}
   fail(message,seq=this.runSeq,reply){
     if(seq!==this.runSeq)return;this.stopProgram();this.playing=false;this.practice=null;
@@ -313,7 +317,7 @@ class SimEngine{
   }
   // Ends any program: invalidates pending replies, kills the Java process and zeroes the drive.
   stopProgram(reason){
-    const bridge=this.child;this.runSeq++;this.child=null;this.timed=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;
+    const bridge=this.child;this.runSeq++;this.child=null;this.timed=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;this.acting=null;
     if(['program','manual','timed'].includes(this.mode))this.mode='idle';
     if(bridge){for(const w of bridge.waiters.splice(0))w.reject(Error(reason||'Stopped.'));try{bridge.child.stdin.end(JSON.stringify({type:'stop'})+'\n');}catch{}try{bridge.child.kill();}catch{}setTimeout(()=>{try{fs.rmSync(bridge.dir,{recursive:true,force:true});}catch{}},2000).unref?.();}
   }
@@ -347,7 +351,7 @@ class SimEngine{
     return {type:'frame',time:this.world.time,tick:this.world.tick,mode:this.mode,playing:this.playing,speed:this.speed,
       truth:{x:t.x,y:t.y,heading:t.heading*DEG,vx:t.vx,vy:t.vy,omega:t.omega*DEG,z:t.z},command:this.command,
       estimate:this.estimate?{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG}:null,
-      follower:this.follower||null,telemetry:this.telemetry||null,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'pedro':null,
+      follower:this.follower||null,telemetry:this.telemetry||null,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,acting:this.acting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'pedro':null,
       fieldState:{game:this.config.field,time:this.world.time,tick:this.world.tick,balls:this.world.balls.map(b=>({...b,pos:{...b.pos},state:{...b.state}})),robots:[],biobuzz:this.world.biobuzz?structuredClone(this.world.biobuzz):undefined}};
   }
   emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<32)return;this.lastFrame=now;this.emit(this.frame());}

@@ -176,6 +176,8 @@ def init(message, state):
     work.mkdir(parents=True, exist_ok=True)
     (work / "robot.py").write_text('"""Exported autonomous program."""\n\nPROGRAM_MODE = "autonomous"\n', encoding="utf-8")
     (work / "autonomous.py").write_text(spec["source"], encoding="utf-8")
+    if spec.get("actions"):
+        (work / "robot_actions.py").write_text(spec["actions"], encoding="utf-8")
     imu = VirtualImu(math.degrees(message["start"]["heading"]))
     module = MotionModule(default_config(), gpio=MockGPIO(), _imu=imu)
     try:
@@ -223,7 +225,7 @@ def tick(message, state):
         raise UserError("loop", state["failure"]["error"], state["failure"]["trace"])
     forward, strafe, turn = chassis(module.motor_values) if not state["finished"] else (0.0, 0.0, 0.0)
     progress = getattr(state["routine"], "progress", {}) or {}
-    telemetry = {k: str(v)[:80] for k, v in progress.items() if k in ("step", "completed", "turn_phase", "target", "heading", "error")}
+    telemetry = {k: str(v)[:80] for k, v in progress.items() if k in ("step", "completed", "turn_phase", "target", "heading", "error", "action")}
     return {"type": "cmd", "seq": message["seq"], "drive": {"forward": forward, "strafe": strafe, "turn": turn, "float": False},
             "telemetry": telemetry, "done": bool(state["finished"])}
 

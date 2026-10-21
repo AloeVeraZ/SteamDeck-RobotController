@@ -55,7 +55,7 @@
 .sim-steps{margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.5}.sim-steps li{margin-bottom:4px}
 .sim-editor{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:12px}.sim-editor-head{display:flex;justify-content:space-between;align-items:center}.sim-editor h3{margin:0 0 8px}
 .sim-list{list-style:none;padding:0;margin:0 0 12px;max-height:220px;overflow:auto}
-.sim-pin-row{display:grid;grid-template-columns:24px 64px 12px 1fr 30px 30px;gap:4px;align-items:center;padding:2px 0}
+.sim-pin-row{display:grid;grid-template-columns:24px 64px 12px 1fr 30px 30px 30px;gap:4px;align-items:center;padding:2px 0}.sim-pin-summary{grid-column:2/-1;font-size:11px;margin:-2px 0 2px}.sim-pin-summary:empty{display:none}
 .sim-pin-row input{min-height:32px;margin:0;font-size:12px}.sim-pin-row input.num-slider{grid-column:2/-1;grid-row:2;margin:0 0 4px}.sim-pin-row.selected .sim-badge{background:var(--text)}.sim-pin-head{font-size:11px;margin-bottom:2px}
 .sim-badge{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:999px;background:var(--accent);color:var(--bg);font:700 11px var(--font)}
 .sim-list .icon-button{width:30px;height:30px;min-height:30px;padding:0}
@@ -115,3 +115,18 @@
 @media(max-width:450px){.sim-planning-steps{gap:4px}.sim-planning-steps button{font-size:11px;min-width:90px;padding:7px}.sim-side-assignments{grid-template-columns:repeat(2,1fr)}}
 .sim-draw-stroke{fill:none;stroke:var(--accent);stroke-width:.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .sim-turn-ghost{fill:none;stroke:var(--accent);stroke-width:.4;stroke-dasharray:1 .8;pointer-events:none}
+
+/* Paths and pins with effects: action paths dashed in the action colour; turn and spin marks. */
+.sim-path.action{stroke:var(--warning);stroke-dasharray:2.2 1.2}.sim-path.selected{stroke-width:1.6}
+#simulation-field:not([data-field=empty]) .sim-path.action{stroke:#ffc35a}
+.sim-path-mark{fill:var(--text);font:700 3.4px var(--font);paint-order:stroke;stroke:var(--bg);stroke-width:.6px;pointer-events:none}
+.sim-pin-turn{stroke:var(--text);stroke-width:.8;stroke-linecap:round;pointer-events:none}
+.sim-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.sim-key{display:inline-block;width:22px;border-top:3px solid var(--accent);vertical-align:middle;margin-right:4px}.sim-key.action{border-top:3px dashed var(--warning)}
+/* Pin and path settings: beside the point pressed; a bottom sheet on narrow screens. */
+.sim-popover{position:absolute;z-index:20;width:min(340px,calc(100% - 8px));max-height:calc(100% - 8px);overflow:auto;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:0 10px 30px rgb(0 0 0 / .28);padding:10px 12px}
+.sim-pop-head{display:flex;justify-content:space-between;align-items:center}.sim-pop-head h3{margin:0}
+.sim-pop-sec{border-top:1px solid var(--line);padding-top:8px;margin-top:8px}.sim-pop-sec h4{margin:0 0 6px;font-size:13px}.sim-pop-sec h4 .hint{font-weight:400}
+.sim-popover label{display:block;margin:8px 0 4px;font-size:12px}.sim-popover input,.sim-popover textarea{width:100%;box-sizing:border-box}.sim-popover textarea{min-height:44px;resize:vertical;font:inherit;font-size:13px}
+.sim-popover .hint{font-size:11px;margin:6px 0 0}.sim-popover .button-row{margin-top:10px;justify-content:space-between}
+.sim-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+@media(max-width:700px){.sim-popover{position:fixed;left:8px!important;right:8px;top:auto!important;bottom:8px;width:auto;max-height:70vh}}

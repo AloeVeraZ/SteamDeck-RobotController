@@ -46,13 +46,14 @@
   function hull(points){const sorted=points.slice().sort((a,b)=>a.x-b.x||a.y-b.y),lower=[],upper=[];for(const p of sorted){while(lower.length>1&&cross(lower.at(-2),lower.at(-1),p)<=EPS)lower.pop();lower.push(p);}for(const p of sorted.slice().reverse()){while(upper.length>1&&cross(upper.at(-2),upper.at(-1),p)<=EPS)upper.pop();upper.push(p);}return lower.slice(0,-1).concat(upper.slice(0,-1));}
   function footprintOf(raw){const f=raw||{front:9,rear:9,half:9};if(![f.front,f.rear,f.half].every(n=>finite(n)&&n>0))throw Error('Robot footprint dimensions must be positive finite inches.');return {front:f.front,rear:f.rear,half:f.half};}
   function body(pose,footprint={front:9,rear:9,half:9}){const c=Math.cos(rad(pose.heading)),s=Math.sin(rad(pose.heading));return [{x:footprint.front,y:footprint.half},{x:-footprint.rear,y:footprint.half},{x:-footprint.rear,y:-footprint.half},{x:footprint.front,y:-footprint.half}].map(p=>({x:pose.x+p.x*c-p.y*s,y:pose.y+p.x*s+p.y*c}));}
-  function segmentDistance(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy,t=l?clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/l,0,1):0;return Math.hypot(p.x-a.x-dx*t,p.y-a.y-dy*t);}
-  function boundaryDistance(p,poly){let d=Infinity;for(let i=0;i<poly.length;i++)d=Math.min(d,segmentDistance(p,poly[i],poly[(i+1)%poly.length]));return d;}
+  // Visibility checks need only a boundary tolerance, not the actual distance.
+  // Compare squared distances to avoid a square root for every polygon edge.
+  function nearBoundary(p,poly,tol){const limit=tol*tol;for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length],dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy,t=l?clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/l,0,1):0,x=p.x-a.x-dx*t,y=p.y-a.y-dy*t;if(x*x+y*y<=limit)return true;}return false;}
   function rayInside(p,poly){let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[j],b=poly[i];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
   // Strictly inside by more than `tol`: boundary points (within tol) are free space.
-  const inside=(p,poly,tol=TOL)=>rayInside(p,poly)&&boundaryDistance(p,poly)>tol;
+  const inside=(p,poly,tol=TOL)=>rayInside(p,poly)&&!nearBoundary(p,poly,tol);
   // Kept for callers that used the old name: strict=true means "inside, not on the boundary".
-  function contains(p,poly,strict=false){return strict?inside(p,poly,1e-7):rayInside(p,poly)||boundaryDistance(p,poly)<=1e-7;}
+  function contains(p,poly,strict=false){return strict?inside(p,poly,1e-7):rayInside(p,poly)||nearBoundary(p,poly,1e-7);}
   function overlap(a,b,eps=1e-7){for(const shape of [a,b])for(let i=0;i<shape.length;i++){
     const p=shape[i],q=shape[(i+1)%shape.length],axis={x:p.y-q.y,y:q.x-p.x},len=Math.hypot(axis.x,axis.y)||1,dot=v=>(v.x*axis.x+v.y*axis.y)/len,A=a.map(dot),B=b.map(dot);
     if(Math.max(...A)<=Math.min(...B)+eps||Math.max(...B)<=Math.min(...A)+eps)return false;
@@ -97,7 +98,7 @@
     const start=project.start;if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Choose a finite starting pose.');
     const zones=project.zones.map(validateZone),all=zones.concat(fieldZones.map(validateZone));
     if(!safePose(start,all,footprint,field))throw Error('The starting footprint overlaps a barrier, a field element or the wall. Move it to a clear position.');
-    const pins=project.pins.map((p,i)=>{if(!p||![p.x,p.y].every(finite)||p.x<field.x0||p.y<field.y0||p.x>field.x1||p.y>field.y1)throw Error(`Pin ${i+1} must be inside the field.`);return {x:p.x,y:p.y,pin:true,wait:finite(p.wait)?clamp(p.wait,0,30):0,action:typeof p.action==='string'?p.action.slice(0,40):''};});
+    const pins=project.pins.map((p,i)=>{if(!p||![p.x,p.y].every(finite)||p.x<field.x0||p.y<field.y0||p.x>field.x1||p.y>field.y1)throw Error(`Pin ${i+1} must be inside the field.`);return {...pinEffects(p),x:p.x,y:p.y,pin:true};});
     if(!pins.length)throw Error('Add a destination pin on the field first.');
     const clearance=clamp(finite(project.clearance)?project.clearance:1,MIN_CLEARANCE,6);
     return {footprint,field,start,all,pins,clearance};
@@ -127,8 +128,22 @@
       return built={vertices,graph};};
     return s;
   }
-  // Holonomic robots may turn in place to fit past obstacles; tank-style robots drive along their heading.
+  // What happens at a pin (a pause, a turn in place, the action run there) and along the path that
+  // leads to it (a regular or an action path, and whether the robot turns or spins while driving it).
+  const text=(s,n)=>typeof s==='string'?s.slice(0,n):'';
+  function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin'].includes(r.rotate)?r.rotate:'keep';
+    return {kind:r.kind==='action'?'action':'regular',action:text(r.action,40),note:text(r.note,160),rotate,heading:finite(r.heading)?norm(r.heading):0,spins:finite(r.spins)?clamp(Math.round(r.spins),-10,10)||1:1};}
+  function pinEffects(p){return {wait:finite(p.wait)?clamp(p.wait,0,30):0,action:text(p.action,40),note:text(p.note,160),turn:finite(p.turn)?norm(p.turn):null,path:pathEffects(p.path)};}
+  const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,note:p.note,turn:p.turn,path:p.path});
+  const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
+  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||!project.nonholonomic&&['turn','spin'].includes(p?.path?.rotate));
+  // Each segment records which pin it leads to, so paths can be told apart (action or regular).
+  function annotate(route){const stops=route.stops||[];let k=0;route.segments.forEach((s,i)=>{while(k<stops.length-1&&stops[k].segment<i)k++;s.to=k;});return route;}
   function plan(project,rawFootprint,fieldZones=[],rawField){
+    return annotate(effectful(project)?planEffects(project,rawFootprint,fieldZones,rawField):planBasic(project,rawFootprint,fieldZones,rawField));
+  }
+  // Holonomic robots may turn in place to fit past obstacles; tank-style robots drive along their heading.
+  function planBasic(project,rawFootprint,fieldZones=[],rawField){
     if(project?.nonholonomic)return planTank(project,rawFootprint,fieldZones,rawField);
     let fixed=null,failure=null;try{fixed=planFixed(project,rawFootprint,fieldZones,rawField);}catch(e){failure=e;}
     if(project?.rotate===false||!fixed&&!/route|clearance|block/i.test(failure?.message||'')){if(fixed)return fixed;throw failure;}
@@ -139,13 +154,47 @@
     if(turning&&turning.turnDegrees>0&&(!fixed||turning.cost<fixed.length-1))return turning;
     if(fixed)return fixed;throw failure;
   }
+  // Pins that turn the robot in place, and paths it turns or spins along, split the route into
+  // pieces planned one after another, each starting at the heading the previous one ends with.
+  // A path the robot rotates along is planned for a square that encloses the footprint's whole
+  // rotation circle, so it clears obstacles at every heading on the way. Tank drivetrains only
+  // turn at pins: they cannot rotate while driving sideways.
+  function planEffects(project,rawFootprint,fieldZones=[],rawField){
+    const {footprint,field,start,all,pins,clearance}=prepare(project,rawFootprint,fieldZones,rawField),tank=!!project.nonholonomic;
+    const plain=p=>({...p,turn:null,path:{...p.path,rotate:'keep'}}),endOf=s=>finite(s.endHeading)?s.endHeading:s.heading;
+    const segments=[],samples=[];let at={x:start.x,y:start.y,heading:start.heading},chunk=[],base=0,length=0,turnDegrees=0;
+    const add=(route,fallback)=>{for(const s of route.segments)segments.push({...s,heading:finite(s.heading)?s.heading:fallback});
+      for(const p of route.samples){if(samples.length&&dist(samples.at(-1),p)<1e-9)continue;samples.push({x:p.x,y:p.y});}
+      length+=route.length;turnDegrees+=route.turnDegrees||0;const last=segments.at(-1);if(last)at={...last.points.at(-1),heading:norm(endOf(last))};};
+    // Errors from a piece number its pins from 1; renumber them for the whole route.
+    const renumber=(e,offset)=>Error(/starting footprint/i.test(e.message)?`Pin ${offset} has no room for the robot at ${Math.round(at.heading)}°. Move it away from obstacles and walls.`:e.message.replace(/pin (\d+)/gi,(m,d)=>m.replace(d,String(+d+offset))));
+    const flush=()=>{const now=chunk;chunk=[];if(!now.length||now.every(p=>dist(p,at)<.01))return;
+      let r;try{r=planBasic({...project,start:at,pins:now.map(plain)},footprint,fieldZones,field);}catch(e){throw renumber(e,base);}add(r,at.heading);};
+    pins.forEach((p,i)=>{
+      if(!tank&&rotates(p.path,at.heading)){flush();
+        const radius=reach(footprint)+.05,square={front:radius,rear:radius,half:radius},spin=p.path.rotate==='spin';
+        let r;try{r=planBasic({...project,start:at,pins:[plain(p)],rotate:false},square,fieldZones,field);}
+        catch{throw Error(`The path to pin ${i+1} has no room to ${spin?'spin':'turn'} while driving: the turning robot needs ${(2*radius).toFixed(0)} in of clear width. Move pin ${i+1} or the path's start away from obstacles and walls, or turn at a pin instead.`);}
+        const h0=at.heading,h1=spin?h0+360*p.path.spins:h0+norm(p.path.heading-h0),lens=r.segments.map(s=>s.type==='line'?dist(s.points[0],s.points[1]):Array.from({length:24},(_,j)=>dist(bezier(s.points,j/24),bezier(s.points,(j+1)/24))).reduce((a,b)=>a+b,0)),total=lens.reduce((a,b)=>a+b,0)||1;
+        let done=0;const rotated=r.segments.map((s,j)=>{const a=h0+(h1-h0)*done/total;done+=lens[j];const b=h0+(h1-h0)*done/total;return {...s,heading:norm(a),endHeading:norm(a)+(b-a)};});
+        add({...r,segments:rotated,turnDegrees:Math.abs(h1-h0)},h0);
+      }else{if(!chunk.length)base=i;chunk.push(p);}
+      if(finite(p.turn)){flush();const delta=norm(p.turn-at.heading);
+        if(Math.abs(delta)>1e-6){if(!turnClear(at,at.heading,p.turn,all,footprint,field,clearance))throw Error(`Pin ${i+1} has no room to turn the robot to ${Math.round(p.turn)}°. Move it away from obstacles and walls.`);turnDegrees+=Math.abs(delta);at={...at,heading:norm(p.turn)};}}
+    });
+    flush();
+    if(!segments.length)throw Error('Place a pin away from the starting position.');
+    const route={style:['sharp','rounded','spline'].includes(project.style)?project.style:'sharp',segments,samples,length,heading:start.heading,clearance,footprint,field,vertices:[start,...pins],pins:pins.length,stops:stopsOf(segments,pins),turns:true,turnDegrees,effects:true};
+    if(tank)route.nonholonomic=true;
+    return route;
+  }
   function planTank(project,rawFootprint,fieldZones,rawField){
     {
       const request={...project,nonholonomic:false,rotate:false,style:'sharp'},all=(project.zones||[]).concat(fieldZones),fp=footprintOf(rawFootprint),bounds=fieldOf(rawField);
-      try{return tankRoute(plan(request,fp,fieldZones,bounds),all,fp,bounds);}catch(first){
+      try{return tankRoute(planBasic(request,fp,fieldZones,bounds),all,fp,bounds);}catch(first){
         // A square enclosing the rotation circle makes obstacle detours safe at any heading.
         const radius=Math.hypot(Math.max(fp.front,fp.rear),fp.half)+.1;
-        try{return tankRoute(plan(request,{front:radius,rear:radius,half:radius},fieldZones,bounds),all,fp,bounds);}catch{
+        try{return tankRoute(planBasic(request,{front:radius,rear:radius,half:radius},fieldZones,bounds),all,fp,bounds);}catch{
           // No direct conversion works: search drive, reverse and turn-in-place moves instead.
           try{return planTankLattice(project,rawFootprint,fieldZones,rawField);}catch(lattice){throw Error('Tank route needs room to turn the whole chassis. Move the start or pins farther from obstacles and walls. '+(lattice.message||first.message));}}
       }
@@ -209,7 +258,7 @@
     }
     const usable=segments.filter(s=>dist(s.points[0],s.points.at(-1))>1e-6);
     const samples=[];let length=0;for(const s of usable){const n=Math.max(s.type==='line'?2:24,Math.ceil(s.points.slice(1).reduce((d,q,i)=>d+dist(s.points[i],q),0)*2));for(let i=0;i<=n;i++){if(samples.length&&i===0)continue;const t=i/n;const p=s.type==='line'?{x:s.points[0].x+(s.points[1].x-s.points[0].x)*t,y:s.points[0].y+(s.points[1].y-s.points[0].y)*t}:bezier(s.points,t);if(samples.length)length+=dist(samples.at(-1),p);samples.push(p);}}
-    let cursorSeg=-1;const stops=pins.map(p=>{for(let i=Math.max(cursorSeg,0);i<usable.length;i++)if(dist(usable[i].points.at(-1),p)<1e-6){cursorSeg=i;break;}return {x:p.x,y:p.y,wait:p.wait,action:p.action,segment:cursorSeg};});
+    let cursorSeg=-1;const stops=pins.map(p=>{for(let i=Math.max(cursorSeg,0);i<usable.length;i++)if(dist(usable[i].points.at(-1),p)<1e-6){cursorSeg=i;break;}return {...stopOf(p),segment:cursorSeg};});
     // Independent final check against the REAL (ungrown) zones, field elements and walls:
     // every chord of the sampled path, swept by the full footprint at the route heading.
     for(let i=1;i<samples.length;i++)if(!sweepClear(samples[i-1],samples[i],heading,all,footprint,field))throw Error('The smoothed route failed the footprint sweep check. Increase clearance or move the pins.');
@@ -223,7 +272,7 @@
   // The whole footprint plus clearance must clear walls and obstacles at every degree of the turn.
   const turnClear=(p,from,to,all,footprint,field,clearance)=>safeSweep({x:p.x,y:p.y,heading:from},{x:p.x,y:p.y,heading:from+norm(to-from)},all,grown(footprint,clearance),field);
   function sampled(segments){const samples=[];let length=0;for(const s of segments)for(const p of s.points){if(samples.length){const d=dist(samples.at(-1),p);if(d<1e-9)continue;length+=d;}samples.push({x:p.x,y:p.y});}return {samples,length};}
-  function stopsOf(segments,pins){let at=0;return pins.map(p=>{for(let i=at;i<segments.length;i++)if(dist(segments[i].points.at(-1),p)<1e-6){at=i;break;}return {x:p.x,y:p.y,wait:p.wait,action:p.action,segment:at};});}
+  function stopsOf(segments,pins){let at=0;return pins.map(p=>{for(let i=at;i<segments.length;i++)if(dist(segments[i].points.at(-1),p)<1e-6){at=i;break;}return {...stopOf(p),segment:at};});}
   // Holonomic drivetrains (mecanum, swerve, X, Kiwi, H, butterfly) translate in any direction at a
   // fixed heading, so every heading gets its own grown-obstacle visibility graph. Turning in place
   // links neighbouring headings at the start, the pins and a coarse grid of turning spots wherever the
@@ -331,5 +380,5 @@
     });
     return {...route,style:'sharp',nonholonomic:true,footprint,segments};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,planFixed,planTurning,planTankLattice,tankRoute,dist};
+  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,planEffects,pinEffects,pathEffects,planFixed,planTurning,planTankLattice,tankRoute,dist};
 });

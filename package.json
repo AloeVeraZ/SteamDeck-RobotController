@@ -8,6 +8,7 @@
   },
   "updateChannel": "testing",
   "private": true,
+  "license": "MIT",
   "description": "Open existing robot websites with saved Wi-Fi networks and addresses",
   "main": "src/main.cjs",
   "scripts": {

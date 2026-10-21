@@ -44,8 +44,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - run: sudo apt-get update && sudo apt-get install -y p7zip-full
         if: matrix.target == 'windows'
+      - name: Build the offline simulator (public assets only)
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in steamdeck) t=linux-x64;; windows) t=win32-x64;; macos-arm64) t=darwin-arm64;; esac
+          node tools/simulation/fetch.cjs --targets "$t"
+          node tools/simulation/build.cjs --public
       - run: python3 tools/package.py --target ${{ matrix.target }}
         env:
           PYTHONUTF8: '1'

@@ -17,6 +17,21 @@ window.DeckFieldArt=(()=>{
     for(const z of info?.fieldZones||[]){const points=window.DeckPlanner.polygon(z);group.append(svg('polygon',{class:'sim-physical-boundary',points:points.map(p=>`${p.x},${p.y}`).join(' '),'data-physical-boundary':z.id}));}
   }
   const cache=new Map();
+  // Which licensed field models this build includes (personal local builds only; set by the window).
+  const available={decode:true,biobuzz:true};
+  // Without the field CAD: DSIM's 2D field drawing on the floor, perimeter walls, and the physical
+  // structures raised from the physics outlines, so the view still matches what the robot hits.
+  function schematic(info,T,palette,game){
+    const group=new T.Group(),art=picture(game),size=144+2*(art?.pad||0);
+    const floor=new T.Mesh(new T.PlaneGeometry(size,size),new T.MeshStandardMaterial({color:art?0xffffff:palette.surface,roughness:.9}));floor.position.set(72,72,0);floor.receiveShadow=true;group.add(floor);
+    if(art)new T.TextureLoader().load(art.url,texture=>{texture.colorSpace=T.SRGBColorSpace;floor.material.map=texture;floor.material.needsUpdate=true;});
+    const wall=new T.MeshStandardMaterial({color:0x89939f,transparent:true,opacity:.3,depthWrite:false});
+    for(const [x,y,sx,sy] of [[-.5,72,1,146],[144.5,72,1,146],[72,-.5,146,1],[72,144.5,146,1]]){const m=new T.Mesh(new T.BoxGeometry(sx,sy,12),wall);m.position.set(x,y,6);group.add(m);}
+    const solid=new T.MeshStandardMaterial({color:0x7d8794,roughness:.7,transparent:true,opacity:.72});
+    for(const zone of info?.fieldZones||[]){const shape=new T.Shape(window.DeckPlanner.polygon(zone).map(p=>new T.Vector2(p.x,p.y))),height=zone.type==='polygon'?18:zone.width<10?16:18;
+      const mesh=new T.Mesh(new T.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false}),solid);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);}
+    group.userData.keep=true;return {group};
+  }
   async function build3d(group,info,T,L,palette){
     const game=info?.field||'empty';
     if(game==='empty'){
@@ -25,7 +40,9 @@ window.DeckFieldArt=(()=>{
       const wallMat=new T.MeshStandardMaterial({color:0x89939f,transparent:true,opacity:.18,depthWrite:false});for(const [x,y,sx,sy] of [[b.x0-.5,(b.y0+b.y1)/2,1,h+2],[b.x1+.5,(b.y0+b.y1)/2,1,h+2],[(b.x0+b.x1)/2,b.y0-.5,w+2,1],[(b.x0+b.x1)/2,b.y1+.5,w+2,1]]){const wall=new T.Mesh(new T.BoxGeometry(sx,sy,12),wallMat);wall.position.set(x,y,6);group.add(wall);}return {group};
     }
     if(!cache.has(game))cache.set(game,(async()=>{
-      if(game==='biobuzz'){const handles=await L.buildBiobuzzField('high'),elements=L.buildBiobuzzElements('cad');handles.group.add(elements.group);handles.group.position.set(72,72,0);handles.group.userData.keep=true;return {group:handles.group,handles,elements};}
+      // DSIM falls back to its constants-built BIOBUZZ field when the CAD file is absent.
+      if(game==='biobuzz'){const handles=await L.buildBiobuzzField('high'),elements=L.buildBiobuzzElements(available.biobuzz?'cad':'sphere');handles.group.add(elements.group);handles.group.position.set(72,72,0);handles.group.userData.keep=true;return {group:handles.group,handles,elements};}
+      if(!available.decode)return schematic(info,T,palette,game);
       const loader=new L.GLTFLoader();loader.setMeshoptDecoder(L.MeshoptDecoder);const model=(await loader.loadAsync(new URL('vendor/models/decode/field.glb',document.baseURI).href)).scene;
       model.scale.set(72/70.1913149,72/70.1913149,1);model.position.set(72,72,0);model.userData.keep=true;
       model.traverse(o=>{if(!o.isMesh)return;o.castShadow=true;o.receiveShadow=true;for(const m of [].concat(o.material||[])){if(m.name==='tile'){m.color.set(0x41464c);m.roughness=.95;o.castShadow=false;}if(m.name==='tape'){o.castShadow=false;m.polygonOffset=true;m.polygonOffsetFactor=-2;m.polygonOffsetUnits=-2;}if(m.name==='glass'){m.opacity=.08;m.transparent=true;m.depthWrite=false;}}});
@@ -43,5 +60,5 @@ window.DeckFieldArt=(()=>{
     if(info?.field!=='biobuzz')for(const zone of info?.fieldZones||[]){const shape=new T.Shape(window.DeckPlanner.polygon(zone).map(p=>new T.Vector2(p.x,p.y))),height=zone.type==='polygon'?43:zone.width<10?16:43;outline(new T.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false}));}
     const fp=info?.footprint||{front:9,rear:9,half:9},height=info?.robot?.heightIn||12,robot=new T.Group(),box=outline(new T.BoxGeometry(fp.front+fp.rear,fp.half*2,height),robot,cyan);box.position.set((fp.front-fp.rear)/2,0,height/2);group.add(robot);return {group,robot,trays};
   }
-  return {picture,draw2d,build3d,hitboxes};
+  return {picture,draw2d,build3d,hitboxes,available};
 })();

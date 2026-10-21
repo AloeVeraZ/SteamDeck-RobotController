@@ -10,6 +10,9 @@ const upstream={dsim:{dir:path.join(cache,'upstream/dsim'),commit:'0df84143a52dd
 // Must match tools/simulation/deps-package.json (installed into .cache/simulation-deps).
 const versions={esbuild:'0.25.12','@dimforge/rapier2d-compat':'0.19.3','@dimforge/rapier3d-deterministic-compat':'0.20.0',three:'0.186.0','clipper-lib':'6.4.2',dijkstrajs:'1.0.3','occt-import-js':'0.0.23'};
 const vendor=path.join(root,'ui/vendor'),out=path.join(root,'sim-runtime'),skipJava=process.argv.includes('--skip-java');
+// --public: a build for redistribution. Third-party CAD whose terms do not allow redistribution (FIRST
+// field models, vendor chassis) is left out; the app falls back to drawings and plain shapes.
+const publicBuild=process.argv.includes('--public');
 const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 function check(){
   for(const [name,{dir,commit}] of Object.entries(upstream)){
@@ -19,7 +22,7 @@ function check(){
     if(dirty)throw Error(`${name} clone has local modifications:\n${dirty}`);
   }
   for(const [name,version] of Object.entries(versions)){const actual=JSON.parse(fs.readFileSync(path.join(deps,name,'package.json'),'utf8')).version;if(actual!==version)throw Error(`${name} ${actual} installed; expected ${version}.`);}
-  const robots=JSON.parse(fs.readFileSync(path.join(root,'ui/assets/robots/catalog.json'),'utf8'));for(const id of ['strafer','swechanum'])if(sha(path.join(root,'ui/assets/robots',id+'.glb.gz'))!==robots[id].assetSha256)throw Error(`Bundled ${id} CAD differs from its prepared hash.`);
+  const robots=JSON.parse(fs.readFileSync(path.join(root,'ui/assets/robots/catalog.json'),'utf8'));for(const id of ['strafer','swechanum'])if(fs.existsSync(path.join(root,'ui/assets/robots',id+'.glb.gz'))&&sha(path.join(root,'ui/assets/robots',id+'.glb.gz'))!==robots[id].assetSha256)throw Error(`Bundled ${id} CAD differs from its prepared hash.`);
 }
 function copy(from,to){fs.mkdirSync(path.dirname(to),{recursive:true});fs.cpSync(from,to,{recursive:true});}
 async function bundles(){
@@ -66,8 +69,9 @@ async function bundles(){
   await esbuild.build({...common,define:{'import.meta.env':JSON.stringify({BASE_URL:'./vendor/',DEV:false,PROD:true,MODE:'production'})},entryPoints:[path.join(__dirname,'view-entry.js')],format:'iife',globalName:'DeckThree',platform:'browser',outfile:path.join(vendor,'three-view.js')});
 }
 function assets(){
-  for(const name of ['field.glb','field-low.glb','elements.glb','README.md'])copy(path.join(upstream.dsim.dir,'public/models/biobuzz',name),path.join(vendor,'models/biobuzz',name));
-  const decode=path.join(root,'ui/assets/fields/decode.glb.gz');if(sha(decode)!=='7fd6aac73fead31e75f9e654a6437a45ca1916f5b481c0a7ca8cdeeb475370e9')throw Error('DECODE field CAD changed; review its source and hash.');fs.mkdirSync(path.join(vendor,'models/decode'),{recursive:true});fs.writeFileSync(path.join(vendor,'models/decode/field.glb'),require('node:zlib').gunzipSync(fs.readFileSync(decode)));
+  fs.rmSync(path.join(vendor,'models'),{recursive:true,force:true});
+  if(!publicBuild)for(const name of ['field.glb','field-low.glb','elements.glb','README.md'])copy(path.join(upstream.dsim.dir,'public/models/biobuzz',name),path.join(vendor,'models/biobuzz',name));
+  const decode=path.join(root,'ui/assets/fields/decode.glb.gz');if(!publicBuild&&fs.existsSync(decode)){if(sha(decode)!=='7fd6aac73fead31e75f9e654a6437a45ca1916f5b481c0a7ca8cdeeb475370e9')throw Error('DECODE field CAD changed; review its source and hash.');fs.mkdirSync(path.join(vendor,'models/decode'),{recursive:true});fs.writeFileSync(path.join(vendor,'models/decode/field.glb'),require('node:zlib').gunzipSync(fs.readFileSync(decode)));}
   for(const stale of ['dsim','dsim-view.js'])fs.rmSync(path.join(vendor,stale),{recursive:true,force:true});
   const occt=path.join(deps,'occt-import-js/dist');for(const file of ['occt-import-js.js','occt-import-js.wasm'])copy(path.join(occt,file),path.join(out,'occt',file));
   const licenses=path.join(vendor,'licenses');fs.rmSync(licenses,{recursive:true,force:true});fs.mkdirSync(licenses,{recursive:true});
@@ -75,8 +79,9 @@ function assets(){
     'PEDRO-LICENSE':path.join(upstream.pedro.dir,'LICENSE'),'OCCT-IMPORT-JS-LICENSE':path.join(deps,'occt-import-js/dist/license.occt-import-js.txt'),'OPENCASCADE-LICENSE':path.join(deps,'occt-import-js/dist/license.occt.txt'),'THREE-LICENSE':path.join(deps,'three/LICENSE'),
     'RAPIER3D-LICENSE':path.join(deps,'@dimforge/rapier3d-deterministic-compat/LICENSE'),'DIJKSTRAJS-LICENSE':path.join(deps,'dijkstrajs/LICENSE.md')};
   for(const [name,file] of Object.entries(notices)){if(!fs.existsSync(file))throw Error('Missing license file '+file);fs.copyFileSync(file,path.join(licenses,name));}
-  fs.copyFileSync(path.join(root,'ui/assets/robots/NOTICES.md'),path.join(licenses,'ROBOT-CAD-NOTICES.md'));
-  fs.copyFileSync(path.join(root,'ui/assets/fields/NOTICES.md'),path.join(licenses,'FIELD-CAD-NOTICES.md'));
+  // The CAD notices describe CAD that only personal local builds include.
+  for(const [from,name] of [['ui/assets/robots/NOTICES.md','ROBOT-CAD-NOTICES.md'],['ui/assets/fields/NOTICES.md','FIELD-CAD-NOTICES.md']]){
+    if(publicBuild)fs.rmSync(path.join(licenses,name),{force:true});else fs.copyFileSync(path.join(root,from),path.join(licenses,name));}
   // These two packages ship their terms in package metadata or a source header, not a file.
   fs.writeFileSync(path.join(licenses,'RAPIER2D-NOTICE.txt'),'@dimforge/rapier2d-compat 0.19.3 is licensed under the Apache License 2.0 (package.json "license": "Apache-2.0"). Its npm package omits the text; RAPIER3D-LICENSE is the same Apache-2.0 license from the same authors (Dimforge).\n');
   const clipper=fs.readFileSync(path.join(deps,'clipper-lib/clipper.js'),'utf8'),header=clipper.slice(0,clipper.indexOf('*/')+2);
@@ -112,7 +117,10 @@ function java(){
   fs.copyFileSync(path.join(runtime,'gson.jar'),path.join(out,'pedro/gson.jar'));
   fs.copyFileSync(path.join(upstream.pedro.dir,'LICENSE'),path.join(out,'pedro/PEDRO-LICENSE'));
   fs.writeFileSync(path.join(out,'pedro/GSON-NOTICE.txt'),'Gson 2.11.0 (com.google.code.gson:gson), Apache License 2.0. Copyright 2008 Google Inc.\nhttps://www.apache.org/licenses/LICENSE-2.0\n');
-  fs.rmSync(path.join(out,'java'),{recursive:true,force:true});copy(path.join(runtime,'java'),path.join(out,'java'));
+  // This machine's reduced runtime (tools/simulation/fetch.cjs builds one per platform; releases ship
+  // them beside the app instead, see tools/package.py).
+  const hostRuntime=[path.join(runtime,`java-${process.platform}-${process.arch}`),path.join(runtime,'java')].find(d=>fs.existsSync(d));
+  fs.rmSync(path.join(out,'java'),{recursive:true,force:true});copy(hostRuntime,path.join(out,'java'));
   return patched;
 }
 function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):[path.join(dir,e.name)]);}
@@ -121,7 +129,7 @@ function walk(dir){return fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.
   await bundles();assets();const clockReads=skipJava?null:java();
   const files=[...walk(vendor),...walk(path.join(root,'ui/assets/robots')).filter(f=>!f.endsWith('.glb')),...walk(path.join(root,'ui/assets/fields')),...['dsim-host.cjs','occt/occt-import-js.js','occt/occt-import-js.wasm'].map(f=>path.join(out,f))].filter(f=>!f.includes(path.sep+'licenses'+path.sep));
   let previous=null;try{previous=JSON.parse(fs.readFileSync(path.join(out,'manifest.json'),'utf8')).java;}catch{}
-  const manifest={upstream:Object.fromEntries(Object.entries(upstream).map(([k,v])=>[k,v.commit])),versions,java:skipJava?previous:{runtime:fs.readFileSync(path.join(runtime,'java/release'),'utf8').match(/JAVA_VERSION="([^"]+)"/)[1],gson:'2.11.0',pedroClockReadsPatched:clockReads},
+  const manifest={upstream:Object.fromEntries(Object.entries(upstream).map(([k,v])=>[k,v.commit])),versions,java:skipJava?previous:{runtime:fs.readFileSync(path.join(out,'java/release'),'utf8').match(/JAVA_VERSION="([^"]+)"/)[1],gson:'2.11.0',pedroClockReadsPatched:clockReads},
     outputs:Object.fromEntries(files.map(f=>[path.relative(root,f).replace(/\\/g,'/'),sha(f)]))};
   fs.writeFileSync(path.join(out,'manifest.json'),JSON.stringify(manifest,null,1));
   console.log('Simulation build complete:',Object.keys(manifest.outputs).length,'outputs.');

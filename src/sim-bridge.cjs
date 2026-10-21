@@ -45,6 +45,10 @@ class SimulationHost{
   exportsFile(){return path.join(this.dataDir,'simulation','exports.json');}
   exportTargets(){try{const v=JSON.parse(fs.readFileSync(this.exportsFile(),'utf8'));return v&&typeof v==='object'?v:{};}catch{return {};}}
   async file(dialog,win,action,data){
+    // Licensed CAD (FIRST field models, vendor chassis) is only present in personal local builds;
+    // public releases leave it out and the window falls back to drawings and plain shapes.
+    if(action==='assets'){const ui=path.join(__dirname,'../ui'),has=rel=>fs.existsSync(path.join(ui,rel));
+      return {robots:['strafer','swechanum'].filter(id=>has(`assets/robots/${id}.glb.gz`)),fields:{decode:has('vendor/models/decode/field.glb'),biobuzz:has('vendor/models/biobuzz/field.glb')&&has('vendor/models/biobuzz/elements.glb')}};}
     if(action==='builtin-model'){if(!['strafer','swechanum'].includes(data))throw Error('Unknown bundled robot.');const dir=path.join(__dirname,'../ui/assets/robots'),catalog=JSON.parse(fs.readFileSync(path.join(dir,'catalog.json'),'utf8'));return {bytes:new Uint8Array(require('node:zlib').gunzipSync(fs.readFileSync(path.join(dir,data+'.glb.gz')))),meta:catalog[data]};}
     const models=path.join(this.dataDir,'simulation','models');
     const open=async(title,filters,limit)=>{const r=await dialog.showOpenDialog(win,{title,properties:['openFile'],filters});if(r.canceled||!r.filePaths[0])return null;const file=r.filePaths[0];if(fs.statSync(file).size>limit)throw Error(`${path.basename(file)} is larger than ${Math.round(limit/1048576)} MB.`);return file;};
@@ -66,13 +70,15 @@ class SimulationHost{
     if(action==='model-read'){if(typeof data!=='string'||!/^[0-9a-f]{32}\.glb$/.test(data))throw Error('Invalid model id.');const file=path.join(models,data);return fs.existsSync(file)?{id:data,bytes:new Uint8Array(fs.readFileSync(file))}:null;}
     // Control Hub TeamCode: the OpMode, Pedro Constants and route, written at their package paths under
     // a folder the user picks (normally TeamCode/src/main/java). Names are checked so nothing escapes it.
+    // Files listed in keep (the team's own RobotActions.java) are written only when they do not exist.
     if(action==='teamcode-save'){
       const files=data?.files;if(!files||typeof files!=='object')throw Error('Invalid TeamCode export.');
       const entries=Object.entries(files);if(!entries.length||entries.length>12||entries.some(([rel,text])=>typeof text!=='string'||!/^[A-Za-z0-9_]+(\/[A-Za-z0-9_]+)*\.java$/.test(rel))||entries.reduce((s,[,text])=>s+text.length,0)>EXPORT_LIMIT)throw Error('Invalid TeamCode export.');
       const r=await dialog.showOpenDialog(win,{title:'Choose your TeamCode java folder (TeamCode/src/main/java)',properties:['openDirectory','createDirectory']});
       if(r.canceled||!r.filePaths[0])return null;const base=path.resolve(r.filePaths[0]);
-      for(const [rel,text] of entries){const file=path.resolve(base,rel);if(!file.startsWith(base+path.sep))throw Error('Invalid TeamCode path.');fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);}
-      return {name:path.basename(base),count:entries.length};
+      const keep=new Set(Array.isArray(data.keep)?data.keep.filter(k=>typeof k==='string'):[]),kept=[];
+      for(const [rel,text] of entries){const file=path.resolve(base,rel);if(!file.startsWith(base+path.sep))throw Error('Invalid TeamCode path.');if(keep.has(rel)&&fs.existsSync(file)){kept.push(path.basename(rel));continue;}fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);}
+      return {name:path.basename(base),count:entries.length-kept.length,kept};
     }
     // Route exports. The window may only write to a file the user picked in a save dialog; with
     // "keep updated" that choice is remembered per field layout and format.
@@ -82,11 +88,13 @@ class SimulationHost{
       if(action==='export-status')return targets[data.key]?{name:path.basename(targets[data.key].path),format:targets[data.key].format}:null;
       if(action==='export-forget'){delete targets[data.key];save();return null;}
       if(!EXPORTS[data.format]||typeof data.text!=='string'||data.text.length>EXPORT_LIMIT)throw Error('Invalid export.');
-      if(action==='export-update'){const t=targets[data.key];if(!t||t.format!==data.format)return null;fs.writeFileSync(t.path,data.text);return {name:path.basename(t.path)};}
+      // A companion file (MotionModule's robot_actions.py) goes beside the export, only when it is missing.
+      const companion=file=>{const c=data.companion;if(!c||typeof c.text!=='string'||c.text.length>EXPORT_LIMIT||!/^[A-Za-z0-9_]+\.py$/.test(c.name||''))return null;const target=path.join(path.dirname(file),c.name);if(fs.existsSync(target))return null;fs.writeFileSync(target,c.text);return c.name;};
+      if(action==='export-update'){const t=targets[data.key];if(!t||t.format!==data.format)return null;fs.writeFileSync(t.path,data.text);return {name:path.basename(t.path),created:companion(t.path)};}
       const r=await dialog.showSaveDialog(win,{title:`Export ${EXPORTS[data.format].name}`,defaultPath:typeof data.name==='string'?path.basename(data.name):'PlannedRoute.'+EXPORTS[data.format].extensions[0],filters:[EXPORTS[data.format]]});
       if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,data.text);
       if(data.keep){targets[data.key]={path:r.filePath,format:data.format};save();}
-      return {name:path.basename(r.filePath)};
+      return {name:path.basename(r.filePath),created:companion(r.filePath)};
     }
     throw Error('Unknown simulator file action.');
   }

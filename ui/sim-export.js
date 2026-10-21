@@ -3,21 +3,54 @@
   // Turns a planned route into files a robot project can use. Coordinates are Pedro's field
   // frame, which the simulator shares: inches, bottom-left origin, +X right, +Y up, CCW heading.
   const n=v=>Number(v).toFixed(3).replace(/\.?0+$/,'')||'0';
+  const finite=Number.isFinite,norm=d=>((d%360)+540)%360-180;
   const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
-  // Legs end at pins with a pause, and at the last pin. Leg i is followed, then stop i's pause.
-  // Turning routes (tank, or holonomic routes that turn to fit) also end a leg where the heading
-  // changes; the robot turns in place to the next leg's heading before following it.
-  const turnsAfter=(route,i)=>i<route.segments.length-1&&Math.abs(((route.segments[i+1].heading-route.segments[i].heading)%360+540)%360-180)>1e-6;
+  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/[\r\n]+/g,' ').trim();
+  const endOf=s=>finite(s.endHeading)?s.endHeading:s.heading;
+  // Which pin's path each segment belongs to (0-based): the planner marks it, older routes are matched.
+  function pathIndex(route){const stops=route.stops||[];let k=0;return route.segments.map((s,i)=>{if(Number.isInteger(s.to))return s.to;while(k<stops.length-1&&stops[k].segment<i)k++;return k;});}
+  // A leg is what the robot drives without stopping. Legs end at the last pin; at pins with a pause,
+  // an action or a turn; where an action path starts or ends; and, on turning routes, where the next
+  // segment needs a heading the robot does not have yet (it stops and turns in place first).
+  // After leg i the robot settles, turns to legs[i].turn if set, then runs the pin's action and pause.
   function legs(route){
-    if(route.nonholonomic||route.turns||route.segments.some(s=>Number.isFinite(s.heading))){const out=[];let from=0,wait=0,action=[],pin=0;
-      route.segments.forEach((s,i)=>{for(const [k,p] of (route.stops||[]).entries())if(p.segment===i){wait+=p.wait;if(p.action)action.push(p.action);pin=k+1;}
-        if(i===route.segments.length-1||wait>0||turnsAfter(route,i)){out.push({segments:route.segments.slice(from,i+1),wait,action:action.join(', '),pin,heading:s.heading});from=i+1;wait=0;action=[];}});
-      return out;}
-    const out=[];let from=0;const stops=route.stops||[];
-    stops.forEach((s,i)=>{const end=Math.min(s.segment,route.segments.length-1),last=i===stops.length-1;
-      if((s.wait>0||last)&&end>=from){out.push({segments:route.segments.slice(from,end+1),wait:s.wait,action:s.action||'',pin:i+1});from=end+1;}
-      else if(s.wait>0&&out.length){out.at(-1).wait+=s.wait;}});
+    const segs=route.segments,stops=route.stops||[],turning=!!(route.nonholonomic||route.turns||segs.some(s=>finite(s.heading)));
+    const to=pathIndex(route),pathOf=k=>stops[k]?.path||{},acting=k=>pathOf(k).kind==='action',out=[];let from=0;
+    segs.forEach((s,i)=>{
+      const here=stops.map((p,k)=>({...p,k})).filter(p=>p.segment===i),next=segs[i+1];
+      const wait=here.reduce((t,p)=>t+(finite(p.wait)?p.wait:0),0),action=here.map(p=>p.action).find(Boolean)||'',turn=[...here].reverse().find(p=>finite(p.turn))?.turn??null;
+      const end=!next||wait>0||!!action||turn!==null||(turning&&Math.abs(norm(next.heading-endOf(s)))>1e-6)||(to[i+1]!==to[i]&&(acting(to[i])||acting(to[i+1])));
+      if(!end)return;
+      const first=segs[from],path=pathOf(to[i]);
+      out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
+        heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
+        moving:path.kind==='action'?{action:path.action||'',note:path.note||''}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
+      from=i+1;
+    });
     return out;
+  }
+  // Action names become code identifiers: "Shoot ball" → shootBall (Java) and shoot_ball (Python).
+  // The same name used at several pins or paths runs the same code.
+  const JAVA_WORDS=new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null var record yield init stop run'.split(' '));
+  const words=name=>String(name||'').normalize('NFKD').replace(/[^\w\s]/g,' ').replace(/_/g,' ').trim().split(/\s+/).filter(Boolean);
+  function slot(name){const w=words(name);if(!w.length)return '';let id=w.map((x,i)=>i?x[0].toUpperCase()+x.slice(1).toLowerCase():x.toLowerCase()).join('');if(/^\d/.test(id))id='action'+id[0].toUpperCase()+id.slice(1);return JAVA_WORDS.has(id)?id+'Action':id.slice(0,48);}
+  function pySlot(name){const w=words(name);if(!w.length)return '';let id=w.map(x=>x.toLowerCase()).join('_');if(/^\d/.test(id))id='action_'+id;return ['and','as','assert','break','class','continue','def','del','elif','else','except','finally','for','from','global','if','import','in','is','lambda','nonlocal','not','or','pass','raise','return','try','while','with','yield','run','stop','init','setup','math','os','time','importlib','drive','turn','hold','aim','action','plan','load_actions','create_autonomous','wrap180'].includes(id)?id+'_action':id.slice(0,48);}
+  // Every named action with where it runs, in route order.
+  function actions(route){
+    const map=new Map(),add=(name,where)=>{const id=slot(name);if(!id)return;if(!map.has(id))map.set(id,{slot:id,py:pySlot(name),name,uses:[]});map.get(id).uses.push(where);};
+    const all=legs(route);
+    for(const [i,l] of all.entries()){
+      if(l.moving?.action&&!all.slice(0,i).some(o=>o.path===l.path&&o.moving))add(l.moving.action,{moving:true,path:l.path,note:l.moving.note,rotate:l.rotate});
+      if(l.action)add(l.action,{moving:false,pin:l.pin,wait:l.wait,note:l.note});
+    }
+    return [...map.values()];
+  }
+  const where=u=>u.moving?`while driving the path to pin ${u.path}${u.rotate?` (the robot ${u.rotate})`:''}`:`stopped at pin ${u.pin}${u.wait>0?`, pause ${n(u.wait)} s`:''}`;
+  function describe(l,i){
+    const parts=[`Leg ${i+1}: ${l.moving?`ACTION PATH${l.moving.action?` "${comment(l.moving.action)}"`:''}`:'drive'} to ${l.pin?`pin ${l.pin}`:'a turn point'}`];
+    if(l.rotate)parts.push(`the robot ${l.rotate} while driving`);if(l.moving?.note)parts.push(comment(l.moving.note));
+    if(l.turn!==null)parts.push(`then turn to ${n(l.turn)}°`);if(l.action)parts.push(`run "${comment(l.action)}"`);if(l.wait>0)parts.push(`pause ${n(l.wait)} s`);if(l.note)parts.push(comment(l.note));
+    return parts.join('; ')+'.';
   }
   function validName(className,packageName){
     if(!/^[A-Z][A-Za-z0-9_]{0,63}$/.test(className))throw Error('Class name must start with a capital letter and use letters, digits or _.');
@@ -25,21 +58,26 @@
   }
   function java(route,layout,options={}){
     const className=options.className||'PlannedRoute',packageName=options.packageName??'org.firstinspires.ftc.teamcode';validName(className,packageName);
-    const parts=legs(route),zones=(layout.zones||[]).map(z=>options.polygon(z)),start=layout.start;
-    const heading=h=>Number.isFinite(h)?`Math.toRadians(${n(h)})`:'HEADING';
-    const segment=s=>s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)})).constant(${heading(s.heading)})`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')}).constant(${heading(s.heading)})`;
-    const leg=l=>l.segments.length===1?`            ${segment(l.segments[0])}`:`            Paths.path(\n${l.segments.map(s=>'                '+segment(s)).join(',\n')}\n            ).constant(${heading(l.heading)})`;
+    const parts=legs(route),zones=(layout.zones||[]).map(z=>options.polygon(z)),start=layout.start,rad=d=>`Math.toRadians(${n(d)})`;
+    const heading=s=>finite(s.endHeading)?`.heading(turn(${n(s.heading)}, ${n(s.endHeading)}))`:finite(s.heading)?`.constant(${rad(s.heading)})`:'.constant(HEADING)';
+    const segment=s=>(s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)}))`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')})`)+heading(s);
+    const leg=l=>l.segments.length===1?`            ${segment(l.segments[0])}`:`            Paths.path(\n${l.segments.map(s=>'                '+segment(s)).join(',\n')}\n            )`;
+    const headings=key=>parts.map(l=>finite(l[key])?rad(l[key]):'HEADING').join(', ');
     return `${packageName?`package ${packageName};\n\n`:''}import com.pedropathing.api.Paths;
 import com.pedropathing.math.Pose;
 import com.pedropathing.math.Vector2D;
 import com.pedropathing.paths.Path;
+import com.pedropathing.paths.interpolator.Interpolator;
 
 /**
- * Route planned in Deck Driver Station: ${String(layout.name||'route').replace(/\*\//g,'')} (${layout.fieldName||layout.field}).
+ * Route planned in Deck Driver Station: ${comment(layout.name||'route')} (${comment(layout.fieldName||layout.field)}).
  * Pedro Pathing 3.x API. Field frame: inches, origin bottom-left, +X right, +Y up, heading CCW.
  * Robot footprint: ${n(route.footprint.front)} in front, ${n(route.footprint.rear)} in rear, ${n(route.footprint.half)} in each side; clearance ${n(route.clearance)} in.
- * Follow legs()[i], then pause WAIT_SECONDS[i] while running ACTIONS[i], then the next leg.
- * ${route.nonholonomic?'TANK: stop and turn to legs()[i].heading(0) BEFORE each leg; wait for the IMU to settle.':route.turns?'TURNS: where legs()[i].heading(0) differs from the current heading, stop and turn in place to it BEFORE following the leg (the planner turned the robot to fit past an obstacle).':'Holonomic: keep the starting heading throughout.'}
+ * ${route.nonholonomic?'TANK: stop and turn to START_HEADING[i] BEFORE each leg; wait for the IMU to settle.':route.turns?'TURNS: where START_HEADING[i] differs from the heading the robot already has, stop and turn in place to it BEFORE following the leg.':'Holonomic: keep the starting heading throughout.'}
+ *
+ * For each leg i: face START_HEADING[i], follow legs()[i] while running MOVING_ACTIONS[i] (if any),
+ * settle, turn to TURN_AFTER[i] (if not NaN), then run ACTIONS[i] and pause WAIT_SECONDS[i].
+${parts.map((l,i)=>` * ${describe(l,i)}`).join('\n')}
  * Generated file: change the route in the simulator and export again.
  */
 public final class ${className} {
@@ -55,10 +93,25 @@ public final class ${className} {
     /** Pause after each leg, in seconds. */
     public static final double[] WAIT_SECONDS = {${parts.map(l=>n(l.wait)).join(', ')}};
 
-    /** What the robot does during each pause (names entered in the simulator). */
+    /** The action run at the pin after each leg, as named in the simulator ("" for none). */
     public static final String[] ACTIONS = {${parts.map(l=>javaString(l.action)).join(', ')}};
 
-    /** The route split at each pause. Leg i ends at pin ${parts.map(l=>l.pin).join(', ')}. */
+    /** The action run WHILE driving each leg: action paths ("" for regular paths). */
+    public static final String[] MOVING_ACTIONS = {${parts.map(l=>javaString(l.moving?.action||'')).join(', ')}};
+
+    /** Which pin's path each leg drives (1 = the path from the start to pin 1). */
+    public static final int[] PATH = {${parts.map(l=>l.path).join(', ')}};
+
+    /** The pin each leg ends at (0 = a turn point between pins). */
+    public static final int[] PIN = {${parts.map(l=>l.pin).join(', ')}};
+
+    /** Heading to face before each leg, radians. */
+    public static final double[] START_HEADING = {${headings('heading')}};
+
+    /** Heading to turn to in place after each leg, radians (NaN = no turn). */
+    public static final double[] TURN_AFTER = {${parts.map(l=>l.turn===null?'Double.NaN':rad(l.turn)).join(', ')}};
+
+    /** The route split into legs (see above). Leg i ends at pin ${parts.map(l=>l.pin||'-').join(', ')}. */
     public static Path[] legs() {
         return new Path[] {
 ${parts.map(leg).join(',\n')}
@@ -71,20 +124,28 @@ ${parts.map(leg).join(',\n')}
     private static Vector2D v(double x, double y) {
         return Vector2D.cartesian(x, y);
     }
+
+    /** Heading that turns steadily from one angle to another (degrees; may span whole spins) along a path. */
+    private static Interpolator turn(double fromDegrees, double toDegrees) {
+        double from = Math.toRadians(fromDegrees), by = Math.toRadians(toDegrees - fromDegrees), full = 2 * Math.PI;
+        return (curve, t) -> ((from + by * t) % full + full) % full;
+    }
 }
 `;
   }
   // Pedro path-file JSON (.pp): a start point and lines with optional Bezier control points.
   function pp(route,layout,options={}){
-    const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map();
+    const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map(),to=pathIndex(route),stops=route.stops||[];
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
     const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant,degrees:+n(s.heading??route.heading)}};
+      if(finite(s.endHeading))line.endPoint={x:+n(end.x),y:+n(end.y),heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
-      const l=endsLeg.get(i);if(l&&l.wait>0){line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
+      const path=stops[to[i]]?.path;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
+      const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
       field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
   }
-  return {legs,java,pp,validName};
+  return {legs,java,pp,validName,actions,slot,pySlot,where,describe,pathIndex};
 });

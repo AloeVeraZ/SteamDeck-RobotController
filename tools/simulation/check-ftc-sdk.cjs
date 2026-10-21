@@ -3,7 +3,8 @@
 // REAL FTC SDK. Downloads RobotCore and Hardware 12.0.0 from Maven Central into a temporary folder,
 // verifies their published SHA-1, then:
 //   1. compiles Pedro's revhub sources against them;
-//   2. compiles a Control Hub export for every supported localizer, and a turning route;
+//   2. compiles a Control Hub export for every supported localizer, a turning route, a route with
+//      action paths, spins and pin turns, and tank-style robots;
 //   3. checks every public member a stand-in declares exists in the real SDK (fields and methods the
 //      real SDK inherits from OpModeInternal are listed separately).
 // The SDK is only a reference: the temporary folder is deleted afterwards, and nothing is bundled.
@@ -40,10 +41,14 @@ async function main(){
     const P=require('../../ui/sim-planner.js'),X=require('../../ui/sim-export.js'),F=require('../../ui/sim-ftc.js'),{SimEngine}=require('../../src/sim-engine.cjs');
     const e=new SimEngine({workDir:fs.mkdtempSync(path.join(temp,'engine-')),now:()=>0});
     const cases=[...Object.keys(F.SUPPORTED).map(localization=>({name:localization,localization,robot:{drivetrain:'mecanum',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:20,y:30,heading:0},zones:[{id:'a',type:'rect',x:70,y:60,width:16,height:40}],pins:[{x:110,y:40,wait:.5,action:'Score'},{x:120,y:120}],clearance:2})),
-      {name:'turning route',localization:'odometry',robot:{drivetrain:'mecanum',length:24,width:12,heightIn:5,driveRpm:500,intakeIn:0},start:{x:72,y:30,heading:0},zones:[{id:'l',type:'rect',x:31.5,y:72,width:63,height:4},{id:'r',type:'rect',x:112.5,y:72,width:63,height:4}],pins:[{x:72,y:110},{x:30,y:120}],clearance:1}];
+      {name:'turning route',localization:'odometry',robot:{drivetrain:'mecanum',length:24,width:12,heightIn:5,driveRpm:500,intakeIn:0},start:{x:72,y:30,heading:0},zones:[{id:'l',type:'rect',x:31.5,y:72,width:63,height:4},{id:'r',type:'rect',x:112.5,y:72,width:63,height:4}],pins:[{x:72,y:110},{x:30,y:120}],clearance:1},
+      // Action paths, spins and turns while driving, pin turns and the RouteActions/RobotActions slots.
+      {name:'actions',localization:'odometry',robot:{drivetrain:'mecanum',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:24,y:24,heading:0},zones:[],pins:[{x:110,y:30,path:{kind:'action',action:'Intake',rotate:'spin',spins:1}},{x:110,y:72,turn:90,wait:1.5,action:'Shoot'},{x:40,y:72,path:{kind:'action',action:'Shoot',rotate:'turn',heading:180}}],clearance:2},
+      // Tank-style robots: TankDrive and the tank drive-encoder localizer.
+      ...[['tank','encoders'],['tank2','encoders'],['tracks','fused']].map(([drivetrain,localization])=>({name:drivetrain+' '+localization,localization,nonholonomic:true,robot:{drivetrain,length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:24,y:24,heading:0},zones:[],pins:[{x:100,y:24},{x:100,y:100,wait:.5,action:'Score'}],clearance:2}))];
     try{
       for(const c of cases){
-        const info=await e.load({field:'empty',start:c.start,robot:c.robot,zones:c.zones,sensors:{localization:c.localization}}),route=P.plan({start:c.start,zones:c.zones,pins:c.pins,clearance:c.clearance,style:'spline'},info.footprint,[],info.bounds);
+        const info=await e.load({field:'empty',start:c.start,robot:c.robot,zones:c.zones,sensors:{localization:c.localization}}),route=P.plan({start:c.start,zones:c.zones,pins:c.pins,clearance:c.clearance,style:c.nonholonomic?'sharp':'spline',nonholonomic:!!c.nonholonomic},info.footprint,[],info.bounds);
         const layout={name:'SDK check',field:'empty',width:144,height:144,start:c.start,zones:c.zones},out=F.files({route,layout,tuning:info.tuning,robot:info.robot,localization:c.localization,setupName:'SDK check',routeJava:X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
         const dir=path.join(temp,'teamcode',c.name.replace(/\W/g,'-')),files=Object.entries(out.files).map(([rel,text])=>{const f=path.join(dir,rel);fs.mkdirSync(path.dirname(f),{recursive:true});fs.writeFileSync(f,text);return f;});
         const warnings=javac(files,dir+'-classes',[...jars,core,revhub]).split('\n').filter(l=>/warning:/.test(l));

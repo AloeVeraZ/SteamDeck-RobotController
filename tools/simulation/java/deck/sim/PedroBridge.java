@@ -177,6 +177,7 @@ public final class PedroBridge {
         List<Double> waits = new ArrayList<>();
         List<String> actions = new ArrayList<>();
         Path route = null;
+        Object[] details = null;
         boolean turning = kind == SimDrivetrain.Kind.TANK;
         if (m.has("route") && m.get("route").isJsonObject()) {
             JsonObject r = m.getAsJsonObject("route");
@@ -192,14 +193,35 @@ public final class PedroBridge {
                 for (JsonElement p : s.getAsJsonArray("points")) points.add(Vector2D.cartesian(num(p.getAsJsonObject(), "x"), num(p.getAsJsonObject(), "y")));
                 Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Vector2D[0]));
                 double partHeading = turning && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading;
-                parts.add(part.constant(partHeading));
+                // A path the robot turns or spins along: its heading changes steadily from start to end.
+                parts.add(turning && s.has("endHeading") ? part.heading(turn(partHeading, Math.toRadians(num(s, "endHeading")))) : part.constant(partHeading));
                 partHeadings.add(partHeading);
             }
-            if (!parts.isEmpty()) route = chain(parts, heading);
+            if (!parts.isEmpty()) route = r.has("legs") ? join(parts) : chain(parts, heading);
             // A pin with a pause ends a leg: the robot stops there, waits, then follows the next leg.
             JsonArray stops = r.getAsJsonArray("stops");
             int from = 0;
-            if (turning) {
+            if (r.has("legs")) {
+                // The simulator's leg plan (shared with every export): where legs end, the heading to
+                // face first, a turn in place at the pin, the pin's pause and action, and action paths.
+                List<Double> legHeadings = new ArrayList<>(), turnAfter = new ArrayList<>();
+                List<String> moving = new ArrayList<>();
+                for (JsonElement e : r.getAsJsonArray("legs")) {
+                    JsonObject l = e.getAsJsonObject();
+                    int last = Math.min(l.get("last").getAsInt(), parts.size() - 1);
+                    if (last < from) continue;
+                    legs.add(join(parts.subList(from, last + 1)));
+                    waits.add(num(l, "wait"));
+                    actions.add(l.get("action").getAsString());
+                    moving.add(l.get("moving").getAsString());
+                    legHeadings.add(l.has("heading") ? Math.toRadians(num(l, "heading")) : partHeadings.get(from));
+                    turnAfter.add(l.has("turn") && !l.get("turn").isJsonNull() ? Math.toRadians(num(l, "turn")) : Double.NaN);
+                    from = last + 1;
+                }
+                for (JsonElement e : stops) pins.add(new Pose(num(e.getAsJsonObject(), "x"), num(e.getAsJsonObject(), "y"), heading));
+                details = new Object[] { legHeadings, turnAfter, moving };
+                stops = new JsonArray();
+            } else if (turning) {
                 // A turning leg also ends wherever the next segment needs a different heading.
                 double pause = 0; String action = "";
                 for (int i = 0; i < parts.size(); i++) {
@@ -234,6 +256,7 @@ public final class PedroBridge {
         localizer.update();
         localizer.setPose(startPose);
         robot = new SimRobot(follower, config, startPose, route, pins, legs, waits, actions);
+        if (details != null) robot.legDetails((List<Double>) details[0], (List<Double>) details[1], (List<String>) details[2]);
         JsonObject programSpec = m.getAsJsonObject("program");
         String kindName = programSpec.get("kind").getAsString();
         if ("route".equals(kindName)) program = new RouteAutonomous(turning);
@@ -361,6 +384,17 @@ public final class PedroBridge {
 
     private static Path chain(List<Path> parts, double heading) {
         return parts.size() == 1 ? parts.get(0) : Paths.path(parts.toArray(new Path[0])).constant(heading);
+    }
+
+    /** Parts joined into one path, each keeping its own heading. */
+    private static Path join(List<Path> parts) {
+        return parts.size() == 1 ? parts.get(0) : Paths.path(parts.toArray(new Path[0]));
+    }
+
+    /** Heading that turns steadily from one angle to another (radians; may span whole spins). */
+    private static com.pedropathing.paths.interpolator.Interpolator turn(double from, double to) {
+        double by = to - from, full = 2 * Math.PI;
+        return (curve, t) -> ((from + by * t) % full + full) % full;
     }
 
     private interface DoubleGetter { double get(); }

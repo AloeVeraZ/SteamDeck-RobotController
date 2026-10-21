@@ -8,15 +8,17 @@ import java.util.ArrayDeque;
  * Built-in program: follow the planned route leg by leg. At each pin with a pause the robot
  * holds its position for the pause (the time a mechanism action takes), then continues.
  * Turning routes (tank drivetrains, or holonomic routes that turn to fit past an obstacle) stop
- * and turn in place before a leg whose heading differs. If the robot stalls against something
- * mid-leg it backs out to where it recently drove, straightens up and resumes the leg.
+ * and turn in place before a leg whose heading differs. A pin can also turn the robot in place
+ * after it arrives (before its pause), and an action path reports its action while it is driven.
+ * If the robot stalls against something mid-leg it backs out to where it recently drove,
+ * straightens up and resumes the leg.
  */
 public final class RouteAutonomous implements DeckAutonomous {
     private int leg;
     private double arrived = -1, pathEnded = -1;
     private final boolean turning;
-    private boolean turningNow;
-    private double turnStarted;
+    private boolean turningNow, turnThenFollow, turnedAfter;
+    private double turnStarted, turnTarget;
     private static final double SETTLE_SECONDS = .15;
     private double settleStarted = -1, settleHeading;
     // Stall recovery: recent poses, the moment progress stopped, and the back-out target.
@@ -30,13 +32,20 @@ public final class RouteAutonomous implements DeckAutonomous {
     public RouteAutonomous(boolean turning) { this.turning = turning; }
     private void beginLeg(SimRobot robot) {
         Pose p = robot.follower().pose();
-        double target = robot.routeLegs().get(leg).endPose().heading();
+        double target = robot.legHeading(leg);
         recoveries = 0;
-        if (turning && Math.abs(Math.atan2(Math.sin(target - p.heading()), Math.cos(target - p.heading()))) > Math.toRadians(.5)) {
-            robot.follower().hold(new Pose(p.x(), p.y(), target));
-            turningNow = true;
-            turnStarted = robot.time();
-        } else startFollowing(robot);
+        turnedAfter = false;
+        if (turning && Math.abs(Math.atan2(Math.sin(target - p.heading()), Math.cos(target - p.heading()))) > Math.toRadians(.5)) startTurn(robot, target, true);
+        else startFollowing(robot);
+    }
+    private void startTurn(SimRobot robot, double target, boolean thenFollow) {
+        Pose p = robot.follower().pose();
+        robot.follower().hold(new Pose(p.x(), p.y(), target));
+        turningNow = true;
+        turnThenFollow = thenFollow;
+        turnTarget = target;
+        turnStarted = robot.time();
+        settleStarted = -1;
     }
     private void startFollowing(SimRobot robot) {
         robot.follower().follow(robot.routeLegs().get(leg));
@@ -58,8 +67,8 @@ public final class RouteAutonomous implements DeckAutonomous {
         follower.update();
         robot.telemetry("leg", (leg + 1) + " of " + robot.routeLegs().size());
         if (turningNow) {
-            double error = Math.atan2(Math.sin(robot.routeLegs().get(leg).endPose().heading() - follower.pose().heading()), Math.cos(robot.routeLegs().get(leg).endPose().heading() - follower.pose().heading()));
-            robot.telemetry("phase", "Turning chassis");
+            double error = Math.atan2(Math.sin(turnTarget - follower.pose().heading()), Math.cos(turnTarget - follower.pose().heading()));
+            robot.telemetry("phase", turnThenFollow ? "Turning chassis" : "Turning at pin");
             if (robot.time() - turnStarted > 30) throw new IllegalStateException("Chassis turn did not settle within 30 seconds. Check clearance, RPM and current budget.");
             // The localizer's per-tick angular velocity carries sensor noise, so judge settling by the
             // average rotation rate over a window spent inside the heading tolerance.
@@ -71,7 +80,9 @@ public final class RouteAutonomous implements DeckAutonomous {
             if (Math.abs(drift) / window > .08) { settleStarted = -1; return; }
             settleStarted = -1;
             turningNow = false;
-            startFollowing(robot);
+            // A turn at a pin ends with the robot in place: its pause counts from here.
+            if (turnThenFollow) startFollowing(robot);
+            else arrived = robot.time();
             return;
         }
         if (backoff != null) {
@@ -81,7 +92,8 @@ public final class RouteAutonomous implements DeckAutonomous {
             startFollowing(robot);
             return;
         }
-        robot.telemetry("phase", "Driving leg");
+        String moving = robot.movingAction(leg);
+        robot.telemetry("phase", moving.isEmpty() ? "Driving leg" : "Action path: " + moving);
         if (follower.following()) {
             if (stalled(robot, follower)) {
                 if (++recoveries > MAX_RECOVERIES) {
@@ -102,11 +114,21 @@ public final class RouteAutonomous implements DeckAutonomous {
             return;
         }
         Pose end = robot.routeLegs().get(leg).endPose();
+        if (turnedAfter) end = new Pose(end.x(), end.y(), robot.turnAfter(leg));
         // Pedro's default hold timeout (100 ms) is not a settling test: wait until the estimate
         // has actually settled (bounded at 3 s), then count the pause from the moment it stopped.
         boolean settled = robot.near(end, 0.75, 3) && follower.velocity().linSpeed() < 2;
         if (pathEnded < 0) pathEnded = robot.time();
-        if (arrived < 0 && (settled || robot.time() - pathEnded > 3)) arrived = robot.time();
+        if (arrived < 0 && (settled || robot.time() - pathEnded > 3)) {
+            double turnAfter = robot.turnAfter(leg);
+            if (!turnedAfter && !Double.isNaN(turnAfter)) {
+                turnedAfter = true;
+                robot.moving();
+                startTurn(robot, turnAfter, false);
+                return;
+            }
+            arrived = robot.time();
+        }
         double pause = robot.stopWait(leg);
         if (arrived < 0) { if (pause > 0) robot.waiting(leg, robot.stopAction(leg), pause); return; }
         double held = robot.time() - arrived;

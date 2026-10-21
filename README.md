@@ -110,6 +110,31 @@ The Apple Silicon package is not Apple-notarized; approval may be required in Pr
 See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md), and
 [validation and remaining device checks](docs/VALIDATION.md).
 
+## Offline autonomous simulator
+
+The **Simulation** page plans and test-drives FTC autonomous routes offline, with no extra
+downloads: physics, Pedro Pathing and the Java runtime it needs ship inside the app.
+
+- Set up your robot (drivetrain, size, motor RPM, sensors) and a field: DECODE, BIOBUZZ, or a
+  custom field with your own obstacles for any season.
+- Place pins or draw the route; the planner keeps the whole robot clear of obstacles and can turn
+  it to fit. Right-click a pin or a path for pauses, turns, spins and **action paths** (run an
+  intake or shooter while driving).
+- Run it through physics, then export complete Control Hub TeamCode (Pedro Pathing 3, mecanum or
+  tank) with labeled action slots for your mechanism code, a MotionModule `autonomous.py`, Pedro
+  Java, a `.pp` path file or timed commands.
+
+See [the simulator guide](docs/SIMULATION.md).
+
+## License and credits
+
+Deck Driver Station's own code is [MIT licensed](LICENSE). It builds on Electron, Pedro Pathing,
+DSIM, Rapier, three.js, OpenJDK and more; see [credits and third-party notices](THIRD-PARTY-NOTICES.md),
+also in the app under Settings → Preferences → Licenses and credits. The simulator's physics come
+from [DSIM](https://github.com/genius0412/dsim) by Dohun Kim, which is licensed for noncommercial
+use only, so complete releases are free for noncommercial use such as team practice. Not
+affiliated with or endorsed by FIRST®, REV Robotics, Valve or any project above.
+
 ## Why the local bridge exists
 
 Many robots serve plain HTTP. Chromium restricts browser gamepad access on an
