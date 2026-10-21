@@ -6,7 +6,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MESH_TYPES={'.glb':'glb','.gltf':'gltf','.stl':'stl','.obj':'obj'},STEP_TYPES=['.step','.stp'];
 const MODEL_LIMIT=200*1024*1024,STORED_LIMIT=150*1024*1024,SOURCE_LIMIT=200*1024,PROJECT_LIMIT=150*1024*1024,EXPORT_LIMIT=4*1024*1024;
-const EXPORTS={java:{name:'Pedro Java',extensions:['java']},pp:{name:'Pedro path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']}};
+const EXPORTS={java:{name:'Pedro Java',extensions:['java']},pp:{name:'Pedro path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']},motionmodule:{name:'MotionModule autonomous',extensions:['py']}};
 const validKey=key=>typeof key==='string'&&/^[\w-]{1,64}$/.test(key);
 
 class SimulationHost{
@@ -64,6 +64,16 @@ class SimulationHost{
       fs.mkdirSync(models,{recursive:true});fs.writeFileSync(path.join(models,id),bytes);return {id,name:path.basename(data.name).slice(0,120)};
     }
     if(action==='model-read'){if(typeof data!=='string'||!/^[0-9a-f]{32}\.glb$/.test(data))throw Error('Invalid model id.');const file=path.join(models,data);return fs.existsSync(file)?{id:data,bytes:new Uint8Array(fs.readFileSync(file))}:null;}
+    // Control Hub TeamCode: the OpMode, Pedro Constants and route, written at their package paths under
+    // a folder the user picks (normally TeamCode/src/main/java). Names are checked so nothing escapes it.
+    if(action==='teamcode-save'){
+      const files=data?.files;if(!files||typeof files!=='object')throw Error('Invalid TeamCode export.');
+      const entries=Object.entries(files);if(!entries.length||entries.length>12||entries.some(([rel,text])=>typeof text!=='string'||!/^[A-Za-z0-9_]+(\/[A-Za-z0-9_]+)*\.java$/.test(rel))||entries.reduce((s,[,text])=>s+text.length,0)>EXPORT_LIMIT)throw Error('Invalid TeamCode export.');
+      const r=await dialog.showOpenDialog(win,{title:'Choose your TeamCode java folder (TeamCode/src/main/java)',properties:['openDirectory','createDirectory']});
+      if(r.canceled||!r.filePaths[0])return null;const base=path.resolve(r.filePaths[0]);
+      for(const [rel,text] of entries){const file=path.resolve(base,rel);if(!file.startsWith(base+path.sep))throw Error('Invalid TeamCode path.');fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);}
+      return {name:path.basename(base),count:entries.length};
+    }
     // Route exports. The window may only write to a file the user picked in a save dialog; with
     // "keep updated" that choice is remembered per field layout and format.
     if(['export-save','export-update','export-status','export-forget'].includes(action)){

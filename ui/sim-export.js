@@ -9,7 +9,7 @@
   // changes; the robot turns in place to the next leg's heading before following it.
   const turnsAfter=(route,i)=>i<route.segments.length-1&&Math.abs(((route.segments[i+1].heading-route.segments[i].heading)%360+540)%360-180)>1e-6;
   function legs(route){
-    if(route.nonholonomic||route.turns){const out=[];let from=0,wait=0,action=[],pin=0;
+    if(route.nonholonomic||route.turns||route.segments.some(s=>Number.isFinite(s.heading))){const out=[];let from=0,wait=0,action=[],pin=0;
       route.segments.forEach((s,i)=>{for(const [k,p] of (route.stops||[]).entries())if(p.segment===i){wait+=p.wait;if(p.action)action.push(p.action);pin=k+1;}
         if(i===route.segments.length-1||wait>0||turnsAfter(route,i)){out.push({segments:route.segments.slice(from,i+1),wait,action:action.join(', '),pin,heading:s.heading});from=i+1;wait=0;action=[];}});
       return out;}

@@ -57,6 +57,7 @@ public final class PedroBridge {
     private SimDrivetrain drivetrain;
     private SimRobot robot;
     private DeckAutonomous program;
+    private deck.sim.hub.VirtualHub hub;
     private boolean done;
     private double started = -1;
 
@@ -140,6 +141,7 @@ public final class PedroBridge {
     }
 
     private JsonObject init(JsonObject m) throws Exception {
+        if ("opmode".equals(m.getAsJsonObject("program").get("kind").getAsString())) return initHub(m);
         JsonObject drive = m.getAsJsonObject("drive"), tune = m.getAsJsonObject("tuning"), start = m.getAsJsonObject("start");
         String driveKind = drive.get("kind").getAsString();
         SimDrivetrain.Kind kind = "swerve".equals(driveKind) ? SimDrivetrain.Kind.SWERVE : "tank".equals(driveKind) ? SimDrivetrain.Kind.TANK : SimDrivetrain.Kind.MECANUM;
@@ -147,13 +149,15 @@ public final class PedroBridge {
         localizer = new SimLocalizer();
         double maxF = num(tune, "maxForward"), maxS = num(tune, "maxStrafe");
         ForesightConfig config = new ForesightConfig(c -> {
+            // Same controller structure as Pedro AutoTune's generated ForesightConfig: piecewise
+            // translational gains (soft within 2.5 in, firm beyond), proportional heading, and
+            // feedforward coast/brake. Power is a fraction of free speed in DSIM's drive model.
+            double large = num(tune, "translationalP"), small = tune.has("translationalSmall") ? num(tune, "translationalSmall") : large / 3, d = num(tune, "translationalD");
             c.headingFeedback.set(Controller.pid(num(tune, "headingP"), 0, num(tune, "headingD")));
-            c.forwardTranslational.set(Controller.pid(num(tune, "translationalP"), 0, num(tune, "translationalD")));
-            c.strafeTranslational.set(Controller.pid(num(tune, "translationalP"), 0, num(tune, "translationalD")));
-            // Power is commanded as a fraction of free speed in DSIM's drive model, so both the
-            // braking and coasting profiles map a target velocity to power by 1 / max speed.
-            c.brake.set(Controller.proportionalFeedforward(1 / maxF));
-            c.coast.set(Controller.proportional(1 / maxF));
+            c.forwardTranslational.set(Controller.piecewise(Controller.pid(small, 0, d)).put(2.5, Controller.pid(large, 0, d)));
+            c.strafeTranslational.set(Controller.piecewise(Controller.pid(small * maxF / maxS, 0, d)).put(2.5, Controller.pid(large * maxF / maxS, 0, d)));
+            c.brake.set(Controller.proportionalFeedforward(tune.has("brakeKV") ? num(tune, "brakeKV") : 1 / maxF));
+            c.coast.set(tune.has("coastKV") ? Controller.proportionalFeedforward(num(tune, "coastKV")).plus(Controller.staticFeedforward(tune.has("coastKS") ? num(tune, "coastKS") : 0)) : Controller.proportional(1 / maxF));
             c.linearBrakeCoefficients.set(Matrix.diag(num(tune, "linearBrakeForward"), num(tune, "linearBrakeStrafe")));
             c.quadraticBrakeCoefficients.set(Matrix.diag(num(tune, "quadraticBrakeForward"), num(tune, "quadraticBrakeStrafe")));
             c.headingBrakeCoefficients.set(Vector2D.cartesian(num(tune, "headingBrakeLinear"), num(tune, "headingBrakeQuadratic")));
@@ -246,7 +250,8 @@ public final class PedroBridge {
         return ready;
     }
 
-    private JsonObject tick(JsonObject m) {
+    private JsonObject tick(JsonObject m) throws Exception {
+        if (hub != null) return tickHub(m);
         if (program == null) throw new IllegalStateException("tick before init");
         double t = num(m, "t");
         SimClock.setSeconds(t);
@@ -309,6 +314,51 @@ public final class PedroBridge {
         return cmd;
     }
 
+    // Exported team code (OpMode, Constants, route) on the virtual Control Hub. See deck.sim.hub.VirtualHub.
+    private JsonObject initHub(JsonObject m) throws Exception {
+        JsonObject spec = m.getAsJsonObject("program");
+        try {
+            hub = deck.sim.hub.VirtualHub.start(spec.getAsJsonObject("hub"), num(m.getAsJsonObject("start"), "heading"), new File(m.get("workDir").getAsString()));
+        } catch (deck.sim.hub.VirtualHub.HubException e) {
+            throw hubError(e);
+        }
+        JsonObject ready = new JsonObject();
+        ready.addProperty("type", "ready");
+        ready.addProperty("program", hub.opMode());
+        return ready;
+    }
+
+    private JsonObject tickHub(JsonObject m) throws Exception {
+        SimClock.setSeconds(num(m, "t"));
+        JsonObject odo = m.has("odo") && m.get("odo").isJsonObject() ? m.getAsJsonObject("odo") : null;
+        if (!hub.done()) {
+            try {
+                hub.tick(odo == null ? 0 : num(odo, "dx"), odo == null ? 0 : num(odo, "dy"), num(m, "imu"), num(m, "dt"));
+            } catch (deck.sim.hub.VirtualHub.HubException e) {
+                throw hubError(e);
+            }
+        }
+        double[] c = hub.done() ? new double[4] : hub.command();
+        JsonObject cmd = new JsonObject(), d = new JsonObject(), telemetry = new JsonObject();
+        cmd.addProperty("type", "cmd");
+        cmd.addProperty("seq", m.get("seq").getAsLong());
+        d.addProperty("forward", c[0]);
+        d.addProperty("strafe", c[1]);
+        d.addProperty("turn", c[2]);
+        d.addProperty("float", c[3] > 0);
+        cmd.add("drive", d);
+        hub.telemetry().forEach(telemetry::addProperty);
+        cmd.add("telemetry", telemetry);
+        cmd.addProperty("done", hub.done());
+        return cmd;
+    }
+
+    private UserCodeException hubError(deck.sim.hub.VirtualHub.HubException e) {
+        JsonArray lines = new JsonArray();
+        for (String line : e.details) lines.add(line);
+        return new UserCodeException(e.stage, e.getMessage(), lines);
+    }
+
     private static Path chain(List<Path> parts, double heading) {
         return parts.size() == 1 ? parts.get(0) : Paths.path(parts.toArray(new Path[0])).constant(heading);
     }
@@ -328,6 +378,7 @@ public final class PedroBridge {
         d.addProperty("forward", drivetrain.forward());
         d.addProperty("strafe", drivetrain.strafe());
         d.addProperty("turn", drivetrain.turn());
+        d.addProperty("float", !drivetrain.brake());
         return d;
     }
 

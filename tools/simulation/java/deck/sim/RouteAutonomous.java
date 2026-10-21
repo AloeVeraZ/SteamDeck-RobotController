@@ -13,7 +13,7 @@ import java.util.ArrayDeque;
  */
 public final class RouteAutonomous implements DeckAutonomous {
     private int leg;
-    private double arrived = -1;
+    private double arrived = -1, pathEnded = -1;
     private final boolean turning;
     private boolean turningNow;
     private double turnStarted;
@@ -102,11 +102,14 @@ public final class RouteAutonomous implements DeckAutonomous {
             return;
         }
         Pose end = robot.routeLegs().get(leg).endPose();
-        if (arrived < 0) arrived = robot.time();
-        double held = robot.time() - arrived, pause = robot.stopWait(leg);
         // Pedro's default hold timeout (100 ms) is not a settling test: wait until the estimate
-        // has actually settled (bounded), then count the pause from the moment it stopped.
+        // has actually settled (bounded at 3 s), then count the pause from the moment it stopped.
         boolean settled = robot.near(end, 0.75, 3) && follower.velocity().linSpeed() < 2;
+        if (pathEnded < 0) pathEnded = robot.time();
+        if (arrived < 0 && (settled || robot.time() - pathEnded > 3)) arrived = robot.time();
+        double pause = robot.stopWait(leg);
+        if (arrived < 0) { if (pause > 0) robot.waiting(leg, robot.stopAction(leg), pause); return; }
+        double held = robot.time() - arrived;
         boolean last = leg == robot.routeLegs().size() - 1;
         if (pause > 0) robot.waiting(leg, robot.stopAction(leg), pause - held);
         if (held < pause || (!settled && held < pause + 3)) return;
@@ -117,6 +120,7 @@ public final class RouteAutonomous implements DeckAutonomous {
         }
         leg++;
         arrived = -1;
+        pathEnded = -1;
         beginLeg(robot);
     }
 

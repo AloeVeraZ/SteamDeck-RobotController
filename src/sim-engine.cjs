@@ -11,6 +11,7 @@ const planner=require('../ui/sim-planner.js');
 const config=require('../ui/sim-config.js');
 const {PracticeClock}=require('./sim-practice.cjs');
 const Timed=require('../ui/sim-timed.js');
+const Ftc=require('../ui/sim-ftc.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
 const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
 // What each game's planning obstacles are, for the UI.
@@ -106,6 +107,8 @@ class SimEngine{
   applyBarriers(){const triangles=[];for(const zone of this.zones){let p=planner.polygon(zone);if(p.length===2){const [a,b]=p,angle=Math.atan2(b.y-a.y,b.x-a.x)*DEG;p=planner.polygon({type:'rect',x:(a.x+b.x)/2,y:(a.y+b.y)/2,width:Math.hypot(b.x-a.x,b.y-a.y),height:1,angle});}const points=p.flatMap(q=>[q.x-this.origin.x,q.y-this.origin.y]),indices=this.dsim.Earcut.triangulate(points);for(let i=0;i<indices.length;i+=3)triangles.push(indices.slice(i,i+3).flatMap(j=>points.slice(j*2,j*2+2)));}this.world.deckPolygons=triangles;}
   physicsStep(world,cmd){
     const D=this.dsim,dt=D.SIM_DT,input={driveX:-cmd.strafe,driveY:cmd.forward,rotate:cmd.turn,leftDrive:clamp(cmd.forward-cmd.turn,-1,1),rightDrive:clamp(cmd.forward+cmd.turn,-1,1),intake:false,fire:false};
+    // FLOAT zero-power behaviour (Pedro's autonomous default) coasts unpowered axes instead of braking.
+    world.robots[0].deckFloat=cmd.float===true;
     const mod=world===this.world?this.module():null;
     if(mod){const previous=mod.colliders.deckPolygons;mod.colliders.deckPolygons=world.deckPolygons;try{mod.step(world,dt,new Map([[0,input]]));}finally{mod.colliders.deckPolygons=previous;}}
     else{world.time+=dt;world.tick++;const r=world.robots[0],wrench=D.updateRobot(world,r,input,dt),colliders={...this.colliders(),deckPolygons:world.deckPolygons};D.solveRobots(world,dt,colliders,undefined,new Map([[r.id,wrench]]));}
@@ -126,17 +129,43 @@ class SimEngine{
         return {v:Math.abs(v),d:axis==='turn'?Math.abs(r.heading-h0):Math.hypot(r.pos.x-p0.x,r.pos.y-p0.y)};}finally{this._empty=saved;}};
     // Foresight solves q·v² + l·v = distance; with l = 0 and distance 0 its root is 0/0 = NaN at
     // the end of a path. Keep a 1 ms linear term (≤ 0.1 in of braking at full speed).
+    // Pedro's ForwardDeceleration tuner cuts power in FLOAT and averages the coast-down; braking
+    // coefficients come from near-zero driven power, which is DSIM's brake. Measure both the same way.
+    const coast=axis=>{if(axis==='strafe'&&D.driveParams(spec).strafeMult===0)return coast('forward');const w=make(),r=w.robots[0],cmd={...ZERO,[axis]:1},saved=this._empty;this._empty={statics:[],bounds:{halfX:1e6,halfY:1e6}};
+      const dp=D.driveParams(spec),steps=Math.min(18000,Math.max(90,Math.ceil(4*dp.maxSpeed/Math.max(.01,dp.accel)/D.SIM_DT)));
+      try{for(let i=0;i<steps;i++)this.physicsStep(w,cmd);const v=Math.hypot(r.vel.x,r.vel.y),p0={...r.pos};for(let i=0;i<36000;i++){this.physicsStep(w,{...ZERO,float:true});if(Math.hypot(r.vel.x,r.vel.y)<1e-3)break;}
+        return v*v/(2*Math.max(1e-6,Math.hypot(r.pos.x-p0.x,r.pos.y-p0.y)));}finally{this._empty=saved;}};
     const LINEAR_MIN=1e-3,fit=(a,b)=>{const det=a.v*a.v*b.v-b.v*b.v*a.v;if(Math.abs(det)<1e-9)return {q:Math.max(1e-6,a.d/Math.max(1e-9,a.v*a.v)),l:LINEAR_MIN};const q=(a.d*b.v-b.d*a.v)/det,l=(a.v*a.v*b.d-b.v*b.v*a.d)/det;return {q:Math.max(q,1e-6),l:Math.max(l,LINEAR_MIN)};};
     const fwd=brake('forward',1),f=fit(fwd,brake('forward',.5)),tank=D.driveParams(spec).strafeMult===0;
     const str=tank?fwd:brake('strafe',1),s=tank?f:fit(str,brake('strafe',.5)),h=fit(brake('turn',1),brake('turn',.5));
-    const value={maxForward:fwd.v,maxStrafe:str.v,forwardDeceleration:fwd.v*fwd.v/(2*fwd.d),strafeDeceleration:str.v*str.v/(2*str.d),
+    const speedScale=Math.min(4,Math.max(.25,58.46/fwd.v)),turnScale=Math.min(4,Math.max(.25,301.2/DEG/Math.max(1e-6,D.driveParams(spec).maxTurn)));
+    const value={maxForward:fwd.v,maxStrafe:str.v,forwardDeceleration:coast('forward'),strafeDeceleration:coast('strafe'),
       linearBrakeForward:f.l,linearBrakeStrafe:s.l,quadraticBrakeForward:f.q,quadraticBrakeStrafe:s.q,headingBrakeLinear:h.l,headingBrakeQuadratic:h.q,
-      // Feedback gains and the path-speed cap were chosen by sweeping runs on DSIM's drive model
-      // (max deviation ~1.1 in at 0.6 speed). They describe the simulated robot only.
-      headingP:1.6,headingD:.06,translationalP:.5,translationalD:.012,maxPathSpeed:.6,holdTimeoutMs:2000};
+      // Feedback gains in the structure Pedro AutoTune generates (piecewise translational kP: firm
+      // beyond 2.5 in of error, soft within it; proportional heading). A sweep over four routes on the
+      // coast/brake drive model chose 0.39 / 0.13 and heading 6, which are also a tuned DECODE robot's
+      // AutoTune results (with pods: ~0.3 in endpoint error, ~1.5 in worst path deviation at 0.6 speed).
+      // Pedro's gains output power, so a faster robot needs proportionally less: scale them by this
+      // robot's speed relative to the 312 RPM reference chassis they were tuned on (58.5 in/s, 301°/s).
+      headingP:6*turnScale,headingD:.06*turnScale,translationalP:.39*speedScale,translationalSmall:.13*speedScale,translationalD:.012*speedScale,
+      // Default path speed: 60% of top speed, capped near 45 in/s so a fast robot still tracks tight
+      // corners within ~2 in (measured). Advanced settings can raise it.
+      maxPathSpeed:Math.max(.3,Math.min(.6,Math.floor(45/fwd.v*20)/20)),holdTimeoutMs:2000};
     this._tuning={key,value};return {...value,...this.userTuning()};
   }
-  userTuning(){const t=this.config?.tuning||{},out={};for(const k of ['headingP','headingD','translationalP','translationalD'])if(finite(t[k])&&t[k]>=0&&t[k]<=20)out[k]=t[k];if(finite(t.maxPathSpeed)&&t.maxPathSpeed>.05&&t.maxPathSpeed<=1)out.maxPathSpeed=t.maxPathSpeed;return out;}
+  // Timed-driving calibration, the way a team does it on the floor: drive at `power` for 1 s and for
+  // 2 s on an empty field, measure how far the robot went once stopped, and fit distance = speed·time +
+  // offset. The offset becomes start compensation (lag) or stop compensation (roll-on).
+  timedCalibration(power=this.config?.timing?.power??.45){
+    const D=this.dsim,spec=this.world.robots[0].spec,p=clamp(finite(power)?power:.45,.05,1),saved=this._empty;this._empty={statics:[],bounds:{halfX:1e6,halfY:1e6}};
+    const drive=(axis,seconds)=>{const w=D.SIM_GAMES.decode.createWorld('free',1,[{id:0,alliance:'blue',spec,assists:{fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false},startIndex:0}]);w.balls=[];const r=w.robots[0];Object.assign(r.spec,spec);Object.assign(r,{pos:{x:0,y:0},heading:0,vel:{x:0,y:0},angVel:0,fieldCentric:false,autoIntake:false,autoFire:false,aimAssist:false,hopper:[]});
+      for(let i=0;i<Math.round(seconds/D.SIM_DT);i++)this.physicsStep(w,{...ZERO,[axis]:p});for(let i=0;i<1200;i++){this.physicsStep(w,ZERO);if(Math.hypot(r.vel.x,r.vel.y)<1e-3)break;}return Math.hypot(r.pos.x,r.pos.y);};
+    try{const fit=axis=>{const d1=drive(axis,1),d2=drive(axis,2),v=d2-d1,offset=d1-v;return {speed:v/p,startup:Math.max(0,-offset/v),stopping:Math.max(0,offset/v)};};
+      const f=fit('forward'),s=D.driveParams(spec).strafeMult>0?fit('strafe'):f;
+      return {power:p,forwardSpeed:+f.speed.toFixed(2),strafeSpeed:+s.speed.toFixed(2),startup:+f.startup.toFixed(3),stopping:+f.stopping.toFixed(3),strafeStopping:+Math.max(0,s.stopping-s.startup).toFixed(3)};}
+    finally{this._empty=saved;}
+  }
+  userTuning(){const t=this.config?.tuning||{},out={};for(const k of ['headingP','headingD','translationalP','translationalD','translationalSmall','coastKV','coastKS','brakeKV'])if(finite(t[k])&&t[k]>=0&&t[k]<=20)out[k]=t[k];if(finite(t.maxPathSpeed)&&t.maxPathSpeed>.05&&t.maxPathSpeed<=1)out.maxPathSpeed=t.maxPathSpeed;return out;}
 
   // ---------------------------------------------------------------- clock
   play(){if(!this.world)throw Error('Load the simulation first.');this.playing=true;this.anchor=null;if(!this.timer){this.timer=setInterval(()=>void this.pump(),4);this.timer.unref?.();}this.emitFrame(true);}
@@ -203,7 +232,18 @@ class SimEngine{
   async run(program={}){
     if(!this.world)throw Error('Load the simulation first.');
     if(!planner.safePose(this.config.start,[],this.info.footprint,this.info.bounds))throw Error('The starting robot footprint must fit inside this field. Change the field size, robot size or starting pose.');
-    const kind=program.kind==='source'?'source':'route';
+    // 'opmode': exported TeamCode files run on the virtual Control Hub (Pedro's real revhub code, FTC SDK stand-ins).
+    // 'motionmodule': an exported autonomous.py on MotionModule's real runtime (development check;
+    // needs Python and the MotionModule source, see tools/simulation/motionmodule-bridge.py).
+    const kind=['source','opmode','motionmodule'].includes(program.kind)?program.kind:'route';
+    if(kind==='motionmodule'&&(typeof program.source!=='string'||!program.source.trim()||!program.python||!program.motionModule))throw Error('The virtual MotionModule needs autonomous.py, Python and the MotionModule source.');
+    let hub=null;
+    if(kind==='opmode'){
+      if(!program.files||typeof program.files!=='object'||typeof program.opMode!=='string')throw Error('Export the Control Hub files first.');
+      const size=Object.values(program.files).reduce((s,v)=>s+(typeof v==='string'?v.length:Infinity),0);if(size>400000)throw Error('TeamCode files are limited to 400 KB.');
+      if(config.drives[this.config.robot.drivetrain].engine!=='mecanum')throw Error('The virtual Control Hub runs the Pedro mecanum drivetrain; choose a mecanum robot.');
+      hub={...Ftc.hardware(this.config.robot,this.config.sensors.localization),files:program.files,opmode:program.opMode};
+    }
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');
     const timed=kind==='route'&&!config.sensors[this.config.sensors.localization].translation;
     if(kind==='source'&&!config.sensors[this.config.sensors.localization].translation)throw Error('IMU-only sensing cannot measure X/Y for this Pedro Java program. Run the timed planned route, or select odometry in the FTC setup.');
@@ -213,10 +253,11 @@ class SimEngine{
     this.stopProgram('Restarted.');this.build();this.violations=new Set();
     if(timed){this.timed=new Timed.Runner(program.route,this.config.timing);this.mode='timed';this.estimate=null;this.follower=null;this.emit({type:'run',state:'starting',kind:'timed'});this.emit({type:'run',state:'running',kind:'timed'});this.play();return {ok:true,program:'Timed power + IMU heading hold'};}
     const seq=++this.runSeq,java=path.join(this.runtimeDir,'java/bin',process.platform==='win32'?'java.exe':'java');
-    if(!fs.existsSync(java))throw Error('The simulator Java runtime is missing. Rebuild with tools/simulation/build.cjs.');
+    if(kind!=='motionmodule'&&!fs.existsSync(java))throw Error('The simulator Java runtime is missing. Rebuild with tools/simulation/build.cjs.');
     const dir=path.join(this.workDir,`run-${process.pid}-${seq}`);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
     const cp=[path.join(this.runtimeDir,'pedro/classes'),path.join(this.runtimeDir,'pedro/gson.jar')].join(path.delimiter);
-    const child=spawn(java,['-Xmx256m','-Xss4m','-XX:+UseSerialGC','-XX:TieredStopAtLevel=1','-Dfile.encoding=UTF-8','-cp',cp,'deck.sim.PedroBridge'],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true});
+    const child=kind==='motionmodule'?spawn(program.python,['-I','-u',path.join(__dirname,'../tools/simulation/motionmodule-bridge.py')],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true})
+      :spawn(java,['-Xmx256m','-Xss4m','-XX:+UseSerialGC','-XX:TieredStopAtLevel=1','-Dfile.encoding=UTF-8','-cp',cp,'deck.sim.PedroBridge'],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true});
     const bridge={child,seq,dir,buffer:'',stderr:'',waiters:[],exited:false,started:this.now(),kind,ticks:0};this.child=bridge;
     child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
     child.stdout.on('data',chunk=>{bridge.buffer+=chunk;if(bridge.buffer.length>1<<20){this.fail('Program output exceeded the protocol limit.',seq);return;}let i;while((i=bridge.buffer.indexOf('\n'))>=0){const line=bridge.buffer.slice(0,i);bridge.buffer=bridge.buffer.slice(i+1);let msg;try{msg=JSON.parse(line);}catch{this.fail('The Pedro bridge sent an unreadable reply.',seq);return;}const w=bridge.waiters.shift();if(w)w.resolve(msg);}});
@@ -224,8 +265,8 @@ class SimEngine{
     child.on('error',e=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error('Java could not start: '+e.message));});
     child.on('exit',code=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error(`The Pedro process exited (code ${code}).${bridge.stderr?' '+bridge.stderr.trim().slice(-500):''}`));});
     child.stdin.on('error',()=>{});
-    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?clamp(s.wait,0,30):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
-    const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
+    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic||program.route.segments.some(s=>finite(s.heading))),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?clamp(s.wait,0,30):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
+    const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,motionModule:program.motionModule,deps:program.deps||''}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:config.drives[this.info.robot.drivetrain].engine,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);
     let ready;try{ready=await this.request(bridge,init,30000,'Compiling and starting the program');}catch(e){if(seq===this.runSeq)this.fail(e.message,seq);return {ok:false,error:e.message};}
@@ -250,13 +291,17 @@ class SimEngine{
     let reply;try{reply=await this.request(bridge,msg,bridge.ticks<30?5000:750,'One loop() call');}catch(e){this.fail(e.message,seq);return;}
     if(seq!==this.runSeq)return; // stopped while waiting: discard the stale reply
     if(reply.type==='error'){this.fail(this.describe(reply),seq,reply);return;}
-    const d=reply.drive||{},n=v=>finite(v)?clamp(v,-1,1):0;this.command={forward:n(d.forward),strafe:n(d.strafe),turn:n(d.turn)};
+    const d=reply.drive||{},n=v=>finite(v)?clamp(v,-1,1):0;this.command={forward:n(d.forward),strafe:n(d.strafe),turn:n(d.turn),float:d.float===true};
     this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;
     if(reply.log?.length)this.emit({type:'log',lines:reply.log.slice(-60)});
     if(reply.done)this.finish(seq);
   }
   finish(seq){
-    if(seq!==this.runSeq)return;const t=this.truth();
+    if(seq!==this.runSeq)return;
+    // A program can end while the robot still rolls (timed driving cuts power early so the robot
+    // coasts onto the pin). Record where it comes to rest, as a real robot would be measured.
+    for(let i=0;i<120;i++){const r=this.truth();if(Math.hypot(r.vx,r.vy)<.5&&Math.abs(r.omega)<.02)break;this.command={...ZERO};this.tick(this.command);}
+    const t=this.truth();
     this.result={reason:'finished',kind:this.timed?'timed':this.child?.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},estimate:this.estimate&&{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG},violations:[...(this.violations||[])]};
     this.stopProgram();this.emit({type:'run',state:'finished',result:this.result});this.emitFrame(true);
   }

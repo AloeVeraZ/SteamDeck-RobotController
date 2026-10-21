@@ -1,0 +1,99 @@
+{
+  "deckSimulation": 2,
+  "version": 2,
+  "imuSource": "hub",
+  "timing": {
+    "power": 0.45,
+    "forwardSpeed": 91.84,
+    "strafeSpeed": 73.47,
+    "startup": 0,
+    "stopping": 0.13,
+    "strafeStopping": 0.091,
+    "headingP": 1.6
+  },
+  "orientations": {},
+  "hitboxes": false,
+  "robot": {
+    "drivetrain": "mecanum",
+    "length": 17,
+    "width": 17,
+    "heightIn": 5,
+    "driveRpm": 500,
+    "intakeIn": 0,
+    "massLb": 9.41,
+    "driveAmps": 20,
+    "driveStyle": "robot",
+    "appearance": "strafer"
+  },
+  "tuning": {
+    "maxPathSpeed": 0.45
+  },
+  "practice": {
+    "mode": "autonomous",
+    "autoSeconds": 30,
+    "transitionSeconds": 8,
+    "teleopSeconds": 120
+  },
+  "program": {
+    "kind": "route",
+    "name": "",
+    "source": ""
+  },
+  "model": null,
+  "view": "2d",
+  "export": {
+    "packageName": "org.firstinspires.ftc.teamcode",
+    "className": "PlannedRoute",
+    "keep": false
+  },
+  "controller": "ftc",
+  "sensors": {
+    "localization": "encoders",
+    "gyroDrift": 0.5,
+    "noise": 0.05
+  },
+  "layouts": [
+    {
+      "id": "chpractice",
+      "name": "Practice field",
+      "field": "empty",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": {
+        "x": 20,
+        "y": 30,
+        "heading": 0
+      },
+      "zones": [
+        {
+          "id": "zone-box",
+          "type": "rect",
+          "x": 60,
+          "y": 70,
+          "width": 16,
+          "height": 24,
+          "angle": 0
+        }
+      ],
+      "pins": [
+        {
+          "x": 110,
+          "y": 30,
+          "wait": 0.5,
+          "action": "Score"
+        },
+        {
+          "x": 110,
+          "y": 110,
+          "wait": 0,
+          "action": ""
+        }
+      ],
+      "clearance": 2,
+      "style": "spline",
+      "rotate": true
+    }
+  ],
+  "active": "chpractice"
+}

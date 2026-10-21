@@ -103,6 +103,8 @@ public final class SimDrivetrain implements Drivetrain {
     double strafe() { return strafe; }
     double turn() { return turn; }
     Kind kind() { return kind; }
+    /** False while Pedro drives in automatic mode: its real Mecanum uses FLOAT there, so unpowered wheels coast. */
+    boolean brake() { return brake; }
 
     @Override
     public Map<String, Object> debug() {

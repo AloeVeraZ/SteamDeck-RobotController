@@ -72,7 +72,15 @@ Tank/differential/tracked robots use **Straight lines** with a stop and chassis 
   - `NO_GO_ZONES` as polygons.
 
   It uses the Pedro Pathing 3.x API and is checked by compiling it against Pedro's real classes.
-- **Timed commands…**, for either controller with IMU-only sensing, writes JSON with powers, durations, pauses and heading settings. Tank schedules include IMU-settled turns with a 30-second failure timeout; total duration is null because turn completion depends on measured heading. There is no X/Y feedback. This is a simulation schedule, not a MotionModule firmware integration.
+- **Control Hub TeamCode…**, for an FTC mecanum setup with position sensing, writes everything a Control Hub needs under the folder you pick (normally `TeamCode/src/main/java`):
+  - `PlannedRoute.java` (the route, as above);
+  - `PlannedRouteAuto.java`, an `@Autonomous` `LinearOpMode` that follows each leg, turns in place first where a turning route needs it, settles, then holds each pin's pause;
+  - `pedro/Constants.java` with `Constants.create(hardwareMap)` in the form Pedro 3's AutoTune generates: `MecanumConfig` (motor names `front_left`, `front_right`, `back_left`, `back_right`; left side REVERSE), the localizer for the setup (`TwoWheelLocalizer`, `ThreeWheelIMULocalizer`, `PinpointLocalizer` or `OTOSLocalizer`) and a `ForesightConfig` measured on the simulated robot;
+  - `pedro/DriveEncoderLocalizer.java` for drive-encoder setups, because Pedro 3 ships no drive-encoder localizer.
+
+  Hardware names, pod offsets and Foresight numbers are the simulated robot's. Rename to your configuration and run Pedro AutoTune on the real robot before competing. Every export is compiled and run on the virtual Control Hub (below).
+- **MotionModule autonomous.py…**, for a MotionModule setup, writes an `autonomous.py` for MotionModule's runtime: `create_autonomous(module, drive)` returning a routine with `run(stop)`, the route as a timed `PLAN` of `("drive", forward, strafe, seconds)`, `("turn", degrees)` and `("hold", seconds)` steps, MotionModule's own `TurnPID`/`Settle`/`HeadingController`, its confirmed `MecanumTestDrive` mixer and `IMU_TO_MIXER_SIGN = -1`, like its Mecanum autonomous example. It is run on MotionModule's real runtime by the virtual MotionModule.
+- **Timed commands…**, for either controller with IMU-only sensing, writes JSON with powers, durations, pauses and heading settings. Tank schedules include IMU-settled turns with a 30-second failure timeout; total duration is null because turn completion depends on measured heading. There is no X/Y feedback.
 - **Path file (.pp)…** writes the start point, lines, Bézier control points, and `waitAfterMs`/`waitAfterName` on each stop. Zones are included as polygon `shapes`; that part has not been checked against Pedro's visualizer.
 - **Keep the exported file updated** rewrites the file you picked every time this field's route changes. The app can only write to a file you chose in a save dialog.
 
@@ -86,6 +94,7 @@ Choose **Autonomous**, **Teleop**, or **Full match**. These share the selected s
 - Controller input is rejected during autonomous and transition. On entering teleop, resuming, reconnecting or losing fresh input for 0.5 s, the sticks must return to neutral before driving. Stop/Reset and leaving Simulation cancel the whole sequence. The countdown shows the current phase and whether controls are locked.
 
 - **Planned route**: follows with Pedro and odometry, or executes timed power + IMU without position sensing, including pauses.
+- **Control Hub export**: generates the Control Hub TeamCode for the planned route and runs it on the virtual Control Hub. The readout adds the OpMode's own telemetry, as a Driver Station shows it.
 - **Java program**: write or open your own program (see below). It requires an FTC odometry profile.
 
 **Run**, the speed menu, and **Play / Stop / Reset** above the field control the simulation:
@@ -108,7 +117,11 @@ Robot settings describe the **simulated** drivetrain and sensors only. There are
 - **Estimate** is what a Pedro `Localizer` reports when fed simulated sensors. Noise, scale error and drift are configurable and seeded.
 - **IMU only** cannot measure X/Y. Its planned route uses timed power with heading correction and no positional recovery; Java/Pedro follower programs are refused.
 
-The follower's speed and braking constants are **measured from the physics drive model** each time the robot changes, the way Pedro's tuning OpModes measure a robot. The feedback gains (translational P 0.5, heading P 1.6, path speed 0.6) were chosen by sweeping runs in this simulator. They are not values for your robot. Pedro's 100 ms default hold timeout is not a settling test, so the simulated profile uses 2 s, and the route program also waits for the robot to settle.
+The follower's speed and braking constants are **measured from the physics drive model** each time the robot changes, with the procedures of Pedro's AutoTune (`ForesightTuner`): top speed; natural deceleration as a coast-down with the motors in FLOAT; braking distance against speed under near-zero driven power. The drive model matches a tuned DECODE mecanum robot's AutoTune results: it coasts at about 84 in/s² forward and 69 in/s² strafing, brakes from 60 in/s in about 12 in (real robot: 13), and a stopped chassis does not creep under less than about 4% power. Pedro's autonomous `drive(…, false)` runs FLOAT, so unpowered wheels coast; `stop()` brakes.
+
+The feedback gains use the structure AutoTune generates: piecewise translational kP (0.39 beyond 2.5 in of error, 0.13 within), heading kP 6, scaled down for robots faster than the 312 RPM reference chassis they were tuned on (a 500 RPM robot gets 0.64× translational and 0.60× heading). A sweep of four routes chose them, and they are also that real robot's AutoTune values. Path speed defaults to 60% of top speed, capped near 45 in/s so fast robots track tight corners within about 2 in. None of these are values for your robot. Pedro's 100 ms default hold timeout is not a settling test, so the simulated profile uses 2 s, and the route program also waits for the robot to settle. Run results are recorded once the robot has come to rest.
+
+**Timed driving calibration.** **Use simulated robot's values** drives the simulated robot for 1 s and 2 s at the drive power on an empty field, fits distance = speed × time + offset, and fills in speed at full power plus start or stop compensation (forward and strafe). It is the floor test a team runs on a real robot; repeat it there.
 
 ## Your own Java program
 
@@ -125,7 +138,26 @@ Errors are readable and contained:
 - A `loop()` that does not return within 0.75 s (5 s while warming up) is stopped and its Java process killed.
 - Printed output appears under **Program output**.
 
-**Transfers to a robot:** the route (via the Java export or `.pp`), and Pedro follower logic in the same field frame. **Does not transfer:** `deck.sim.*`. On a robot you need an OpMode that builds the `Follower` from your real drivetrain and localizer with tuned constants. MotionModule's Python runtime has no Pedro integration yet.
+**Transfers to a robot:** the route (via the Java export or `.pp`), and Pedro follower logic in the same field frame. **Does not transfer:** `deck.sim.*`. For a complete Control Hub autonomous, use **Control Hub TeamCode…** instead; for MotionModule, **MotionModule autonomous.py…**.
+
+## Virtual Control Hub and virtual MotionModule
+
+These run the exported files themselves, not the simulator's own route program, so a mistake in an export shows up here first.
+
+**Virtual Control Hub** (bundled). The TeamCode files are compiled in the simulator's Java runtime against:
+- stand-ins for the FTC SDK 12.0 classes they use (`LinearOpMode`, `HardwareMap`, `DcMotorEx`, `IMU`, `RevHubOrientationOnRobot`, `GoBildaPinpointDriver`, `SparkFunOTOS`, `Telemetry`, `ElapsedTime`…), with the SDK's names and signatures;
+- Pedro Pathing's real FTC adapter (`com.pedropathing.revhub`: `Mecanum`, the two-wheel, three-wheel and IMU localizers, Pinpoint and OTOS), compiled from the same pinned source with the same clock patch.
+
+The OpMode runs in lockstep with physics: each `opModeIsActive()`, `idle()` or `sleep()` waits for the next 1/60 s tick. Four drive motors report goBILDA-style encoder counts (28 per motor revolution × gearing, 104 mm wheels); left motors are mirrored, and REVERSE flips power and encoder as on the real SDK. Odometry pods, Pinpoint, OTOS and the Control Hub IMU are fed from the simulated sensors (with their noise and drift). Motor powers become chassis motion through mecanum kinematics, coasting where the motors are in FLOAT. A wrong motor direction, an `int` where Pedro wants a `Double`, or a missing class fails here as it would on a robot. Not emulated: OctoQuad, servo-steered swerve and `setVelocity`.
+
+**Virtual MotionModule** (development check). `tools/simulation/motionmodule-bridge.py` loads the exported `autonomous.py` with MotionModule's own `load_autonomous()` and runs it on MotionModule's real controller with `MockGPIO` (no hardware is opened) and its confirmed mixer. Only the clock (`time.monotonic`/`time.sleep` follow simulation time), the built-in IMU (degrees, counter-clockwise) and the chassis are simulated; channels 1–4 drive the chassis through the inverse of the confirmed mixer, including its clockwise-positive rotation. It needs Python 3 and the MotionModule source (`DECK_PYTHON`, `DECK_MOTIONMODULE_SOURCE`), so the installed app does not offer it; the tests run it.
+
+**Example setups.** `examples/simulation-setups/` holds **Control Hub mecanum 17x17** (drive encoders + built-in IMU) and **MotionModule mecanum 17x17** (IMU only, timed driving calibrated on the simulated robot): mecanum, 17 × 17 × 5 in, 500 RPM, with a practice route. Open them with **Open setup file…**. On their practice route the exported code and the simulation agree:
+
+| Setup | Simulation | Exported code on the virtual device |
+|---|---|---|
+| Control Hub (target 110, 110) | 108.53, 109.18 in 6.83 s | virtual Control Hub: 108.50, 109.02 in 6.90 s |
+| MotionModule (target 110, 110) | 109.42, 110.15 in 5.17 s | virtual MotionModule: 110.13, 109.69 in 5.20 s |
 
 ## Research behind these changes
 
@@ -139,10 +171,31 @@ These are references, not additional execution engines:
 
 No performance or accuracy superiority over these projects has been established. Tests verify this app's behavior and regressions; real robots still need hardware-specific configuration and tuning.
 
+### Comparison with real team code (October 2026)
+
+Sources: the [Pedro 3 quickstart](https://github.com/Pedro-Pathing/Quickstart) (FTC SDK 12.0.0, `pedropathing:revhub` 3.0.1) and its AutoTune procedures (`ForesightTuner`, `MecanumTuner`, `TwoWheelTuner`); a DECODE team's Pedro 3 project with tuned constants ([TechonVS/pedro3testing](https://github.com/TechonVS/pedro3testing)); the [Road Runner quickstart](https://github.com/acmerobotics/road-runner-quickstart) `MecanumDrive`; [Virtual Robot](https://github.com/Beta8397/virtual_robot), which runs team OpModes on an SDK approximation with Pedro 3 and Road Runner 1.0; and MotionModule's own Mecanum autonomous example. Teams build the follower in `Constants.create(hardwareMap)`, write autonomous as a `LinearOpMode` that calls `follower.update()` every loop, and replace the starting constants with AutoTune results.
+
+Discrepancies found by running the simulator against those sources, and what changed:
+
+| Found | Change |
+|---|---|
+| Zero power always braked (DSIM's driver-friendly brake): natural deceleration measured 460–1,935 in/s² against a real robot's 84 | FLOAT coasting at the measured rate; natural deceleration is now measured as a FLOAT coast-down, as AutoTune does |
+| Powered braking about 12× stronger than the real robot's | Speed-dependent braking derived from the real robot's braking-distance fit |
+| No static friction: a holding robot crept under every 1% correction | Breakaway at about 4% power |
+| Single PID gain and coast proportional to the target, unlike AutoTune's generated config | AutoTune's controller structure; the sweep's best gains equal the real robot's |
+| Linear braking term fitted to exactly 0 made Foresight divide 0/0 | 1 ms floor (earlier fix) |
+| The simulator ran only its own route program; Virtual Robot runs real OpModes | Virtual Control Hub running the exported TeamCode with Pedro's real `revhub` |
+| Pedro 3 has no drive-encoder localizer, yet "drive encoders + IMU" is the FTC default here | Exports include a `DriveEncoderLocalizer` |
+| The MotionModule export was a JSON schedule its runtime cannot load | A real `autonomous.py`, run on MotionModule's runtime |
+| Results were recorded while a timed robot was still rolling | Results are recorded at rest; timed driving gained stop compensation and floor-style calibration |
+| A pause at a pin counted from the end of the path, not from the robot stopping | Counted from the stop (bounded at 3 s) |
+
+Not adopted: Road Runner's motion profiles and kS/kV/kA feedforward (Pedro remains the follower) and PathPlanner per-point speed overrides. Pedro 3's `revhub` has no tank/differential drivetrain, so tank exports are not runnable on the virtual Control Hub.
+
 ## Execution adapters
 
-- **Implemented:** Pedro Pathing 3.0.2 core, compiled from the pinned source (`cf4be31`). Its 12 `System.nanoTime()` reads are redirected to the simulation clock, so pause and speed changes cannot wind up integrals or expire timeouts; the build checks that count.
-- **Not implemented:** Road Runner, the FTC SDK (`OpMode`, `hardwareMap`), MotionModule's Python runtime, and a live robot pose overlay.
+- **Implemented:** Pedro Pathing 3.0.2 core, compiled from the pinned source (`cf4be31`). Its 12 `System.nanoTime()` reads are redirected to the simulation clock, so pause and speed changes cannot wind up integrals or expire timeouts; the build checks that count. Pedro's `revhub` FTC adapter (17 files) on the virtual Control Hub's FTC SDK stand-ins. MotionModule's runtime on the virtual MotionModule (development check).
+- **Not implemented:** Road Runner, the full FTC SDK (only the subset exports use), OctoQuad and servo-steered swerve hardware, and a live robot pose overlay.
 
 ## How it is built
 
@@ -232,6 +285,9 @@ That command includes these simulator suites:
 - `sim-practice.test.cjs`: phase timing, controller arming/stale input, IMU-only teleop, large-field walls and tank driving.
 - `sim-drive-profiles.test.cjs`: sensor restrictions, external MotionModule odometry, driving frames, current-limited acceleration, RPM extremes, swept tank turns, export headings and physical turn duration.
 - `sim-turning.test.cjs`: holonomic turn-to-fit through a narrow gap, unchanged open-field routes, taut turning routes that keep every pin, tank back-out from a corridor, Pedro execution of a turning route, timed/export turn legs and stall back-out.
+- `sim-control-hub.test.cjs`: exported Control Hub TeamCode on the virtual Control Hub with every localizer, agreement with the simulated follower, and caught wiring/compile mistakes.
+- `sim-motionmodule.test.cjs`: the MotionModule `autonomous.py` export, timed calibration, and the export on MotionModule's real runtime (skipped without Python and the MotionModule source).
+- `sim-setups.test.cjs`: both example setups, exported and run on their virtual devices, against the simulation.
 - `sim-assets.test.cjs`: curated CAD hashes, drive-wheel groups and grounded swerve orientation.
 - `sim-field-practice.test.cjs`: A301 BIOBUZZ route completion, moving/resettable pieces, solid pushbot/hive collisions, physical custom barriers and pushing balls.
 - `sim-timed.test.cjs`: timed compilation, IMU-only execution without X/Y or Java, deliberate calibration error, FTC defaults and full transition-clock regression.

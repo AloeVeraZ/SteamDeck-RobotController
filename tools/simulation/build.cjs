@@ -38,7 +38,27 @@ async function bundles(){
     b.onLoad({filter:/[\\/](sim[\\/]artifactSolids|games[\\/]biobuzz[\\/]robot)\.ts$/},args=>{let text=fs.readFileSync(args.path,'utf8').split('\r\n').join('\n'),from='): RobotSolids {\n  const hl = r.spec.length / 2;';if(text.split(from).length!==2)throw Error('Review pushbot element-solid adapter.');text=text.split(from).join('): RobotSolids {\nconst deckReach=(r.spec as RobotSpec & {deckIntakeReach?:number}).deckIntakeReach;if(deckReach!==undefined)return {chassis:{kind:"box",cx:deckReach/2,cy:0,hx:(r.spec.length+deckReach)/2,hy:r.spec.width/2},structure:[],held:[]};\n  const hl = r.spec.length / 2;');return {contents:text,loader:'ts'};});}};
   // Approximate current-limited torque, applied in both headless and rendered physics.
   const current={name:'deck-drive-current',setup(b){b.onLoad({filter:/[\\/]sim[\\/]drivetrain\.ts$/},args=>{let text=fs.readFileSync(args.path,'utf8');const from='p.accelMult;',to='p.accelMult * clamp(((spec as RobotSpec & {deckDriveAmps?:number}).deckDriveAmps ?? 20) / 20, .05, 2);';if(text.split(from).length!==2)throw Error('Review drive current adapter.');text=text.split(from).join(to);const force='p.pushMult * rpmPush * (1 - powerDraw);';if(text.split(force).length!==2)throw Error('Review current push adapter.');text=text.split(force).join('p.pushMult * rpmPush * (1 - powerDraw) * clamp(((spec as RobotSpec & {deckDriveAmps?:number}).deckDriveAmps ?? 20) / 20, .05, 2);');return {contents:text,loader:'ts'};});}};
-  const common={bundle:true,logLevel:'warning',nodePaths:[deps],alias:{dsim:upstream.dsim.dir},plugins:[stubs,footprint,pushbot,barriers,current],legalComments:'eof',target:'es2022',minify:true,
+  // FLOAT zero-power behaviour: an unpowered axis coasts on friction instead of braking. Coast rates
+  // are from a tuned DECODE mecanum robot's Pedro AutoTune (natural deceleration 83.6 in/s² forward,
+  // 68.8 strafe); one robot's data, so an approximation. Powered braking is unchanged.
+  const coast={name:'deck-float-coast',setup(b){b.onLoad({filter:/[\\/]sim[\\/]robot\.ts$/},args=>{let text=fs.readFileSync(args.path,'utf8');
+    const move='    shoved ? C.MOTOR_SHOVE_BRAKE : C.MOTOR_BRAKE_MULT,',yaw='    shovedYaw ? C.MOTOR_SHOVE_BRAKE : C.MOTOR_BRAKE_MULT,';if(text.split(move).length!==2||text.split(yaw).length!==2)throw Error('Review float coast adapter.');
+    const decel='((s: number, c: number, n: number) => (83.6 * c * c + (dp.strafeMult > 0 && dp.strafeMult < 1 ? 68.8 : 83.6) * n * n))(Math.hypot(velRobot.x, velRobot.y) || 1, velRobot.x / (Math.hypot(velRobot.x, velRobot.y) || 1), velRobot.y / (Math.hypot(velRobot.x, velRobot.y) || 1))';
+    // Powered braking: the same robot's braking distance d(v) = l·v + q·v² (forward l 0.1323, q 0.0015;
+    // strafe 0.0502, 0.0023; heading 0.0855, 0.0038) implies a(v) = v / (l + 2·q·v). It never falls
+    // below the coast rate and never exceeds DSIM's traction-limited brake.
+    const brake=(l,q,v,floor,cap)=>`Math.min(${cap}, Math.max(${floor}, ${v} / (${l} + 2 * ${q} * ${v})))`;
+    const speed='Math.hypot(velRobot.x, velRobot.y)',forward=`Math.abs(velRobot.x) / (${speed} || 1)`;
+    const linear=`(${forward} * ${forward} * ${brake(0.1323,0.0015,speed,83.6,'C.MOTOR_BRAKE_MULT * dp.accel')} + (1 - ${forward} * ${forward}) * ${brake('(dp.strafeMult > 0 && dp.strafeMult < 1 ? 0.0502 : 0.1323)','(dp.strafeMult > 0 && dp.strafeMult < 1 ? 0.0023 : 0.0015)',speed,'(dp.strafeMult > 0 && dp.strafeMult < 1 ? 68.8 : 83.6)','C.MOTOR_BRAKE_MULT * dp.accel')}) / Math.max(dp.accel, 1e-6)`;
+    text=text.split(move).join(`    (r as RobotState & {deckFloat?: boolean}).deckFloat && unpowered ? ${decel} / Math.max(dp.accel, 1e-6) : shoved ? C.MOTOR_SHOVE_BRAKE : ${linear},`);
+    // Static friction: a stopped chassis does not creep under less than ~4% power (FTC drive motors
+    // need a few percent to break away), so a robot holding a point stays put under tiny corrections.
+    const still='  const unpowered = targetFwd === 0 && targetStrafe === 0;';if(text.split(still).length!==2)throw Error('Review static friction adapter.');
+    text=text.split(still).join(`  if (Math.hypot(velRobot.x, velRobot.y) < 0.5 && Math.hypot(targetFwd, targetStrafe) < 0.04 * dp.maxSpeed) { targetFwd = 0; targetStrafe = 0; }\n  if (Math.abs(r.angVel) < 0.02 && Math.abs(targetOmega) < 0.04 * dp.maxTurn) targetOmega = 0;\n${still}`);
+    const radius='(Math.hypot(r.spec.length, r.spec.width) / 2)';
+    text=text.split(yaw).join(`    (r as RobotState & {deckFloat?: boolean}).deckFloat && targetOmega === 0 ? 83.6 / ${radius} / Math.max(dp.turnAccel, 1e-6) : shovedYaw ? C.MOTOR_SHOVE_BRAKE : ${brake(0.0855,0.0038,'Math.abs(r.angVel)',`83.6 / ${radius}`,'C.MOTOR_BRAKE_MULT * dp.turnAccel')} / Math.max(dp.turnAccel, 1e-6),`);
+    return {contents:text,loader:'ts'};});}};
+  const common={bundle:true,logLevel:'warning',nodePaths:[deps],alias:{dsim:upstream.dsim.dir},plugins:[stubs,footprint,pushbot,barriers,current,coast],legalComments:'eof',target:'es2022',minify:true,
     define:{'import.meta.env':JSON.stringify({BASE_URL:'deck-asset://dsim/',DEV:false,PROD:true,MODE:'production'})}};
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'planning-entry.js')],format:'iife',globalName:'DeckPlanningLibs',platform:'browser',outfile:path.join(vendor,'planning.js')});
   await esbuild.build({...common,entryPoints:[path.join(__dirname,'planning-entry.js')],format:'cjs',platform:'node',outfile:path.join(vendor,'planning.cjs')});
@@ -76,6 +96,15 @@ function java(){
     const target=path.join(src,path.relative(pedroSrc,file));fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);
   }
   if(patched!==12)throw Error(`Expected 12 System.nanoTime() reads in Pedro core; found ${patched}. Review the clock patch.`);
+  // Pedro's real FTC adapter (revhub: Mecanum, the odometry/Pinpoint/OTOS localizers, IMU wrappers),
+  // compiled against the virtual Control Hub's SDK stand-ins. OctoQuad and servo-steered swerve
+  // hardware are not emulated, so those files are left out.
+  const revhubSrc=path.join(upstream.pedro.dir,'revhub/src/main/java');let revhubFiles=0;
+  for(const file of walk(revhubSrc).filter(f=>f.endsWith('.java')&&!/(OctoQuad|Swerve|CoaxialPod)/.test(path.basename(f)))){
+    const text=fs.readFileSync(file,'utf8').replace(/System\.nanoTime\(\)/g,'deck.sim.SimClock.nanoTime()');
+    const target=path.join(src,path.relative(revhubSrc,file));fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);revhubFiles++;
+  }
+  if(revhubFiles!==17)throw Error(`Expected 17 Pedro revhub sources; found ${revhubFiles}. Review the virtual Control Hub file list.`);
   copy(path.join(__dirname,'java'),src);
   const files=walk(src).filter(f=>f.endsWith('.java')),list=path.join(build,'sources.txt');fs.writeFileSync(list,files.map(f=>'"'+f.replace(/\\/g,'/')+'"').join('\n'));
   fs.mkdirSync(classes,{recursive:true});
