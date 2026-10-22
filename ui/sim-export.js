@@ -24,7 +24,7 @@
       const first=segs[from],path=pathOf(to[i]);
       out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
         power:powerOf(to[i]),heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
-        moving:path.kind==='action'?{action:path.action||'',note:path.note||''}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
+        moving:path.kind==='action'?{action:path.action||'',note:path.note||''}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
       from=i+1;
     });
     return out;
@@ -59,7 +59,7 @@
   function java(route,layout,options={}){
     const className=options.className||'PlannedRoute',packageName=options.packageName??'org.firstinspires.ftc.teamcode';validName(className,packageName);
     const parts=legs(route),zones=(layout.zones||[]).map(z=>options.polygon(z)),start=layout.start,rad=d=>`Math.toRadians(${n(d)})`;
-    const heading=s=>finite(s.endHeading)?`.heading(turn(${n(s.heading)}, ${n(s.endHeading)}))`:finite(s.heading)?`.constant(${rad(s.heading)})`:'.constant(HEADING)';
+    const heading=s=>s.target?`.heading(face(${n(s.target.x)}, ${n(s.target.y)}))`:finite(s.endHeading)?`.heading(turn(${n(s.heading)}, ${n(s.endHeading)}))`:finite(s.heading)?`.constant(${rad(s.heading)})`:'.constant(HEADING)';
     const segment=s=>(s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)}))`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')})`)+heading(s);
     const leg=l=>l.segments.length===1?`            ${segment(l.segments[0])}`:`            Paths.path(\n${l.segments.map(s=>'                '+segment(s)).join(',\n')}\n            )`;
     const headings=key=>parts.map(l=>finite(l[key])?rad(l[key]):'HEADING').join(', ');
@@ -128,6 +128,11 @@ ${parts.map(leg).join(',\n')}
         return Vector2D.cartesian(x, y);
     }
 
+    /** Face a fixed field target at every point of the actual curve. */
+    private static Interpolator face(double x, double y) {
+        return (curve, t) -> { Vector2D p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); };
+    }
+
     /** Heading that turns steadily from one angle to another (degrees; may span whole spins) along a path. */
     private static Interpolator turn(double fromDegrees, double toDegrees) {
         double from = Math.toRadians(fromDegrees), by = Math.toRadians(toDegrees - fromDegrees), full = 2 * Math.PI;
@@ -142,12 +147,13 @@ ${parts.map(leg).join(',\n')}
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
     const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant,degrees:+n(s.heading??route.heading)}};
       if(finite(s.endHeading))line.endPoint={x:+n(end.x),y:+n(end.y),heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
+      if(s.target){line.endPoint.heading='target';line.targetTracking={x:+n(s.target.x),y:+n(s.target.y)};}
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
       const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.6;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
       const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));
-    return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
+    return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:route.segments.some(s=>s.target)?'deck-sim-2':'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
       field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
   }
   return {legs,java,pp,validName,actions,slot,pySlot,where,describe,pathIndex};

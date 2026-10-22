@@ -153,8 +153,8 @@ public class MyAuto implements DeckAutonomous {
         <div id="sim-start-step"><p class="hint">Grab the robot to move it. It stops at walls and obstacles; the grab cursor stays with it until release. The red rectangle is its collision footprint.</p><button id="start-edge-plan" class="secondary" type="button">Start at edge</button><button id="sim-start-next" class="primary" type="button">Next: field obstacles →</button></div>
         <div id="sim-obstacle-step"><h2>Set up the field</h2><p class="hint">Mark the places your robot must avoid. Game structures are fixed. Your zones are saved with this layout.</p><div id="sim-shape-bar" class="sim-shape-bar" hidden><p id="sim-shape-status" class="hint" role="status"></p><div class="sim-row"><button id="sim-shape-finish" class="primary" type="button">Finish shape</button><button id="sim-shape-undo" class="secondary" type="button">Undo corner</button><button id="sim-shape-cancel" class="text-button" type="button">Cancel</button></div></div><button id="sim-zones-next" class="primary" type="button">Next: place route pins →</button></div>
         <div id="sim-route-step" hidden><h2>Plan your route</h2><p class="hint">Drop pins in order, or choose Draw path and drag the robot's route on the field. Pins tapped in a red area move to the nearest clear spot.</p>
-        <p class="hint sim-legend"><span class="sim-key"></span>Regular path <span class="sim-key action"></span>Action path <span aria-hidden="true">↻</span> spins · <span aria-hidden="true">↷</span> turns while driving</p>
-        <p class="hint">Right-click a pin or a path, or press and hold it, to set pauses, turns, spins and actions. Mark a path as an action path to run an action while driving, such as intaking or shooting while moving. The simulator plans and drives the movement; each action you name gets its own labeled slot in the exported code for your mechanism code.</p><button id="sim-route-start" class="secondary" type="button">Place starting pose</button>
+        <p class="hint sim-legend"><span class="key-hold">● Hold</span><span class="key-power">● Power</span><span class="key-rotation">● Rotation</span><span class="key-track">● Target</span><span class="key-action">● Action</span><span>Dashed = action · Hover for all modifiers</span></p>
+        <p class="hint">Click a line to edit that path. Double-click a pin to edit that pin. Drag pins to move them. Hover lines to see their modifiers. Mark a path as an action path to run an action while driving, such as intaking or shooting while moving. The simulator plans and drives the movement; each action you name gets its own labeled slot in the exported code for your mechanism code.</p><button id="sim-route-start" class="secondary" type="button">Place starting pose</button>
         <div id="sim-zone-editor" class="sim-editor" hidden></div>
         <ol id="sim-pin-list" class="sim-list"></ol>
         <label>Route shape</label>${segmented('style',STYLES,'Route shape')}
@@ -270,13 +270,14 @@ public class MyAuto implements DeckAutonomous {
     $('#sim-route').replaceChildren(...(l.route?routeShapes(l.route):[]));
     $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':''),transform:`translate(${p.x} ${p.y})`,'data-pin':i});
       // A pin that turns the robot shows the heading it turns to.
-      if(finite(p.turn))n.append(svg('path',{class:'sim-pin-turn',d:`M0 0L${(5.2*Math.cos(p.turn*Math.PI/180)).toFixed(2)} ${(5.2*Math.sin(p.turn*Math.PI/180)).toFixed(2)}`}));
+    if(finite(p.turn)){const h=l.route?.stops[i]?.turn??p.turn;n.append(svg('path',{class:'sim-pin-turn',d:`M0 0L${(5.2*Math.cos(h*Math.PI/180)).toFixed(2)} ${(5.2*Math.sin(h*Math.PI/180)).toFixed(2)}`}));}
       n.append(svg('circle',{r:2.8}),svg('text',{y:1.1,transform:'scale(1 -1)','text-anchor':'middle'},i+1));return n;}));
     const est=trail.filter(t=>t.e).map(t=>t.e);
     $('#sim-trail').replaceChildren(...(trail.length>1?[svg('polyline',{class:'sim-trail',points:pts(trail)})]:[]),...(est.length>1?[svg('polyline',{class:'sim-trail estimate',points:pts(est)})]:[]));
     $('#sim-start').setAttribute('points',frame&&tool!=='start'?pts(planner.body(start,fp)):'');
     $('#field-coordinates').textContent=`X ${field.round(preview.x)} in · Y ${field.round(preview.y)} in · ${field.round(preview.heading)}°`;
     $('#field-help').textContent={start:'Press and drag the robot to move its starting pose. Arrow keys move 1 inch; Enter places; Escape cancels.',select:'Drag any robot, pin or obstacle to edit this field. New objects are added only with the tools in their own tab.',rect:'Drag on the field to draw a box the robot must avoid.',circle:'Press at the centre, then drag outwards to set the circle radius.',triangle:'Press where the base goes and drag: the tip follows your cursor.',draw:'Drag along the field to draw the route. It becomes pins kept out of red areas. Starting near the end of the route extends it; starting elsewhere replaces it.',shape:'Tap to add corners; the outline closes back to the first corner as you go. Two corners make a wall. Press Enter or Finish shape to confirm.',pin:'Click where the robot should go next. The whole footprint must fit inside the field.'}[tool]||'';
+    if(targetPick)$('#field-help').textContent='Click the field target to aim at. Escape cancels target selection.';
     pressed('tool',tool);
     $('#sim-subtitle').textContent=`${l.name}${l.field==='empty'?' · empty field':''}${info?.physics==='3d'?' · 3D physics':''}`;
     paint();
@@ -315,7 +316,7 @@ public class MyAuto implements DeckAutonomous {
   function refreshDiagnostics(){
     if(analysisPending){try{diagnostics=planner.analyze({...planRequest(L().style).project,start:graph.dataset.dragging?preview:start},geometry().footprint,info?.fieldZones||[],geometry().bounds);}catch(e){diagnostics=[{pin:null,code:'setup',message:e.message}];}}
     const banner=$('#sim-live-status');if(banner){banner.hidden=tab!=='plan';banner.classList.toggle('has-issues',diagnostics.length>0);banner.textContent=diagnostics.length?`${diagnostics.length} route issue(s) · ${diagnostics.filter(d=>d.pin!==null).map(d=>'Pin '+(d.pin+1)).filter((p,i,a)=>a.indexOf(p)===i).join(', ')||'Starting pose'} · View diagnostics`:analysisPending?'Analyzing route…':L().pins.length?'Route checks passed · View diagnostics':'Add pins to analyze your route';}
-    const warnings=[];if(!C.sensors[project.sensors.localization].translation&&L().pins.some(p=>['spin','turn'].includes(p.path?.rotate)))warnings.push('Turning while driving with IMU-only sensing can accumulate large X/Y errors. Add odometry for accurate curves or stop and turn at pins.');if(project.sensors.noise>.2)warnings.push('Position noise is high. Reduce power and calibrate the localizer; the planned geometry stays unchanged.');
+    const warnings=[];if(!C.sensors[project.sensors.localization].translation&&L().pins.some(p=>['spin','turn','relative','start','track'].includes(p.path?.rotate)))warnings.push('Turning while driving with IMU-only sensing can accumulate large X/Y errors. Add odometry for accurate curves or stop and turn at pins.');if(project.sensors.noise>.2)warnings.push('Position noise is high. Reduce power and calibrate the localizer; the planned geometry stays unchanged.');
     if(project.sensors.gyroDrift>2)warnings.push('IMU drift is high. Recalibrate or repair the heading sensor; correction cannot recover a missing absolute heading.');
     if(project.tuning.correctionScale===0)warnings.push('Position correction is disabled. The robot cannot recover tracking errors.');
     for(const [i,p] of L().pins.entries())if((p.path?.power??project.tuning.maxPathSpeed)===0)warnings.push(`Path to pin ${i+1} has zero motor power. It will stop the autonomous until you change power and restart.`);
@@ -392,20 +393,24 @@ public class MyAuto implements DeckAutonomous {
   }
   // Dashed outlines of the robot at its new heading wherever a turning route turns in place.
   function turnGhosts(route){if(!route.turns||!route.footprint)return [];const out=[];let heading=route.heading;
-    for(const s of route.segments){if(Number.isFinite(s.heading)&&Math.abs(((s.heading-heading)%360+540)%360-180)>.5){out.push(svg('polygon',{class:'sim-turn-ghost',points:pts(planner.body({...s.points[0],heading:s.heading},route.footprint))}));heading=s.heading;}}
+    for(const s of route.segments){if(Number.isFinite(s.heading)&&Math.abs(((s.heading-heading)%360+540)%360-180)>.5)out.push(svg('polygon',{class:'sim-turn-ghost',points:pts(planner.body({...s.points[0],heading:s.heading},route.footprint))}));heading=s.endHeading??s.heading??heading;}
     return out;}
   // The route path by path: action paths dashed in the action colour, and a mark halfway along each
   // path the robot turns or spins along. data-path is the pin each path leads to.
   const bez=(points,t)=>{let p=points;while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];};
-  const segmentPoints=s=>s.type==='line'?s.points:Array.from({length:25},(_,j)=>bez(s.points,j/24));
+  const segmentPoints=s=>Array.from({length:25},(_,j)=>bez(s.points,j/24));
   const pathOf=(l,k)=>l.pins[k]?.path||{kind:'regular',rotate:'keep'};
   function routeShapes(route){
     const l=L(),to=exporter.pathIndex(route),out=[],marks=new Map();
     route.segments.forEach((s,i)=>{const k=to[i],path=pathOf(l,k),points=segmentPoints(s);
-      out.push(svg('polyline',{class:'sim-path'+(path.kind==='action'?' action':'')+(selected?.kind==='path'&&selected.index===k?' selected':''),points:pts(points),'data-path':k}));
+      const appearance=planner.pathAppearance(path,project.tuning.maxPathSpeed),line=svg('polyline',{class:'sim-path'+(path.kind==='action'?' action':'')+(selected?.kind==='path'&&selected.index===k?' selected':''),points:pts(points),'data-path':k,role:'button','aria-label':`Path ${k?k:'Start'} to ${k+1}: ${planner.pathDescription(path,project.tuning.maxPathSpeed).join('; ')}`});
+      line.style.stroke=appearance.color;out.push(line);
+      if(path.rotate!=='keep'&&!route.nonholonomic){for(const t of [.25,.75]){const p=bez(s.points,t),h=planner.headingAt(s,t)*Math.PI/180,dx=Math.cos(h),dy=Math.sin(h),end={x:p.x+4*dx,y:p.y+4*dy};out.push(svg('path',{class:'sim-heading-arrow',stroke:appearance.color,d:`M${p.x} ${p.y}L${end.x} ${end.y}m${-1.5*dx+dy} ${-1.5*dy-dx}L${end.x} ${end.y}l${-1.5*dx-dy} ${-1.5*dy+dx}`}));}}
       if(!marks.has(k))marks.set(k,[]);marks.get(k).push(...points);});
     if(!route.nonholonomic)for(const [k,points] of marks){const path=pathOf(l,k);if(path.rotate==='keep')continue;const mid=points[Math.floor(points.length/2)];
-      out.push(svg('text',{class:'sim-path-mark',x:mid.x.toFixed(2),y:(-mid.y-2).toFixed(2),transform:'scale(1 -1)','text-anchor':'middle'},path.rotate==='spin'?`${path.spins>0?'↺':'↻'}${Math.abs(path.spins)}`:`↷${Math.round(path.heading)}°`));}
+      const label=path.rotate==='spin'?`${path.spins>0?'↺':'↻'}${Math.abs(path.spins)}`:path.rotate==='relative'?`${path.angle>=0?'+':''}${path.angle}°`:path.rotate==='track'?'Track':path.rotate==='start'?'Start heading':`${Math.round(path.heading)}°`;
+      out.push(svg('text',{class:'sim-path-mark',x:mid.x.toFixed(2),y:(-mid.y-2).toFixed(2),transform:'scale(1 -1)','text-anchor':'middle'},label));
+      if(path.rotate==='track'&&path.target){const t=path.target;out.push(svg('circle',{class:'sim-aim-target',cx:t.x,cy:t.y,r:2}),svg('path',{class:'sim-aim-target',d:`M${t.x-3} ${t.y}h6M${t.x} ${t.y-3}v6`}));}}
     out.push(...turnGhosts(route));return out;
   }
   // The path (by the pin it leads to) under a field point, if the route passes within reach.
@@ -416,74 +421,87 @@ public class MyAuto implements DeckAutonomous {
   // Right-click (or press and hold) a pin or a path to open its settings. The simulator only plans and
   // drives the movement; each named action becomes a slot in the exported code for the team's own
   // mechanism code (RobotActions.java on a Control Hub, robot_actions.py on MotionModule).
-  const effects={index:-1};
+  const effects={index:-1},tooltip=document.createElement('div');
+  tooltip.id='sim-path-tooltip';tooltip.className='sim-path-tooltip';tooltip.role='tooltip';tooltip.hidden=true;root.append(tooltip);
+  root.append($('#sim-effects'));
+  let targetPick=null;
+  function clampEditor(box,x,y){box.style.left=`${Math.max(4,Math.min(innerWidth-box.offsetWidth-4,x))}px`;box.style.top=`${Math.max(4,Math.min(innerHeight-box.offsetHeight-4,y))}px`;}
+  window.addEventListener('resize',()=>{const b=$('#sim-effects');if(!b.hidden)clampEditor(b,parseFloat(b.style.left)||4,parseFloat(b.style.top)||4);});
   function openEffects(target,at){
-    const l=L(),k=target.index,p=l.pins[k];if(!p)return;p.path={...planner.pathEffects(p.path)};
-    const box=$('#sim-effects'),holonomic=C.drives[project.robot.drivetrain].holonomic,from=k?`pin ${k}`:'the start';effects.index=k;selected={kind:target.kind,index:k};
-    box.innerHTML=`<div class="sim-pop-head"><h3>Pin ${k+1}</h3><button type="button" class="icon-button" data-close aria-label="Close">×</button></div>
-      <section class="sim-pop-sec" data-sec="path"><h4>Path to pin ${k+1} <span class="hint">from ${from}</span></h4>
-        ${segmented('ptype',{regular:'Regular path',action:'Action path'},'Path type')}
-        <p class="hint">Action paths run a mechanism while driving. Regular paths only drive.</p>
-        <div data-when="action"><label for="eff-path-action">Action while driving</label><input id="eff-path-action" maxlength="40" placeholder="e.g. Intake" autocomplete="off"></div>
-        <label class="check"><input id="eff-power-inherit" type="checkbox"> Use setup motor power</label><label for="eff-path-power">Motor power for this whole path · 0–1</label><input id="eff-path-power" type="number" min="0" max="1" step="any" data-slider-min="0" data-slider-max="1" data-slider-step="0.05"><p class="hint">0 disables motion on this path. 0.5 limits motor power to 50%; the next path uses its own setting or the setup default. Changes in speed ramp through the physical acceleration model.</p><label>While driving</label>${segmented('prot',{keep:'Keep heading',turn:'Turn to…',spin:'Spin'},'Rotation while driving')}
-        <div data-when="turn"><label for="eff-path-heading">Face this heading by the end · °</label><input id="eff-path-heading" type="number" min="-180" data-slider-max="180" step="any"></div>
-        <div data-when="spin" class="sim-grid2"><div><label for="eff-path-spins">Full spins</label><input id="eff-path-spins" type="number" min="1" data-slider-max="10" step="any"></div><div><label>Direction</label>${segmented('pdir',{left:'Left ↺',right:'Right ↻'},'Spin direction')}</div></div>
-        <p class="hint" data-tank>${holonomic?'The robot needs room to turn its whole footprint along this path.':'Tank drivetrains cannot turn while driving. Turn at a pin instead.'}</p>
-        <label for="eff-path-note">What this path does</label><textarea id="eff-path-note" rows="2" maxlength="160" placeholder="e.g. Sweep the first spike mark"></textarea>
+    const l=L(),k=target.index,p=l.pins[k];if(!p)return;targetPick=null;tooltip.hidden=true;p.path=planner.pathEffects(p.path);
+    const box=$('#sim-effects'),isPath=target.kind==='path',path=p.path,holonomic=C.drives[project.robot.drivetrain].holonomic;
+    effects.index=k;selected={kind:target.kind,index:k};box.setAttribute('aria-label',isPath?'Path settings':'Pin settings');
+    const title=isPath?`Path ${k?k:'Start'} → ${k+1}`:`Pin ${k+1}`;
+    box.innerHTML=`<div class="sim-pop-head" title="Drag to move this editor"><h3>${title}</h3><span class="hint">⋮⋮ Drag</span><button type="button" class="icon-button" data-close aria-label="Close">×</button></div>
+      <div class="sim-settings-tabs" role="tablist" aria-label="${isPath?'Path':'Pin'} settings"></div>
+      <section class="sim-pop-sec" data-sec="main">${isPath?`
+        <label class="check"><input id="eff-power-inherit" type="checkbox"> Use setup motor power</label>
+        <label for="eff-path-power">Motor power · 0–1</label><input id="eff-path-power" type="number" min="0" max="1" step="any">
+        <p class="hint">Applies to this entire path. 0 stops here; 0.5 caps motor power at 50%.</p>
+        <label for="eff-path-kind">Path type</label><select id="eff-path-kind"><option value="regular">Regular path</option><option value="action">Action while driving</option></select>
+        <div data-action><label for="eff-path-action">Action while driving</label><input id="eff-path-action" maxlength="40" placeholder="e.g. Intake" autocomplete="off"></div>`:`
+        <label for="eff-wait">Pause · seconds</label><input id="eff-wait" type="number" min="0" step="any">
+        <label for="eff-action">Action at this pin</label><input id="eff-action" maxlength="40" placeholder="e.g. Shoot" autocomplete="off">
+        <p class="hint">Turn first, then run the action and pause. Path settings are edited by clicking the line.</p>`}</section>
+      <section class="sim-pop-sec" data-sec="heading" hidden>
+        <label for="eff-heading-mode">${isPath?'While driving this path':'Turn in place at this pin'}</label>
+        <select id="eff-heading-mode"><option value="keep">${isPath?'Hold inherited heading':'No turn'}</option><option value="relative">Turn by… (relative)</option><option value="${isPath?'turn':'absolute'}">Face field heading…</option><option value="start">Return to starting heading</option><option value="track">${isPath?'Track a field target':'Aim at a field target'}</option>${isPath?'<option value="spin">Full spins</option>':''}</select>
+        <div data-angle><label for="eff-angle">Turn by · ° (+ left, − right)</label><input id="eff-angle" type="number" step="any"></div>
+        <div data-absolute><label for="eff-absolute">Field heading · °</label><input id="eff-absolute" type="number" step="any"></div>
+        <div data-spins><label for="eff-spins">Full spins (+ left, − right)</label><input id="eff-spins" type="number" step="1"></div>
+        <div data-target><div class="sim-grid2"><div><label for="eff-target-x">Target X · in</label><input id="eff-target-x" type="number" step="any"></div><div><label for="eff-target-y">Target Y · in</label><input id="eff-target-y" type="number" step="any"></div></div><button type="button" class="secondary" id="eff-pick-target">Pick target on field</button></div>
+        <p class="hint">${isPath?'The final heading carries into later paths until another turn changes it. Tracking faces the target throughout the actual curve.':'Relative turns use the heading on arrival. The resulting heading carries into later paths.'}</p>
       </section>
-      <section class="sim-pop-sec" data-sec="pin"><h4>At pin ${k+1}</h4>
-        <div class="sim-grid2"><div><label for="eff-wait">Pause · s</label><input id="eff-wait" type="number" min="0" data-slider-max="30" step="any"></div><div><label for="eff-action">Action here</label><input id="eff-action" maxlength="40" placeholder="e.g. Shoot" autocomplete="off"></div></div>
-        <label>Turn in place</label>${segmented('pturn',{keep:'No turn',turn:'Turn to…'},'Turn at pin')}
-        <div data-when="pturn"><label for="eff-turn">Heading · °</label><input id="eff-turn" type="number" min="-180" data-slider-max="180" step="any"></div>
-        <label for="eff-note">What happens here</label><textarea id="eff-note" rows="2" maxlength="160" placeholder="e.g. Score the preload"></textarea>
-        <p class="hint">The robot stops here when it has a pause, an action or a turn. It turns first, then runs the action; it leaves once the action is done and the pause is over.</p>
-      </section>
-      <div class="button-row"><button type="button" class="text-button" data-remove>Remove pin</button><button type="button" class="primary" data-close>Done</button></div>`;
-    const q=sel=>box.querySelector(sel),path=p.path,commit=()=>{p.path={...planner.pathEffects(path)};show();changed('plan');};
-    const rotation=document.createElement('section');rotation.className='sim-pop-sec';rotation.dataset.sec='rotation';rotation.innerHTML='<h4>Rotation along this path</h4>';
-    let rotationNode=q('[data-prot]').parentElement.previousElementSibling;const afterRotation=q('[data-tank]').nextElementSibling;
-    while(rotationNode&&rotationNode!==afterRotation){const next=rotationNode.nextElementSibling;rotation.append(rotationNode);rotationNode=next;}q('[data-sec=path]').after(rotation);
-    const notes=document.createElement('section');notes.className='sim-pop-sec';notes.dataset.sec='notes';notes.innerHTML='<h4>Notes for this pin and path</h4>';
-    for(const selector of ['#eff-note','#eff-path-note']){const input=q(selector);notes.append(input.previousElementSibling,input);}rotation.after(notes);
-    const show=()=>{q('#eff-power-inherit').checked=!finite(path.power);q('#eff-path-power').disabled=!finite(path.power);q('#eff-path-power').value=path.power??project.tuning.maxPathSpeed??.6;const rot=holonomic?path.rotate:'keep';pressedIn(box,'ptype',path.kind);pressedIn(box,'prot',rot);pressedIn(box,'pdir',path.spins<0?'right':'left');pressedIn(box,'pturn',finite(p.turn)?'turn':'keep');
-      q('[data-when=action]').hidden=path.kind!=='action';q('[data-when=turn]').hidden=rot!=='turn';q('[data-when=spin]').hidden=rot!=='spin';q('[data-when=pturn]').hidden=!finite(p.turn);
-      for(const b of box.querySelectorAll('[data-prot]'))b.disabled=!holonomic&&b.dataset.prot!=='keep';};
-    q('#eff-path-action').value=path.action;q('#eff-path-heading').value=Math.round(path.heading);q('#eff-path-spins').value=Math.abs(path.spins);q('#eff-path-note').value=path.note;
-    q('#eff-wait').value=p.wait||0;q('#eff-action').value=p.action||'';q('#eff-turn').value=Math.round(finite(p.turn)?p.turn:start.heading);q('#eff-note').value=p.note||'';
-    for(const b of box.querySelectorAll('[data-ptype]'))b.onclick=()=>{path.kind=b.dataset.ptype;commit();};
-    for(const b of box.querySelectorAll('[data-prot]'))b.onclick=()=>{path.rotate=b.dataset.prot;if(path.rotate==='turn')path.heading=q('#eff-path-heading').valueAsNumber||0;commit();};
-    for(const b of box.querySelectorAll('[data-pdir]'))b.onclick=()=>{path.spins=Math.abs(path.spins)*(b.dataset.pdir==='right'?-1:1);commit();};
-    for(const b of box.querySelectorAll('[data-pturn]'))b.onclick=()=>{p.turn=b.dataset.pturn==='turn'?(q('#eff-turn').valueAsNumber||0):null;show();changed('plan');};
-    q('#eff-power-inherit').onchange=e=>{path.power=e.target.checked?null:project.tuning.maxPathSpeed??.6;commit();};
-    q('#eff-path-power').onchange=e=>{const v=e.target.valueAsNumber;if(!finite(v)||v<0||v>1){e.target.setCustomValidity('Enter power from 0 to 1.');e.target.reportValidity();return;}e.target.setCustomValidity('');path.power=v;commit();};
-    q('#eff-path-action').onchange=e=>{path.action=e.target.value.trim().slice(0,40);commit();};
-    q('#eff-path-heading').onchange=e=>{const v=e.target.valueAsNumber;path.heading=finite(v)?field.heading(v):0;commit();};
-    q('#eff-path-spins').onchange=e=>{const v=Math.round(e.target.valueAsNumber);path.spins=Math.max(1,finite(v)?v:1)*(path.spins<0?-1:1);e.target.value=Math.abs(path.spins);commit();};
-    q('#eff-path-note').onchange=e=>{path.note=e.target.value.slice(0,160);commit();};
-    q('#eff-wait').onchange=e=>{const v=e.target.valueAsNumber;p.wait=finite(v)?Math.max(0,v):0;e.target.value=p.wait;changed('plan');};
-    q('#eff-action').onchange=e=>{p.action=e.target.value.trim().slice(0,40);changed('plan');};
-    q('#eff-turn').onchange=e=>{const v=e.target.valueAsNumber;p.turn=finite(v)?field.heading(v):null;show();changed('plan');};
-    q('#eff-note').onchange=e=>{p.note=e.target.value.slice(0,160);changed('plan');};
+      <section class="sim-pop-sec" data-sec="notes" hidden><label for="eff-note">${isPath?'What this path does':'What happens at this pin'}</label><textarea id="eff-note" rows="3" maxlength="160"></textarea></section>
+      <div class="button-row"><button type="button" class="text-button" data-reset>${isPath?'Reset path modifiers':'Reset pin modifiers'}</button><button type="button" class="primary" data-close>Done</button></div>`;
+    const q=sel=>box.querySelector(sel),subject=isPath?path:p,mode=q('#eff-heading-mode');
+    mode.value=isPath?path.rotate:finite(p.turn)?p.turnMode||'absolute':'keep';
+    q('#eff-angle').value=isPath?path.angle:p.turnMode==='relative'?p.turn:90;q('#eff-absolute').value=isPath?path.heading:p.turn??start.heading;q('#eff-spins').value=path.spins;
+    const t=subject.target||{x:geometry().bounds.x1/2,y:geometry().bounds.y1-8};q('#eff-target-x').value=t.x;q('#eff-target-y').value=t.y;
+    q('#eff-note').value=subject.note||'';
+    const show=()=>{for(const [sel,key] of [['[data-angle]','relative'],['[data-absolute]',isPath?'turn':'absolute'],['[data-spins]','spin'],['[data-target]','track']])q(sel).hidden=mode.value!==key;
+      if(isPath){q('#eff-power-inherit').checked=!finite(path.power);q('#eff-path-power').disabled=!finite(path.power);q('#eff-path-power').value=path.power??project.tuning.maxPathSpeed??.6;q('[data-action]').hidden=path.kind!=='action';}};
+    const commit=()=>{if(isPath)p.path=planner.pathEffects(path);show();if(!box.hidden)clampEditor(box,parseFloat(box.style.left)||4,parseFloat(box.style.top)||4);changed('plan');};
+    const readNumber=(id,assign,min=-Infinity,max=Infinity)=>{q(id).onchange=e=>{const v=e.target.valueAsNumber;if(!finite(v)||v<min||v>max){e.target.setCustomValidity(`Enter a finite value${finite(min)?' from '+min:''}${finite(max)?' to '+max:''}.`);e.target.reportValidity();return;}e.target.setCustomValidity('');assign(v);commit();};};
+    mode.onchange=()=>{const m=mode.value;if(isPath)path.rotate=m;else{p.turnMode=m==='keep'?'absolute':m;p.turn=m==='keep'?null:m==='relative'?Number(q('#eff-angle').value)||0:m==='absolute'?Number(q('#eff-absolute').value)||0:0;}
+      if(m==='track')subject.target={x:Number(q('#eff-target-x').value),y:Number(q('#eff-target-y').value)};commit();};
+    if(isPath&&!holonomic)for(const option of mode.options)option.disabled=option.value!=='keep';
+    readNumber('#eff-angle',v=>{if(isPath)path.angle=v;else p.turn=v;});readNumber('#eff-absolute',v=>{if(isPath)path.heading=field.heading(v);else p.turn=field.heading(v);});
+    readNumber('#eff-spins',v=>{path.spins=Math.round(v)||1;q('#eff-spins').value=path.spins;});
+    for(const axis of ['x','y'])readNumber('#eff-target-'+axis,v=>{subject.target={x:Number(q('#eff-target-x').value),y:Number(q('#eff-target-y').value),[axis]:v};});
+    q('#eff-note').onchange=e=>{subject.note=e.target.value.slice(0,160);commit();};
+    if(isPath){q('#eff-path-kind').value=path.kind;q('#eff-path-action').value=path.action;
+      q('#eff-path-kind').onchange=e=>{path.kind=e.target.value;commit();};q('#eff-path-action').onchange=e=>{path.action=e.target.value.trim().slice(0,40);commit();};
+      q('#eff-power-inherit').onchange=e=>{path.power=e.target.checked?null:project.tuning.maxPathSpeed??.6;commit();};readNumber('#eff-path-power',v=>path.power=v,0,1);
+    }else{q('#eff-wait').value=p.wait||0;q('#eff-action').value=p.action||'';readNumber('#eff-wait',v=>p.wait=v,0);q('#eff-action').onchange=e=>{p.action=e.target.value.trim().slice(0,40);commit();};}
+    q('#eff-pick-target').onclick=()=>{targetPick={...target};box.hidden=true;effects.index=-1;status('#sim-plan-status','Click the field target to aim at. Escape cancels.');draw();graph.focus({preventScroll:true});};
+    q('[data-reset]').onclick=()=>{if(isPath)p.path=planner.pathEffects({});else Object.assign(p,{wait:0,action:'',note:'',turn:null,turnMode:'absolute',target:null});changed('plan');openEffects(target,{clientX:parseFloat(box.style.left)-24,clientY:parseFloat(box.style.top)+30});};
     for(const b of box.querySelectorAll('[data-close]'))b.onclick=closeEffects;
-    q('[data-remove]').onclick=()=>{closeEffects();l.pins.splice(k,1);selected=null;changed('pins');};
-    const effectTabs=document.createElement('div');effectTabs.className='sim-settings-tabs';for(const [label,section] of [['Pin','pin'],['Path power','path'],['Rotation','rotation'],['Notes','notes']]){const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=label;b.onclick=()=>{for(const sec of box.querySelectorAll('[data-sec]'))sec.hidden=sec.dataset.sec!==section;for(const other of effectTabs.children)other.setAttribute('aria-selected',String(other===b));};effectTabs.append(b);}q('.sim-pop-head').after(effectTabs);effectTabs.children[target.kind==='path'?1:0].click();
-    show();box.hidden=false;
-    // Beside the point that was pressed, on the side with more room so the pin and path stay visible;
-    // kept inside the field area. Narrow screens show it as a bottom sheet (CSS).
-    const stage=$('#sim-stage').getBoundingClientRect(),w=box.offsetWidth,h=box.offsetHeight,x=(at?.clientX??stage.left+stage.width/2)-stage.left,y=(at?.clientY??stage.top+40)-stage.top;
-    box.style.left=`${Math.max(4,Math.min(stage.width-w-4,x>stage.width/2?x-w-24:x+24))}px`;box.style.top=`${Math.max(4,Math.min(Math.max(4,stage.height-h-4),y-h/3))}px`;
-    draw();q(`[data-sec=${target.kind==='path'?'path':'pin'}] button,[data-sec=${target.kind==='path'?'path':'pin'}] input`)?.focus({preventScroll:true});
+    const tabs=q('.sim-settings-tabs');for(const [key,label]of [['main',isPath?'Power & action':'Pause & action'],['heading','Heading'],['notes','Notes']]){const b=document.createElement('button');b.type='button';b.role='tab';b.className='secondary';b.textContent=label;b.onclick=()=>{for(const sec of box.querySelectorAll('[data-sec]'))sec.hidden=sec.dataset.sec!==key;for(const other of tabs.children)other.setAttribute('aria-selected',String(other===b));clampEditor(box,parseFloat(box.style.left)||4,parseFloat(box.style.top)||4);};tabs.append(b);}tabs.firstElementChild.click();
+    const header=q('.sim-pop-head');let grab=null;
+    header.onpointerdown=e=>{if(e.button!==0||e.target.closest('button'))return;e.preventDefault();const r=box.getBoundingClientRect();grab={x:e.clientX-r.left,y:e.clientY-r.top};header.setPointerCapture(e.pointerId);};
+    header.onpointermove=e=>{if(grab)clampEditor(box,e.clientX-grab.x,e.clientY-grab.y);};header.onpointerup=header.onpointercancel=()=>grab=null;
+    show();box.hidden=false;clampEditor(box,(at?.clientX??innerWidth/2)+24,(at?.clientY??150)-30);draw();
+    q(isPath?'#eff-path-power':'#eff-wait').focus({preventScroll:true});
   }
-  function closeEffects(){const box=$('#sim-effects');if(box.hidden)return;box.hidden=true;box.replaceChildren();effects.index=-1;graph.focus({preventScroll:true});}
+  function closeEffects(){const box=$('#sim-effects');targetPick=null;if(box.hidden)return;box.hidden=true;box.replaceChildren();effects.index=-1;graph.focus({preventScroll:true});}
   const pressedIn=(box,attr,value)=>{for(const b of box.querySelectorAll(`[data-${attr}]`))b.setAttribute('aria-pressed',String(b.dataset[attr]===value));};
   document.addEventListener('pointerdown',e=>{const box=$('#sim-effects');if(box&&!box.hidden&&!box.contains(e.target)&&!e.target.closest?.('.sim-pin-row'))closeEffects();},true);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#sim-effects')?.hidden){e.preventDefault();closeEffects();}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&targetPick){targetPick=null;status('#sim-plan-status','Target selection cancelled.');draw();}if(e.key==='Escape'&&!$('#sim-effects')?.hidden){e.preventDefault();closeEffects();}});
+  graph.addEventListener('pointerleave',()=>tooltip.hidden=true);
+  graph.addEventListener('pointermove',event=>{if(!active||drag||pointer!==null||targetPick||!$('#sim-effects').hidden){tooltip.hidden=true;return;}const p=toField(event),h=p&&!hit(p)&&pathHit(p);if(!h){tooltip.hidden=true;return;}
+    const title=document.createElement('strong');title.textContent=`Path ${h.index?h.index:'Start'} → ${h.index+1}`;
+    const route=L().route,indices=exporter.pathIndex(route),parts=route.segments.filter((_,i)=>indices[i]===h.index),first=parts[0],last=parts.at(-1),descriptions=planner.pathDescription(pathOf(L(),h.index),project.tuning.maxPathSpeed);
+    if(first&&last)descriptions.push(`Heading: ${field.round(first.heading??route.heading)}° → ${field.round(field.heading(last.endHeading??last.heading??route.heading))}°`);
+    const lines=descriptions.map(text=>Object.assign(document.createElement('div'),{textContent:text}));tooltip.replaceChildren(title,...lines);tooltip.hidden=false;
+    tooltip.style.left=`${Math.max(4,Math.min(innerWidth-tooltip.offsetWidth-4,event.clientX+16))}px`;tooltip.style.top=`${Math.max(4,Math.min(innerHeight-tooltip.offsetHeight-4,event.clientY-tooltip.offsetHeight-14))}px`;
+  });
   // Press and hold on a touchscreen or with a pen opens the same settings as a right-click (a mouse
   // has the right button, and a slow mouse drag must never turn into a hold).
   let hold=null;
   function holdStart(target,event){clearTimeout(hold?.timer);hold=null;if(event.pointerType==='mouse')return;hold={x:event.clientX,y:event.clientY,fired:false,timer:setTimeout(()=>{hold.fired=true;drag=null;pendingPin=null;openEffects(target,{clientX:hold.x,clientY:hold.y});},550)};}
   function holdMove(event){if(hold&&!hold.fired&&Math.hypot(event.clientX-hold.x,event.clientY-hold.y)>8){clearTimeout(hold.timer);hold=null;}}
-  let pendingPin=null;
+  let pendingPin=null,lastPinTap=null;
   function zoneShape(z,extra=''){const p=planner.polygon(z);return p.length===2?svg('polyline',{class:'sim-zone wall'+extra,points:pts(p),'data-zone':z.id}):svg('polygon',{class:'sim-zone'+extra,points:pts(p),'data-zone':z.id});}
   function showDraft(z){
     const nodes=[];if(z)nodes.push(zoneShape(z,' draft'));
@@ -514,18 +532,19 @@ public class MyAuto implements DeckAutonomous {
     $('#field-coordinates').textContent=`X ${field.round(p.x)} in · Y ${field.round(p.y)} in`;
   });
   graph.addEventListener('pointerdown',event=>{
-    if(!active||tab!=='plan'||event.button!==0||project.view==='3d')return;const p=toField(event);if(!p)return;event.preventDefault();graph.focus({preventScroll:true});pointer=event.pointerId;graph.setPointerCapture(event.pointerId);
+    if(!active||tab!=='plan'||event.button!==0||project.view==='3d')return;const p=toField(event);if(!p)return;event.preventDefault();tooltip.hidden=true;
+    if(targetPick){const target=targetPick,pin=L().pins[target.index];if(pin){const subject=target.kind==='path'?(pin.path=planner.pathEffects(pin.path)):pin;subject.target={x:field.round(p.x),y:field.round(p.y)};changed('plan');openEffects(target,event);$('#sim-effects').querySelectorAll('[role=tab]')[1].click();}targetPick=null;return;}
+    graph.focus({preventScroll:true});pointer=event.pointerId;graph.setPointerCapture(event.pointerId);
     const existing=hit(p);
-    if(existing&&(!sketch||tool!=='shape')){selected=existing;if(existing.kind==='handle')drag={...existing,zone:JSON.parse(JSON.stringify(zoneById(existing.id)))};else if(existing.kind==='zone')drag={...existing,from:p,zone:JSON.parse(JSON.stringify(zoneById(existing.id)))};else{drag={...existing};holdStart(existing,event);}draw();zonePanel();pinPanel();return;}
+    if(existing&&(!sketch||tool!=='shape')){selected=existing;if(existing.kind==='handle')drag={...existing,zone:JSON.parse(JSON.stringify(zoneById(existing.id)))};else if(existing.kind==='zone')drag={...existing,from:p,zone:JSON.parse(JSON.stringify(zoneById(existing.id)))};else{drag={...existing,downTime:performance.now()};holdStart(existing,event);}draw();zonePanel();pinPanel();return;}
     if(!sketch&&planner.contains(p,planner.body(preview,geometry().footprint))){startGrab={dx:preview.x-p.x,dy:preview.y-p.y};graph.dataset.dragging='true';
       // A mouse grabs the robot by its centre: the pointer is locked and drawn there until release.
       if(event.pointerType==='mouse'&&graph.requestPointerLock){startGrab={dx:0,dy:0};void api.cursor?.('prepare').catch(()=>{});try{graph.requestPointerLock()?.catch?.(()=>{});}catch{}}
       draw();return;}
+    if(!sketch){const onPath=pathHit(p);if(onPath){drag=null;pendingPin=null;openEffects(onPath,event);return;}}
     if(planningStep==='zones'&&['rect','circle','triangle'].includes(tool)){drag={kind:'draw',from:p,zone:null};return;}
     if(tool==='draw'&&planningStep==='pins'){stroke=[{x:p.x,y:p.y}];return;}
     if(tool==='pin'&&planningStep==='pins'){const h=hit(p);if(h?.kind==='pin'){selected=h;drag={kind:'pin',index:h.index};holdStart(h,event);draw();pinPanel();return;}
-      // On the route line: a press and hold opens the path's settings; a tap still adds a pin (on release).
-      const onPath=pathHit(p);if(onPath){pendingPin=p;holdStart(onPath,event);return;}
       addPin(p);return;}
     if(tool==='shape'&&planningStep==='zones'){if(sketch&&sketch.length>2&&Math.hypot(sketch[0].x-p.x,sketch[0].y-p.y)<=2.5)return finishShape();const last=sketch?.at(-1);if(last&&Math.hypot(last.x-p.x,last.y-p.y)<.3)return;
       sketch=[...(sketch||[]),{x:field.round(p.x),y:field.round(p.y)}];if(sketch.length>=40)return finishShape();showDraft(null);return;}
@@ -541,9 +560,9 @@ public class MyAuto implements DeckAutonomous {
     if(grabbed){const clear=nearestPin(preview,72,preview.heading);if(clear&&Math.hypot(clear.x-preview.x,clear.y-preview.y)>.75)status('#start-status','Moved to the nearest clear spot outside the red area.');if(clear)preview={...preview,...clear};try{commit(preview);}catch(e){status('#start-status',e.message);preview={...start};tool='start';draw();}releaseCursor();return;}
     if(tool==='draw'&&stroke){const drawn=stroke;stroke=null;$('#sim-draft').replaceChildren();drawnPath(drawn);return;}
     if(drag?.kind==='draw'){const z=drag.zone;drag=null;showDraft(null);if(z&&(z.type==='circle'?z.radius>=.75:z.width>=1&&z.height>=1)){if(L().zones.length>=24)status('#sim-plan-status','Use at most 24 zones.');else{L().zones.push(planner.validateZone(z));selected={kind:'zone',id:z.id};selectTab('plan');changed('zones');}}return;}
-    if(drag){const moved=drag.moved,kind=drag.kind;drag=null;if(moved)changed(kind==='pin'?'pins':'zones');}
+    if(drag){const moved=drag.moved,kind=drag.kind,index=drag.index,downTime=drag.downTime;drag=null;if(moved){lastPinTap=null;changed(kind==='pin'?'pins':'zones');}else if(kind==='pin'&&performance.now()-downTime<500){const now=performance.now(),previous=lastPinTap;lastPinTap={index,layout:L().id,time:now,x:event.clientX,y:event.clientY};if(previous&&previous.layout===L().id&&previous.index===index&&now-previous.time<500&&Math.hypot(previous.x-event.clientX,previous.y-event.clientY)<10){lastPinTap=null;openEffects({kind:'pin',index},event);}}}
   });
-  graph.addEventListener('dblclick',event=>{if(active&&tool==='shape'&&sketch){event.preventDefault();finishShape();}});
+  graph.addEventListener('dblclick',event=>{if(!active||tab!=='plan')return;if(tool==='shape'&&sketch){event.preventDefault();finishShape();return;}const p=toField(event),h=p&&(hit(p)||pathHit(p));if(h&&['pin','path'].includes(h.kind)){event.preventDefault();drag=null;pendingPin=null;openEffects(h,event);}});
   // Leave pointer lock with the system cursor on the robot's centre (where the drawn cursor was).
   function releaseCursor(){if(document.pointerLockElement!==graph)return;const m=graph.getScreenCTM(),x=m?m.a*preview.x+m.e:0,y=m?m.d*(fieldHeight()-preview.y)+m.f:0;
     if(m)document.addEventListener('pointerlockchange',()=>void api.cursor?.(x,y).catch(()=>{}),{once:true});document.exitPointerLock();}
@@ -558,8 +577,9 @@ public class MyAuto implements DeckAutonomous {
       return;
     }
     if(tool==='shape'&&sketch){if(event.key==='Enter'){event.preventDefault();finishShape();return;}if(event.key==='Escape'){event.preventDefault();sketch=null;cursor=null;showDraft(null);return;}if(event.key==='Backspace'){event.preventDefault();sketch.pop();if(!sketch.length)sketch=null;showDraft(null);return;}}
-    if(event.key==='Escape'){tool='select';drag=null;showDraft(null);draw();return;}
+    if(event.key==='Escape'){targetPick=null;tool='select';drag=null;showDraft(null);draw();return;}
     if(!selected)return;
+    if(event.key==='Enter'&&['pin','path'].includes(selected.kind)){event.preventDefault();openEffects(selected,{clientX:innerWidth/2,clientY:150});return;}
     if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();removeSelected();return;}
     const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[event.key];
     const target=selected.kind==='zone'?zoneById(selected.id):L().pins[selected.index];if(!target)return;
@@ -591,14 +611,14 @@ public class MyAuto implements DeckAutonomous {
   }
   function effectSummary(p){const path=p.path||{},bits=[];
     if(finite(path.power))bits.push(`${Math.round(path.power*100)}% motor power`);if(path.kind==='action')bits.push(`Action path${path.action?`: ${path.action}`:''}`);
-    if(path.rotate==='spin')bits.push(`spins ${Math.abs(path.spins)} ${path.spins<0?'right':'left'}`);else if(path.rotate==='turn')bits.push(`turns to ${Math.round(path.heading)}° while driving`);
-    if(finite(p.turn))bits.push(`turns to ${Math.round(p.turn)}° at the pin`);if(p.note||path.note)bits.push(p.note||path.note);
+    bits.push(...planner.pathDescription(path,project.tuning.maxPathSpeed).slice(1).filter(v=>v!=='Hold inherited heading'));
+    if(finite(p.turn))bits.push(p.turnMode==='relative'?`turn by ${p.turn>=0?'+':''}${p.turn}° at pin`:p.turnMode==='start'?'return to starting heading at pin':p.turnMode==='track'?'aim at target at pin':`face ${Math.round(p.turn)}° at pin`);if(p.note)bits.push(p.note);
     return bits.join(' · ');}
   let pinPage=0;
   function pinPanel(){
     const list=$('#sim-pin-list'),l=L();
     list.replaceChildren(...l.pins.map((p,i)=>{const li=document.createElement('li');li.className='sim-pin-row'+(selected?.kind==='pin'&&selected.index===i?' selected':'');
-      li.innerHTML=`<span class="sim-badge">${i+1}</span><label class="sr-only" for="pin-wait-${i}">Pause at pin ${i+1}, seconds</label><input id="pin-wait-${i}" class="pin-wait" type="number" min="0" data-slider-max="30" step="any" title="Pause here (seconds)"><span class="hint">s</span><label class="sr-only" for="pin-action-${i}">Action at pin ${i+1}</label><input id="pin-action-${i}" class="pin-action" type="text" maxlength="40"><button type="button" class="icon-button" data-effects aria-label="Pin ${i+1} and path settings" title="Pauses, turns, spins and actions">⋯</button><button type="button" class="icon-button" data-move="-1" aria-label="Move pin ${i+1} earlier">↑</button><button type="button" class="icon-button" data-remove aria-label="Remove pin ${i+1}">×</button><span class="sim-pin-summary hint"></span>`;
+      li.innerHTML=`<span class="sim-badge">${i+1}</span><label class="sr-only" for="pin-wait-${i}">Pause at pin ${i+1}, seconds</label><input id="pin-wait-${i}" class="pin-wait" type="number" min="0" data-slider-max="30" step="any" title="Pause here (seconds)"><span class="hint">s</span><label class="sr-only" for="pin-action-${i}">Action at pin ${i+1}</label><input id="pin-action-${i}" class="pin-action" type="text" maxlength="40"><button type="button" class="icon-button" data-effects aria-label="Pin ${i+1} settings" title="Pauses, turns, spins and actions">⋯</button><button type="button" class="icon-button" data-move="-1" aria-label="Move pin ${i+1} earlier">↑</button><button type="button" class="icon-button" data-remove aria-label="Remove pin ${i+1}">×</button><span class="sim-pin-summary hint"></span>`;
       li.querySelector('.sim-pin-summary').textContent=effectSummary(p);
       li.querySelector('[data-effects]').onclick=e=>{const pin=graph.querySelector(`[data-pin="${i}"]`)?.getBoundingClientRect();openEffects({kind:'pin',index:i},pin?{clientX:pin.left+pin.width/2,clientY:pin.top+pin.height/2}:e);};
       const wait=li.querySelector('.pin-wait'),action=li.querySelector('.pin-action');wait.value=p.wait||0;action.value=p.action||'';action.placeholder=p.wait>0?'What happens here?':'Add a pause for an action';
@@ -655,7 +675,7 @@ public class MyAuto implements DeckAutonomous {
   for(const b of $$('[data-style]'))b.onclick=()=>{L().style=b.dataset.style;pressed('style',L().style);changed('plan');};
   for(const b of $$('[data-rotate]'))b.onclick=()=>{L().rotate=b.dataset.rotate==='auto';rotatePanel();changed('plan');};
   function rotatePanel(){const holonomic=C.drives[project.robot.drivetrain].holonomic;pressed('rotate',holonomic?(L().rotate===false?'off':'auto'):'auto');for(const b of $$('[data-rotate]'))b.disabled=!holonomic;
-    $('#sim-rotate-note').textContent=!holonomic?'Tank drivetrains always turn the whole chassis between straight legs, backing out to line up when there is no room to turn.':L().rotate===false?'The robot keeps its starting heading for the whole route.':'The planner turns the robot in place when that fits it past an obstacle more quickly than driving around. Dashed outlines show where it turns.';}
+    $('#sim-rotate-note').textContent=!holonomic?'Tank drivetrains always turn the whole chassis between straight legs, backing out to line up when there is no room to turn.':L().rotate===false?'Unmodified paths hold the starting heading. Explicit path and pin turns override this and carry their heading forward.':'Unmodified routes may turn to clear obstacles. Explicit heading modifiers take precedence; later paths inherit their final heading. Dashed chassis outlines show turns in place.';}
   $('#sim-clearance').onchange=e=>{L().clearance=Math.max(planner.MIN_CLEARANCE,finite(e.target.valueAsNumber)?e.target.valueAsNumber:L().clearance);e.target.value=L().clearance;changed('plan');};
   $('#sim-clear-pins').onclick=()=>{L().pins=[];selected=null;changed('pins');};
   $('#sim-clear-zones').onclick=()=>{L().zones=[];selected=null;changed('zones');};
@@ -886,7 +906,7 @@ public class MyAuto implements DeckAutonomous {
   for(const [id,tools] of [['#sim-obstacle-step',['rect','circle','triangle','shape']],['#sim-route-step',['pin','draw']]]){const group=document.createElement('div');group.className='segmented sim-seg sim-edit-tools';group.setAttribute('role','group');group.setAttribute('aria-label',id.includes('obstacle')?'Add obstacle':'Add route pins');for(const tool of tools)group.append($(`[data-tool=${tool}]`));$(id).insertBefore(group,$(id).children[1]);}
   const routeStep=$('#sim-route-step'),routeChildren=[...routeStep.children],routeSettings=routeChildren.indexOf($('[data-style]').parentElement.previousElementSibling),routeExport=routeChildren.findIndex(n=>n.tagName==='H3');
   const nextRun=$('#sim-plan-next');nextRun.remove();
-  settingsViews(routeStep,[['Pins',routeChildren.slice(0,routeSettings).filter(n=>!n.matches('.sim-legend')&&!(n.tagName==='P'&&n.textContent.startsWith('Right-click')))],['Route',routeChildren.slice(routeSettings,routeExport)],['Export',routeChildren.slice(routeExport).filter(n=>n!==nextRun)],['Diagnostics',[diagnosticBox('sim-plan-diagnostics')]],['Help',routeChildren.slice(0,routeSettings).filter(n=>n.matches('.sim-legend')||n.tagName==='P'&&n.textContent.startsWith('Right-click'))]]);routeStep.append(nextRun);
+  settingsViews(routeStep,[['Pins',routeChildren.slice(0,routeSettings).filter(n=>!n.matches('.sim-legend')&&!(n.tagName==='P'&&n.textContent.startsWith('Click a line')))],['Route',routeChildren.slice(routeSettings,routeExport)],['Export',routeChildren.slice(routeExport).filter(n=>n!==nextRun)],['Diagnostics',[diagnosticBox('sim-plan-diagnostics')]],['Help',routeChildren.slice(0,routeSettings).filter(n=>n.matches('.sim-legend')||n.tagName==='P'&&n.textContent.startsWith('Click a line'))]]);routeStep.append(nextRun);
   const runPanel=$('#sim-panel-run'),runChildren=[...runPanel.children],timers=runPanel.querySelector('.sim-grid3'),programButtons=$('[data-program]').parentElement;
   const programNodes=[programButtons,$('#sim-program-note'),$('#sim-source-box')],outputNodes=runChildren.filter(n=>n.matches('.sim-log,.sim-credit'));
   settingsViews(runPanel,[['Run',runChildren.filter(n=>n!==timers&&!programNodes.includes(n)&&!outputNodes.includes(n))],['Diagnostics',[diagnosticBox('sim-run-diagnostics')]],['Timing',[timers]],['Program',programNodes],['Output',outputNodes]]);

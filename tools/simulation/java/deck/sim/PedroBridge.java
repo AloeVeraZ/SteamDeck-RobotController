@@ -195,7 +195,11 @@ public final class PedroBridge {
                 Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Vector2D[0]));
                 double partHeading = turning && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading;
                 // A path the robot turns or spins along: its heading changes steadily from start to end.
-                parts.add(turning && s.has("endHeading") ? part.heading(turn(partHeading, Math.toRadians(num(s, "endHeading")))) : part.constant(partHeading));
+                if (s.has("target")) {
+                    JsonObject target = s.getAsJsonObject("target");
+                    double x = num(target, "x"), y = num(target, "y");
+                    parts.add(part.heading((curve, t) -> { Vector2D p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); }));
+                } else parts.add(turning && s.has("endHeading") ? part.heading(turn(partHeading, Math.toRadians(num(s, "endHeading")))) : part.constant(partHeading));
                 partHeadings.add(partHeading);
             }
             if (!parts.isEmpty()) route = r.has("legs") ? join(parts) : chain(parts, heading);

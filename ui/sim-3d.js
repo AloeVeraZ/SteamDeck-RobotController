@@ -50,7 +50,9 @@ window.DeckSim3D={create(host){
     for(const z of l.zones){const p=window.DeckPlanner.polygon(z);
       if(p.length===2){const [a,b]=p,m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b.x-a.x,b.y-a.y),1,3),red);m.position.set((a.x+b.x)/2,(a.y+b.y)/2,1.5);m.rotation.z=Math.atan2(b.y-a.y,b.x-a.x);overlay.add(m);}
       else overlay.add(prism(p,12,red));}
-    if(l.route?.samples?.length>1)overlay.add(line(l.route.samples,new THREE.LineBasicMaterial({color:color('--accent')}),.6));
+    if(l.route?.segments?.length){const indices=window.DeckSimExport.pathIndex(l.route);for(const [i,seg]of l.route.segments.entries()){
+      const path=l.pins[indices[i]]?.path,appearance=window.DeckPlanner.pathAppearance(path),points=Array.from({length:41},(_,j)=>{let ps=seg.points;const t=j/40;while(ps.length>1)ps=ps.slice(1).map((p,k)=>({x:ps[k].x+(p.x-ps[k].x)*t,y:ps[k].y+(p.y-ps[k].y)*t}));return ps[0];}),material=appearance.action?new THREE.LineDashedMaterial({color:appearance.color,dashSize:2.2,gapSize:1.2}):new THREE.LineBasicMaterial({color:appearance.color});
+      overlay.add(line(points,material,.6));}}
     const pin=new THREE.MeshStandardMaterial({color:color('--accent')}),stop=new THREE.MeshStandardMaterial({color:color('--warning')});
     for(const q of l.pins){const m=new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,4,16),q.wait>0?stop:pin);m.rotation.x=Math.PI/2;m.position.set(q.x,q.y,2);overlay.add(m);}
     if(s.trail.length>1)overlay.add(line(s.trail,new THREE.LineBasicMaterial({color:color('--text')}),.4));
