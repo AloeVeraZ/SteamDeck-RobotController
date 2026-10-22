@@ -17,6 +17,7 @@ import java.util.Map;
  */
 public final class SimRobot {
     private final Follower follower;
+    private final SimDrivetrain drivetrain;
     private final ForesightConfig config;
     private final Pose start;
     private final Path route;
@@ -31,7 +32,8 @@ public final class SimRobot {
     private double time;
     private boolean finished;
 
-    SimRobot(Follower follower, ForesightConfig config, Pose start, Path route, List<Pose> pins, List<Path> legs, List<Double> waits, List<String> actions) {
+    SimRobot(Follower follower, SimDrivetrain drivetrain, ForesightConfig config, Pose start, Path route, List<Pose> pins, List<Path> legs, List<Double> waits, List<String> actions) {
+        this.drivetrain = drivetrain;
         this.legs = Collections.unmodifiableList(new ArrayList<>(legs));
         this.waits = Collections.unmodifiableList(new ArrayList<>(waits));
         this.actions = Collections.unmodifiableList(new ArrayList<>(actions));
@@ -66,6 +68,14 @@ public final class SimRobot {
     // Per-leg details from the simulator's leg plan (pin turns, action paths); empty for older routes.
     private List<Double> legHeadings = Collections.emptyList(), turnsAfter = Collections.emptyList();
     private List<String> moving = Collections.emptyList();
+    private List<Double> powers = Collections.emptyList();
+    void legPowers(List<Double> values) { powers = new ArrayList<>(values); }
+    public double legPower(int leg) { return leg < powers.size() ? powers.get(leg) : config.maxPathSpeed.get(); }
+    public void applyLegPower(int leg) {
+        double power = legPower(leg);
+        config.maxPathSpeed.set(Math.max(0.000001, power));
+        drivetrain.powerLimit(power);
+    }
 
     void legDetails(List<Double> headings, List<Double> turnAfter, List<String> movingActions) {
         legHeadings = Collections.unmodifiableList(new ArrayList<>(headings));

@@ -4,11 +4,11 @@
   "imuSource": "module",
   "timing": {
     "power": 0.45,
-    "forwardSpeed": 91.84,
-    "strafeSpeed": 73.47,
-    "startup": 0,
-    "stopping": 0.13,
-    "strafeStopping": 0.091,
+    "forwardSpeed": 86.93,
+    "strafeSpeed": 69.44,
+    "startup": 0.114,
+    "stopping": 0,
+    "strafeStopping": 0,
     "headingP": 1.6
   },
   "orientations": {},

@@ -26,6 +26,14 @@ window.DeckNumberSliders=(()=>{
  const scan=root=>{for(const input of root.querySelectorAll('input[type=number]'))pair(input);};
  function refresh(){for(const input of pairs.keys())if(input.isConnected)sync(input);else pairs.delete(input);}
  function attach(root=document.body){
+  // Explicit commit works with a physical keyboard as well as the optional touch keyboard.
+  const done=document.createElement('button');done.type='button';done.className='number-entry-done primary';done.textContent='Done';done.hidden=true;document.body.append(done);
+  let editing=null;
+  root.addEventListener('focusin',event=>{if(event.target.matches('input[type=number]')){editing=event.target;done.hidden=false;}});
+  root.addEventListener('focusout',()=>queueMicrotask(()=>{if(document.activeElement!==done){done.hidden=true;editing=null;}}));
+  done.addEventListener('pointerdown',event=>event.preventDefault());
+  done.addEventListener('click',()=>{const target=editing;target?.blur();if(target?.dataset.sliderSubmit!==undefined)target.form?.requestSubmit();done.hidden=true;});
+  root.addEventListener('keydown',event=>{if(event.key==='Enter'&&event.target.matches('input[type=number]')&&!event.target.form){event.preventDefault();event.target.blur();}});
   scan(root);
   new MutationObserver(records=>{let removed=false;
    for(const record of records){

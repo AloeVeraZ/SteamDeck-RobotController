@@ -31,6 +31,9 @@ public final class RouteAutonomous implements DeckAutonomous {
     public RouteAutonomous() { this(false); }
     public RouteAutonomous(boolean turning) { this.turning = turning; }
     private void beginLeg(SimRobot robot) {
+        robot.telemetry("leg", (leg + 1) + " of " + robot.routeLegs().size());
+        robot.applyLegPower(leg);
+        if (robot.legPower(leg) == 0) { robot.follower().stop(); return; }
         Pose p = robot.follower().pose();
         double target = robot.legHeading(leg);
         recoveries = 0;
@@ -63,6 +66,7 @@ public final class RouteAutonomous implements DeckAutonomous {
 
     @Override
     public void loop(SimRobot robot) {
+        if (robot.legPower(leg) == 0) { robot.follower().stop(); robot.telemetry("phase", "Zero motor power: stopped"); return; }
         Follower follower = robot.follower();
         follower.update();
         robot.telemetry("leg", (leg + 1) + " of " + robot.routeLegs().size());

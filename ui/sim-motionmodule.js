@@ -11,22 +11,25 @@
   // The timed plan as MotionModule PLAN steps. Forward/strafe are fractions of DRIVE_SPEED; strafe is
   // positive to the right (MotionModule's convention); turns are degrees left of the start heading.
   function plan(route,timing){
-    const compiled=Timed.compile(route,timing),start=route.heading||0,power=compiled.config.power,steps=[];let target=start/DEG;
+    const compiled=Timed.compile(route,timing),start=route.heading||0,power=compiled.config.power,steps=[];let target=start/DEG,lastPower=null;
     for(const s of compiled.steps){
+      if(s.kind==='disabled'){steps.push(['disabled']);break;}
+      const stepPower=s.power??power;if(stepPower!==lastPower){steps.push(['power',stepPower]);lastPower=stepPower;}
+      const divisor=Math.max(.000001,stepPower);
       // Turning while driving: each piece holds a field direction (from the IMU heading) while the
       // heading hold turns toward that piece's share of the turn, so a lagging turn does not steer it off.
       if(s.kind!=='turn'&&(s.forward||s.strafe)&&Number.isFinite(s.mid)){const fs=compiled.config.forwardSpeed,ss=compiled.config.strafeSpeed,vf=s.forward*fs,vl=s.strafe*ss,c=Math.cos(s.mid-start/DEG),n=Math.sin(s.mid-start/DEG);
-        steps.push(['glide',+((vf*c-vl*n)/(fs*power)).toFixed(4),+((vf*n+vl*c)/(fs*power)).toFixed(4),+s.seconds.toFixed(3),+wrap(s.heading*DEG-start).toFixed(2),...(s.moving?[s.moving]:[])]);target=s.heading;continue;}
+        steps.push(['glide',+((vf*c-vl*n)/(fs*divisor)).toFixed(4),+((vf*n+vl*c)/(fs*divisor)).toFixed(4),+s.seconds.toFixed(3),+wrap(s.heading*DEG-start).toFixed(2),...(s.moving?[s.moving]:[])]);target=s.heading;continue;}
       if(s.kind!=='turn'&&(s.forward||s.strafe)&&Number.isFinite(s.heading)&&Math.abs(wrap((s.heading-target)*DEG))>1e-6){steps.push(['aim',+wrap(s.heading*DEG-start).toFixed(2)]);target=s.heading;}
       if(s.kind==='turn'){steps.push(['turn',+wrap(s.heading*DEG-start).toFixed(2)]);target=s.heading;}
       else if(!s.forward&&!s.strafe)steps.push(s.action?['action',s.action,+s.seconds.toFixed(3)]:['hold',+s.seconds.toFixed(3)]);
-      else steps.push(['drive',+(s.forward/power).toFixed(4),+(-s.strafe/power).toFixed(4),+s.seconds.toFixed(3),...(s.moving?[s.moving]:[])]);
+      else steps.push(['drive',+(s.forward/divisor).toFixed(4),+(-s.strafe/divisor).toFixed(4),+s.seconds.toFixed(3),...(s.moving?[s.moving]:[])]);
     }
     return {steps,power,config:compiled.config};
   }
   function autonomous(route,timing,options={}){
     const p=plan(route,timing),name=String(options.name||'Planned route').replace(/"""/g,'');
-    const steps=p.steps.map(s=>s[0]==='drive'?`    ("drive", ${num(s[1])}, ${num(s[2])}, ${num(s[3])}${s[4]?`, ${pyString(s[4])}`:''}),`:s[0]==='turn'?`    ("turn", ${num(s[1])}),`:s[0]==='action'?`    ("action", ${pyString(s[1])}, ${num(s[2])}),`:s[0]==='aim'?`    ("aim", ${num(s[1])}),`:s[0]==='glide'?`    ("glide", ${num(s[1])}, ${num(s[2])}, ${num(s[3])}, ${num(s[4])}${s[5]?`, ${pyString(s[5])}`:''}),`:`    ("hold", ${num(s[1])}),`).join('\n'),list=Export.actions(route);
+    const steps=p.steps.map(s=>s[0]==='power'?`    ("power", ${num(s[1])}),`:s[0]==='disabled'?`    ("disabled",),`:s[0]==='drive'?`    ("drive", ${num(s[1])}, ${num(s[2])}, ${num(s[3])}${s[4]?`, ${pyString(s[4])}`:''}),`:s[0]==='turn'?`    ("turn", ${num(s[1])}),`:s[0]==='action'?`    ("action", ${pyString(s[1])}, ${num(s[2])}),`:s[0]==='aim'?`    ("aim", ${num(s[1])}),`:s[0]==='glide'?`    ("glide", ${num(s[1])}, ${num(s[2])}, ${num(s[3])}, ${num(s[4])}${s[5]?`, ${pyString(s[5])}`:''}),`:`    ("hold", ${num(s[1])}),`).join('\n'),list=Export.actions(route);
     return `"""${name}: autonomous exported by Deck Driver Station.
 
 MotionModule calls create_autonomous(module, drive) once, then run(stop) each
@@ -124,7 +127,7 @@ class PlannedRoute:
         self.heading = getattr(drive, "heading", None) or HeadingController()
         self.turn_heading = TurnPID(kp=0.065, kd=0.0035, derivative_seconds=0.01, max_power=self.TURN_SPEED,
                                     integral_power_limit=self.APPROACH_SPEED, settle_seconds=0.2)
-        self.move = getattr(drive, "move", drive.drive)
+        self.raw_move = getattr(drive, "move", drive.drive)
         self.target = 0.0
         self.start = 0.0
         self.progress = {"steps": len(PLAN), "step": None}
@@ -133,6 +136,12 @@ class PlannedRoute:
         setup = getattr(self.actions, "setup", None)
         if callable(setup):
             setup(module)
+
+    def move(self, forward, strafe, rotate, speed=1.0):
+        # Match the path ceiling for every mixed motor, including turn/heading correction.
+        peak = abs(forward) + abs(strafe) + abs(rotate)
+        factor = max(0.0, speed) / max(1.0, peak * max(0.0, speed) / max(0.000001, self.DRIVE_SPEED))
+        self.raw_move(forward * factor, strafe * factor, rotate * factor, speed=1.0)
 
     def ready(self):
         return self.sensors is not None and self.sensors.heading() is not None
@@ -152,8 +161,8 @@ class PlannedRoute:
         if moving and (self.moving is None or self.moving["name"] != moving):
             self.moving = {"name": moving, "started": time.monotonic(), "done": False,
                            "step": SimpleNamespace(elapsed=0.0, first=True, last=False, moving=True, module=self.module)}
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
+        travelled, last = 0.0, time.monotonic()
+        while travelled < seconds:
             if stop.is_set():
                 return False
             heading = self.sensors.heading()
@@ -166,8 +175,12 @@ class PlannedRoute:
                 step.first = False
             error = math.radians(wrap180(self.target - heading))
             turn = max(-0.5, min(0.5, error * self.HEADING_GAIN))
+            share = 1.0 / max(1.0, abs(forward) + abs(strafe) + abs(turn) / max(0.000001, self.DRIVE_SPEED))
             self.move(forward, strafe, turn / self.DRIVE_SPEED, speed=self.DRIVE_SPEED)
-            time.sleep(max(0.0, min(self.LOOP_SECONDS, deadline - time.monotonic())))
+            time.sleep(max(0.0, min(self.LOOP_SECONDS, (seconds - travelled) / share)))
+            now = time.monotonic()
+            travelled += (now - last) * share
+            last = now
         if not coast:
             self.drive.stop()
         return True
@@ -329,19 +342,28 @@ class PlannedRoute:
                     return
                 self.progress = {**self.progress, "step": index}
                 kind = step[0]
+                if kind == "disabled":
+                    self.drive.stop()
+                    self.progress = {**self.progress, "phase": "Zero motor power: stopped"}
+                    while not stop.is_set():
+                        stop.wait(self.LOOP_SECONDS)
+                    return
+                if kind == "power":
+                    self.DRIVE_SPEED = step[1]
+                    continue
                 if kind == "drive":
                     moving = step[4] if len(step) > 4 else None
-                    after = next((s for s in PLAN[index + 1:] if s[0] != "aim"), None)
+                    after = next((s for s in PLAN[index + 1:] if s[0] not in ("aim", "power")), None)
                     done = self.drive_for(step[1], step[2], step[3], stop, moving, coast=bool(after) and after[0] in ("drive", "glide"))
                     # The action path goes on while the next drive step (after any turns) runs the same action.
-                    following = next((s for s in PLAN[index + 1:] if s[0] not in ("turn", "aim")), None)
+                    following = next((s for s in PLAN[index + 1:] if s[0] not in ("turn", "aim", "power")), None)
                     if moving and not (following and following[0] in ("drive", "glide") and following[-1] == moving):
                         self.end_moving()
                 elif kind == "glide":
                     moving = step[5] if len(step) > 5 else None
-                    after = next((s for s in PLAN[index + 1:] if s[0] != "aim"), None)
+                    after = next((s for s in PLAN[index + 1:] if s[0] not in ("aim", "power")), None)
                     done = self.glide(step[1], step[2], step[3], step[4], stop, moving, coast=bool(after) and after[0] in ("drive", "glide"))
-                    following = next((s for s in PLAN[index + 1:] if s[0] not in ("turn", "aim")), None)
+                    following = next((s for s in PLAN[index + 1:] if s[0] not in ("turn", "aim", "power")), None)
                     if moving and not (following and following[0] in ("drive", "glide") and following[-1] == moving):
                         self.end_moving()
                 elif kind == "turn":

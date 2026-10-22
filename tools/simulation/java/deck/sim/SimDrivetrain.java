@@ -19,6 +19,8 @@ public final class SimDrivetrain implements Drivetrain {
     private final double[][] modules; // swerve module positions, scaled so the farthest is radius 1
     private double forward, strafe, turn;
     private boolean brake = true;
+    private double powerLimit = 1;
+    void powerLimit(double value) { powerLimit = Math.max(0, Math.min(1, value)); if (powerLimit == 0) stop(); }
 
     SimDrivetrain(Kind kind, double halfLength, double halfWidth) {
         this.kind = kind;
@@ -50,12 +52,20 @@ public final class SimDrivetrain implements Drivetrain {
     @Override
     public void drive(DrivePowers powers, boolean manual) {
         brake = manual;
+        if (powerLimit == 0) { stop(); return; }
         double max = 1;
         if (kind != Kind.SWERVE) for (double w : mecanum(powers)) max = Math.max(max, Math.abs(w));
         else for (double[] w : swerve(powers)) max = Math.max(max, Math.hypot(w[0], w[1]));
+        max = Math.max(1, (max == 1 ? peak(powers) : max) / powerLimit);
         forward = powers.forward() / max;
         strafe = kind == Kind.TANK ? 0 : powers.strafe() / max;
         turn = powers.turn() / max;
+    }
+    private double peak(DrivePowers p) {
+        double peak = 0;
+        if (kind != Kind.SWERVE) for (double w : mecanum(p)) peak = Math.max(peak, Math.abs(w));
+        else for (double[] w : swerve(p)) peak = Math.max(peak, Math.hypot(w[0],w[1]));
+        return peak;
     }
 
     @Override

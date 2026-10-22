@@ -36,6 +36,34 @@
     for(let i=0;i<n;i++)for(let j=i+2;j<n;j++){if(i===0&&j===n-1)continue;if(hits(p[i],p[(i+1)%n],p[j],p[(j+1)%n]))return true;}
     return false;
   }
+  // Outer perimeter of a crossing sketch: split edges where they meet, then walk the outside
+  // keeping the exterior on the left. Interior lines disappear and concave corners survive.
+  // Returns null when the outside pinches through a single point (an hourglass).
+  function outline(p){
+    const n=p.length,keys=new Map(),verts=[],adj=[],key=q=>Math.round(q.x*1e6)+','+Math.round(q.y*1e6);
+    // Corners snap to the key grid, so validating a stored outline again reproduces it exactly.
+    const vertex=q=>{const k=key(q);if(!keys.has(k)){keys.set(k,verts.length);verts.push({x:Math.round(q.x*1e6)/1e6,y:Math.round(q.y*1e6)/1e6});adj.push(new Set());}return keys.get(k);};
+    for(let i=0;i<n;i++){const a=p[i],b=p[(i+1)%n],dx=b.x-a.x,dy=b.y-a.y,len2=dx*dx+dy*dy,ts=[0,1];if(len2<EPS)continue;
+      for(let j=0;j<n;j++){if(j===i)continue;const c=p[j],d=p[(j+1)%n],ex=d.x-c.x,ey=d.y-c.y,den=dx*ey-dy*ex;
+        for(const q of [c,d]){const t=((q.x-a.x)*dx+(q.y-a.y)*dy)/len2;if(t>0&&t<1&&Math.abs(cross(a,b,q))/Math.sqrt(len2)<1e-7)ts.push(t);}
+        if(Math.abs(den)<1e-12)continue;const t=((c.x-a.x)*ey-(c.y-a.y)*ex)/den,u=((c.x-a.x)*dy-(c.y-a.y)*dx)/den;if(t>0&&t<1&&u>=0&&u<=1)ts.push(t);}
+      ts.sort((x,y)=>x-y);let prev=vertex(a);
+      for(const t of ts.slice(1)){const next=vertex({x:a.x+dx*t,y:a.y+dy*t});if(next!==prev){adj[prev].add(next);adj[next].add(prev);}prev=next;}}
+    let start=0;verts.forEach((q,i)=>{if(q.x<verts[start].x||(q.x===verts[start].x&&q.y<verts[start].y))start=i;});
+    const ring=[],seen=new Set(),angle=(from,to)=>Math.atan2(verts[to].y-verts[from].y,verts[to].x-verts[from].x);
+    let back=Math.PI,at=start,from=-1;
+    for(let guard=0;guard<=verts.length*2;guard++){
+      let best=-1,bestTurn=Infinity;
+      for(const w of adj[at]){let turn=(back-angle(at,w))%(2*Math.PI);if(turn<=1e-12)turn+=2*Math.PI;if(w===from&&adj[at].size>1)turn=Infinity;if(turn<bestTurn){bestTurn=turn;best=w;}}
+      if(best<0)return null;
+      if(at===start&&ring.length&&best===ring[1])break;
+      if(seen.has(at))return null;seen.add(at);ring.push(at);
+      back=angle(best,at);from=at;at=best;
+    }
+    if(ring.length<3)return null;
+    const out=ring.map(i=>verts[i]).filter((q,i,a)=>Math.abs(cross(a[(i+a.length-1)%a.length],q,a[(i+1)%a.length]))>1e-9);
+    return out.length>=3&&out.length<=40&&triangulate(out)?out:null;
+  }
   // Convex pieces of a zone. A self-crossing outline is treated as its whole hull (safe side).
   function parts(zone){
     const p=polygon(zone);if(zone.type!=='polygon'||p.length<=3||convex(p))return [p];
@@ -63,6 +91,21 @@
   // Exact swept check for a straight move at constant heading: the swept region of a convex
   // footprint is the convex hull of its start and end placements.
   function sweepClear(a,b,heading,zones,footprint,field=FIELD){const swept=hull([...body({...a,heading},footprint),...body({...b,heading},footprint)]);return inField(swept,field)&&!zones.some(z=>zoneHits(swept,z));}
+  // Stop at the first contact, including fast pointer movements across a thin barrier.
+  function dragPose(from,to,zones,footprint,field=FIELD){
+    const at=t=>({x:from.x+(to.x-from.x)*t,y:from.y+(to.y-from.y)*t,heading:from.heading});
+    if(sweepClear(from,to,from.heading,zones,footprint,field))return at(1);
+    let lo=0,hi=1;for(let i=0;i<28;i++){const mid=(lo+hi)/2;if(sweepClear(from,at(mid),from.heading,zones,footprint,field))lo=mid;else hi=mid;}
+    return at(lo);
+  }
+  // Drag that slides along whatever stops it: after the first contact, the rest of the move
+  // continues along each axis that is still free. A robot that starts overlapping a red area
+  // moves freely until it is clear.
+  function slidePose(from,to,zones,footprint,field=FIELD){
+    if(!safePose(from,zones,footprint,field))return {x:to.x,y:to.y,heading:from.heading};
+    const p=dragPose(from,to,zones,footprint,field);if(dist(p,to)<1e-6)return p;
+    const a=dragPose(p,{x:to.x,y:p.y},zones,footprint,field);return dragPose(a,{x:a.x,y:to.y},zones,footprint,field);
+  }
   // Sampled sweep for moves that also turn (rotation makes the swept region non-convex).
   function safeSweep(a,b,zones,footprint,field=FIELD){const angle=((b.heading-a.heading+540)%360)-180;if(Math.abs(angle)<1e-9)return sweepClear(a,b,a.heading,zones,footprint,field);const n=Math.max(1,Math.ceil(dist(a,b)/.1),Math.ceil(Math.abs(angle)));for(let i=0;i<=n;i++){const t=i/n;if(!safePose({x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,heading:a.heading+angle*t},zones,footprint,field))return false;}return true;}
   function inflated(zones,footprint,heading,clearance){const offsets=body({x:0,y:0,heading},footprint).map(p=>({x:-p.x,y:-p.y}));const ring=clearance>0?Array.from({length:16},(_,i)=>({x:clearance/Math.cos(Math.PI/16)*Math.cos(i*Math.PI/8),y:clearance/Math.cos(Math.PI/16)*Math.sin(i*Math.PI/8)})):[{x:0,y:0}];return zones.flatMap(zone=>parts(zone).map(part=>hull(part.flatMap(p=>offsets.flatMap(q=>ring.map(r=>({x:p.x+q.x+r.x,y:p.y+q.y+r.y})))))));}
@@ -78,7 +121,14 @@
   function validateZone(raw){
     if(raw?.type==='polygon'){
       if(!Array.isArray(raw.points)||raw.points.length<2||raw.points.length>40||!raw.points.every(q=>q&&finite(q.x)&&finite(q.y)))throw Error('A shape needs 2 to 40 points.');
-      const points=raw.points.map(q=>({x:q.x,y:q.y}));
+      let points=raw.points.map(q=>({x:q.x,y:q.y})).filter((q,i,a)=>!i||dist(q,a[i-1])>EPS);
+      if(points.length>2&&dist(points[0],points.at(-1))<EPS)points.pop();
+      if(points.length<2)throw Error('Add at least two distinct corners.');
+      // A crossing gesture describes one solid body. Store its outer perimeter,
+      // so rendering, handles, planning and physics all use the same simple outline.
+      // Concave corners are kept; an outline that pinches to a point becomes its hull.
+      if(points.length>2&&(selfCrossing(points)||!triangulate(points)))points=outline(points)||hull(points);
+      if(points.length>2&&Math.abs(area(points))<EPS)throw Error('Add a corner away from the line to make a solid shape.');
       if(points.length===2&&dist(points[0],points[1])<.25)throw Error('Make the wall at least 0.25 inches long.');
       return {id:String(raw.id||'zone').slice(0,80),type:'polygon',points,x:points.reduce((s,q)=>s+q.x,0)/points.length,y:points.reduce((s,q)=>s+q.y,0)/points.length,angle:0};
     }
@@ -100,7 +150,7 @@
     if(!safePose(start,all,footprint,field))throw Error('The starting footprint overlaps a barrier, a field element or the wall. Move it to a clear position.');
     const pins=project.pins.map((p,i)=>{if(!p||![p.x,p.y].every(finite)||p.x<field.x0||p.y<field.y0||p.x>field.x1||p.y>field.y1)throw Error(`Pin ${i+1} must be inside the field.`);return {...pinEffects(p),x:p.x,y:p.y,pin:true};});
     if(!pins.length)throw Error('Add a destination pin on the field first.');
-    const clearance=clamp(finite(project.clearance)?project.clearance:1,MIN_CLEARANCE,6);
+    const clearance=Math.max(MIN_CLEARANCE,finite(project.clearance)?project.clearance:1);
     return {footprint,field,start,all,pins,clearance};
   }
   // Free space for the robot centre at one fixed heading: obstacles grown by the footprint at that
@@ -132,15 +182,35 @@
   // leads to it (a regular or an action path, and whether the robot turns or spins while driving it).
   const text=(s,n)=>typeof s==='string'?s.slice(0,n):'';
   function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin'].includes(r.rotate)?r.rotate:'keep';
-    return {kind:r.kind==='action'?'action':'regular',action:text(r.action,40),note:text(r.note,160),rotate,heading:finite(r.heading)?norm(r.heading):0,spins:finite(r.spins)?clamp(Math.round(r.spins),-10,10)||1:1};}
-  function pinEffects(p){return {wait:finite(p.wait)?clamp(p.wait,0,30):0,action:text(p.action,40),note:text(p.note,160),turn:finite(p.turn)?norm(p.turn):null,path:pathEffects(p.path)};}
+    return {kind:r.kind==='action'?'action':'regular',action:text(r.action,40),note:text(r.note,160),rotate,heading:finite(r.heading)?norm(r.heading):0,spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
+  function pinEffects(p){return {wait:finite(p.wait)?Math.max(0,p.wait):0,action:text(p.action,40),note:text(p.note,160),turn:finite(p.turn)?norm(p.turn):null,path:pathEffects(p.path)};}
   const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,note:p.note,turn:p.turn,path:p.path});
   const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
   const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||!project.nonholonomic&&['turn','spin'].includes(p?.path?.rotate));
   // Each segment records which pin it leads to, so paths can be told apart (action or regular).
   function annotate(route){const stops=route.stops||[];let k=0;route.segments.forEach((s,i)=>{while(k<stops.length-1&&stops[k].segment<i)k++;s.to=k;});return route;}
+  // Inspect every endpoint even when another pin (or the start) prevents planning. Path checks
+  // are optional so the UI can refresh clearance immediately while a worker plans the route.
+  function analyze(project,rawFootprint,fieldZones=[],rawField,paths=false){
+    const issues=[],fp=footprintOf(rawFootprint),f=fieldOf(rawField),all=[...(project.zones||[]),...fieldZones].map(validateZone),pins=project.pins||[];
+    const add=(pin,code,message)=>{if(!issues.some(q=>q.pin===pin&&q.code===code))issues.push({pin,code,message});};
+    let heading=project.start?.heading||0;
+    if(!project.start||!safePose(project.start,all,fp,f))add(null,'start','Starting pose overlaps a wall or obstacle. Drag the robot to a clear position.');
+    pins.forEach((p,i)=>{const path=pathEffects(p.path),endHeading=path.rotate==='turn'?path.heading:heading;
+      const headings=project.rotate===false||path.rotate!=='keep'?[endHeading]:[heading,...Array.from({length:24},(_,j)=>j*15)];
+      if(!headings.some(h=>safePose({...p,heading:h},all,fp,f)))add(i,'clearance',`Pin ${i+1}: the whole chassis does not fit here. Move this pin away from the wall or obstacle, or move the obstacle.`);
+      if(finite(p.turn)&&!turnClear(p,endHeading,p.turn,all,fp,f,Math.max(MIN_CLEARANCE,project.clearance||1)))add(i,'turn',`Pin ${i+1}: the requested turn sweeps into a wall or obstacle. Move the pin into open space or remove its turn.`);
+      if(paths&&!issues.some(q=>q.pin===i)&&!(i===0&&issues.some(q=>q.code==='start'))&&!(i>0&&issues.some(q=>q.pin===i-1))){
+        const from=i?pins[i-1]:project.start;
+        try{plan({...project,start:{...from,heading},pins:[p]},fp,fieldZones,f);}
+        catch(e){add(i,'path',e.message.replace(/pin 1\b/gi,`pin ${i+1}`));}
+      }
+      if(finite(p.turn))heading=p.turn;else heading=endHeading;
+    });
+    return issues;
+  }
   function plan(project,rawFootprint,fieldZones=[],rawField){
-    return annotate(effectful(project)?planEffects(project,rawFootprint,fieldZones,rawField):planBasic(project,rawFootprint,fieldZones,rawField));
+    const route=annotate(effectful(project)?planEffects(project,rawFootprint,fieldZones,rawField):planBasic(project,rawFootprint,fieldZones,rawField));if(finite(project.defaultPower))route.defaultPower=Math.max(0,Math.min(1,project.defaultPower));return route;
   }
   // Holonomic robots may turn in place to fit past obstacles; tank-style robots drive along their heading.
   function planBasic(project,rawFootprint,fieldZones=[],rawField){
@@ -173,11 +243,20 @@
     pins.forEach((p,i)=>{
       if(!tank&&rotates(p.path,at.heading)){flush();
         const radius=reach(footprint)+.05,square={front:radius,rear:radius,half:radius},spin=p.path.rotate==='spin';
-        let r;try{r=planBasic({...project,start:at,pins:[plain(p)],rotate:false},square,fieldZones,field);}
+        // Try the actual heading interpolation first. A full rotation envelope at the start
+        // incorrectly rejects a robot that safely drives away from a wall as it turns.
+        const h0=at.heading,h1=spin?h0+360*p.path.spins:h0+norm(p.path.heading-h0);
+        const rotateRoute=r=>{const lengths=r.segments.map(s=>Array.from({length:32},(_,j)=>dist(bezier(s.points,j/32),bezier(s.points,(j+1)/32))).reduce((a,b)=>a+b,0)),total=lengths.reduce((a,b)=>a+b,0)||1;let done=0;
+          return {...r,segments:r.segments.map((s,j)=>{const a=h0+(h1-h0)*done/total;done+=lengths[j];return {...s,heading:a,endHeading:h0+(h1-h0)*done/total};})};};
+        let r;try{const candidate=rotateRoute(planBasic({...project,start:at,pins:[plain(p)],rotate:false},footprint,fieldZones,field));
+          const padded={front:footprint.front+clearance/2,rear:footprint.rear+clearance/2,half:footprint.half+clearance/2};
+          for(const s of candidate.segments){let prev={...s.points[0],heading:s.heading};const count=Math.max(32,Math.ceil(Math.abs(s.endHeading-s.heading)/2),Math.ceil(dist(s.points[0],s.points.at(-1))*2));
+            for(let j=1;j<=count;j++){const pose={...bezier(s.points,j/count),heading:s.heading+(s.endHeading-s.heading)*j/count};if(!safeSweep(prev,pose,all,footprint,field)||all.some(z=>zoneHits(body(pose,padded),z)))throw Error('Turning sweep blocked.');prev=pose;}}
+          r=candidate;
+        }catch{try{r=rotateRoute(planBasic({...project,start:at,pins:[plain(p)],rotate:false},square,fieldZones,field));}
         catch{throw Error(`The path to pin ${i+1} has no room to ${spin?'spin':'turn'} while driving: the turning robot needs ${(2*radius).toFixed(0)} in of clear width. Move pin ${i+1} or the path's start away from obstacles and walls, or turn at a pin instead.`);}
-        const h0=at.heading,h1=spin?h0+360*p.path.spins:h0+norm(p.path.heading-h0),lens=r.segments.map(s=>s.type==='line'?dist(s.points[0],s.points[1]):Array.from({length:24},(_,j)=>dist(bezier(s.points,j/24),bezier(s.points,(j+1)/24))).reduce((a,b)=>a+b,0)),total=lens.reduce((a,b)=>a+b,0)||1;
-        let done=0;const rotated=r.segments.map((s,j)=>{const a=h0+(h1-h0)*done/total;done+=lens[j];const b=h0+(h1-h0)*done/total;return {...s,heading:norm(a),endHeading:norm(a)+(b-a)};});
-        add({...r,segments:rotated,turnDegrees:Math.abs(h1-h0)},h0);
+        }
+        add({...r,turnDegrees:Math.abs(h1-h0)},h0);
       }else{if(!chunk.length)base=i;chunk.push(p);}
       if(finite(p.turn)){flush();const delta=norm(p.turn-at.heading);
         if(Math.abs(delta)>1e-6){if(!turnClear(at,at.heading,p.turn,all,footprint,field,clearance))throw Error(`Pin ${i+1} has no room to turn the robot to ${Math.round(p.turn)}°. Move it away from obstacles and walls.`);turnDegrees+=Math.abs(delta);at={...at,heading:norm(p.turn)};}}
@@ -380,5 +459,5 @@
     });
     return {...route,style:'sharp',nonholonomic:true,footprint,segments};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,segmentClear,validateZone,inflated,plan,planEffects,pinEffects,pathEffects,planFixed,planTurning,planTankLattice,tankRoute,dist};
+  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,planEffects,pinEffects,pathEffects,planFixed,planTurning,planTankLattice,tankRoute,dist};
 });

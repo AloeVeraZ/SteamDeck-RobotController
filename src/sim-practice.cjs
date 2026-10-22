@@ -1,7 +1,7 @@
 'use strict';
 // Simulation-time practice clock. It never talks to a real robot or a controller.
 const DEFAULTS={autoSeconds:30,transitionSeconds:8,teleopSeconds:120};
-function timing(raw={}){return Object.fromEntries(Object.entries(DEFAULTS).map(([k,v])=>[k,typeof raw[k]==='number'&&Number.isFinite(raw[k])?Math.max(k==='transitionSeconds'?0:.1,Math.min(3600,raw[k])):v]));}
+function timing(raw={}){return Object.fromEntries(Object.entries(DEFAULTS).map(([k,v])=>[k,typeof raw[k]==='number'&&Number.isFinite(raw[k])?Math.max(k==='transitionSeconds'?0:.000001,raw[k]):v]));}
 class PracticeClock{
   constructor(mode,options){this.mode=mode==='teleop'?'teleop':mode==='match'?'match':'autonomous';this.timing=timing(options);this.phase=this.mode==='teleop'?'teleop':'auto';this.elapsed=0;this.neutralRequired=true;}
   get duration(){return this.phase==='auto'?this.timing.autoSeconds:this.phase==='transition'?this.timing.transitionSeconds:this.phase==='teleop'?this.timing.teleopSeconds:0;}

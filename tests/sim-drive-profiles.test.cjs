@@ -13,8 +13,8 @@ test('FTC defaults to drive encoders; MotionModule permits external odometry but
 test('field-centric and robot-centric sticks drive different physical directions at heading zero',async()=>{
   for(const style of ['field','robot']){const e=engine();try{await e.load({field:'empty',start:{x:60,y:60,heading:0},robot:{driveStyle:style}});await e.startPractice({mode:'teleop'});e.practiceInput(pad(0,0));e.practiceInput(pad(0,-1));for(let i=0;i<30;i++)await e.practiceTick();const p=e.truth();assert.ok(style==='field'?p.y>65&&Math.abs(p.x-60)<.1:p.x>65&&Math.abs(p.y-60)<.1,JSON.stringify(p));}finally{e.dispose();}}
 });
-test('current budget changes physical acceleration; RPM endpoints have finite measured tuning',async()=>{
-  const e=engine();try{const speeds=[];for(const amps of [5,20]){await e.load({field:'empty',start:{x:40,y:40,heading:0},robot:{driveAmps:amps}});for(let i=0;i<6;i++)e.tick({forward:1,strafe:0,turn:0});speeds.push(e.truth().vx);}assert.ok(speeds[1]>speeds[0]*2);
+test('legacy current entries no longer act as a torque multiplier; RPM endpoints have finite measured tuning',async()=>{
+  const e=engine();try{const speeds=[];for(const amps of [2,10]){await e.load({field:'empty',start:{x:40,y:40,heading:0},robot:{driveAmps:amps}});for(let i=0;i<6;i++)e.tick({forward:1,strafe:0,turn:0});speeds.push(e.truth().vx);}assert.equal(speeds[1],speeds[0]);
     for(const rpm of [50,6000]){await e.load({robot:{driveRpm:rpm}});assert.equal(e.info.robot.driveRpm,rpm);assert.ok(Object.values(e.info.tuning).every(Number.isFinite));}
   }finally{e.dispose();}
 });

@@ -80,8 +80,10 @@ for(const b of document.querySelectorAll('[data-theme-choice]'))b.onclick=()=>{p
 applyTheme(prefs.get('deck-theme','system'));
 const sendKeepAwake=()=>void api.keepAwake?.($('#keep-awake').checked).catch(()=>{});
 $('#keep-awake').checked=prefs.get('deck-keep-awake','on')!=='off';$('#keep-awake').onchange=()=>{prefs.set('deck-keep-awake',$('#keep-awake').checked?'on':'off');sendKeepAwake();};sendKeepAwake();
+const syncKeyboardMenu=()=>{const on=$('#touch-keyboard-auto').checked;$('#menu-keyboard').setAttribute('aria-checked',String(on));$('#menu-keyboard-check').textContent=on?'☑':'☐';};
+$('#menu-keyboard').onclick=()=>{$('#touch-keyboard-auto').checked=!$('#touch-keyboard-auto').checked;$('#touch-keyboard-auto').onchange();};
 const sendTouchKeyboard=()=>void api.touchKeyboard?.($('#touch-keyboard-auto').checked).catch(()=>{});
-$('#touch-keyboard-auto').checked=prefs.get('deck-touch-keyboard','on')!=='off';$('#touch-keyboard-auto').onchange=()=>{prefs.set('deck-touch-keyboard',$('#touch-keyboard-auto').checked?'on':'off');if(!$('#touch-keyboard-auto').checked)touchscreen.hide();sendTouchKeyboard();};sendTouchKeyboard();
+$('#touch-keyboard-auto').checked=prefs.get('deck-virtual-keyboard','off')==='on';$('#touch-keyboard-auto').onchange=()=>{prefs.set('deck-virtual-keyboard',$('#touch-keyboard-auto').checked?'on':'off');syncKeyboardMenu();if(!$('#touch-keyboard-auto').checked)touchscreen.hide();sendTouchKeyboard();};syncKeyboardMenu();sendTouchKeyboard();
 if(/Mac/i.test(navigator.platform)){for(const key of document.querySelectorAll('kbd.mod'))key.textContent='⌘';$('.back-key').replaceChildren(el('kbd','','⌘'),' ',el('kbd','','['));}
 $('#zoom-reset').onclick=()=>void task(()=>api.zoom(0));
 

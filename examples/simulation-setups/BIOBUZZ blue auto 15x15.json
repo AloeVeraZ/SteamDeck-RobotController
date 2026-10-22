@@ -1,0 +1,242 @@
+{
+  "deckSimulation": 2,
+  "version": 2,
+  "setupName": "BIOBUZZ blue auto 15x15",
+  "imuSource": "hub",
+  "timing": {
+    "power": 0.45,
+    "forwardSpeed": 91.84,
+    "strafeSpeed": 73.47,
+    "startup": 0,
+    "stopping": 0.13,
+    "strafeStopping": 0.091,
+    "headingP": 1.6
+  },
+  "orientations": {},
+  "hitboxes": false,
+  "robot": {
+    "drivetrain": "mecanum",
+    "length": 15,
+    "width": 15,
+    "heightIn": 15,
+    "driveRpm": 500,
+    "intakeIn": 0,
+    "massLb": 5,
+    "driveAmps": 10,
+    "driveStyle": "robot",
+    "appearance": "strafer"
+  },
+  "tuning": {
+    "maxPathSpeed": 1
+  },
+  "practice": {
+    "mode": "autonomous",
+    "autoSeconds": 30,
+    "transitionSeconds": 8,
+    "teleopSeconds": 120
+  },
+  "program": {
+    "kind": "route",
+    "name": "",
+    "source": ""
+  },
+  "model": null,
+  "view": "2d",
+  "export": {
+    "packageName": "org.firstinspires.ftc.teamcode",
+    "className": "PlannedRoute",
+    "keep": false
+  },
+  "controller": "ftc",
+  "sensors": {
+    "localization": "fused",
+    "gyroDrift": 0.5,
+    "noise": 0.05
+  },
+  "layouts": [
+    {
+      "id": "biobuzzauto",
+      "name": "BIOBUZZ blue auto",
+      "field": "biobuzz",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": {
+        "x": 84.75,
+        "y": 135.17,
+        "heading": 270
+      },
+      "zones": [
+        {
+          "id": "zone-hive",
+          "type": "rect",
+          "x": 72,
+          "y": 72,
+          "width": 48,
+          "height": 38.8,
+          "angle": 0
+        }
+      ],
+      "pins": [
+        {
+          "x": 84.75,
+          "y": 112,
+          "wait": 0.8,
+          "action": "Shoot",
+          "note": "3 preloaded POLLEN into the blue HIVE's north up-CELL (3 NECTAR staged): TIP 1. Keep the 4th."
+        },
+        {
+          "x": 118,
+          "y": 118,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "rotate": "turn",
+            "heading": 90
+          }
+        },
+        {
+          "x": 135.17,
+          "y": 132,
+          "wait": 0.4,
+          "action": "Intake",
+          "note": "Intake facing the blue GARDEN line on the rear wall: take 3 (4 held).",
+          "path": {
+            "kind": "action",
+            "action": "Intake"
+          }
+        },
+        {
+          "x": 118,
+          "y": 118,
+          "wait": 0,
+          "action": ""
+        },
+        {
+          "x": 84.75,
+          "y": 32,
+          "wait": 0.8,
+          "action": "Shoot",
+          "note": "4 POLLEN into the south up-CELL left by TIP 1 (4 of 8).",
+          "path": {
+            "rotate": "turn",
+            "heading": 90
+          }
+        },
+        {
+          "x": 95.4,
+          "y": 26,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "rotate": "turn",
+            "heading": 270
+          }
+        },
+        {
+          "x": 95.4,
+          "y": 16.5,
+          "wait": 1,
+          "action": "Intake",
+          "note": "4 POLLEN out of FLOWER F4's bottom opening."
+        },
+        {
+          "x": 95.4,
+          "y": 25,
+          "wait": 0,
+          "action": ""
+        },
+        {
+          "x": 84.75,
+          "y": 32,
+          "wait": 0.8,
+          "action": "Shoot",
+          "note": "4 more POLLEN: 8 of 8, TIP 2.",
+          "path": {
+            "rotate": "turn",
+            "heading": 90
+          }
+        },
+        {
+          "x": 84.75,
+          "y": 36,
+          "wait": 1,
+          "action": "Intake",
+          "note": "Recycle: once the swing drops TIP 2's POLLEN outboard of the south CELL, intake 4.",
+          "path": {
+            "kind": "action",
+            "action": "Intake"
+          }
+        },
+        {
+          "x": 112,
+          "y": 36,
+          "wait": 0,
+          "action": ""
+        },
+        {
+          "x": 84.75,
+          "y": 112,
+          "wait": 0.8,
+          "action": "Shoot",
+          "note": "4 recycled POLLEN into the north up-CELL left by TIP 2 (4 of 8).",
+          "path": {
+            "rotate": "turn",
+            "heading": 270
+          }
+        },
+        {
+          "x": 119,
+          "y": 95.4,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "rotate": "turn",
+            "heading": 0
+          }
+        },
+        {
+          "x": 127,
+          "y": 95.4,
+          "wait": 1,
+          "action": "Intake",
+          "note": "4 POLLEN out of FLOWER F3."
+        },
+        {
+          "x": 119,
+          "y": 95.4,
+          "wait": 0,
+          "action": ""
+        },
+        {
+          "x": 84.75,
+          "y": 112,
+          "wait": 0.8,
+          "action": "Shoot",
+          "note": "4 POLLEN: 8 of 8, TIP 3 (scores as AUTO if the swing ends before TELEOP).",
+          "path": {
+            "rotate": "turn",
+            "heading": 270
+          }
+        },
+        {
+          "x": 114,
+          "y": 104,
+          "wait": 0,
+          "action": ""
+        },
+        {
+          "x": 127,
+          "y": 36,
+          "wait": 0,
+          "action": "Park",
+          "note": "PARK partly in the blue LOADING ZONE."
+        }
+      ],
+      "clearance": 2,
+      "style": "spline",
+      "rotate": true
+    }
+  ],
+  "active": "biobuzzauto"
+}

@@ -30,7 +30,7 @@ function emit(channel,value){try{if(win&&!win.isDestroyed())win.webContents.send
 function snapshot(){return {...state,zoom:currentZoom(),robots:library?.list(currentNetwork?.ssid),network:currentNetwork};}
 function update(patch={}){Object.assign(state,patch);if(state.page!=='drive'||state.error||!state.url)robotKeyboard?.hide({focus:false});if(state.robotFullscreen&&(state.page!=='drive'||state.error||!state.url))void setRobotFullscreen(false);syncAwake();emit('state',snapshot());}
 // Keep the display on while a robot is open (Settings preference, on by default).
-let keepAwake=true,awakeBlocker=null,touchKeyboard=true;
+let keepAwake=true,awakeBlocker=null,touchKeyboard=false;
 // Robot pages learn the on-screen keyboard preference on load and whenever it changes.
 function sendTouchKeyboard(contents){if(contents&&!contents.isDestroyed())contents.send('deck-touch-keyboard-enabled',touchKeyboard);}
 function syncAwake(){const wanted=keepAwake&&!!robotView&&!suspended;if(wanted&&awakeBlocker===null)awakeBlocker=powerSaveBlocker.start('prevent-display-sleep');else if(!wanted&&awakeBlocker!==null){powerSaveBlocker.stop(awakeBlocker);awakeBlocker=null;}}
@@ -279,6 +279,25 @@ async function setPage(page){
   return snapshot();
 }
 handle('page',setPage);
+// A simulator robot drag locks the pointer; on release the system cursor is put back on the robot.
+// Electron cannot move the cursor, so Windows uses user32 from one long-lived PowerShell (started
+// when the drag begins) and Linux uses xdotool when it is installed. macOS leaves it in place.
+let cursorHelper=null;
+function cursorProcess(){
+  if(process.platform!=='win32')return null;if(cursorHelper&&cursorHelper.exitCode===null&&!cursorHelper.killed)return cursorHelper;
+  const script='$s=\'[DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(System.IntPtr c);\';Add-Type -Namespace Deck -Name Cursor -MemberDefinition $s;try{[void][Deck.Cursor]::SetProcessDpiAwarenessContext([System.IntPtr]::new(-4))}catch{};while(($l=[Console]::In.ReadLine()) -ne $null){$a=$l.Split(\' \');[void][Deck.Cursor]::SetCursorPos([int]$a[0],[int]$a[1])}';
+  cursorHelper=require('node:child_process').spawn('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],{windowsHide:true,stdio:['pipe','ignore','ignore']});
+  cursorHelper.on('error',()=>{cursorHelper=null;});cursorHelper.stdin.on('error',()=>{});return cursorHelper;
+}
+handle('cursor',(x,y)=>{
+  if(x==='prepare'){cursorProcess();return false;}
+  if(!win||win.isDestroyed()||![x,y].every(Number.isFinite))return false;
+  const b=win.getContentBounds(),zoom=win.webContents.getZoomFactor(),dip={x:Math.round(b.x+x*zoom),y:Math.round(b.y+y*zoom)};
+  if(process.platform==='win32'){const p=screen.dipToScreenPoint(dip);cursorProcess()?.stdin.write(`${Math.round(p.x)} ${Math.round(p.y)}\n`);return true;}
+  if(process.platform==='linux'){const s=screen.getDisplayNearestPoint(dip).scaleFactor||1;execFile('xdotool',['mousemove',String(Math.round(dip.x*s)),String(Math.round(dip.y*s))],()=>{});return true;}
+  return false;
+});
+app.on('will-quit',()=>{try{cursorHelper?.kill();}catch{}});
 handle('sim',async(method,args)=>{if(state.page!=='simulation')throw Error('Open the Simulation view first.');return simulation.call(method,args);});
 handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});

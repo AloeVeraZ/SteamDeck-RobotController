@@ -168,7 +168,7 @@ public final class PedroBridge {
             // Pedro's 100 ms default ends a hold before a real chassis has settled. The
             // simulated profile uses a hold timeout long enough to observe settling.
             c.timeoutConstraint.set(num(tune, "holdTimeoutMs"));
-            if (tune.has("maxPathSpeed")) c.maxPathSpeed.set(num(tune, "maxPathSpeed"));
+            if (tune.has("maxPathSpeed")) c.maxPathSpeed.set(Math.max(0.000001, num(tune, "maxPathSpeed")));
         });
         Follower follower = new Follower(localizer, drivetrain, new Foresight(config));
         Pose startPose = new Pose(num(start, "x"), num(start, "y"), num(start, "heading"));
@@ -176,6 +176,7 @@ public final class PedroBridge {
         List<Path> legs = new ArrayList<>();
         List<Double> waits = new ArrayList<>();
         List<String> actions = new ArrayList<>();
+        List<Double> powers = new ArrayList<>();
         Path route = null;
         Object[] details = null;
         boolean turning = kind == SimDrivetrain.Kind.TANK;
@@ -213,6 +214,7 @@ public final class PedroBridge {
                     legs.add(join(parts.subList(from, last + 1)));
                     waits.add(num(l, "wait"));
                     actions.add(l.get("action").getAsString());
+                    powers.add(l.has("power") ? num(l, "power") : config.maxPathSpeed.get());
                     moving.add(l.get("moving").getAsString());
                     legHeadings.add(l.has("heading") ? Math.toRadians(num(l, "heading")) : partHeadings.get(from));
                     turnAfter.add(l.has("turn") && !l.get("turn").isJsonNull() ? Math.toRadians(num(l, "turn")) : Double.NaN);
@@ -255,7 +257,8 @@ public final class PedroBridge {
         localizer.ingest(0, 0, num(start, "heading"), 0);
         localizer.update();
         localizer.setPose(startPose);
-        robot = new SimRobot(follower, config, startPose, route, pins, legs, waits, actions);
+        robot = new SimRobot(follower, drivetrain, config, startPose, route, pins, legs, waits, actions);
+        robot.legPowers(powers);
         if (details != null) robot.legDetails((List<Double>) details[0], (List<Double>) details[1], (List<String>) details[2]);
         JsonObject programSpec = m.getAsJsonObject("program");
         String kindName = programSpec.get("kind").getAsString();

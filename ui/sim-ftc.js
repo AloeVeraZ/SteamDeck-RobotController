@@ -22,7 +22,7 @@
     if(!SUPPORTED[localization])throw Error('Pedro on a Control Hub needs position sensing: drive encoders, odometry pods, Pinpoint or OTOS. IMU-only setups export timed commands.');
     const drivetrain=robot.drivetrain||'mecanum',tank=TANK.has(drivetrain);
     if(!tank&&drivetrain!=='mecanum')throw Error('Pedro on a Control Hub is exported for mecanum and tank-style drivetrains (tank, differential, 6- and 8-wheel, tracks). Swerve, X-drive, Kiwi, H-drive and butterfly export timed commands or Pedro paths for your own drivetrain code.');
-    const rpm=robot.driveRpm||312,inches=Math.PI*WHEEL_MM/25.4;
+    const rpm=robot.driveRpm||312,inches=Math.PI*(robot.wheelDiameterMm||WHEEL_MM)/25.4;
     return {localization,imu:'imu',drive:{kind:tank?'tank':'mecanum',ticksPerInch:ticksPerRev(rpm)/inches,ticksPerRev:ticksPerRev(rpm),halfLength:robot.length/2,halfWidth:robot.width/2,motors:drivetrain==='tank2'?DIFF:MOTORS},
       pods:(PODS[localization]||[]).map(p=>({...p,ticksPerInch:POD_TICKS_PER_INCH})),...(localization==='fused'?{pinpoint:'pinpoint'}:{}),...(localization==='optical'?{otos:'sensor_otos'}:{})};
   }
@@ -113,6 +113,7 @@ ${tank?`    /** Drive motors on each side (left motors are reversed in TankDrive
 `:`    public static MecanumConfig driveConfig = new MecanumConfig(c -> {
 ${Object.entries(MOTORS).map(([k,m])=>`        c.${k}Name.set("${m.name}");`).join('\n')}
 ${Object.entries(MOTORS).map(([k,m])=>`        c.${k}Direction.set(DcMotorSimple.Direction.${dir(m)});`).join('\n')}
+        c.powerThreshold.set(0.0); // Keep path power ceilings exact at every motor write.
     });
 `}
 ${loc.field}
@@ -131,13 +132,39 @@ ${loc.field}
         c.naturalForwardDeceleration.set(${n(t.forwardDeceleration)});
         c.naturalStrafeDeceleration.set(${n(t.strafeDeceleration)});
         c.timeoutConstraint.set(${n(t.holdTimeoutMs)});
-        c.maxPathSpeed.set(${n(t.maxPathSpeed)});
+        c.maxPathSpeed.set(${n(Math.max(.000001,t.maxPathSpeed))});
     });
 
     public static Follower create(HardwareMap h) {
         // The drivetrain sets the motor directions, so build it before a localizer reads the drive encoders.
         ${tank?'TankDrive drivetrain = new TankDrive(h, LEFT_MOTORS, RIGHT_MOTORS);':'Mecanum drivetrain = new Mecanum(h, driveConfig);'}
-        return new Follower(${loc.make}, drivetrain, new Foresight(foresightConfig));
+        motorPower(${n(t.maxPathSpeed)});
+        liveDrive = new PowerDrive(drivetrain);
+        return new Follower(${loc.make}, liveDrive, new Foresight(foresightConfig));
+    }
+
+    private static double powerLimit = ${n(t.maxPathSpeed)};
+    private static PowerDrive liveDrive;
+    /** Applied to every mixed motor, including corrections and turns. */
+    public static void motorPower(double power) {
+        powerLimit = Math.max(0, Math.min(1, power));
+        if (powerLimit == 0 && liveDrive != null) liveDrive.stop();
+        foresightConfig.maxPathSpeed.set(Math.max(0.000001, powerLimit));
+    }
+    private static final class PowerDrive implements com.pedropathing.drivetrain.Drivetrain {
+        private final com.pedropathing.drivetrain.Drivetrain delegate;
+        PowerDrive(com.pedropathing.drivetrain.Drivetrain delegate) { this.delegate = delegate; }
+        public void drive(com.pedropathing.drivetrain.DrivePowers p, boolean manual) {
+            if (powerLimit == 0) { delegate.stop(); return; }
+            double peak = Math.abs(p.forward()) + Math.abs(p.strafe()) + Math.abs(p.turn());
+            double scale = Math.max(1, peak / powerLimit);
+            delegate.drive(new com.pedropathing.drivetrain.DrivePowers(p.forward()/scale, p.strafe()/scale, p.turn()/scale), manual);
+        }
+        public double maxScaling(com.pedropathing.drivetrain.DrivePowers a, com.pedropathing.drivetrain.DrivePowers b) { return delegate.maxScaling(a,b); }
+        public void stop() { delegate.stop(); }
+        public void stop(boolean brake) { delegate.stop(brake); }
+        public double interpolateVelocity(double x, double y, double theta) { return delegate.interpolateVelocity(x,y,theta); }
+        public java.util.Map<String,Object> debug() { return delegate.debug(); }
     }
 }
 `;
@@ -451,6 +478,12 @@ public class ${options.opModeName} extends LinearOpMode {
             int movingPath = 0;
             boolean movingDone = true, movingFirst = false;
             for (int i = 0; i < legs.length && opModeIsActive(); i++) {
+                Constants.motorPower(${R}.MOTOR_POWER[i]);
+                if (${R}.MOTOR_POWER[i] == 0) {
+                    follower.stop();
+                    while (opModeIsActive()) { report(i, legs.length, "Zero motor power: stopped"); idle(); }
+                    break;
+                }
                 // Turn only where the plan changes heading (turning routes), not to chase small drift.
                 if (Math.abs(angle(${R}.START_HEADING[i] - plannedHeading)) > Math.toRadians(0.5)) turnTo(${R}.START_HEADING[i], i, legs.length);
                 // An action path's action starts with the path and may span several legs of it.
@@ -670,6 +703,10 @@ ${list.map(a=>`
   // is listed in keep: it is written only when it does not exist yet.
   function files({route,layout,tuning,robot,localization,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',routeJava,exporter=globalThis.DeckSimExport||require('./sim-export.js')}){
     const h=hardware(robot,localization),dir=packageName.replace(/\./g,'/'),opModeName=className+'Auto',options={packageName,className,opModeName,layoutName:layout.name,setupName,exporter},list=exporter.actions(route);
+    // Older callers export geometry before passing the measured robot tuning. Resolve inherited
+    // power here as well, so generated code and the virtual follower use the same default.
+    const powers=exporter.legs(route).map(l=>n(l.power??route.defaultPower??tuning.maxPathSpeed)).join(', ');
+    routeJava=routeJava.replace(/public static final double\[\] MOTOR_POWER = \{[^}]*\}/,`public static final double[] MOTOR_POWER = {${powers}}`);
     const out={[`${dir}/${className}.java`]:routeJava,[`${dir}/${opModeName}.java`]:opMode(options),[`${dir}/RouteActions.java`]:routeActions(options,list),[`${dir}/RobotActions.java`]:robotActions(options,list),[`${dir}/pedro/Constants.java`]:constants(h,tuning,options)};
     if(h.drive.kind==='tank')out[`${dir}/pedro/TankDrive.java`]=tankDrive(options);
     if(localization==='encoders')out[h.drive.kind==='tank'?`${dir}/pedro/TankEncoderLocalizer.java`:`${dir}/pedro/DriveEncoderLocalizer.java`]=h.drive.kind==='tank'?tankEncoderLocalizer(options):driveEncoderLocalizer(options);

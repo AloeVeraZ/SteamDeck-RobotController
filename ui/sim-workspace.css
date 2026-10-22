@@ -1,0 +1,104 @@
+/* Planning and review keep the field in view; setup remains a document page. */
+#simulation-field,#simulation-field *{user-select:none;-webkit-user-select:none}
+.sim-workspace .simulation-layout{user-select:none;-webkit-user-select:none}
+.sim-workspace input,.sim-workspace textarea{user-select:text;-webkit-user-select:text}
+#simulation-field{touch-action:none}
+#simulation-field:focus,#simulation-field:focus-visible{outline:none}
+#simulation-field:focus-visible .sim-walls{stroke:var(--accent)}
+#simulation-field text{pointer-events:none}
+.sim-workspace .sim-panel .sim-planning-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:0 0 12px}
+.sim-workspace .sim-panel .sim-planning-steps button{min-width:0;min-height:40px;font-size:11px;padding:5px}
+.sim-workspace .sim-toolbar [role=group]{flex-wrap:wrap}
+.sim-diagnostics ul{list-style:none;padding:0;margin:8px 0;font-size:12px}
+.sim-diagnostics li{padding:7px 0;border-bottom:1px solid var(--line);line-height:1.4}
+.sim-diagnostics .sim-issue{color:var(--text)}
+.sim-diagnostics .sim-issue::before{content:'● ';color:#ff7586}
+.sim-diagnostics .text-button{display:block;font-size:11px}
+.sim-popover{box-sizing:border-box;padding:8px 10px}
+.sim-popover input{min-height:30px;height:30px;font-size:12px;padding:4px 7px}
+.sim-popover input[type=checkbox]{width:auto;height:auto;min-height:0}
+.sim-popover input.num-slider{display:none}
+.sim-popover label{font-size:11px;margin:5px 0 3px}
+.sim-popover .sim-settings-tabs{gap:3px;margin:6px 0}
+.sim-popover .sim-settings-tabs button,.sim-popover .sim-seg button{font-size:11px;min-height:30px;padding:4px}
+.sim-popover .sim-pop-sec{padding-top:6px;margin-top:6px}
+.sim-popover .hint{font-size:10px;line-height:1.3}
+.sim-popover .sim-pop-head h3{font-size:14px}
+.sim-popover textarea{height:46px;min-height:38px;resize:none}
+.sim-live-status{display:block;width:100%;text-align:left;font-size:11px;margin:0 0 8px;padding:5px 8px;min-height:28px;color:var(--muted);border:1px solid var(--line);background:var(--surface);border-radius:6px}
+.sim-live-status.has-issues{color:#ff9aa6;border-color:#a44655}
+@media(max-height:600px){.sim-popover .hint{display:none}.sim-popover label{margin-top:3px}.sim-popover{max-height:calc(100dvh - 110px)}}
+body.sim-workspace{overflow:hidden}
+.sim-workspace #simulation-view{height:calc(100dvh - 76px);padding:4px 16px 12px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0}
+.sim-workspace .simulation-heading,.sim-workspace .sim-setup-bar{display:none}
+.sim-workspace .sim-navigation{flex:none;margin-bottom:8px}
+.sim-workspace .sim-tabs>button{min-height:38px;padding-block:6px}
+.sim-workspace .sim-planning-steps{flex:none;margin-bottom:8px;gap:6px}
+.sim-workspace .sim-planning-steps button{min-height:34px;padding:4px 8px}
+.sim-workspace .simulation-layout,.sim-workspace #simulation-view[data-tab=run] .simulation-layout{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) 350px;gap:16px;align-items:stretch}
+.sim-workspace .field-area{position:static;min-height:0;display:flex;flex-direction:column}
+.sim-workspace .sim-toolbar{flex:none;margin-bottom:4px}
+.sim-workspace .sim-stage{flex:1;min-height:0}
+.sim-workspace #simulation-field{width:100%;height:100%;max-height:none!important;min-height:0!important}
+.sim-workspace .sim-3d{height:100%;min-height:0}
+.sim-workspace #field-help{font-size:11px;line-height:1.3;flex:none}
+.sim-workspace #field-coordinates{font-size:12px;margin:2px 0}
+.sim-workspace .sim-telemetry{grid-template-columns:auto 1fr auto 1fr;gap:1px 8px;max-width:none;font-size:10px;margin-top:4px}
+.sim-workspace .sim-panel{min-height:0;max-width:none;width:100%;box-sizing:border-box;margin:0}
+.sim-workspace .sim-panel h2{font-size:15px;margin:0 0 8px}
+.sim-workspace .sim-panel h3{font-size:13px;margin:10px 0 6px}
+.sim-workspace .sim-panel input,.sim-workspace .sim-panel select{min-height:30px;margin-bottom:5px}
+.sim-workspace .sim-panel input.num-slider{min-height:14px;height:14px;margin:0 0 5px}
+.sim-workspace .sim-panel .hint{font-size:11px;line-height:1.35;margin-block:6px}
+.sim-workspace .sim-panel .sim-seg{margin-bottom:7px}
+.sim-workspace .sim-panel .sim-seg button{min-height:30px;font-size:11px;padding:4px}
+.sim-workspace .sim-panel .button-row{margin:6px 0;gap:6px}
+.sim-workspace .sim-panel button{min-height:30px;padding-block:5px}
+.sim-settings-tabs{display:flex;gap:4px;margin:0 0 10px}
+.sim-workspace .sim-settings-tabs>button{flex:1;min-width:0;padding:5px 4px;font-size:11px;white-space:nowrap;overflow-wrap:normal}
+.sim-settings-tabs [aria-selected=true]{border-color:var(--accent);color:var(--accent);background:var(--well)}
+.sim-settings-page[hidden]{display:none!important}
+.sim-workspace .sim-pin-row input.num-slider{display:none}
+.sim-workspace .sim-pin-row:focus-within input.num-slider{display:block}
+.sim-workspace .sim-list{max-height:none;overflow:visible;margin:8px 0}
+.sim-pin-pages{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}
+.sim-workspace .sim-practice-clock{padding:8px 0;margin:6px 0}
+.sim-workspace .sim-practice-clock>strong{font-size:26px}
+.sim-workspace #sim-source{min-height:100px;height:calc(100dvh - 400px);max-height:300px;resize:none}
+.sim-workspace .sim-log pre{max-height:calc(100dvh - 310px)}
+.sim-workspace .sim-credit{font-size:10px}
+.sim-workspace #sim-plan-next{margin:10px 0 0}
+.sim-grab-cursor{stroke:var(--accent);stroke-width:.7;pointer-events:none;fill:none}
+#simulation-field[data-dragging=true]{cursor:none!important}
+.number-entry-done{position:fixed;right:22px;bottom:14px;z-index:1000;min-height:38px;box-shadow:0 3px 16px #0006}
+.number-entry-done[hidden]{display:none!important}
+.sim-workspace #simulation-view[data-tab=run] #field-help{display:none}
+.sim-workspace .sim-pin-row[hidden]{display:none!important}
+.sim-workspace #start-edge-plan,.sim-workspace #sim-start-step>.hint{display:none}
+.sim-settings-unit[hidden],.sim-section-pages[hidden]{display:none!important}
+.sim-section-pages{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:8px 0;font-size:11px}
+.sim-section-pages button{padding-inline:8px}
+@media(max-width:700px){
+ .sim-workspace #simulation-view{padding-inline:8px}
+ .sim-workspace .simulation-layout,.sim-workspace #simulation-view[data-tab=run] .simulation-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(140px,.9fr) minmax(0,1.1fr);gap:6px}
+ .sim-workspace #field-help,.sim-workspace #sim-telemetry{display:none!important}
+ .sim-workspace .sim-stage{min-height:60px}
+ .sim-workspace .sim-toolbar{position:absolute;z-index:2;right:10px;gap:3px}
+ .sim-workspace #sim-source{height:120px}
+ .sim-workspace .sim-panel input.num-slider{display:none}
+ .sim-workspace .sim-panel input:focus~input.num-slider{display:block}
+ .sim-workspace .sim-panel .hint{font-size:10px}
+ .sim-workspace .sim-navigation{margin-bottom:4px}
+ .sim-workspace .sim-panel [role=status]{margin-block:4px;min-height:0}
+ .sim-workspace .sim-settings-tabs{margin-bottom:5px}
+ .sim-workspace .sim-panel h2{margin-bottom:4px}
+}
+@media(max-height:600px){
+ .sim-workspace .sim-panel input,.sim-workspace .sim-panel select{padding:5px 7px;min-height:28px}
+ .sim-workspace .sim-panel button{min-height:26px;padding-block:3px}
+ .sim-workspace .sim-panel label{margin-bottom:3px;font-size:11px}
+ .sim-workspace .sim-panel .hint{font-size:10px;line-height:1.25;margin-block:4px}
+ .sim-workspace #sim-source{height:70px;min-height:60px}
+ .sim-workspace .sim-log pre{max-height:90px}
+ .sim-workspace #field-help{display:none}
+}

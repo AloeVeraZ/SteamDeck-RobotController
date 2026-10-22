@@ -15,15 +15,15 @@
   // After leg i the robot settles, turns to legs[i].turn if set, then runs the pin's action and pause.
   function legs(route){
     const segs=route.segments,stops=route.stops||[],turning=!!(route.nonholonomic||route.turns||segs.some(s=>finite(s.heading)));
-    const to=pathIndex(route),pathOf=k=>stops[k]?.path||{},acting=k=>pathOf(k).kind==='action',out=[];let from=0;
+    const to=pathIndex(route),pathOf=k=>stops[k]?.path||{},powerOf=k=>finite(pathOf(k).power)?Math.max(0,Math.min(1,pathOf(k).power)):null,acting=k=>pathOf(k).kind==='action',out=[];let from=0;
     segs.forEach((s,i)=>{
       const here=stops.map((p,k)=>({...p,k})).filter(p=>p.segment===i),next=segs[i+1];
       const wait=here.reduce((t,p)=>t+(finite(p.wait)?p.wait:0),0),action=here.map(p=>p.action).find(Boolean)||'',turn=[...here].reverse().find(p=>finite(p.turn))?.turn??null;
-      const end=!next||wait>0||!!action||turn!==null||(turning&&Math.abs(norm(next.heading-endOf(s)))>1e-6)||(to[i+1]!==to[i]&&(acting(to[i])||acting(to[i+1])));
+      const end=!next||wait>0||!!action||turn!==null||(turning&&Math.abs(norm(next.heading-endOf(s)))>1e-6)||(to[i+1]!==to[i]&&(acting(to[i])||acting(to[i+1])||powerOf(to[i])!==powerOf(to[i+1])));
       if(!end)return;
       const first=segs[from],path=pathOf(to[i]);
       out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
-        heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
+        power:powerOf(to[i]),heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
         moving:path.kind==='action'?{action:path.action||'',note:path.note||''}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
       from=i+1;
     });
@@ -93,6 +93,9 @@ public final class ${className} {
     /** Pause after each leg, in seconds. */
     public static final double[] WAIT_SECONDS = {${parts.map(l=>n(l.wait)).join(', ')}};
 
+    /** Motor power ceiling per leg, including setup defaults (0 disables that leg). */
+    public static final double[] MOTOR_POWER = {${parts.map(l=>n(l.power??route.defaultPower??options.defaultPower??.6)).join(', ')}};
+
     /** The action run at the pin after each leg, as named in the simulator ("" for none). */
     public static final String[] ACTIONS = {${parts.map(l=>javaString(l.action)).join(', ')}};
 
@@ -140,7 +143,7 @@ ${parts.map(leg).join(',\n')}
     const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant,degrees:+n(s.heading??route.heading)}};
       if(finite(s.endHeading))line.endPoint={x:+n(end.x),y:+n(end.y),heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
-      const path=stops[to[i]]?.path;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
+      const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.6;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
       const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));
