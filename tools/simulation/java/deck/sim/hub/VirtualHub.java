@@ -26,8 +26,8 @@ import javax.tools.ToolProvider;
 
 /**
  * A virtual REV Control Hub for exported autonomous code. The team files (OpMode, Constants,
- * route) are compiled against the FTC SDK stand-ins and Pedro's real revhub drivetrain and
- * localizers, then run in lockstep with the simulation: the drive motors with encoders (four
+ * route, Deck controller and hardware adapter) are compiled against FTC SDK stand-ins,
+ * then run in lockstep with the simulation: the drive motors with encoders (four
  * mecanum, or two or four tank), odometry pods, Pinpoint/OTOS and the built-in IMU are fed from the
  * simulated sensors, and the motor powers the OpMode sets are turned back into chassis motion
  * through mecanum or tank kinematics.
@@ -182,7 +182,7 @@ public final class VirtualHub {
             // Tank wheel travel: each side rolls forward, plus or minus the turn at the half-track.
             for (Map.Entry<String, SimMotor> e : drive.entrySet()) e.getValue().advance((left(e.getKey()) ? dx - k : dx + k) * wheelTicksPerInch, dt);
         } else {
-            // Mecanum wheel travel (forward-positive) for dx, dy, turn: the same mixing Pedro's Mecanum uses.
+            // Mecanum wheel travel (forward-positive) for dx, dy, turn: standard mecanum wheel mixing.
             double[] travel = {dx - dy - k, dx + dy + k, dx + dy - k, dx - dy + k};
             String[] corners = {"frontLeft", "frontRight", "backLeft", "backRight"};
             for (int i = 0; i < 4; i++) { SimMotor m = drive.get(corners[i]); if (m != null) m.advance(travel[i] * wheelTicksPerInch, dt); }

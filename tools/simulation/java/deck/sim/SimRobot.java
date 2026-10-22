@@ -1,9 +1,9 @@
 package deck.sim;
 
-import com.pedropathing.algorithm.ForesightConfig;
-import com.pedropathing.follower.Follower;
-import com.pedropathing.math.Pose;
-import com.pedropathing.paths.Path;
+import deck.pathing.DeckFollower.Config;
+import deck.pathing.DeckFollower;
+import deck.pathing.DeckFollower.Pose;
+import deck.pathing.DeckFollower.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -11,14 +11,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * What a simulated program can reach. Poses use Pedro's field frame, which matches the
- * simulator's: inches, origin at the bottom-left corner, +X right, +Y up, heading in radians
+ * What a simulated program can reach. Poses use the simulator field frame: inches, origin at the bottom-left corner, +X right, +Y up, heading in radians
  * counter-clockwise from +X.
  */
 public final class SimRobot {
-    private final Follower follower;
+    private final DeckFollower follower;
     private final SimDrivetrain drivetrain;
-    private final ForesightConfig config;
+    private final Config config;
     private final Pose start;
     private final Path route;
     private final List<Pose> pins;
@@ -32,7 +31,7 @@ public final class SimRobot {
     private double time;
     private boolean finished;
 
-    SimRobot(Follower follower, SimDrivetrain drivetrain, ForesightConfig config, Pose start, Path route, List<Pose> pins, List<Path> legs, List<Double> waits, List<String> actions) {
+    SimRobot(DeckFollower follower, SimDrivetrain drivetrain, Config config, Pose start, Path route, List<Pose> pins, List<Path> legs, List<Double> waits, List<String> actions) {
         this.drivetrain = drivetrain;
         this.legs = Collections.unmodifiableList(new ArrayList<>(legs));
         this.waits = Collections.unmodifiableList(new ArrayList<>(waits));
@@ -44,16 +43,16 @@ public final class SimRobot {
         this.pins = Collections.unmodifiableList(new ArrayList<>(pins));
     }
 
-    /** The genuine Pedro Follower, driving the simulated drivetrain from simulated sensors. */
-    public Follower follower() { return follower; }
+    /** The Deck controller, driving the simulated drivetrain from simulated sensors. */
+    public DeckFollower follower() { return follower; }
 
-    /** Foresight settings for the SIMULATED drivetrain (measured from DSIM's drive model). */
-    public ForesightConfig foresight() { return config; }
+    /** Controller settings for the SIMULATED drivetrain (measured from DSIM's drive model). */
+    public Config driveConfig() { return config; }
 
     /** The starting pose placed on the field. The localizer starts here. */
     public Pose startPose() { return start; }
 
-    /** The planner's collision-checked route as a Pedro path at constant heading, or null. */
+    /** The planner's collision-checked route as a compound path, or null. */
     public Path plannedRoute() { return route; }
 
     /** The planned route split at each pin that has a pause. Leg i ends at stop i. */
@@ -70,10 +69,10 @@ public final class SimRobot {
     private List<String> moving = Collections.emptyList();
     private List<Double> powers = Collections.emptyList();
     void legPowers(List<Double> values) { powers = new ArrayList<>(values); }
-    public double legPower(int leg) { return leg < powers.size() ? powers.get(leg) : config.maxPathSpeed.get(); }
+    public double legPower(int leg) { return leg < powers.size() ? powers.get(leg) : config.maxPathSpeed; }
     public void applyLegPower(int leg) {
         double power = legPower(leg);
-        config.maxPathSpeed.set(Math.max(0.000001, power));
+        config.maxPathSpeed = Math.max(0.000001, power);
         drivetrain.powerLimit(power);
     }
 

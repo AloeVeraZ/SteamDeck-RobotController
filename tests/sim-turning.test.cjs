@@ -32,7 +32,7 @@ test('tank: backs straight out of a corridor too narrow to turn in, then turns a
   const first=r.segments[0];assert.ok(first.points[1].x>50,'reverses out of the corridor first');assert.ok(Math.abs(norm(first.heading-180))<5,'without turning inside it');
   assert.doesNotThrow(()=>P.tankRoute(r,walls,fp,P.FIELD));
 });
-test('turning routes run on Pedro: the robot turns, settles, then drives through the gap',async()=>{
+test('turning routes run on the Deck controller: the robot turns, settles, then drives through the gap',async()=>{
   const e=engine();try{const start={x:72,y:30,heading:0};await e.load({field:'empty',start,zones:gap,robot:{length:24,width:12,intakeIn:0},sensors:{localization:'odometry'}});
     const route=P.plan({...through,start},e.info.footprint);assert.equal(route.turns,true);assert.equal((await e.run({route})).ok,true);const phases=new Set();
     for(let i=0;i<3000&&e.mode==='program';i++){await e.programTick();if(e.telemetry?.phase)phases.add(e.telemetry.phase);}

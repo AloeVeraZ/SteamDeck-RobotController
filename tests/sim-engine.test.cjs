@@ -1,8 +1,8 @@
 'use strict';
-// Simulator engine: DSIM physics plus a genuine Pedro Pathing process, stepped tick by tick.
+// Simulator engine: DSIM physics plus the Deck controller process, stepped tick by tick.
 // Needs the local simulation build (node tools/simulation/build.cjs).
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const runtime=path.join(__dirname,'../sim-runtime'),built=fs.existsSync(path.join(runtime,'dsim-host.cjs'))&&fs.existsSync(path.join(runtime,'pedro/classes/deck/sim/PedroBridge.class'));
+const runtime=path.join(__dirname,'../sim-runtime'),built=fs.existsSync(path.join(runtime,'dsim-host.cjs'))&&fs.existsSync(path.join(runtime,'driver/classes/deck/sim/RunBridge.class'));
 const skip=built?false:'run node tools/simulation/build.cjs first';
 const planner=built?require('../ui/sim-planner.js'):null;
 function engine(){
@@ -16,7 +16,7 @@ function engine(){
 }
 async function ticks(e,limit,until=()=>false){for(let i=0;i<limit&&e.mode==='program'&&!until();i++)await e.programTick();}
 const runEvent=(e,state)=>e.events.find(m=>m.type==='run'&&m.state===state);
-const source=body=>`import com.pedropathing.api.Paths;\nimport com.pedropathing.math.Pose;\nimport deck.sim.*;\npublic class T implements DeckAutonomous {\n${body}\n}\n`;
+const source=body=>`import deck.pathing.DeckFollower.Paths;\nimport deck.pathing.DeckFollower.Pose;\nimport deck.sim.*;\npublic class T implements DeckAutonomous {\n${body}\n}\n`;
 
 test('manual driving moves through DSIM physics: acceleration limited, wall stops it',{skip},async()=>{
   const e=engine();try{
@@ -26,12 +26,12 @@ test('manual driving moves through DSIM physics: acceleration limited, wall stop
     for(let i=0;i<240;i++)e.tick(e.manualCommand());const t=e.truth(),front=t.x+e.info.footprint.front;assert.ok(front<=144.5&&front>143,`stopped by the wall at ${front}`);
   }finally{e.dispose();}
 });
-test('Pedro follows a planned route around a no-go zone through physics',{skip},async()=>{
+test('Deck follows a planned route around a no-go zone through physics',{skip},async()=>{
   const e=engine();try{
     const zones=[{id:'z',type:'rect',x:72,y:72,width:20,height:50,angle:0}],start={x:20,y:72,heading:0},pins=[{x:124,y:72}];
     // Odometry pods isolate the follower from drive-encoder slip (which alone is worth 1-2 in).
     const info=await e.load({field:'empty',start,zones,sensors:{localization:'odometry'}});
-    // FLOAT coast-down, as Pedro's ForwardDeceleration tuner measures it on a real robot (~84 in/s²).
+    // FLOAT coast-down from the reference drivetrain (~84 in/s²).
     // Default path speed is 60% of top speed, capped near 45 in/s: this 500 RPM robot gets 0.45.
     assert.ok(info.tuning.maxPathSpeed>=.3&&info.tuning.maxPathSpeed<=.6);assert.ok(info.tuning.maxPathSpeed*info.tuning.maxForward<=45.5);assert.ok(info.tuning.forwardDeceleration>70&&info.tuning.forwardDeceleration<100,String(info.tuning.forwardDeceleration));
     const route=planner.plan({start,zones,pins,clearance:2},info.footprint,info.fieldZones,info.bounds);
@@ -43,21 +43,21 @@ test('Pedro follows a planned route around a no-go zone through physics',{skip},
     assert.ok(done.result.estimate&&Math.hypot(done.result.estimate.x-t.x,done.result.estimate.y-t.y)>0,'estimate comes from simulated sensors, not truth');
   }finally{e.dispose();}
 });
-test('Stop kills Pedro, zeroes the drive and ignores stale replies',{skip},async()=>{
+test('Stop stops the controller, zeroes the drive and ignores stale replies',{skip},async()=>{
   const e=engine();try{
     const start={x:20,y:72,heading:0},pins=[{x:120,y:72}],info=await e.load({field:'empty',start});
     const route=planner.plan({start,zones:[],pins,clearance:1},info.footprint,[],info.bounds);await e.run({kind:'route',route:{heading:0,segments:route.segments,stops:route.stops}});
-    await ticks(e,40);assert.ok(Math.abs(e.command.forward)>.1,'moving under Pedro');
+    await ticks(e,40);assert.ok(Math.abs(e.command.forward)>.1,'moving under the Deck controller');
     const child=e.child.child,pending=e.programTick();e.stop();await pending.catch(()=>{});
     assert.deepEqual(e.command,{forward:0,strafe:0,turn:0});assert.equal(e.mode,'idle');assert.equal(e.child,null);
     await new Promise(r=>child.exitCode!==null||child.signalCode?r():child.once('exit',r));
     for(let i=0;i<120;i++)e.tick(e.manualCommand());assert.ok(Math.hypot(e.truth().vx,e.truth().vy)<.5,'robot came to rest');assert.equal(e.command.forward,0);
   }finally{e.dispose();}
 });
-test('user Java program: genuine Pedro API, telemetry and captured output',{skip},async()=>{
+test('user Java program: Deck API, telemetry and captured output',{skip},async()=>{
   const e=engine();try{
     await e.load({field:'empty',start:{x:30,y:30,heading:90}});
-    const r=await e.run({kind:'source',source:source(`com.pedropathing.follower.Follower f; public void init(SimRobot r){f=r.follower();f.setPose(r.startPose());System.out.println("init ok");f.follow(Paths.line(r.startPose(),new Pose(30,80,Math.PI/2)).constant(Math.PI/2));}
+    const r=await e.run({kind:'source',source:source(`deck.pathing.DeckFollower f; public void init(SimRobot r){f=r.follower();f.setPose(r.startPose());System.out.println("init ok");f.follow(Paths.line(r.startPose(),new Pose(30,80,Math.PI/2)).constant(Math.PI/2));}
 public void loop(SimRobot r){f.update();r.telemetry("y",Math.round(f.pose().y()));if(!f.isBusy())r.finish();}`)});
     assert.equal(r.ok,true,r.error);await ticks(e,900);
     const done=runEvent(e,'finished');assert.ok(done,'finished');assert.ok(Math.abs(done.result.truth.y-80)<1.2,`y ${done.result.truth.y}`);
@@ -77,7 +77,7 @@ test('user code failures are readable and never hang the engine',{skip},async()=
     const t0=Date.now();await ticks(e,3);assert.match(runEvent(e,'error').error,/took longer than 5 s/);assert.ok(Date.now()-t0<9000);assert.equal(e.child,null);
   }finally{e.dispose();}
 });
-test('gyro-only sensing refuses Pedro Java; pause holds time; reset restores the start',{skip},async()=>{
+test('gyro-only sensing refuses positional Java; pause holds time; reset restores the start',{skip},async()=>{
   const e=engine();try{
     const start={x:40,y:40,heading:45};await e.load({field:'empty',start,sensors:{localization:'gyro'}});
     await assert.rejects(e.run({kind:'source',source:'test'}),/IMU-only sensing cannot measure X\/Y/);
@@ -95,12 +95,9 @@ test('DSIM fields: DECODE planar, BIOBUZZ Rapier 3D; reload disposes the 3D worl
     e.reset();assert.notEqual(e.world,first,'reset builds a fresh world');assert.ok(Math.abs(e.truth().x-30)<1e-6);
   }finally{e.dispose();}
 });
-test('Pedro core is compiled with every wall-clock read redirected to simulation time',{skip},()=>{
-  const manifest=JSON.parse(fs.readFileSync(path.join(runtime,'manifest.json'),'utf8'));assert.equal(manifest.java.pedroClockReadsPatched,12);
-  assert.equal(manifest.upstream.pedro,'cf4be31449a8963af3a7ce7951de09fd163bbb3d');assert.equal(manifest.upstream.dsim,'0df84143a52dde4c7c196fb21b94264a13da91b6');
-  for(const c of ['controllers/PIDController','controllers/Controller$TimedController','utils/Timer','follower/Follower']){
-    const bytes=fs.readFileSync(path.join(runtime,'pedro/classes/com/pedropathing',c+'.class')).toString('latin1');assert.ok(bytes.includes('deck/sim/SimClock'),c);
-  }
+test('the standalone Deck controller is built without a third-party follower and uses an injected clock',{skip},()=>{
+  const manifest=JSON.parse(fs.readFileSync(path.join(runtime,'manifest.json'),'utf8'));assert.equal(manifest.java.controller,'deck');assert.equal(manifest.java.clock,'injected simulation clock');assert.equal(manifest.upstream.pedro,undefined);
+  const source=fs.readFileSync(path.join(__dirname,'../tools/simulation/java/deck/pathing/DeckFollower.java'),'utf8');assert.doesNotMatch(source,/com\.pedropathing|System\.nanoTime/);assert.match(source,/LongSupplier/);
 });
 test('pins with a pause: the robot stops, waits, then continues',{skip},async()=>{
   const e=engine();try{

@@ -34,7 +34,7 @@ test('tank turns consume physics time, change with RPM, never strafe, and reach 
     assert.ok(e.result);assert.ok(turning>10);durations.push(turning);assert.ok(Math.hypot(e.result.truth.x-80,e.result.truth.y-100)<1.5,JSON.stringify(e.result));assert.ok(Math.abs(e.result.truth.heading-90)<2);assert.deepEqual(e.result.violations,[]);
   }finally{e.dispose();}}assert.ok(durations[0]>durations[1],'lower RPM takes more physics ticks to rotate');
 });
-test('noisy two-pod tank settles its turn and Pedro braking never divides by a zero linear term',async()=>{
+test('noisy two-pod tank settles its turn with finite braking calibration',async()=>{
   const e=engine();try{const start={x:40,y:40,heading:0};await e.load({field:'empty',start,robot:{drivetrain:'tank',length:15,width:18,intakeIn:0,massLb:23.5,driveRpm:500},sensors:{localization:'odometry'}});
     for(const k of ['linearBrakeForward','linearBrakeStrafe','headingBrakeLinear'])assert.ok(e.info.tuning[k]>0,k);
     const route=P.plan({start,pins:[{x:80,y:40},{x:80,y:100}],zones:[],nonholonomic:true},e.info.footprint);assert.equal((await e.run({route})).ok,true);

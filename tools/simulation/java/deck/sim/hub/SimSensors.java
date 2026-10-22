@@ -68,7 +68,7 @@ final class SimSensors {
         @Override public double getHeadingVelocity(UnnormalizedAngleUnit unit) { return unit.fromRadians(tracker.omega); }
     }
 
-    /** SparkFun OTOS: optical tracking with its own IMU. Its heading frame is the field's +90° (Pedro's convention). */
+    /** SparkFun OTOS: optical tracking with its own IMU. Its heading frame is the field's +90° (the sensor's native convention). */
     static final class Otos extends SparkFunOTOS {
         final Tracker tracker = new Tracker(Math.PI / 2);
         double gyro;

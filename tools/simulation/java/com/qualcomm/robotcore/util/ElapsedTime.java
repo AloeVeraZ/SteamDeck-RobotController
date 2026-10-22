@@ -2,7 +2,7 @@ package com.qualcomm.robotcore.util;
 
 import java.util.concurrent.TimeUnit;
 
-// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset Pedro Pathing and exported
+// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset the generated controller and exported
 // autonomous code use). Same package, names and signatures; backed by the simulator. Not FIRST code.
 // Reads the simulation clock, so a paused or sped-up simulation keeps OpMode timing consistent.
 public class ElapsedTime {

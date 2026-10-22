@@ -12,7 +12,7 @@ rotation turns the robot clockwise; MotionModule's autonomous example handles th
 IMU_TO_MIXER_SIGN = -1. The virtual robot reproduces it, so a program that steers correctly on the
 real robot steers correctly here, and one with the wrong sign fails here too.
 
-Protocol: one JSON object per line on stdin/stdout, the same shape as the Pedro bridge.
+Protocol: one JSON object per line on stdin/stdout, the same shape as the Java controller bridge.
   {"type": "init", "workDir", "source", "motionModule", "deps", "start": {"heading"}}  -> ready
   {"type": "tick", "seq", "t", "dt", "imu"}  (imu: radians, counter-clockwise)        -> cmd
 """

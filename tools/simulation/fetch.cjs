@@ -1,7 +1,7 @@
 'use strict';
 // Fetches every pinned input of the simulator build into .cache, verifying each one, so a clean
 // checkout (or a CI runner) can run `node tools/simulation/build.cjs --public`:
-//   - DSIM and Pedro Pathing, cloned at their pinned commits;
+//   - DSIM, cloned at its pinned commit;
 //   - the npm packages in tools/simulation/deps-package.json, from its lockfile;
 //   - Eclipse Temurin JDK 21.0.12.1+1 for this machine (javac, jlink), and a reduced Java runtime
 //     (jlink) for each requested target platform, built from that platform's own JDK modules;
@@ -10,7 +10,7 @@
 // Usage: node tools/simulation/fetch.cjs [--targets win32-x64,linux-x64,darwin-arm64]
 const fs=require('node:fs'),path=require('node:path'),https=require('node:https'),crypto=require('node:crypto'),{execFileSync}=require('node:child_process');
 const root=path.join(__dirname,'../..'),cache=path.join(root,'.cache'),runtime=path.join(cache,'simulation-runtime');
-const UPSTREAM={dsim:{url:'https://github.com/genius0412/dsim.git',commit:'0df84143a52dde4c7c196fb21b94264a13da91b6'},pedro:{url:'https://github.com/Pedro-Pathing/PedroPathing.git',commit:'cf4be31449a8963af3a7ce7951de09fd163bbb3d'}};
+const UPSTREAM={dsim:{url:'https://github.com/genius0412/dsim.git',commit:'0df84143a52dde4c7c196fb21b94264a13da91b6'}};
 const TEMURIN='https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/';
 const JDKS={
   'win32-x64':{file:'OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip',sha256:'f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e'},
@@ -18,7 +18,7 @@ const JDKS={
   'darwin-arm64':{file:'OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz',sha256:'3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998'}
 };
 const GSON={url:'https://repo.maven.apache.org/maven2/com/google/code/gson/gson/2.11.0/gson-2.11.0.jar',sha256:'57928d6e5a6edeb2abd3770a8f95ba44dce45f3b23b7a9dc2b309c581552a78b'};
-// The modules Pedro, the bridge and in-process compilation of team code need.
+// The modules the controller bridge and in-process compilation of team code need.
 const MODULES='java.base,java.compiler,java.logging,jdk.compiler,jdk.zipfs';
 const host=`${process.platform}-${process.arch}`;
 const exe=name=>process.platform==='win32'?name+'.exe':name;

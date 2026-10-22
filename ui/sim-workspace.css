@@ -53,6 +53,9 @@ body.sim-workspace{overflow:hidden}
 .sim-workspace .sim-panel .sim-seg{margin-bottom:7px}
 .sim-workspace .sim-panel .sim-seg button{min-height:30px;font-size:11px;padding:4px}
 .sim-workspace .sim-panel .button-row{margin:6px 0;gap:6px}
+.sim-workspace .sim-panel .sim-export-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.sim-workspace .sim-panel .sim-export-buttons button{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.sim-workspace .sim-panel .sim-export-buttons .primary{grid-column:1/-1}
 .sim-workspace .sim-panel button{min-height:30px;padding-block:5px}
 .sim-settings-tabs{display:flex;gap:4px;margin:0 0 10px}
 .sim-workspace .sim-settings-tabs>button{flex:1;min-width:0;padding:5px 4px;font-size:11px;white-space:nowrap;overflow-wrap:normal}
@@ -66,6 +69,10 @@ body.sim-workspace{overflow:hidden}
 .sim-path-tooltip{position:fixed;z-index:11000;max-width:min(320px,calc(100vw - 16px));padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--text);box-shadow:0 5px 22px #0005;pointer-events:none;font-size:12px;line-height:1.5;overflow-wrap:anywhere;text-align:left}
 .sim-path-tooltip strong{display:block;margin-bottom:3px}
 .sim-path-tooltip[hidden]{display:none!important}
+.sim-editor-grip{margin-left:auto;cursor:move;color:var(--muted);font-size:24px;line-height:1}
+.sim-editor-save-note{font-size:11px;color:var(--muted);margin:8px 0 4px}
+.sim-program-preview{font:12px/1.5 var(--font);white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;background:var(--well);border:1px solid var(--line);border-radius:8px;max-height:180px;overflow:auto}
+#sim-effects .button-row{justify-content:flex-end}
 .sim-legend .key-hold{color:#aeb8c5}.sim-legend .key-power{color:#f2bc62}.sim-legend .key-rotation{color:#b79bff}.sim-legend .key-track{color:#49cbb3}.sim-legend .key-action{color:#63c5ff}
 .sim-settings-page[hidden]{display:none!important}
 .sim-workspace .sim-pin-row input.num-slider{display:none}

@@ -1,7 +1,7 @@
 'use strict';
 // Simulation utility process. The driver station's main process forks this only while the
 // Simulation view is open, relays messages to and from the window, and kills it on exit, so
-// physics and the Pedro Java process never run on the UI thread or outlive the view.
+// physics and the Java controller process never run on the UI thread or outlive the view.
 const {SimEngine}=require('./sim-engine.cjs'),{convertStep}=require('./sim-model.cjs'),path=require('node:path');
 const port=process.parentPort,workDir=process.argv[2];
 const engine=new SimEngine({workDir,emit:message=>port.postMessage(message)});

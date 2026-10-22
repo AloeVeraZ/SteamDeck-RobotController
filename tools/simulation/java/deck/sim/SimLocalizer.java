@@ -1,14 +1,14 @@
 package deck.sim;
 
-import com.pedropathing.localization.Localizer;
-import com.pedropathing.localization.MotionState;
-import com.pedropathing.math.Pose;
-import com.pedropathing.math.Velocity;
+import deck.pathing.DeckFollower.Localizer;
+import deck.pathing.DeckFollower.MotionState;
+import deck.pathing.DeckFollower.Pose;
+import deck.pathing.DeckFollower.Velocity;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * A Pedro Localizer fed by SIMULATED sensors, never by simulation ground truth. Each tick the
+ * A Deck localizer fed by SIMULATED sensors, never by simulation ground truth. Each tick the
  * host sends a robot-frame odometry displacement (with the configured pod noise and slip) and
  * an IMU heading (with the configured drift). This class dead-reckons them the way an
  * odometry-pod localizer would, so the estimate can and does drift from the truth.

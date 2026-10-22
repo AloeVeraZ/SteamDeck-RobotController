@@ -4,7 +4,7 @@ import com.qualcomm.robotcore.hardware.Gamepad;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
 
-// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset Pedro Pathing and exported
+// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset the generated controller and exported
 // autonomous code use). Same package, names and signatures; backed by the simulator. Not FIRST code.
 public abstract class OpMode {
     public volatile Gamepad gamepad1 = new Gamepad(), gamepad2 = new Gamepad();

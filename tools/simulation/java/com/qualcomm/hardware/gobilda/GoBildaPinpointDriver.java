@@ -6,7 +6,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 import org.firstinspires.ftc.robotcore.external.navigation.UnnormalizedAngleUnit;
 
-// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset Pedro Pathing and exported
+// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset the generated controller and exported
 // autonomous code use). Same package, names and signatures; backed by the simulator. Not FIRST code.
 // Pose and velocity come from the simulation through the virtual hub (deck.sim.hub.SimPinpoint).
 public abstract class GoBildaPinpointDriver implements HardwareDevice {

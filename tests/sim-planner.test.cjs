@@ -135,7 +135,7 @@ test('pins with a pause end a leg; stops map to the segment that reaches each pi
   const chordIn={x:into.points.at(-1).x-into.points[0].x,y:into.points.at(-1).y-into.points[0].y},arrive={x:into.points.at(-1).x-into.points.at(-2).x,y:into.points.at(-1).y-into.points.at(-2).y};
   assert.ok(Math.abs(chordIn.x*arrive.y-chordIn.y*arrive.x)<1e-6*Math.hypot(chordIn.x,chordIn.y)*Math.hypot(arrive.x,arrive.y));assert.ok(out);
 });
-test('export: Pedro Java (compiles against Pedro core) and .pp with waits and zones',()=>{
+test('export: Deck route Java (compiles against the bundled controller) and .pp with waits and zones',()=>{
   const exporter=require('../ui/sim-export.js'),zones=[rect(72,72,16,16,0,'z1')],start={x:12,y:72,heading:0},pins=[{x:60,y:30,wait:1.5,action:'Intake "front"'},{x:120,y:110}];
   const r=planner.plan({start,zones,pins,clearance:1,style:'spline'},square),layout={name:'Empty field 1',field:'empty',fieldName:'Empty field',start,zones};
   assert.deepEqual(exporter.legs(r).map(l=>l.pin),[1,2]);
@@ -150,7 +150,7 @@ test('export: Pedro Java (compiles against Pedro core) and .pp with waits and zo
   const runtime=path.join(__dirname,'../sim-runtime'),javac=path.join(runtime,'java/bin',process.platform==='win32'?'javac.exe':'javac');
   if(!fs.existsSync(javac))return;
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-export-')),src=path.join(dir,'org/firstinspires/ftc/teamcode');fs.mkdirSync(src,{recursive:true});fs.writeFileSync(path.join(src,'PlannedRoute.java'),java);
-  execFileSync(javac,['-cp',path.join(runtime,'pedro/classes'),'-d',path.join(dir,'out'),path.join(src,'PlannedRoute.java')],{stdio:'pipe'});
+  execFileSync(javac,['-cp',path.join(runtime,'driver/classes'),'-d',path.join(dir,'out'),path.join(src,'PlannedRoute.java')],{stdio:'pipe'});
   assert.ok(fs.existsSync(path.join(dir,'out/org/firstinspires/ftc/teamcode/PlannedRoute.class')));
 });
 test('free-form shapes: a two-point wall, a concave U whose pocket stays reachable, and a self-crossing outline',()=>{

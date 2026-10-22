@@ -4,15 +4,12 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.pedropathing.algorithm.Foresight;
-import com.pedropathing.algorithm.ForesightConfig;
-import com.pedropathing.api.Paths;
-import com.pedropathing.controllers.Controller;
-import com.pedropathing.follower.Follower;
-import com.pedropathing.math.Matrix;
-import com.pedropathing.math.Pose;
-import com.pedropathing.math.Vector2D;
-import com.pedropathing.paths.Path;
+import deck.pathing.DeckFollower.Config;
+import deck.pathing.DeckFollower.Paths;
+import deck.pathing.DeckFollower;
+import deck.pathing.DeckFollower.Pose;
+import deck.pathing.DeckFollower.Point;
+import deck.pathing.DeckFollower.Path;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileDescriptor;
@@ -41,13 +38,13 @@ import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
 
 /**
- * Pedro Pathing simulation bridge. One process per run. The host writes one JSON object per
+ * Deck controller simulation bridge. One process per run. The host writes one JSON object per
  * line on stdin (init, then tick ... stop) and reads one JSON reply per line on stdout:
  * ready | cmd | error. Lines are bounded both ways. Program output (System.out/err) is captured
  * into a bounded log, so user code cannot corrupt the protocol. EOF on stdin ends the process,
  * so a crashed host never leaves this running.
  */
-public final class PedroBridge {
+public final class RunBridge {
     private static final int MAX_LINE = 1 << 20;
     private static PrintStream protocol;
     private static final Deque<String> log = new ArrayDeque<>();
@@ -73,7 +70,7 @@ public final class PedroBridge {
         System.setOut(capture);
         System.setErr(capture);
         Locale.setDefault(Locale.ROOT);
-        PedroBridge bridge = new PedroBridge();
+        RunBridge bridge = new RunBridge();
         InputStream in = System.in;
         String line;
         while ((line = readLine(in)) != null) {
@@ -112,7 +109,7 @@ public final class PedroBridge {
     }
 
     private static void send(JsonObject reply) {
-        synchronized (PedroBridge.class) {
+        synchronized (RunBridge.class) {
             if (partial.length() > 0) flushLine();
             if (!log.isEmpty()) {
                 JsonArray lines = new JsonArray();
@@ -148,29 +145,13 @@ public final class PedroBridge {
         drivetrain = new SimDrivetrain(kind, num(drive, "halfLength"), num(drive, "halfWidth"));
         localizer = new SimLocalizer();
         double maxF = num(tune, "maxForward"), maxS = num(tune, "maxStrafe");
-        ForesightConfig config = new ForesightConfig(c -> {
-            // Same controller structure as Pedro AutoTune's generated ForesightConfig: piecewise
-            // translational gains (soft within 2.5 in, firm beyond), proportional heading, and
-            // feedforward coast/brake. Power is a fraction of free speed in DSIM's drive model.
-            double large = num(tune, "translationalP"), small = tune.has("translationalSmall") ? num(tune, "translationalSmall") : large / 3, d = num(tune, "translationalD");
-            c.headingFeedback.set(Controller.pid(num(tune, "headingP"), 0, num(tune, "headingD")));
-            c.forwardTranslational.set(Controller.piecewise(Controller.pid(small, 0, d)).put(2.5, Controller.pid(large, 0, d)));
-            c.strafeTranslational.set(Controller.piecewise(Controller.pid(small * maxF / maxS, 0, d)).put(2.5, Controller.pid(large * maxF / maxS, 0, d)));
-            c.brake.set(Controller.proportionalFeedforward(tune.has("brakeKV") ? num(tune, "brakeKV") : 1 / maxF));
-            c.coast.set(tune.has("coastKV") ? Controller.proportionalFeedforward(num(tune, "coastKV")).plus(Controller.staticFeedforward(tune.has("coastKS") ? num(tune, "coastKS") : 0)) : Controller.proportional(1 / maxF));
-            c.linearBrakeCoefficients.set(Matrix.diag(num(tune, "linearBrakeForward"), num(tune, "linearBrakeStrafe")));
-            c.quadraticBrakeCoefficients.set(Matrix.diag(num(tune, "quadraticBrakeForward"), num(tune, "quadraticBrakeStrafe")));
-            c.headingBrakeCoefficients.set(Vector2D.cartesian(num(tune, "headingBrakeLinear"), num(tune, "headingBrakeQuadratic")));
-            c.maxAchievableForwardVelocity.set(maxF);
-            c.maxAchievableStrafeVelocity.set(maxS);
-            c.naturalForwardDeceleration.set(num(tune, "forwardDeceleration"));
-            c.naturalStrafeDeceleration.set(num(tune, "strafeDeceleration"));
-            // Pedro's 100 ms default ends a hold before a real chassis has settled. The
-            // simulated profile uses a hold timeout long enough to observe settling.
-            c.timeoutConstraint.set(num(tune, "holdTimeoutMs"));
-            if (tune.has("maxPathSpeed")) c.maxPathSpeed.set(Math.max(0.000001, num(tune, "maxPathSpeed")));
-        });
-        Follower follower = new Follower(localizer, drivetrain, new Foresight(config));
+        Config config = new Config();
+        config.maxForward=maxF; config.maxStrafe=maxS; config.maxTurn=tune.has("maxTurn")?num(tune,"maxTurn"):5; config.tank=kind==SimDrivetrain.Kind.TANK;
+        config.maxPathSpeed=tune.has("maxPathSpeed")?num(tune,"maxPathSpeed"):.6;
+        config.positionP=num(tune,"translationalP")*.35; config.positionD=num(tune,"translationalD");
+        config.headingP=num(tune,"headingP")*.7; config.headingD=Math.max(.08,num(tune,"headingD"));
+        config.acceleration=Math.max(20,Math.min(maxF*3,num(tune,"maxAcceleration")*.65));
+        DeckFollower follower = new DeckFollower(localizer, drivetrain, config, SimClock::nanoTime);
         Pose startPose = new Pose(num(start, "x"), num(start, "y"), num(start, "heading"));
         List<Pose> pins = new ArrayList<>();
         List<Path> legs = new ArrayList<>();
@@ -190,15 +171,15 @@ public final class PedroBridge {
             List<Double> partHeadings = new ArrayList<>();
             for (JsonElement e : r.getAsJsonArray("segments")) {
                 JsonObject s = e.getAsJsonObject();
-                List<Vector2D> points = new ArrayList<>();
-                for (JsonElement p : s.getAsJsonArray("points")) points.add(Vector2D.cartesian(num(p.getAsJsonObject(), "x"), num(p.getAsJsonObject(), "y")));
-                Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Vector2D[0]));
+                List<Point> points = new ArrayList<>();
+                for (JsonElement p : s.getAsJsonArray("points")) points.add(Point.cartesian(num(p.getAsJsonObject(), "x"), num(p.getAsJsonObject(), "y")));
+                Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Point[0]));
                 double partHeading = turning && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading;
                 // A path the robot turns or spins along: its heading changes steadily from start to end.
                 if (s.has("target")) {
                     JsonObject target = s.getAsJsonObject("target");
                     double x = num(target, "x"), y = num(target, "y");
-                    parts.add(part.heading((curve, t) -> { Vector2D p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); }));
+                    parts.add(part.heading((curve, t) -> { Point p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); }));
                 } else parts.add(turning && s.has("endHeading") ? part.heading(turn(partHeading, Math.toRadians(num(s, "endHeading")))) : part.constant(partHeading));
                 partHeadings.add(partHeading);
             }
@@ -218,7 +199,7 @@ public final class PedroBridge {
                     legs.add(join(parts.subList(from, last + 1)));
                     waits.add(num(l, "wait"));
                     actions.add(l.get("action").getAsString());
-                    powers.add(l.has("power") ? num(l, "power") : config.maxPathSpeed.get());
+                    powers.add(l.has("power") ? num(l, "power") : config.maxPathSpeed);
                     moving.add(l.get("moving").getAsString());
                     legHeadings.add(l.has("heading") ? Math.toRadians(num(l, "heading")) : partHeadings.get(from));
                     turnAfter.add(l.has("turn") && !l.get("turn").isJsonNull() ? Math.toRadians(num(l, "turn")) : Double.NaN);
@@ -311,7 +292,7 @@ public final class PedroBridge {
         estimate.addProperty("y", p.y());
         estimate.addProperty("heading", p.heading());
         cmd.add("estimate", estimate);
-        Follower f = robot.follower();
+        DeckFollower f = robot.follower();
         JsonObject follower = new JsonObject();
         follower.addProperty("mode", f.mode().name());
         follower.addProperty("busy", f.isBusy());
@@ -399,7 +380,7 @@ public final class PedroBridge {
     }
 
     /** Heading that turns steadily from one angle to another (radians; may span whole spins). */
-    private static com.pedropathing.paths.interpolator.Interpolator turn(double from, double to) {
+    private static deck.pathing.DeckFollower.Interpolator turn(double from, double to) {
         double by = to - from, full = 2 * Math.PI;
         return (curve, t) -> ((from + by * t) % full + full) % full;
     }
@@ -464,7 +445,7 @@ public final class PedroBridge {
             }
             throw new UserCodeException("compile", first.length() > 0 ? first.toString() : "Compilation failed.", lines);
         }
-        URLClassLoader loader = new URLClassLoader(new URL[] {out.toURI().toURL()}, PedroBridge.class.getClassLoader());
+        URLClassLoader loader = new URLClassLoader(new URL[] {out.toURI().toURL()}, RunBridge.class.getClassLoader());
         Class<?> type;
         try {
             type = Class.forName(name, true, loader);

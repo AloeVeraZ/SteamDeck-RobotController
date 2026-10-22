@@ -1,9 +1,9 @@
 'use strict';
-// Exported Control Hub autonomous (OpMode + Pedro Constants + route) on the virtual Control Hub:
-// FTC SDK stand-ins, Pedro's real revhub Mecanum and localizers, simulated motors and sensors.
+// Exported Control Hub autonomous (OpMode + Deck controller/wiring + route) on the virtual Control Hub:
+// FTC SDK stand-ins with the exported hardware adapter, simulated motors and sensors.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js'),F=require('../ui/sim-ftc.js'),{SimEngine}=require('../src/sim-engine.cjs');
-const built=fs.existsSync(path.join(__dirname,'../sim-runtime/pedro/classes/deck/sim/hub/VirtualHub.class')),skip=built?false:'run node tools/simulation/build.cjs first';
+const built=fs.existsSync(path.join(__dirname,'../sim-runtime/driver/classes/deck/sim/hub/VirtualHub.class')),skip=built?false:'run node tools/simulation/build.cjs first';
 const robot={drivetrain:'mecanum',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0};
 const start={x:20,y:30,heading:0},zones=[{id:'a',type:'rect',x:70,y:60,width:16,height:40}],pins=[{x:110,y:40,wait:.5,action:'Score'},{x:120,y:120}];
 async function setup(localization){
@@ -19,7 +19,7 @@ async function finish(e,limit=1800){const phases=new Set();for(let i=0;i<limit&&
 for(const [localization,tolerance] of [['encoders',2.5],['odometry',1],['odometry3',1],['fused',1],['optical',1]])
   test(`exported Control Hub OpMode runs on the virtual hub with ${F.SUPPORTED[localization]}`,{skip},async()=>{
     const {e,out,error}=await setup(localization);try{
-      assert.ok(Object.keys(out.files).some(k=>k.endsWith('pedro/Constants.java')));assert.equal(Object.keys(out.files).some(k=>k.endsWith('DriveEncoderLocalizer.java')),localization==='encoders');
+      assert.ok(Object.keys(out.files).some(k=>k.endsWith('drive/Constants.java')));assert.ok(Object.keys(out.files).some(k=>k.endsWith('drive/RobotDrive.java')));assert.ok(out.files['deck/pathing/DeckFollower.java']);assert.ok(Object.values(out.files).every(s=>!s.includes('com.pedropathing')));
       const started=await e.run({kind:'opmode',files:out.files,opMode:out.opMode});assert.equal(started.ok,true,error());assert.equal(started.program,'org.firstinspires.ftc.teamcode.PlannedRouteAuto');
       const phases=await finish(e);assert.ok(['Driving','Waiting','Done'].every(p=>phases.has(p)),[...phases].join());assert.ok(!phases.has('Turning'),'a fixed-heading route never stops to turn');
       const t=e.truth();assert.ok(Math.hypot(t.x-120,t.y-120)<tolerance,JSON.stringify(t));assert.ok(Math.abs(t.heading)<.1);
@@ -39,23 +39,23 @@ test('the exported OpMode reproduces the simulated follower: same route, end poi
 
 test('the virtual hub catches wiring and compile mistakes that would fail on a real Control Hub',{skip},async()=>{
   const {e,out,error}=await setup('odometry');try{
-    const constants=Object.keys(out.files).find(k=>k.endsWith('Constants.java'));
-    const miswired={...out.files,[constants]:out.files[constants].replace('c.frontLeftDirection.set(DcMotorSimple.Direction.REVERSE)','c.frontLeftDirection.set(DcMotorSimple.Direction.FORWARD)')};
+    const constants=Object.keys(out.files).find(k=>k.endsWith('RobotDrive.java'));
+    const miswired={...out.files,[constants]:out.files[constants].replace('motors[0].setDirection(DcMotorSimple.Direction.REVERSE)','motors[0].setDirection(DcMotorSimple.Direction.FORWARD)')};
     assert.notEqual(miswired[constants],out.files[constants]);assert.equal((await e.run({kind:'opmode',files:miswired,opMode:out.opMode})).ok,true);await finish(e,900);
     const t=e.truth();assert.ok(Math.hypot(t.x-120,t.y-120)>10||e.violations.size>0,'a reversed front-left motor cannot finish the route cleanly');
-    const broken={...out.files,[constants]:out.files[constants].replace('c.timeoutConstraint.set(2000.0)','c.timeoutConstraint.set(2000)')};
-    const r=await e.run({kind:'opmode',files:broken,opMode:out.opMode});assert.equal(r.ok,false);assert.match(r.error+error(),/int cannot be converted to java.lang.Double/);
+    const broken={...out.files,[constants]:out.files[constants].replace('limit=0.6','limit=\"invalid\"')};
+    const r=await e.run({kind:'opmode',files:broken,opMode:out.opMode});assert.equal(r.ok,false);assert.match(r.error+error(),/String cannot be converted to double/);
     await assert.rejects(e.run({kind:'opmode',files:out.files,opMode:'org.firstinspires.ftc.teamcode.Missing'}).then(x=>{if(!x.ok)throw Error(x.error);}),/No OpMode class/);
   }finally{e.dispose();}
 });
 
-test('IMU-only and unsupported drivetrains are refused for Pedro on a Control Hub with a clear reason',()=>{
+test('IMU-only and unsupported drivetrains are refused for positional export on a Control Hub with a clear reason',()=>{
   assert.throws(()=>F.hardware({drivetrain:'swerve',length:17,width:17,driveRpm:500},'odometry'),/mecanum and tank-style/);assert.equal(F.hardware({drivetrain:'tank6',length:17,width:17,driveRpm:500},'odometry').drive.kind,'tank');
   assert.throws(()=>F.hardware({length:17,width:17,driveRpm:500},'gyro'),/IMU-only setups export timed commands/);
   const h=F.hardware({length:17,width:17,driveRpm:500},'encoders');assert.equal(h.drive.ticksPerRev,336);assert.ok(Math.abs(h.drive.ticksPerInch-336/(Math.PI*104/25.4))<1e-9);
   assert.deepEqual(Object.values(h.drive.motors).map(m=>m.mount),[-1,1,-1,1]);
 });
-// Tank-style robots: TankDrive (Pedro has no tank drivetrain) on two or four motors, turning in place
+// Tank-style robots: the exported hardware adapter on two or four motors, turning in place
 // to face each straight leg, with drive encoders or odometry pods.
 for(const [drivetrain,localization] of [['tank','encoders'],['tank2','encoders'],['tracks','odometry']])
   test(`exported Control Hub OpMode drives a ${drivetrain} robot with ${F.SUPPORTED[localization]} on the virtual hub`,{skip},async()=>{
@@ -64,7 +64,7 @@ for(const [drivetrain,localization] of [['tank','encoders'],['tank2','encoders']
       const info=await e.load({field:'empty',start,robot,zones:[],sensors:{localization}});
       const route=P.plan({start,zones:[],pins,clearance:2,style:'sharp',nonholonomic:true},info.footprint,[],info.bounds),layout={name:'Tank check',field:'empty',width:144,height:144,start,zones:[]};
       const out=F.files({route,layout,tuning:info.tuning,robot:info.robot,localization,routeJava:X.java(route,layout,{polygon:P.polygon})});
-      const dir='org/firstinspires/ftc/teamcode/pedro/';assert.ok(out.files[dir+'TankDrive.java']);assert.equal(!!out.files[dir+'TankEncoderLocalizer.java'],localization==='encoders');assert.match(out.files[dir+'Constants.java'],drivetrain==='tank2'?/LEFT_MOTORS = new String\[\] \{"left_drive"\}/:/LEFT_MOTORS = new String\[\] \{"front_left", "back_left"\}/);
+      const dir='org/firstinspires/ftc/teamcode/drive/';assert.ok(out.files[dir+'RobotDrive.java']);assert.match(out.files[dir+'Constants.java'],/config.tank=true/);assert.match(out.files[dir+'RobotDrive.java'],drivetrain==='tank2'?/left_drive/:/front_left/);
       assert.equal((await e.run({kind:'opmode',files:out.files,opMode:out.opMode})).ok,true,error);
       const phases=await finish(e,3000);assert.ok(['Turning','Driving','Waiting','Done'].every(p=>phases.has(p)),[...phases].join());
       const t=e.truth();assert.ok(Math.hypot(t.x-100,t.y-100)<2.5,JSON.stringify(t));assert.equal(e.violations.size,0);

@@ -8,7 +8,7 @@ const P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js'),F=requi
 const root=path.join(__dirname,'..'),dir=path.join(root,'tests/fixtures/simulation-setups'),read=name=>JSON.parse(fs.readFileSync(path.join(dir,name),'utf8'));
 const motionModule=process.env.DECK_MOTIONMODULE_SOURCE||path.join(root,'../MotionModule'),deps=process.env.DECK_MOTIONMODULE_DEPS||path.join(root,'.cache/motionmodule-test-deps');
 const python=[process.env.DECK_PYTHON,path.join(os.homedir(),'.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe'),'python3'].find(p=>p&&spawnSync(p,['-c','import sys;assert sys.version_info>=(3,9)'],{windowsHide:true}).status===0);
-const built=fs.existsSync(path.join(root,'sim-runtime/pedro/classes/deck/sim/hub/VirtualHub.class'));
+const built=fs.existsSync(path.join(root,'sim-runtime/driver/classes/deck/sim/hub/VirtualHub.class'));
 
 async function load(setup){
   const l=setup.layouts.find(x=>x.id===setup.active),e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-setup-test-')),now:()=>0,emit:m=>{if(m?.state==='error')e.lastError=m.error;}});
@@ -75,7 +75,7 @@ test('BIOBUZZ example setup: the exported Pinpoint TeamCode runs on the virtual 
     await a.e.run({route:a.route});await program(a.e,40);assert.ok(a.e.result,a.e.lastError);
     const lay={...b.l},out=F.files({route:b.route,layout:lay,tuning:b.info.tuning,robot:b.info.robot,localization:s.sensors.localization,setupName:'BIOBUZZ blue auto 15x15',
       routeJava:X.java(b.route,lay,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
-    assert.match(Object.values(out.files).join('\n'),/PinpointLocalizer/);
+    assert.match(Object.values(out.files).join('\n'),/GoBildaPinpointDriver/);
     assert.equal((await b.e.run({kind:'opmode',files:out.files,opMode:out.opMode})).ok,true,b.e.lastError);
     for(let i=0;i<60000&&b.e.mode==='program'&&b.e.telemetry?.Phase!=='Done'&&b.e.world.time<40;i++)await b.e.programTick();
     const sim=a.e.result.truth,hub=b.e.truth();

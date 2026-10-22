@@ -139,7 +139,7 @@
     return z;
   }
   function fieldOf(raw){const f=raw||FIELD;if(![f.x0,f.y0,f.x1,f.y1].every(finite)||f.x1-f.x0<1||f.y1-f.y0<1)throw Error('Invalid field bounds.');return {x0:f.x0,y0:f.y0,x1:f.x1,y1:f.y1};}
-  // A point on a Bezier curve of any degree (de Casteljau). Pedro's BezierCurve uses the same control points.
+  // A point on a Bezier curve of any degree, evaluated with de Casteljau's algorithm.
   function bezier(points,t){let p=points.map(q=>({x:q.x,y:q.y}));while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];}
   // Shared validation for every planner: pins, zones, start pose and clearance.
   function prepare(project,rawFootprint,fieldZones,rawField){
@@ -184,7 +184,7 @@
   const targetOf=t=>t&&finite(t.x)&&finite(t.y)?{x:t.x,y:t.y}:null;
   const bearing=(p,t)=>Math.atan2(t.y-p.y,t.x-p.x)*180/Math.PI;
   function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin','relative','start','track'].includes(r.rotate)?r.rotate:'keep';
-    return {kind:r.kind==='action'?'action':'regular',action:text(r.action,40),note:text(r.note,160),rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
+    return {kind:r.kind==='action'?'action':'regular',action:text(r.action,40),note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
   function pinEffects(p){return {wait:finite(p.wait)?Math.max(0,p.wait):0,action:text(p.action,40),note:text(p.note,160),turn:finite(p.turn)?(p.turnMode==='relative'?p.turn:norm(p.turn)):null,turnMode:['relative','start','track'].includes(p.turnMode)?p.turnMode:'absolute',target:targetOf(p.target),path:pathEffects(p.path)};}
   function pathEnd(path,heading,start,point){return path.rotate==='relative'?heading+path.angle:path.rotate==='start'?start:path.rotate==='track'&&path.target?bearing(point,path.target):path.rotate==='turn'?path.heading:heading;}
   function pinHeading(p,heading,start){return p.turn===null||!finite(p.turn)?null:p.turnMode==='relative'?norm(heading+p.turn):p.turnMode==='start'?norm(start):p.turnMode==='track'&&p.target?bearing(p,p.target):norm(p.turn);}
@@ -193,11 +193,11 @@
   function pathDescription(raw,power=.6){const p=pathEffects(raw),bits=[`${Math.round((p.power??power)*100)}% motor power${p.power===null?' (setup)':''}`];
     if(p.kind==='action')bits.push(`Action: ${p.action||'unnamed'}`);
     bits.push(p.rotate==='relative'?`Turn by ${p.angle>=0?'+':''}${p.angle}°`:p.rotate==='turn'?`Face field heading ${p.heading}°`:p.rotate==='spin'?`Spin ${Math.abs(p.spins)} ${p.spins<0?'clockwise':'counterclockwise'}`:p.rotate==='start'?'Return to starting heading':p.rotate==='track'?`Track target ${p.target?`(${p.target.x}, ${p.target.y}) in`:'not selected'}`:'Hold inherited heading');
-    if(p.note)bits.push(p.note);return bits;}
+    if(p.style)bits.push(p.style==='spline'?'Smooth spline':'Straight segments');if(p.note)bits.push(p.note);return bits;}
   function pathAppearance(raw,power=.6){const p=pathEffects(raw),key=p.rotate==='track'?'track':p.rotate!=='keep'?'rotation':p.power!==null?'power':p.kind==='action'?'action':'normal';return {key,color:{track:'#49cbb3',rotation:'#b79bff',power:'#f2bc62',action:'#63c5ff',normal:'#aeb8c5'}[key],action:p.kind==='action',power:p.power??power};}
   const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,note:p.note,turn:p.turn,path:p.path});
   const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||['relative','start','track'].includes(path.rotate)||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
-  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||!project.nonholonomic&&['turn','spin','relative','start','track'].includes(p?.path?.rotate));
+  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&['turn','spin','relative','start','track'].includes(p?.path?.rotate));
   // Each segment records which pin it leads to, so paths can be told apart (action or regular).
   function annotate(route){const stops=route.stops||[];let k=0;route.segments.forEach((s,i)=>{while(k<stops.length-1&&stops[k].segment<i)k++;s.to=k;});return route;}
   // Inspect every endpoint even when another pin (or the start) prevents planning. Path checks
@@ -225,6 +225,16 @@
   function plan(project,rawFootprint,fieldZones=[],rawField){
     const route=annotate(effectful(project)?planEffects(project,rawFootprint,fieldZones,rawField):planBasic(project,rawFootprint,fieldZones,rawField));if(finite(project.defaultPower))route.defaultPower=Math.max(0,Math.min(1,project.defaultPower));return route;
   }
+  // Exhaustive for up to four unlocked paths; bounded alternatives for longer routes.
+  // Manually assigned shapes stay fixed. Optimizer assignments remain eligible next time.
+  function shapeCandidates(project,seed){
+    const free=project.pins.map((p,i)=>!p.path?.style||p.path.shapeAuto?i:-1).filter(i=>i>=0),base=project.pins.map(p=>p.path?.style||(['sharp','spline'].includes(project.style)?project.style:'sharp'));
+    const out=[],seen=new Set(),add=styles=>{const key=styles.join(',');if(seen.has(key))return;seen.add(key);const pins=project.pins.map((p,i)=>({...p,path:{...pathEffects(p.path),style:styles[i],shapeAuto:free.includes(i)}}));out.push({styles,project:{...project,pins},label:styles.every(s=>s===styles[0])?(styles[0]==='sharp'?'All straight':'All splines'):`Mixed · ${styles.filter(s=>s==='sharp').length} straight / ${styles.filter(s=>s==='spline').length} spline`});};
+    if(seed){add([...seed]);for(const i of free){const next=[...seed];next[i]=next[i]==='sharp'?'spline':'sharp';add(next);}return out;}
+    if(free.length<=4){for(let mask=0;mask<2**free.length;mask++){const styles=[...base];free.forEach((i,j)=>styles[i]=mask&(1<<j)?'spline':'sharp');add(styles);}}
+    else{add(base);for(const type of ['sharp','spline']){const styles=[...base];free.forEach(i=>styles[i]=type);add(styles);}for(const parity of [0,1]){const styles=[...base];free.forEach((i,j)=>styles[i]=(j+parity)%2?'spline':'sharp');add(styles);}for(const i of free.slice(0,12)){const styles=[...base];styles[i]=styles[i]==='sharp'?'spline':'sharp';add(styles);}}
+    return out;
+  }
   // Holonomic robots may turn in place to fit past obstacles; tank-style robots drive along their heading.
   function planBasic(project,rawFootprint,fieldZones=[],rawField){
     if(project?.nonholonomic)return planTank(project,rawFootprint,fieldZones,rawField);
@@ -243,12 +253,12 @@
   // rotation circle, so it clears obstacles at every heading on the way. Tank drivetrains only
   // turn at pins: they cannot rotate while driving sideways.
   function planEffects(project,rawFootprint,fieldZones=[],rawField){
-    const {footprint,field,start,all,pins,clearance}=prepare(project,rawFootprint,fieldZones,rawField),tank=!!project.nonholonomic;
+    const {footprint,field,start,all,pins,clearance}=prepare(project,rawFootprint,fieldZones,rawField),tank=!!project.nonholonomic,mixed=pins.some(p=>p.path.style),styleOf=p=>p.path.style||project.style;
     const plain=p=>({...p,turn:null,path:{...p.path,rotate:'keep'}}),endOf=s=>finite(s.endHeading)?s.endHeading:s.heading;
     const segments=[],samples=[];let at={x:start.x,y:start.y,heading:start.heading},chunk=[],base=0,length=0,turnDegrees=0;
     // Rotation modifiers split planning at pins, but must not discard the neighbouring spline
     // tangents. Try that curve first, then the safe straight/detour geometry if its sweep fails.
-    const shaped=(r,i)=>{if(project.style!=='spline'||r.segments.length!==1||r.segments[0].type!=='line')return r;
+    const shaped=(r,i)=>{if(styleOf(pins[i])!=='spline'||r.segments.length!==1||r.segments[0].type!=='line')return r;
       const [a,b]=r.segments[0].points,prev=i>0?(i>1?pins[i-2]:start):null,next=pins[i+1],tension=finite(project.tension)?Math.max(0,Math.min(1,project.tension)):.75;
       const tangent=(a,p,b)=>{if(!a||!b)return null;const ux=p.x-a.x,uy=p.y-a.y,vx=b.x-p.x,vy=b.y-p.y,u=Math.hypot(ux,uy),v=Math.hypot(vx,vy),dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy);if(!u||!v||!d||(ux*vx+uy*vy)/(u*v)<Math.cos(150*Math.PI/180))return null;const m=tension*Math.min(u,v)/3;return {x:dx/d*m,y:dy/d*m};};
       const before=i&&!(pins[i-1].wait>0||pins[i-1].action||finite(pins[i-1].turn))?tangent(prev,a,b):null,after=!(pins[i].wait>0||pins[i].action||finite(pins[i].turn))?tangent(a,b,next):null;
@@ -262,7 +272,7 @@
     const flush=()=>{const now=chunk;chunk=[];if(!now.length||now.every(p=>dist(p,at)<.01))return;
       let r;try{r=planBasic({...project,rotate:tank?project.rotate:false,start:at,pins:now.map(plain)},footprint,fieldZones,field);}catch(e){throw renumber(e,base);}add(r,at.heading);};
     pins.forEach((p,i)=>{
-      if(!tank&&rotates(p.path,at.heading)){flush();
+      if(!tank&&(mixed||rotates(p.path,at.heading))){flush();
         const radius=reach(footprint)+.05,square={front:radius,rear:radius,half:radius},spin=p.path.rotate==='spin';
         // Try the actual heading interpolation first. A full rotation envelope at the start
         // incorrectly rejects a robot that safely drives away from a wall as it turns.
@@ -278,7 +288,7 @@
               if(tracking){const dx=pose.x-prev.x,dy=pose.y-prev.y,t=Math.max(0,Math.min(1,((s.target.x-prev.x)*dx+(s.target.y-prev.y)*dy)/(dx*dx+dy*dy||1)));if(dist({x:prev.x+t*dx,y:prev.y+t*dy},s.target)<.25)throw Error('Target lies on the driving path. Move the target away from the route.');}
               if(!safeSweep(prev,pose,all,footprint,field)||all.some(z=>zoneHits(body(pose,padded),z)))throw Error('Turning sweep blocked.');prev=pose;}}
           return r;};
-        const attempt=fp=>{const baseRoute=planBasic({...project,start:{...at,heading:h0},pins:[plain(p)],rotate:false},fp,fieldZones,field);try{return check(rotateRoute(shaped(baseRoute,i)));}catch{return check(rotateRoute(baseRoute));}};
+        const attempt=fp=>{const baseRoute=planBasic({...project,style:styleOf(p),start:{...at,heading:h0},pins:[plain(p)],rotate:false},fp,fieldZones,field);try{return check(rotateRoute(shaped(baseRoute,i)));}catch{return check(rotateRoute(baseRoute));}};
         let r;try{r=attempt(footprint);
         }catch(first){try{r=attempt(square);}
         catch(last){if(/Target lies/.test(first.message)||/Target lies/.test(last.message))throw Error(`Path to pin ${i+1}: target lies on the driving path. Move the target away from the route.`);throw Error(`The path to pin ${i+1} has no room to ${spin?'spin':'turn'} while driving: the turning robot needs ${(2*radius).toFixed(0)} in of clear width. Move pin ${i+1} or the path's start away from obstacles and walls, or turn at a pin instead.`);}
@@ -486,5 +496,5 @@
     });
     return {...route,style:'sharp',nonholonomic:true,footprint,segments};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
+  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
 });

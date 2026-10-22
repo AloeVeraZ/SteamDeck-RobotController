@@ -1,6 +1,6 @@
 (function(root,factory){const model=factory();if(typeof module==='object'&&module.exports)module.exports=model;else root.DeckSimExport=model;})(typeof globalThis==='object'?globalThis:this,()=>{
   'use strict';
-  // Turns a planned route into files a robot project can use. Coordinates are Pedro's field
+  // Turns a planned route into files a robot project can use. Coordinates are the application field
   // frame, which the simulator shares: inches, bottom-left origin, +X right, +Y up, CCW heading.
   const n=v=>Number(v).toFixed(3).replace(/\.?0+$/,'')||'0';
   const finite=Number.isFinite,norm=d=>((d%360)+540)%360-180;
@@ -54,7 +54,9 @@
   }
   function validName(className,packageName){
     if(!/^[A-Z][A-Za-z0-9_]{0,63}$/.test(className))throw Error('Class name must start with a capital letter and use letters, digits or _.');
+    if(new Set(['DeckFollower','Pose','Point','Path','Paths','Interpolator','Config','Drivetrain','Localizer','MotionState','Velocity','DrivePowers','Constants','RobotDrive','RouteActions','RobotActions','LinearOpMode','HardwareMap','ElapsedTime']).has(className))throw Error('Class name conflicts with a generated controller type. Choose a route name such as PlannedRoute.');
     if(packageName&&!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/.test(packageName))throw Error('Package must look like org.firstinspires.ftc.teamcode.');
+    if(packageName?.split('.').some(p=>JAVA_WORDS.has(p)))throw Error('Package names cannot contain Java reserved words.');
   }
   function java(route,layout,options={}){
     const className=options.className||'PlannedRoute',packageName=options.packageName??'org.firstinspires.ftc.teamcode';validName(className,packageName);
@@ -63,15 +65,15 @@
     const segment=s=>(s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)}))`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')})`)+heading(s);
     const leg=l=>l.segments.length===1?`            ${segment(l.segments[0])}`:`            Paths.path(\n${l.segments.map(s=>'                '+segment(s)).join(',\n')}\n            )`;
     const headings=key=>parts.map(l=>finite(l[key])?rad(l[key]):'HEADING').join(', ');
-    return `${packageName?`package ${packageName};\n\n`:''}import com.pedropathing.api.Paths;
-import com.pedropathing.math.Pose;
-import com.pedropathing.math.Vector2D;
-import com.pedropathing.paths.Path;
-import com.pedropathing.paths.interpolator.Interpolator;
+    return `${packageName?`package ${packageName};\n\n`:''}import deck.pathing.DeckFollower.Paths;
+import deck.pathing.DeckFollower.Pose;
+import deck.pathing.DeckFollower.Point;
+import deck.pathing.DeckFollower.Path;
+import deck.pathing.DeckFollower.Interpolator;
 
 /**
  * Route planned in Deck Driver Station: ${comment(layout.name||'route')} (${comment(layout.fieldName||layout.field)}).
- * Pedro Pathing 3.x API. Field frame: inches, origin bottom-left, +X right, +Y up, heading CCW.
+ * Deck route controller API. Field frame: inches, origin bottom-left, +X right, +Y up, heading CCW.
  * Robot footprint: ${n(route.footprint.front)} in front, ${n(route.footprint.rear)} in rear, ${n(route.footprint.half)} in each side; clearance ${n(route.clearance)} in.
  * ${route.nonholonomic?'TANK: stop and turn to START_HEADING[i] BEFORE each leg; wait for the IMU to settle.':route.turns?'TURNS: where START_HEADING[i] differs from the heading the robot already has, stop and turn in place to it BEFORE following the leg.':'Holonomic: keep the starting heading throughout.'}
  *
@@ -124,13 +126,13 @@ ${parts.map(leg).join(',\n')}
     /** No-go zones the route keeps clear of, as polygons {x, y} in inches. */
     public static final double[][][] NO_GO_ZONES = {${zones.length?'\n'+zones.map(p=>`        {${p.map(q=>`{${n(q.x)}, ${n(q.y)}}`).join(', ')}}`).join(',\n')+'\n    ':''}};
 
-    private static Vector2D v(double x, double y) {
-        return Vector2D.cartesian(x, y);
+    private static Point v(double x, double y) {
+        return Point.cartesian(x, y);
     }
 
     /** Face a fixed field target at every point of the actual curve. */
     private static Interpolator face(double x, double y) {
-        return (curve, t) -> { Vector2D p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); };
+        return (curve, t) -> { Point p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); };
     }
 
     /** Heading that turns steadily from one angle to another (degrees; may span whole spins) along a path. */
@@ -141,7 +143,7 @@ ${parts.map(leg).join(',\n')}
 }
 `;
   }
-  // Pedro path-file JSON (.pp): a start point and lines with optional Bezier control points.
+  // Deck path-file JSON (.pp): a start point and lines with optional Bezier control points.
   function pp(route,layout,options={}){
     const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map(),to=pathIndex(route),stops=route.stops||[];
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}

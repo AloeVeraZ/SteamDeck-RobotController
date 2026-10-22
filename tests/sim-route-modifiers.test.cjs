@@ -36,7 +36,7 @@ test('modifier summaries describe combinations and colors have stable independen
  }
  assert.equal(P.pinEffects({turn:-270,turnMode:'relative'}).turn,-270);assert.equal(P.pinEffects({turn:270}).turn,-90);
 });
-test('native Pedro and exported Control Hub execute target tracking and persistent relative headings',async()=>{
+test('native Deck controller and exported Control Hub execute target tracking and persistent relative headings',async()=>{
  for(const exported of [false,true]){let error='';const e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-track-')),now:()=>0,emit:m=>{if(m.state==='error')error=m.error;}});
   try{const robot={drivetrain:'mecanum',length:14,width:12,heightIn:5,intakeIn:0,driveRpm:312},info=await e.load({field:'empty',start,robot,sensors:{localization:'odometry'}}),pins=[{x:80,y:35,path:{rotate:'relative',angle:90,power:.5}},{x:100,y:65,turn:-90,turnMode:'relative',wait:.2},{x:80,y:100,path:{rotate:'track',target:{x:120,y:130},power:.4}},{x:40,y:105,path:{rotate:'start',power:.6}}],q=request(pins),r=P.plan(q,info.footprint),layout={name:'Tracking',field:'empty',start,zones:[]};
    const out=exported?F.files({route:r,layout,tuning:info.tuning,robot:info.robot,localization:'odometry',routeJava:X.java(r,layout,{polygon:P.polygon})}):null;

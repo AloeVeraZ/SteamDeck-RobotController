@@ -2,10 +2,9 @@
 // Developer check: the virtual Control Hub's FTC SDK stand-ins and the Control Hub exports against the
 // REAL FTC SDK. Downloads RobotCore and Hardware 12.0.0 from Maven Central into a temporary folder,
 // verifies their published SHA-1, then:
-//   1. compiles Pedro's revhub sources against them;
-//   2. compiles a Control Hub export for every supported localizer, a turning route, a route with
+//   1. compiles single-file OnBot Java and multi-file Control Hub exports for every supported localizer, a turning route, a route with
 //      action paths, spins and pin turns, and tank-style robots;
-//   3. checks every public member a stand-in declares exists in the real SDK (fields and methods the
+//   2. checks every public member a stand-in declares exists in the real SDK (fields and methods the
 //      real SDK inherits from OpModeInternal are listed separately).
 // The SDK is only a reference: the temporary folder is deleted afterwards, and nothing is bundled.
 // Needs a built simulator (node tools/simulation/build.cjs) and network access.
@@ -29,14 +28,8 @@ async function main(){
       const dir=path.join(temp,name);fs.mkdirSync(dir);fs.writeFileSync(path.join(dir,'lib.aar'),aar);execFileSync(tool('jar'),['xf','lib.aar','classes.jar'],{cwd:dir});jars.push(path.join(dir,'classes.jar'));
       console.log(`Downloaded ${name} ${VERSION} (${(aar.length/1048576).toFixed(1)} MB), SHA-1 verified.`);
     }
-    // Pedro core from the built simulator, without the stand-ins or revhub.
-    const classes=path.join(root,'sim-runtime/pedro/classes'),core=path.join(temp,'core');
-    fs.cpSync(path.join(classes,'com/pedropathing'),path.join(core,'com/pedropathing'),{recursive:true});fs.rmSync(path.join(core,'com/pedropathing/revhub'),{recursive:true,force:true});
-    fs.mkdirSync(path.join(core,'deck/sim'),{recursive:true});fs.copyFileSync(path.join(classes,'deck/sim/SimClock.class'),path.join(core,'deck/sim/SimClock.class'));
-    const javac=(sources,out,cp)=>{fs.mkdirSync(out,{recursive:true});return execFileSync(tool('javac'),['--release','17','-encoding','UTF-8','-proc:none','-Xlint:all,-classfile','-cp',cp.join(path.delimiter),'-d',out,...sources],{encoding:'utf8',stdio:['ignore','pipe','pipe']});};
-    const revhubSources=walk(path.join(root,'.cache/simulation-build/src/com/pedropathing/revhub')).filter(f=>f.endsWith('.java')),revhub=path.join(temp,'revhub');
-    javac([...revhubSources,path.join(root,'tools/simulation/java/android/annotation/SuppressLint.java')],revhub,[...jars,core]);
-    console.log(`Pedro revhub: ${revhubSources.length} files compile against the real SDK.`);
+    const classes=path.join(root,'sim-runtime/driver/classes');
+    const javac=(sources,out,cp)=>{fs.mkdirSync(out,{recursive:true});return execFileSync(tool('javac'),['--release','8','-encoding','UTF-8','-proc:none','-Xlint:all,-classfile','-cp',cp.join(path.delimiter),'-d',out,...sources],{encoding:'utf8',stdio:['ignore','pipe','pipe']});};
     // Every Control Hub export, generated exactly as the app does.
     const P=require('../../ui/sim-planner.js'),X=require('../../ui/sim-export.js'),F=require('../../ui/sim-ftc.js'),{SimEngine}=require('../../src/sim-engine.cjs');
     const e=new SimEngine({workDir:fs.mkdtempSync(path.join(temp,'engine-')),now:()=>0});
@@ -51,9 +44,12 @@ async function main(){
         const info=await e.load({field:'empty',start:c.start,robot:c.robot,zones:c.zones,sensors:{localization:c.localization}}),route=P.plan({start:c.start,zones:c.zones,pins:c.pins,clearance:c.clearance,style:c.nonholonomic?'sharp':'spline',nonholonomic:!!c.nonholonomic},info.footprint,[],info.bounds);
         const layout={name:'SDK check',field:'empty',width:144,height:144,start:c.start,zones:c.zones},out=F.files({route,layout,tuning:info.tuning,robot:info.robot,localization:c.localization,setupName:'SDK check',routeJava:X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
         const dir=path.join(temp,'teamcode',c.name.replace(/\W/g,'-')),files=Object.entries(out.files).map(([rel,text])=>{const f=path.join(dir,rel);fs.mkdirSync(path.dirname(f),{recursive:true});fs.writeFileSync(f,text);return f;});
-        const warnings=javac(files,dir+'-classes',[...jars,core,revhub]).split('\n').filter(l=>/warning:/.test(l));
+        const warnings=javac(files,dir+'-classes',jars).split('\n').filter(l=>/warning:/.test(l));
         if(warnings.length)throw Error(`${c.name} export compiles with warnings:\n${warnings.join('\n')}`);
         console.log(`Control Hub export (${c.name}${route.turns?', turning':''}): ${files.length} files compile against the real SDK, no warnings.`);
+        const single=F.onBotJava({route,layout,tuning:info.tuning,robot:info.robot,localization:c.localization,setupName:'SDK check',routeJava:X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
+        const singleDir=path.join(temp,'onbot',c.name.replace(/\W/g,'-'));fs.mkdirSync(singleDir,{recursive:true});const singlePath=path.join(singleDir,single.name);fs.writeFileSync(singlePath,single.source);
+        javac([singlePath],singleDir+'-classes',jars);console.log(`OnBot Java (${c.name}): one Java 8 file compiles against the real SDK.`);
       }
     }finally{e.dispose();}
     // Signatures: nothing a stand-in declares may be missing from the real SDK.

@@ -1,7 +1,7 @@
 package deck.sim;
 
-import com.pedropathing.follower.Follower;
-import com.pedropathing.math.Pose;
+import deck.pathing.DeckFollower;
+import deck.pathing.DeckFollower.Pose;
 import java.util.ArrayDeque;
 
 /**
@@ -38,7 +38,8 @@ public final class RouteAutonomous implements DeckAutonomous {
         double target = robot.legHeading(leg);
         recoveries = 0;
         turnedAfter = false;
-        if (turning && Math.abs(Math.atan2(Math.sin(target - p.heading()), Math.cos(target - p.heading()))) > Math.toRadians(.5)) startTurn(robot, target, true);
+        double previousHeading=leg==0?robot.startPose().heading():!Double.isNaN(robot.turnAfter(leg-1))?robot.turnAfter(leg-1):robot.routeLegs().get(leg-1).endPose().heading();
+        if (turning && Math.abs(Math.atan2(Math.sin(target - previousHeading), Math.cos(target - previousHeading))) > Math.toRadians(.5)) startTurn(robot, target, true);
         else startFollowing(robot);
     }
     private void startTurn(SimRobot robot, double target, boolean thenFollow) {
@@ -67,13 +68,13 @@ public final class RouteAutonomous implements DeckAutonomous {
     @Override
     public void loop(SimRobot robot) {
         if (robot.legPower(leg) == 0) { robot.follower().stop(); robot.telemetry("phase", "Zero motor power: stopped"); return; }
-        Follower follower = robot.follower();
+        DeckFollower follower = robot.follower();
         follower.update();
         robot.telemetry("leg", (leg + 1) + " of " + robot.routeLegs().size());
         if (turningNow) {
             double error = Math.atan2(Math.sin(turnTarget - follower.pose().heading()), Math.cos(turnTarget - follower.pose().heading()));
             robot.telemetry("phase", turnThenFollow ? "Turning chassis" : "Turning at pin");
-            if (robot.time() - turnStarted > 30) throw new IllegalStateException("Chassis turn did not settle within 30 seconds. Check clearance, RPM and current budget.");
+            if (robot.time() - turnStarted > 30) throw new IllegalStateException("Chassis turn did not settle within 30 seconds. Check clearance, motor power, gearing and sensor calibration.");
             // The localizer's per-tick angular velocity carries sensor noise, so judge settling by the
             // average rotation rate over a window spent inside the heading tolerance.
             if (Math.abs(error) > Math.toRadians(1.5)) { settleStarted = -1; return; }
@@ -98,6 +99,10 @@ public final class RouteAutonomous implements DeckAutonomous {
         }
         String moving = robot.movingAction(leg);
         robot.telemetry("phase", moving.isEmpty() ? "Driving leg" : "Action path: " + moving);
+        boolean through=leg+1<robot.routeLegs().size()&&robot.stopWait(leg)==0&&robot.stopAction(leg).isEmpty()&&Double.isNaN(robot.turnAfter(leg))&&DeckFollower.continuous(robot.routeLegs().get(leg),robot.routeLegs().get(leg+1));
+        if (through&&follower.remainingDistance()<1.5&&robot.near(robot.routeLegs().get(leg).endPose(),1.5,3)) {
+            leg++;arrived=pathEnded=-1;beginLeg(robot);return;
+        }
         if (follower.following()) {
             if (stalled(robot, follower)) {
                 if (++recoveries > MAX_RECOVERIES) {
@@ -119,9 +124,9 @@ public final class RouteAutonomous implements DeckAutonomous {
         }
         Pose end = robot.routeLegs().get(leg).endPose();
         if (turnedAfter) end = new Pose(end.x(), end.y(), robot.turnAfter(leg));
-        // Pedro's default hold timeout (100 ms) is not a settling test: wait until the estimate
+        // The controller finishing a leg does not guarantee a stationary chassis. Wait until the estimate
         // has actually settled (bounded at 3 s), then count the pause from the moment it stopped.
-        boolean settled = robot.near(end, 0.75, 3) && follower.velocity().linSpeed() < 2;
+        boolean settled = robot.near(end, 0.75, 3) && follower.velocity().linSpeed() < .5;
         if (pathEnded < 0) pathEnded = robot.time();
         if (arrived < 0 && (settled || robot.time() - pathEnded > 3)) {
             double turnAfter = robot.turnAfter(leg);
@@ -153,7 +158,7 @@ public final class RouteAutonomous implements DeckAutonomous {
     // Stalled: barely moving for a while with the leg's end still well ahead. History keeps the last
     // ~1.2 seconds of poses where the robot was moving, so the back-out target is a spot it recently
     // drove through (and was therefore clear), however long it has been stuck.
-    private boolean stalled(SimRobot robot, Follower follower) {
+    private boolean stalled(SimRobot robot, DeckFollower follower) {
         Pose p = follower.pose();
         double now = robot.time();
         if (now - legStarted < .5 || follower.remainingDistance() < 3 || follower.velocity().linSpeed() > STALL_SPEED) {

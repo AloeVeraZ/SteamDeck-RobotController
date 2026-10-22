@@ -3,7 +3,7 @@
 // while driving): planning, the shared leg plan, every export, and real runs through the physics.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js'),F=require('../ui/sim-ftc.js'),M=require('../ui/sim-motionmodule.js'),Timed=require('../ui/sim-timed.js'),{SimEngine}=require('../src/sim-engine.cjs');
-const runtime=path.join(__dirname,'../sim-runtime'),built=fs.existsSync(path.join(runtime,'dsim-host.cjs'))&&fs.existsSync(path.join(runtime,'pedro/classes/deck/sim/PedroBridge.class'));
+const runtime=path.join(__dirname,'../sim-runtime'),built=fs.existsSync(path.join(runtime,'dsim-host.cjs'))&&fs.existsSync(path.join(runtime,'driver/classes/deck/sim/RunBridge.class'));
 const skip=built?false:'run node tools/simulation/build.cjs first';
 const engine=emit=>new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-actions-')),now:()=>0,emit});
 const norm=h=>((h%360)+540)%360-180,fp={front:8.5,rear:8.5,half:8.5};

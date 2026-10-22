@@ -1,10 +1,9 @@
 package deck.sim;
 
 /**
- * Simulation time for Pedro Pathing. The simulator build redirects Pedro core's
- * System.nanoTime() reads (PID integral/derivative timing, Foresight's hold timeout,
- * Follower.update()) here, so pausing or stepping faster than real time cannot wind up an
- * integral or expire a timeout in wall-clock time. Only the bridge advances it, once per tick.
+ * Simulation time injected into the Deck controller. Pausing or changing playback speed
+ * cannot advance control timing in wall-clock time. Only the bridge advances this clock,
+ * once per physics tick.
  */
 public final class SimClock {
     private static volatile long nanos = 1_000_000_000L;

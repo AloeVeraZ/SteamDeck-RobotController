@@ -5,7 +5,7 @@ work of the people and projects below. Thank you to every one of them for publis
 work openly so FIRST teams can learn from it and build on it.
 
 Every release bundles the full license text of each component listed here. In an installed
-app they are under `app/ui/vendor/licenses/`, `app/sim-runtime/pedro/`,
+app they are under `app/ui/vendor/licenses/`, `app/sim-runtime/driver/`,
 `runtime/java/legal/` (macOS: `Contents/Resources/runtime-java/legal/`), `app/ui/fonts/`
 and `app/licenses/`, and Electron's runtime notices are in `runtime/LICENSE` and
 `runtime/LICENSES.chromium.html`.
@@ -15,15 +15,15 @@ and `app/licenses/`, and Electron's runtime notices are in `runtime/LICENSE` and
 | Component | Author | License | Used for |
 | --- | --- | --- | --- |
 | [DSIM](https://github.com/genius0412/dsim) (DECODE 2D Simulator), commit `0df84143` | Dohun Kim ([@genius0412](https://github.com/genius0412)) | PolyForm Noncommercial 1.0.0 (source-available, **noncommercial use only**) | Field physics, field drawings and the BIOBUZZ field model |
-| [Pedro Pathing](https://github.com/Pedro-Pathing/PedroPathing) 3.0.2, commit `cf4be314` | Pedro Pathing team | BSD 3-Clause | Path following, run unchanged except for the clock (below) |
+| [Pedro Pathing](https://github.com/Pedro-Pathing/PedroPathing) 3.0.2, commit `cf4be314` | Pedro Pathing team | BSD 3-Clause | Historical drivetrain adapter math; no follower library is shipped or used |
 | [Rapier](https://rapier.rs) 2D 0.19.3 and 3D deterministic 0.20.0 | Dimforge | Apache License 2.0 | Rigid-body physics inside DSIM |
 | [three.js](https://threejs.org) 0.186.0 | three.js authors | MIT | 3D field view |
 | [Clipper](https://sourceforge.net/projects/jsclipper/) (clipper-lib 6.4.2) | Angus Johnson; JavaScript port by Timo | Boost Software License 1.0 | Obstacle outlines for route planning |
 | [dijkstrajs](https://github.com/tcort/dijkstrajs) 1.0.3 | Thomas Cort and contributors | MIT | Shortest routes on the planning graph |
 | [occt-import-js](https://github.com/kovacsv/occt-import-js) 0.0.23 | Viktor Kovacs | LGPL-2.1 | Importing your own STEP robot models |
 | [Open CASCADE Technology](https://github.com/Open-Cascade-SAS/OCCT) (inside occt-import-js) | Open Cascade SAS | LGPL-2.1 with the OCCT exception | CAD kernel for STEP import |
-| [Eclipse Temurin](https://adoptium.net) OpenJDK 21.0.12.1+1 (reduced with jlink) | Eclipse Adoptium, OpenJDK contributors | GPLv2 with the Classpath Exception | Runs Pedro Pathing and your exported Java team code |
-| [Gson](https://github.com/google/gson) 2.11.0 | Google | Apache License 2.0 | Pedro Pathing's JSON support |
+| [Eclipse Temurin](https://adoptium.net) OpenJDK 21.0.12.1+1 (reduced with jlink) | Eclipse Adoptium, OpenJDK contributors | GPLv2 with the Classpath Exception | Runs the Deck controller and Java team code |
+| [Gson](https://github.com/google/gson) 2.11.0 | Google | Apache License 2.0 | Simulator bridge JSON support |
 
 **DSIM's Required Notice:** Copyright 2026 Dohun Kim (https://github.com/genius0412).
 DSIM is not open source. Its license lets anyone use, study, change and share it for
@@ -33,9 +33,10 @@ is free and noncommercial. The simulator changes DSIM at build time (see
 braking models, coasting with `FLOAT` motors, and static friction. Those changes are
 described in `docs/SIMULATION.md` and are shared under the same license.
 
-**Pedro Pathing change:** every read of `System.nanoTime()` in Pedro's core is redirected
-to the simulation clock so a simulated run can go faster or slower than real time. Nothing
-else in Pedro is changed.
+**Historical adapter attribution:** the simulator retains drivetrain mixing/saturation
+math developed while integrating Pedro Pathing. Its BSD notice is preserved in
+`ui/vendor/licenses/PEDRO-LICENSE`. The current planner, Deck controller and FTC hardware
+adapter are application code; no Pedro follower, localizer or runtime dependency is included.
 
 **LGPL components:** occt-import-js and Open CASCADE are shipped unmodified as separate files
 (`sim-runtime/occt/occt-import-js.js` and `.wasm`), which you may replace with your own build.

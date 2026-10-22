@@ -6,7 +6,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MESH_TYPES={'.glb':'glb','.gltf':'gltf','.stl':'stl','.obj':'obj'},STEP_TYPES=['.step','.stp'];
 const MODEL_LIMIT=200*1024*1024,STORED_LIMIT=150*1024*1024,SOURCE_LIMIT=200*1024,PROJECT_LIMIT=150*1024*1024,EXPORT_LIMIT=4*1024*1024;
-const EXPORTS={java:{name:'Pedro Java',extensions:['java']},pp:{name:'Pedro path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']},motionmodule:{name:'MotionModule autonomous',extensions:['py']}};
+const EXPORTS={onbot:{name:'OnBot Java autonomous',extensions:['java']},java:{name:'Route Java',extensions:['java']},pp:{name:'Deck path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']},motionmodule:{name:'MotionModule autonomous',extensions:['py']}};
 const validKey=key=>typeof key==='string'&&/^[\w-]{1,64}$/.test(key);
 
 class SimulationHost{
@@ -68,7 +68,7 @@ class SimulationHost{
       fs.mkdirSync(models,{recursive:true});fs.writeFileSync(path.join(models,id),bytes);return {id,name:path.basename(data.name).slice(0,120)};
     }
     if(action==='model-read'){if(typeof data!=='string'||!/^[0-9a-f]{32}\.glb$/.test(data))throw Error('Invalid model id.');const file=path.join(models,data);return fs.existsSync(file)?{id:data,bytes:new Uint8Array(fs.readFileSync(file))}:null;}
-    // Control Hub TeamCode: the OpMode, Pedro Constants and route, written at their package paths under
+    // Control Hub TeamCode: the OpMode, Deck controller, wiring and route, written at their package paths under
     // a folder the user picks (normally TeamCode/src/main/java). Names are checked so nothing escapes it.
     // Files listed in keep (the team's own RobotActions.java) are written only when they do not exist.
     if(action==='teamcode-save'){

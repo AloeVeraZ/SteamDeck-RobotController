@@ -1,15 +1,15 @@
 package deck.sim;
 
-import com.pedropathing.drivetrain.DrivePowers;
-import com.pedropathing.drivetrain.Drivetrain;
-import com.pedropathing.utils.Utils;
+import deck.pathing.DeckFollower.DrivePowers;
+import deck.pathing.DeckFollower.Drivetrain;
+import deck.pathing.DeckFollower;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * A Pedro Drivetrain whose "motors" are the simulator's chassis command. Wheel mixing and
- * saturation follow the mecanum math of Pedro's revhub Mecanum (BSD-3-Clause), or per-module
- * vectors for swerve; the normalized chassis powers are sent to DSIM's drive model, which turns
+ * A Deck drivetrain whose motors are the simulator's chassis command. Wheel mixing and
+ * saturation use mecanum kinematics or per-module vectors for swerve. The normalized
+ * chassis powers are sent to DSIM's drive model, which turns
  * them into wheel-limited motion, acceleration limits and contact physics.
  */
 public final class SimDrivetrain implements Drivetrain {
@@ -90,7 +90,7 @@ public final class SimDrivetrain implements Drivetrain {
                 lambda = Math.min(lambda, (-ab + Math.sqrt(disc)) / bb);
             }
         }
-        return Utils.clamp(lambda, 0.0, 1.0);
+        return DeckFollower.clamp(lambda, 0.0, 1.0);
     }
 
     @Override
@@ -113,7 +113,7 @@ public final class SimDrivetrain implements Drivetrain {
     double strafe() { return strafe; }
     double turn() { return turn; }
     Kind kind() { return kind; }
-    /** False while Pedro drives in automatic mode: its real Mecanum uses FLOAT there, so unpowered wheels coast. */
+    /** Whether the drive model should apply motor braking when power is zero. */
     boolean brake() { return brake; }
 
     @Override

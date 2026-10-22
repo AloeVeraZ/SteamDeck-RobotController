@@ -1,6 +1,6 @@
 package org.firstinspires.ftc.robotcore.external.navigation;
 
-// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset Pedro Pathing and exported
+// Virtual Control Hub stand-in for the FTC SDK 12.0 API (the subset the generated controller and exported
 // autonomous code use). Same package, names and signatures; backed by the simulator. Not FIRST code.
 public class Pose2D {
     protected final double x, y, heading;

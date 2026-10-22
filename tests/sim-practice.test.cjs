@@ -51,7 +51,7 @@ test('custom field walls use the configured dimensions in physics, not the stand
     for(let i=0;i<600;i++)e.tick({forward:0,strafe:1,turn:0});assert.ok(e.truth().y>160&&e.truth().y+11<=180.5,JSON.stringify(e.truth()));
   }finally{e.dispose();}
 });
-test('tank families cannot strafe; their straight autonomous uses Pedro and reaches its pin',{skip:!built},async()=>{
+test('tank families cannot strafe; their straight autonomous uses the Deck controller and reaches its pin',{skip:!built},async()=>{
   const e=engine();try{const start={x:30,y:72,heading:0},info=await e.load({field:'empty',start,robot:{drivetrain:'tank6',length:24,width:22,intakeIn:0,massLb:23.5,driveRpm:400},sensors:{localization:'ideal'}});assert.equal(info.drive.maxStrafe,0);
     const lateral=P.plan({start,pins:[{x:30,y:110}],zones:[]},info.footprint,[],info.bounds);assert.equal((await e.run({kind:'route',route:lateral})).ok,true);for(let i=0;i<1200&&e.mode==='program';i++)await e.programTick();assert.ok(e.result);assert.ok(Math.hypot(e.result.truth.x-30,e.result.truth.y-110)<1.5,JSON.stringify(e.result));
     const straight=P.plan({start,pins:[{x:110,y:72}],zones:[]},info.footprint,[],info.bounds);assert.equal((await e.run({kind:'route',route:straight})).ok,true);
