@@ -111,13 +111,68 @@
     return {url,x0:box.min.x,x1:box.max.x,y0:box.min.y,y1:box.max.y};
   }
   // ---- preview with a view cube ---------------------------------------------------------
-  function viewCube(host,onView){
-    host.classList.add('view-cube');host.innerHTML='<div class="cube"></div><button type="button" class="cube-home" aria-label="Isometric home view">⌂</button>';const cube=host.querySelector('.cube');
-    for(const x of [-1,0,1])for(const y of [-1,0,1])for(const z of [-1,0,1]){const d=[x,y,z],count=d.filter(Boolean).length;if(!count)continue;const magnitude=Math.hypot(...d),n=d.map(v=>v/magnitude),side=Object.keys(SIDES).find(k=>SIDES[k].every((v,i)=>v===d[i])),name=side||d.map((v,i)=>v?Object.keys(SIDES).find(k=>SIDES[k][i]===v):'').filter(Boolean).join(' '),button=document.createElement('button');button.type='button';button.className='cube-part '+(side?'face':count===2?'edge':'corner');button.setAttribute('aria-label',name+' view');if(side){button.dataset.side=side;button.textContent=side[0].toUpperCase()+side.slice(1);}
-      let up=count===2?d.map(v=>v===0?1:0):Math.abs(n[2])>.99?[1,0,0]:[0,0,1];const right=cross(up,n),length=Math.hypot(...right),r=right.map(v=>v/length);up=cross(n,r);const pos=d.map(v=>v*30);button.style.transform=`matrix3d(${[...r,0,...up.map(v=>-v),0,...n,0,...pos,1].join(',')})`;button.onclick=()=>{for(const p of cube.children)p.classList.toggle('selected',p===button);onView(d,side||null);};cube.append(button);
+  // One closed beveled solid: six faces, twelve edges and eight corners, all clickable.
+  // Projection from the camera keeps the widget aligned without overlapping CSS planes.
+  function cubeGeometry(){
+    const a=27,b=21,out=[];
+    for(const x of [-1,0,1])for(const y of [-1,0,1])for(const z of [-1,0,1]){
+      const direction=[x,y,z],axes=[0,1,2].filter(i=>direction[i]),count=axes.length;if(!count)continue;
+      const length=Math.hypot(...direction),normal=direction.map(v=>v/length),side=Object.keys(SIDES).find(k=>SIDES[k].every((v,i)=>v===direction[i])),name=side||direction.map((v,i)=>v?Object.keys(SIDES).find(k=>SIDES[k][i]===v):'').filter(Boolean).join(' ');
+      let vertices,right,up;
+      if(count===1){up=Math.abs(z)===1?[1,0,0]:[0,0,1];right=cross(up,normal);up=cross(normal,right);vertices=[[-b,-b],[b,-b],[b,b],[-b,b]].map(([u,v])=>normal.map((n,i)=>n*a+right[i]*u+up[i]*v));}
+      else if(count===2){const [i,j]=axes,k=[0,1,2].find(n=>!axes.includes(n));vertices=[[a,b,-b],[a,b,b],[b,a,b],[b,a,-b]].map(([u,v,w])=>{const p=[0,0,0];p[i]=direction[i]*u;p[j]=direction[j]*v;p[k]=w;return p;});}
+      else vertices=axes.map(i=>direction.map((v,j)=>v*(i===j?a:b)));
+      const edge=(p,q)=>q.map((v,i)=>v-p[i]);if(dot(cross(edge(vertices[0],vertices[1]),edge(vertices[0],vertices[2])),normal)<0)vertices.reverse();
+      const centre=[0,1,2].map(i=>vertices.reduce((sum,p)=>sum+p[i],0)/vertices.length);out.push({direction,normal,side:side||null,name,kind:count===1?'face':count===2?'edge':'corner',vertices,centre,right,up});
     }
-    host.querySelector('.cube-home').onclick=()=>{for(const p of cube.children)p.classList.remove('selected');onView([1,-1,.8],null);};
-    return {update(camera){const {THREE:T}=three(),m=new T.Matrix4().extractRotation(camera.matrixWorldInverse).premultiply(new T.Matrix4().makeScale(1,-1,1));cube.style.transform=`translateZ(-40px) matrix3d(${m.elements.map(v=>+v.toFixed(6)).join(',')})`;}};
+    return out;
+  }
+  function orbitCamera(camera,controls,dx,dy){
+    if(!Number.isFinite(dx)||!Number.isFinite(dy))return;const {THREE:T}=three(),q=new T.Quaternion().setFromUnitVectors(camera.up,new T.Vector3(0,1,0)),offset=camera.position.clone().sub(controls.target).applyQuaternion(q),s=new T.Spherical().setFromVector3(offset);
+    s.theta=Math.max(controls.minAzimuthAngle??-Infinity,Math.min(controls.maxAzimuthAngle??Infinity,s.theta-dx*.008));s.phi=Math.max(Math.max(.001,controls.minPolarAngle??0),Math.min(Math.min(Math.PI-.001,controls.maxPolarAngle??Math.PI),s.phi-dy*.008));
+    camera.position.copy(new T.Vector3().setFromSpherical(s).applyQuaternion(q.invert())).add(controls.target);camera.lookAt(controls.target);controls.update();
+  }
+  function viewCube(host,onView,{orbit,controls}={}){
+    const ns='http://www.w3.org/2000/svg',node=(tag,attrs={})=>{const el=document.createElementNS(ns,tag);for(const [key,value]of Object.entries(attrs))el.setAttribute(key,value);return el;};
+    host.classList.add('view-cube');host.innerHTML='<svg class="view-cube-svg" viewBox="-48 -48 96 96" aria-label="View orientation"><g class="cube"></g></svg><button type="button" class="cube-home" aria-label="Isometric home view" title="Isometric home view"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></button>';
+    const cube=host.querySelector('.cube'),surface=host.querySelector('.view-cube-svg'),home=host.querySelector('.cube-home'),parts=cubeGeometry(),listeners=[];
+    const listen=(target,type,handler,options)=>{target.addEventListener(type,handler,options);listeners.push(()=>target.removeEventListener(type,handler,options));};
+    let drag=null,disposed=false,suppressClick=false;
+    const select=part=>{for(const p of parts){const selected=p===part;p.element.classList.toggle('selected',selected);p.element.setAttribute('aria-pressed',String(selected));}};
+    const choose=part=>{select(part);onView(part.direction.slice(),part.side);};
+    for(const part of parts){const g=node('g',{class:'cube-part '+part.kind,role:'button',tabindex:'0','aria-label':part.name+' view','aria-pressed':'false'});if(part.side)g.dataset.side=part.side;
+      const title=node('title');title.textContent=part.name+' view';g.append(title);g.append(node('polygon'));if(part.side){const text=node('text',{'text-anchor':'middle',y:'2.5'});text.textContent=part.side.toUpperCase();g.append(text);part.label=text;}
+      part.element=g;cube.append(g);listen(g,'click',event=>{if(event.detail>0||suppressClick)return;choose(part);});listen(g,'keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();choose(part);}});
+    }
+    listen(home,'click',()=>{select(null);onView([1,-1,.8],null);});
+    surface.setAttribute('aria-description','Click a face, edge or corner to choose a view. Hold and drag to orbit. Escape releases the cursor.');
+    function finish(cancel=false){if(!drag)return;const previous=drag;drag=null;host.classList.remove('orbiting');host.dataset.orbiting='false';if(controls)controls.enabled=previous.enabled;
+      try{if(host.hasPointerCapture(previous.pointerId))host.releasePointerCapture(previous.pointerId);}catch{}
+      if(document.pointerLockElement===host)document.exitPointerLock();
+      suppressClick=true;setTimeout(()=>{suppressClick=false;},0);if(!cancel&&!previous.moved&&previous.part)choose(previous.part);
+    }
+    function move(dx,dy){if(!drag||!Number.isFinite(dx)||!Number.isFinite(dy))return;drag.travel+=Math.hypot(dx,dy);drag.dx+=dx;drag.dy+=dy;
+      if(!drag.moved&&drag.travel<3)return;drag.moved=true;select(null);orbit?.(drag.dx,drag.dy);drag.dx=drag.dy=0;
+    }
+    listen(surface,'pointerdown',event=>{if(event.button!==0||drag||document.pointerLockElement&&document.pointerLockElement!==host)return;event.preventDefault();
+      const el=event.target.closest?.('.cube-part'),part=parts.find(p=>p.element===el);drag={pointerId:event.pointerId,part,travel:0,dx:0,dy:0,x:event.clientX,y:event.clientY,moved:false,enabled:controls?.enabled,locked:false};const attempt=drag;
+      if(controls)controls.enabled=false;host.classList.add('orbiting');host.dataset.orbiting='true';surface.focus?.({preventScroll:true});try{host.setPointerCapture(event.pointerId);}catch{}
+      if(event.pointerType==='mouse'&&host.requestPointerLock){try{const request=host.requestPointerLock();request?.then?.(()=>{if(disposed||drag!==attempt){if(document.pointerLockElement===host)document.exitPointerLock();}}).catch(()=>{});}catch{}}
+    });
+    listen(host,'pointermove',event=>{if(!drag||document.pointerLockElement===host)return;const dx=event.clientX-drag.x,dy=event.clientY-drag.y;drag.x=event.clientX;drag.y=event.clientY;move(dx,dy);});
+    listen(document,'mousemove',event=>{if(drag&&document.pointerLockElement===host)move(event.movementX,event.movementY);});
+    listen(document,'pointerup',event=>{if(drag&&event.pointerId===drag.pointerId&&event.button===0)finish();});
+    listen(document,'mouseup',event=>{if(drag&&event.button===0)finish();});
+    listen(document,'pointercancel',()=>finish(true));listen(window,'blur',()=>finish(true));
+    listen(document,'pointerlockchange',()=>{if(!drag)return;if(document.pointerLockElement===host)drag.locked=true;else if(drag.locked)finish(true);});
+    listen(host,'keydown',event=>{if(event.key==='Escape')return finish(true);if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();select(null);const delta=(event.shiftKey?90:event.ctrlKey?5:15)*Math.PI/180/.008;orbit?.(event.key==='ArrowLeft'?-delta:event.key==='ArrowRight'?delta:0,event.key==='ArrowUp'?-delta:event.key==='ArrowDown'?delta:0);});
+    return {update(camera){const {THREE:T}=three();camera.updateMatrixWorld();const rotation=new T.Matrix4().extractRotation(camera.matrixWorldInverse),project=p=>new T.Vector3(...p).applyMatrix4(rotation);
+      for(const part of parts){const n=project(part.normal),visible=n.z>1e-5;part.element.style.display=visible?'':'none';part.element.setAttribute('aria-hidden',String(!visible));part.element.setAttribute('tabindex',visible?'0':'-1');if(!visible)continue;
+        const c=project(part.centre);part.depth=c.z;part.element.querySelector('polygon').setAttribute('points',part.vertices.map(v=>{const p=project(v);return `${p.x},${-p.y}`;}).join(' '));
+        if(part.label){const r=project(part.right),u=project(part.up);part.label.setAttribute('transform',`matrix(${r.x} ${-r.y} ${-u.x} ${u.y} ${c.x} ${-c.y})`);}
+      }
+      for(const part of parts.filter(p=>p.element.style.display!=='none').sort((a,b)=>a.depth-b.depth))cube.append(part.element);
+    },dispose(){disposed=true;finish(true);for(const remove of listeners)remove();}};
   }
   function preview(host,{onSide}={}){
     const L=three(),T=L.THREE;
@@ -127,7 +182,7 @@
     renderer.setPixelRatio(Math.min(2,devicePixelRatio||1));box.append(renderer.domElement);
     const scene=new T.Scene(),camera=new T.PerspectiveCamera(35,1,.5,2000);camera.up.set(0,0,1);
     const controls=new L.OrbitControls(camera,renderer.domElement);controls.enablePan=false;
-    const navigator=viewCube(cubeHost,(direction,side)=>{look(direction);onSide?.(side);});
+    const navigator=viewCube(cubeHost,(direction,side)=>{look(direction);onSide?.(side);},{controls,orbit:(dx,dy)=>{orbitCamera(camera,controls,dx,dy);onSide?.(null);draw();}});
     scene.add(new T.HemisphereLight(0xffffff,0x4b525c,2.3));const sun=new T.DirectionalLight(0xffffff,1.4);sun.position.set(40,-30,60);scene.add(sun);
     const grid=new T.GridHelper(36,12,0x888888,0x888888);grid.rotation.x=Math.PI/2;grid.material.transparent=true;grid.material.opacity=.25;scene.add(grid);
     const floorMaterials=[new T.MeshStandardMaterial({color:0xabb3bc,transparent:true,opacity:.12,side:T.DoubleSide}),new T.MeshStandardMaterial({color:0x707b89,transparent:true,opacity:.12,side:T.DoubleSide})];for(let x=-18,i=0;x<18;x+=6,i++)for(let y=-18,j=0;y<18;y+=6,j++){const tile=new T.Mesh(new T.PlaneGeometry(6,6),floorMaterials[(i+j)%2]);tile.position.set(x+3,y+3,-.04);scene.add(tile);}
@@ -150,7 +205,7 @@
       controls.minDistance=radius*1.2;controls.maxDistance=radius*7;
       if(bodyKey!==holder?.uuid||!update.looked||Math.abs(radius-oldRadius)>radius*.2){bodyKey=holder?.uuid;update.looked=true;for(const face of cubeHost.querySelectorAll('.cube-part'))face.classList.remove('selected');look(null);}draw();
     }
-    return {update,look,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
+    return {update,look,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
   }
-  return {AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview,viewCube,builtin,animate};
+  return {AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate};
 });

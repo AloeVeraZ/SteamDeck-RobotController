@@ -46,10 +46,18 @@
 .sim-drop.over{border-color:var(--text);background:var(--well)}.sim-drop.compact{padding:8px}.sim-drop.compact p{display:none}
 .sim-model-preview{position:relative;height:220px;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--well)}
 .model-view,.model-canvas{position:absolute;inset:0}.model-canvas canvas{display:block;width:100%;height:100%}
-.view-cube{position:absolute;right:10px;top:10px;width:64px;height:64px;perspective:240px}
-.view-cube .cube{position:absolute;inset:0;transform-style:preserve-3d}
-.view-cube .face{position:absolute;left:0;top:0;width:64px;height:64px;min-height:0;padding:0;border:1px solid var(--line-strong);border-radius:3px;background:var(--surface);color:var(--text);font:600 10px var(--font);opacity:.94;backface-visibility:hidden;cursor:pointer}
-.view-cube .face:hover{background:var(--well)}.view-cube .face.selected{background:var(--accent);color:var(--bg)}
+.view-cube{position:absolute;right:14px;top:10px;width:110px;height:134px;z-index:3;touch-action:none;user-select:none;-webkit-user-select:none}
+.view-cube-svg{display:block;width:110px;height:110px;overflow:visible;cursor:grab;filter:drop-shadow(0 2px 3px #0005);outline:none}
+.view-cube .cube-part{cursor:grab;outline:none}
+.view-cube .cube-part polygon{fill:#edf0f4;stroke:#8793a1;stroke-width:.65;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.view-cube .edge polygon{fill:#d9dfe6}.view-cube .corner polygon{fill:#c5ced8}
+.view-cube .cube-part:hover polygon,.view-cube .cube-part:focus-visible polygon{fill:#b4d9fa;stroke:#3489d0;stroke-width:1}
+.view-cube .cube-part.selected polygon{fill:#c4e2fb;stroke:#438fc9}
+.view-cube text{fill:#344353;font:600 7px var(--font);letter-spacing:.15px;pointer-events:none;stroke:none}
+.view-cube.orbiting,.view-cube.orbiting *{cursor:none!important}
+.view-cube .cube-home{position:absolute;right:39px;top:108px;width:30px;height:26px;min-width:0;min-height:0;padding:4px;border:1px solid var(--line-strong);border-radius:5px;background:var(--surface);color:var(--text);display:grid;place-items:center}
+.cube-home svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.view-cube .cube-home:hover{border-color:#438fc9;color:#438fc9}
 .sim-advanced{margin:14px 0 4px;padding-top:12px;border-top:1px solid var(--line)}.sim-advanced h3{margin:0 0 8px}.sim-more{margin:12px 0;font-size:13px}.sim-more summary{cursor:pointer;color:var(--muted)}.sim-more[open] summary{margin-bottom:10px}
 .sim-project{justify-content:center}
 .sim-steps{margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.5}.sim-steps li{margin-bottom:4px}
@@ -107,9 +115,7 @@
 .sim-physical-boundary{fill:#ff6373;fill-opacity:.07;stroke:#ff6373;stroke-width:.55;stroke-dasharray:.6 1.2;stroke-linecap:round;pointer-events:none}
 #simulation-field:not([data-field=empty]) .sim-path{stroke:#76e8fc;stroke-width:1.1;filter:drop-shadow(0 0 .3px #111)}#simulation-field:not([data-field=empty]) .sim-pin circle{fill:#d4f7ff;stroke:#111}#simulation-field:not([data-field=empty]) .sim-pin text{fill:#111}
 #field-robot rect,#field-robot.has-model rect{stroke:#ff6373;stroke-width:.6;stroke-dasharray:1 .7;fill:none}#field-robot.has-model path{stroke:#ff6373}
-.sim-3d{position:relative}.sim-field-cube{z-index:3;right:20px;top:20px}.view-cube .cube-part{position:absolute;min-height:0;padding:0;border:1px solid var(--line-strong);border-radius:0;background:var(--surface);color:var(--text);opacity:.97;backface-visibility:hidden;cursor:pointer;transform-origin:center center}
-.view-cube .face{left:6px;top:6px;width:52px;height:52px;font-size:9px}.view-cube .edge{left:27px;top:6px;width:10px;height:52px}.view-cube .corner{left:27px;top:27px;width:10px;height:10px}.view-cube .cube-part:hover,.view-cube .cube-part.selected{background:#87bbef;color:#111;border-color:#487ba5}
-.view-cube .cube-part{min-width:0;opacity:1}.cube-home{position:absolute;right:18px;top:74px;width:28px;height:26px;min-width:0;min-height:0;padding:0;border:1px solid var(--line-strong);border-radius:4px;background:var(--surface);color:var(--text);font-size:18px}
+.sim-3d{position:relative}.sim-field-cube{z-index:3;right:14px;top:10px}
 .sim-model-preview{height:310px}.sim-model-preview .view-cube{right:20px;top:20px}
 #simulation-view[data-tab=plan] #sim-hitboxes:not([hidden]){display:block}.sim-controller-setup{padding:0 0 16px}.sim-controller-setup h2{margin-top:0}.sim-controller-setup .hint{margin:10px 0 0}#sim-timed-settings{border-top:1px solid var(--line);margin-top:16px;padding-top:4px}
 @media(max-width:450px){.sim-planning-steps{gap:4px}.sim-planning-steps button{font-size:11px;min-width:90px;padding:7px}.sim-side-assignments{grid-template-columns:repeat(2,1fr)}}
