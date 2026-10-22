@@ -112,3 +112,11 @@ body.sim-workspace{overflow:hidden}
  .sim-workspace .sim-log pre{max-height:90px}
  .sim-workspace #field-help{display:none}
 }
+@media(max-width:700px) and (max-height:600px){
+ .sim-workspace #sim-plan-next{display:none}
+ .sim-workspace .sim-panel .sim-planning-steps{margin-bottom:4px}
+ .sim-workspace .sim-panel .sim-planning-steps button{min-height:30px}
+ .sim-workspace .sim-live-status{min-height:24px;margin-bottom:4px}
+ .sim-workspace .sim-settings-tabs>button{min-height:26px}
+ .sim-workspace .sim-panel h2{font-size:13px;margin-block:3px}
+}
