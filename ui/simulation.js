@@ -414,7 +414,7 @@ public class MyAuto implements DeckAutonomous {
     out.push(...turnGhosts(route));return out;
   }
   // The path (by the pin it leads to) under a field point, if the route passes within reach.
-  function pathHit(p,reach=1.8){const route=L().route;if(!route)return null;const to=exporter.pathIndex(route);let best=null;
+  function pathHit(p,reach=1.8){const route=L().route;if(!route)return null;const matrix=graph.getScreenCTM();reach=Math.max(reach,7/(matrix?Math.hypot(matrix.a,matrix.b):1));const to=exporter.pathIndex(route);let best=null;
     route.segments.forEach((s,i)=>{const q=segmentPoints(s);for(let j=1;j<q.length;j++){const a=q[j-1],b=q[j],dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),d=Math.hypot(p.x-a.x-dx*t,p.y-a.y-dy*t);if(d<=reach&&(!best||d<best.d))best={d,index:to[i]};}});
     return best&&{kind:'path',index:best.index};}
   // ------------------------------------------------------------ pin and path settings
