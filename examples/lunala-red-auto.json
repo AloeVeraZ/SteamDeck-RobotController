@@ -324,18 +324,6 @@
           }
         },
         {
-          "x": 16,
-          "y": 30,
-          "wait": 0,
-          "action": "",
-          "path": {
-            "kind": "action",
-            "action": "Spin up",
-            "style": "spline",
-            "note": "Back off the wall so the robot has room to turn"
-          }
-        },
-        {
           "x": 24,
           "y": 106,
           "wait": 0,
@@ -345,10 +333,20 @@
           "path": {
             "kind": "action",
             "action": "Spin up",
-            "style": "spline",
-            "note": "Up the left side, turning to face the left wall",
+            "style": null,
+            "note": "One custom curve from the garden up the left side, bowing away from the wall while turning to face it",
             "rotate": "turn",
-            "heading": -180
+            "heading": -180,
+            "controls": [
+              {
+                "x": 25,
+                "y": 38
+              },
+              {
+                "x": 20,
+                "y": 80
+              }
+            ]
           }
         },
         {
@@ -370,15 +368,7 @@
       "style": "spline",
       "rotate": true,
       "route": null,
-      "tested": [
-        {
-          "label": "Mixed · 2 straight / 3 spline",
-          "time": 9.983333333333409,
-          "ok": true,
-          "note": "",
-          "best": true
-        }
-      ]
+      "tested": null
     },
     {
       "id": "fmvlo9b9rkl15",
@@ -3756,7 +3746,7 @@
   "active": "lunalaredmvlq0evh",
   "export": {
     "packageName": "org.firstinspires.ftc.teamcode",
-    "className": "PlannedRoute",
+    "className": "LunalaRed",
     "keep": false
   },
   "robotPreset": null,
