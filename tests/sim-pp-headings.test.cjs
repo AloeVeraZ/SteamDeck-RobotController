@@ -29,3 +29,11 @@ test('a turn along a curve is placed by arc length where the robot reaches each 
   const spans=s.map(p=>p.endProgress-p.startProgress);assert.ok(Math.max(...spans)-Math.min(...spans)>.02,String(spans));
   assert.ok(s.every(p=>Math.abs(p.parameters.endDeg-p.parameters.startDeg-10)<1e-6));assert.equal(r.segments[0].type,'curve');
 });
+
+test('a game field .pp is measured from the inside of the perimeter wall, like the Visualizer field',()=>{
+  const start={x:20,y:30,heading:0},bounds={x0:1.326,y0:1.326,x1:142.674,y1:142.674},r=P.plan({start,zones:[],pins:[{x:80,y:30,path:{rotate:'track',target:{x:72,y:72}}}],style:'sharp',clearance:1},fp);
+  const game=JSON.parse(X.pp(r,{...layoutOf(start),field:'biobuzz'},{polygon:P.polygon,bounds,timestamp:'t'})),empty=JSON.parse(X.pp(r,layoutOf(start),{polygon:P.polygon,bounds:{x0:0,y0:0,x1:144,y1:144},timestamp:'t'}));
+  assert.deepEqual(game.deckOrigin,{x:1.326,y:1.326});assert.deepEqual([game.startPoint.x,game.startPoint.y],[18.674,28.674]);assert.deepEqual([game.field.width,game.field.height],[141.348,141.348]);
+  assert.deepEqual([game.lines[0].endPoint.x,game.lines[0].endPoint.y],[78.674,28.674]);assert.deepEqual(game.lines[0].heading.piecewiseHeading.segments[0].parameters.point,{x:70.674,y:70.674});
+  assert.deepEqual(empty.deckOrigin,{x:0,y:0});assert.deepEqual([empty.startPoint.x,empty.startPoint.y],[20,30]);
+});

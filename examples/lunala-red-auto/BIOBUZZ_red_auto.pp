@@ -2,15 +2,19 @@
   "fileName": "BIOBUZZ red auto.pp",
   "version": "deck-sim-1",
   "stopAndTurn": true,
-  "timestamp": "2026-10-24T09:53:04.522Z",
+  "timestamp": "2026-10-24T12:18:07.937Z",
   "field": {
     "type": "biobuzz",
-    "width": 144,
-    "height": 144
+    "width": 141.348,
+    "height": 141.348
+  },
+  "deckOrigin": {
+    "x": 1.326,
+    "y": 1.326
   },
   "startPoint": {
-    "x": 9.1,
-    "y": 26,
+    "x": 7.774,
+    "y": 24.674,
     "headingDeg": -90,
     "heading": "constant",
     "degrees": -90
@@ -19,8 +23,8 @@
     {
       "id": "line-1",
       "endPoint": {
-        "x": 9.3,
-        "y": 22,
+        "x": 7.974,
+        "y": 20.674,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": -90
@@ -41,8 +45,8 @@
     {
       "id": "line-2",
       "endPoint": {
-        "x": 9.3,
-        "y": 16,
+        "x": 7.974,
+        "y": 14.674,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": -90
@@ -63,20 +67,20 @@
     {
       "id": "line-3",
       "endPoint": {
-        "x": 24,
-        "y": 106,
+        "x": 22.674,
+        "y": 104.674,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": -180
       },
       "controlPoints": [
         {
-          "x": 25,
-          "y": 38
+          "x": 23.674,
+          "y": 36.674
         },
         {
-          "x": 20,
-          "y": 80
+          "x": 18.674,
+          "y": 78.674
         }
       ],
       "motorPower": 1,
@@ -204,8 +208,8 @@
     {
       "id": "line-4",
       "endPoint": {
-        "x": 16.2,
-        "y": 107.3,
+        "x": 14.874,
+        "y": 105.974,
         "heading": "linear",
         "startDeg": -180,
         "endDeg": -180

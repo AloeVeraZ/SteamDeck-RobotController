@@ -2,15 +2,19 @@
   "fileName": "BIOBUZZ red auto.pp",
   "version": "deck-sim-1",
   "stopAndTurn": true,
-  "timestamp": "2026-10-24T09:53:05.268Z",
+  "timestamp": "2026-10-24T12:19:13.652Z",
   "field": {
     "type": "biobuzz",
-    "width": 144,
-    "height": 144
+    "width": 141.348,
+    "height": 141.348
+  },
+  "deckOrigin": {
+    "x": 1.326,
+    "y": 1.326
   },
   "startPoint": {
-    "x": 9.83,
-    "y": 27,
+    "x": 8.504,
+    "y": 25.674,
     "headingDeg": 0,
     "heading": "constant",
     "degrees": 0
@@ -19,8 +23,8 @@
     {
       "id": "line-1",
       "endPoint": {
-        "x": 24,
-        "y": 30,
+        "x": 22.674,
+        "y": 28.674,
         "heading": "linear",
         "startDeg": 0,
         "endDeg": 0
@@ -41,20 +45,20 @@
     {
       "id": "line-2",
       "endPoint": {
-        "x": 22,
-        "y": 20,
+        "x": 20.674,
+        "y": 18.674,
         "heading": "linear",
         "startDeg": 0,
         "endDeg": -90
       },
       "controlPoints": [
         {
-          "x": 23.333,
-          "y": 26.667
+          "x": 22.007,
+          "y": 25.341
         },
         {
-          "x": 22.998,
-          "y": 22.184
+          "x": 21.672,
+          "y": 20.858
         }
       ],
       "motorPower": 1,
@@ -179,8 +183,8 @@
     {
       "id": "line-3",
       "endPoint": {
-        "x": 16,
-        "y": 12.5,
+        "x": 14.674,
+        "y": 11.174,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": -90
@@ -201,8 +205,8 @@
     {
       "id": "line-4",
       "endPoint": {
-        "x": 24,
-        "y": 24,
+        "x": 22.674,
+        "y": 22.674,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": -90
@@ -220,20 +224,20 @@
     {
       "id": "line-5",
       "endPoint": {
-        "x": 36,
-        "y": 28,
+        "x": 34.674,
+        "y": 26.674,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": -90
       },
       "controlPoints": [
         {
-          "x": 26.5,
-          "y": 25.937
+          "x": 25.174,
+          "y": 24.611
         },
         {
-          "x": 32,
-          "y": 26.667
+          "x": 30.674,
+          "y": 25.341
         }
       ],
       "motorPower": 1,
@@ -361,8 +365,8 @@
     {
       "id": "line-6",
       "endPoint": {
-        "x": 16,
-        "y": 107,
+        "x": 14.674,
+        "y": 105.674,
         "heading": "linear",
         "startDeg": -90,
         "endDeg": 0

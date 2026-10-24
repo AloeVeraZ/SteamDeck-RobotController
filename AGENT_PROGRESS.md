@@ -27,6 +27,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - **`.pp` files** now use the current Pedro Visualizer schema.
   - Long turns, spins and turns along curves are written so the Visualizer shows the turn the robot makes. Before, it turned them the wrong way.
   - This was checked by running the Visualizer's own code.
+  - BIOBUZZ `.pp` files were drawn 1.33 in away from the walls. Deck's frame includes the wall, but the Visualizer's 141.5 in field starts at the inner wall. Game-field files are now shifted (`deckOrigin` records it).
 - **Generated OpModes stop the drive first** when they end: an error in a mechanism's stop code can no longer leave the wheels turning. This applies to OnBot, TeamCode and Pedro.
 - **Names cannot break the Java.** A setup or action name containing a Java unicode escape for `*/` (a backslash, `u002a`, then `/`) used to end a generated comment early, because javac decodes unicode escapes before comments.
 - **Control Hub mounting.** Setup → Robot controller has "Control Hub logo faces" and "Its USB ports face". OnBot, TeamCode and the Pedro starter constants for pods write them into `RevHubOrientationOnRobot`. Before, every export assumed logo up, USB forward, so a hub mounted any other way would have turned wrongly. Also `deck-sim robot --hub-logo/--hub-usb`.

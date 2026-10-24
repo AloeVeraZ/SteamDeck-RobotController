@@ -183,7 +183,7 @@ function exported(setup,l,route,info,format){
   if(format==='teamcode'){const out=team(false);return {files:out.files,note:`OpMode ${out.opMode}. Mechanism code goes in RobotActions.java.`};}
   if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardwareIfSupported(info.robot,setup.sensors?.localization),tuning:info.tuning});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
   if(format==='java')return {files:{[`${names.className}.java`]:routeJava()}};
-  if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon})}};
+  if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon,bounds:info.bounds})}};
   if(format==='timed')return {files:{'timed-route.json':JSON.stringify({format:'deck-timed-drive-v1',controller:setup.controller,units:'inches',feedback:'IMU heading only; no X/Y feedback',start:l.start,field:l.field,...Timed.compile(route,timing)},null,2)}};
   if(format==='motionmodule')return {files:{'autonomous.py':M.autonomous(route,timing,{name:l.name,mechanisms:info.mechanisms,target:info.target}),'robot_actions.py':M.actionsFile(route,{name:l.name,mechanisms:info.mechanisms})}};
   throw Error('Formats: onbot, teamcode, pedro, java, pp, timed, motionmodule.');

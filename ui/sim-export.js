@@ -179,23 +179,26 @@ ${parts.map(leg).join(',\n')}
     const total=length[steps]||1,progress=j=>j===k?1:+(length[j*16]/total).toFixed(5);
     return {type:'piecewise',piecewiseHeading:{segments:Array.from({length:k},(_,j)=>({startProgress:progress(j),endProgress:progress(j+1),interpolationType:'linear',parameters:{startDeg:+n(from+turn*j/k),endDeg:+n(from+turn*(j+1)/k)}}))}};
   }
+  // The Pedro Visualizer's field runs from the inside of the perimeter wall (141.5 in). Deck's game fields keep the wall
+  // inside a 144 in square, so a game field's .pp is shifted by the wall (options.bounds); deckOrigin records the shift.
   function pp(route,layout,options={}){
+    const o=layout.field&&layout.field!=='empty'&&options.bounds?{x:options.bounds.x0,y:options.bounds.y0}:{x:0,y:0},P=q=>({x:+n(q.x-o.x),y:+n(q.y-o.y)});
     const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map(),to=pathIndex(route),stops=route.stops||[];
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
-    const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant,degrees:+n(s.heading??route.heading)}};
-      if(finite(s.endHeading))line.endPoint={x:+n(end.x),y:+n(end.y),heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
-      if(s.tangent){line.endPoint={x:+n(end.x),y:+n(end.y),heading:'tangential',reverse:!!s.reverse};}
-      if(s.target){line.endPoint.heading='target';line.targetTracking={x:+n(s.target.x),y:+n(s.target.y)};}
-      if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
+    const lines=route.segments.map((s,i)=>{const end=P(s.points.at(-1)),line={id:`line-${i+1}`,endPoint:{...end,...constant,degrees:+n(s.heading??route.heading)}};
+      if(finite(s.endHeading))line.endPoint={...end,heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
+      if(s.tangent){line.endPoint={...end,heading:'tangential',reverse:!!s.reverse};}
+      if(s.target){line.endPoint.heading='target';line.targetTracking=P(s.target);}
+      if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(P);
       const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
       const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       // The Visualizer's own fields: an atomic path, its heading as an object, a colour per Deck path.
       line.kind='atomic';line.color=COLORS[to[i]%COLORS.length];if(!line.controlPoints)line.controlPoints=[];
-      line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:{x:+n(s.target.x),y:+n(s.target.y)}}}]}}:finite(s.endHeading)?linearHeading(s):{type:'constant',degrees:+n(s.heading??route.heading)};
+      line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:P(s.target)}}]}}:finite(s.endHeading)?linearHeading(s):{type:'constant',degrees:+n(s.heading??route.heading)};
       return line;});
-    const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)})),color:'#dc2626',fillColor:'#ef444433'}));
+    const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(P),color:'#dc2626',fillColor:'#ef444433'}));
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:route.segments.some(s=>s.target)?'deck-sim-2':'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
-      field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
+      field:{type:layout.field||'empty',width:o.x?+n(options.bounds.x1-o.x):layout.width||144,height:o.y?+n(options.bounds.y1-o.y):layout.height||144},deckOrigin:{x:+n(o.x),y:+n(o.y)},startPoint:{...P(layout.start),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
   }
   return {legs,java,pp,validName,actions,slot,pySlot,where,describe,pathIndex};
 });
