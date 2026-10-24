@@ -30,9 +30,15 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - **Generated OpModes stop the drive first** when they end: an error in a mechanism's stop code can no longer leave the wheels turning. This applies to OnBot, TeamCode and Pedro.
 - **Names cannot break the Java.** A setup or action name containing a Java unicode escape for `*/` (a backslash, `u002a`, then `/`) used to end a generated comment early, because javac decodes unicode escapes before comments.
 - **Control Hub mounting.** Setup → Robot controller has "Control Hub logo faces" and "Its USB ports face". OnBot, TeamCode and the Pedro starter constants for pods write them into `RevHubOrientationOnRobot`. Before, every export assumed logo up, USB forward, so a hub mounted any other way would have turned wrongly. Also `deck-sim robot --hub-logo/--hub-usb`.
-- Exports without a route default power or tuning wrote `NaN.0` into `MOTOR_POWER`, which does not compile. They now fall back to 0.8, like the Deck route Java.
+- **No NaN in exports.**
+  - Without a route default power or measured tuning, the Control Hub exports wrote `NaN.0` into `MOTOR_POWER` and `Constants.java`, which does not compile.
+  - Power now falls back to 0.8, and missing tuning to the Deck controller's own defaults.
+  - A random-route fuzz test guards every generator.
 - **MotionModule names.** A setup or action name with a backslash (for example a Windows path) made `autonomous.py` and `robot_actions.py` invalid Python. This was checked with Python's own parser.
-- **No NaN in exports.** Control Hub exports without measured tuning fall back to the Deck controller's defaults instead of writing `NaN.0`. A random-route fuzz test guards every generator.
+- **Action names in any language.**
+  - An action named only in Chinese, Cyrillic, emoji and so on got no code slot.
+  - Names differing only in case (Shoot, shoot) shared a slot, but only the first was dispatched.
+  - In both cases the action silently did nothing. Every name now has a slot that runs, and existing Latin slot names are unchanged.
 - **Pedro export for swerve robots.** The docs promised it but the app hid the button. Swerve robots now get the Pedro files without starter constants. The checklist no longer claims a Follower run that only covered mecanum. The real-SDK check compiles a swerve case.
 - The example exports in `examples/` were regenerated. The BIOBUZZ ones were already out of date before this session.
 
@@ -48,7 +54,8 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
   - Onion robot outlines along the open path.
   - Duplicate path.
   - Delete removes the open path.
-  - **Route preview:** a scrubber and a Preview button move a robot outline along the whole planned route, with no physics.
+  - **Route preview:** a scrubber and a Preview button move a robot outline along the whole planned route, with no physics. The path card it is on is marked.
+  - Shift snaps a dragged curve handle to a 0.5 in grid.
   - Lines stay thin when zoomed in.
   - A Keys line in Help.
   - The right-click editor matches the path card.
@@ -57,6 +64,9 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 ### Run & review
 
 - **Compare with a robot log.** WPILOG Pose2d or CSV, drawn beside the plan, with average and worst deviation and the stop error.
+  - CSV files exported from spreadsheets work: byte-order mark, quoted cells, decimal commas, and `pose_x` or `Robot X (in)` column names.
+  - The same comparison runs from the terminal: `deck-sim compare <setup> <log>`.
+  - Checked on the app's own AdvantageScope log.
 
 ### Bugs fixed
 
