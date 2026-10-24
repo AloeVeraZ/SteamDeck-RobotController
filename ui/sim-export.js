@@ -33,11 +33,15 @@
   // The same name used at several pins or paths runs the same code.
   const JAVA_WORDS=new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null var record yield init stop run'.split(' '));
   const words=name=>String(name||'').normalize('NFKD').replace(/[^\w\s]/g,' ').replace(/_/g,' ').trim().split(/\s+/).filter(Boolean);
-  function slot(name){const w=words(name);if(!w.length)return '';let id=w.map((x,i)=>i?x[0].toUpperCase()+x.slice(1).toLowerCase():x.toLowerCase()).join('');if(/^\d/.test(id))id='action'+id[0].toUpperCase()+id.slice(1);return JAVA_WORDS.has(id)?id+'Action':id.slice(0,48);}
-  function pySlot(name){const w=words(name);if(!w.length)return '';let id=w.map(x=>x.toLowerCase()).join('_');if(/^\d/.test(id))id='action_'+id;return ['and','as','assert','break','class','continue','def','del','elif','else','except','finally','for','from','global','if','import','in','is','lambda','nonlocal','not','or','pass','raise','return','try','while','with','yield','run','stop','init','setup','math','os','time','importlib','drive','turn','hold','aim','action','plan','load_actions','create_autonomous','wrap180'].includes(id)?id+'_action':id.slice(0,48);}
+  // Letters outside A-Z (Chinese, Cyrillic, emoji...) cannot be part of a Java or Python name, so a slot keeps them as a
+  // code-point suffix: two different non-Latin names never share a slot, and a name with no Latin letters still gets one.
+  const foreign=name=>[...String(name||'').normalize('NFKD').replace(/\p{M}/gu,'')].filter(c=>c.codePointAt(0)>127&&/\S/u.test(c)).map(c=>c.codePointAt(0).toString(16)).join('').slice(0,24);
+  function slot(name){const w=words(name),f=foreign(name);if(!w.length&&!f)return '';let id=w.length?w.map((x,i)=>i?x[0].toUpperCase()+x.slice(1).toLowerCase():x.toLowerCase()).join(''):'action';if(/^\d/.test(id))id='action'+id[0].toUpperCase()+id.slice(1);if(f)return id.slice(0,24)+'U'+f;return JAVA_WORDS.has(id)?id+'Action':id.slice(0,48);}
+  function pySlot(name){const w=words(name),f=foreign(name);if(!w.length&&!f)return '';let id=w.length?w.map(x=>x.toLowerCase()).join('_'):'action';if(/^\d/.test(id))id='action_'+id;if(f)return id.slice(0,24)+'_u'+f;return ['and','as','assert','break','class','continue','def','del','elif','else','except','finally','for','from','global','if','import','in','is','lambda','nonlocal','not','or','pass','raise','return','try','while','with','yield','run','stop','init','setup','math','os','time','importlib','drive','turn','hold','aim','action','plan','load_actions','create_autonomous','wrap180'].includes(id)?id+'_action':id.slice(0,48);}
   // Every named action with where it runs, in route order.
   function actions(route){
-    const map=new Map(),add=(name,where)=>{const id=slot(name);if(!id)return;if(!map.has(id))map.set(id,{slot:id,py:pySlot(name),name,uses:[]});map.get(id).uses.push(where);};
+    // Names that differ only in case or punctuation (Shoot, shoot) share a slot; every one of them is listed in names.
+    const map=new Map(),add=(name,where)=>{const id=slot(name);if(!id)return;if(!map.has(id))map.set(id,{slot:id,py:pySlot(name),name,names:[],uses:[]});const a=map.get(id);if(!a.names.includes(name))a.names.push(name);a.uses.push(where);};
     const all=legs(route);
     for(const [i,l] of all.entries()){
       if(l.moving?.action&&!all.slice(0,i).some(o=>o.path===l.path&&o.moving))add(l.moving.action,{moving:true,path:l.path,note:l.moving.note,rotate:l.rotate});

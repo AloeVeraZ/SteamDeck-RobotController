@@ -370,7 +370,7 @@ ${mech?'        mech.stop();\n':''}    }
     /** Runs the action with this simulator name. Names this file does not know count as finished. */
     public final boolean run(String name, Step step) {
         switch (name) {
-${list.map(a=>`            case ${javaString(a.name)}: return ${a.slot}(step);\n`).join('')}            default: return true;
+${list.flatMap(a=>(a.names||[a.name]).map(name=>`            case ${javaString(name)}: return ${a.slot}(step);\n`)).join('')}            default: return true;
         }
     }
 

@@ -89,7 +89,7 @@ MOVING_SECONDS = {${Object.entries(p.movingSeconds).map(([k,v])=>`${k}: ${num(v)
 AIMS = {${Object.entries(p.aims).map(([k,v])=>`${k}: ${Array.isArray(v)?`(${v.map(num).join(', ')})`:num(v)}`).join(', ')}}
 
 ACTIONS = {
-${list.map(a=>`    ${pyString(a.name)}: ${pyString(a.py)},  # ${a.uses.map(u=>Export.where(u)).join('; ').replace(/[\r\n]/g,' ')}`).join('\n')}
+${list.flatMap(a=>(a.names||[a.name]).map(name=>`    ${pyString(name)}: ${pyString(a.py)},  # ${a.uses.map(u=>Export.where(u)).join('; ').replace(/[\r\n]/g,' ')}`)).join('\n')}
 }
 
 
