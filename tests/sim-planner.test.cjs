@@ -172,3 +172,9 @@ test('spline: a dead-end pin the route leaves the way it came becomes a stop, ne
   const r=planner.plan({start:{x:20,y:72,heading:0},zones,pins,clearance:1,style:'spline'},square);assertSafe(r,zones);
   for(const s of r.segments){const a=s.points[0],b=s.points[1],c=s.points.at(-2),d=s.points.at(-1);assert.ok(planner.dist(a,b)>1e-6&&planner.dist(c,d)>1e-6,'non-zero end tangents');}
 });
+test('absurd spin counts and turn angles are limited instead of hanging the planner',()=>{
+  // A million spins used to make the planner sample every 2° of 360 million degrees.
+  const fp={front:8.5,rear:8.5,half:8.5},start={x:24,y:24,heading:0},t=performance.now();
+  const r=planner.plan({start,zones:[],pins:[{x:110,y:40,path:{rotate:'spin',spins:1e6}}],clearance:2},fp);assert.ok(performance.now()-t<3000);
+  assert.equal(r.segments.at(-1).endHeading-r.segments[0].heading,3600);assert.equal(planner.pathEffects({spins:-1e9}).spins,-10);assert.equal(planner.pathEffects({angle:1e12}).angle,3600);
+});
