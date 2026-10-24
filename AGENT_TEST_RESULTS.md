@@ -96,6 +96,13 @@ The Visualizer's normalizer, path flattening and animation heading code (`segmen
 - **Control Hub mounting:** in the Control Hub fixture, choosing logo Left then USB Up greys out Left/Right for USB and saves the choice. The exported OnBot Java then contains `LogoFacingDirection.LEFT,RevHubOrientationOnRobot.UsbFacingDirection.UP`.
 - **Narrow windows:** at 360 px and 390 px wide, no tab scrolls sideways.
 
+## Generator fuzzing
+
+`tests/sim-export-fuzz.test.cjs` runs 80 seeded random routes through every generator (route Java, `.pp`, TeamCode, OnBot, Pedro, MotionModule), with measured tuning and with none. The routes mix headings, spins, tracking, curves, action paths, powers, pauses and turns.
+- Before the fixes, exports with no tuning wrote `NaN.0` into `Constants.java` and `MOTOR_POWER`.
+- Now nothing leaks: no NaN, Infinity or undefined.
+- MotionModule Python with backslashes in names is parsed by Python 3.12 with warnings as errors.
+
 ## Planning time (`deck-sim` setups, planner only)
 
 - 2 to 6 pins: 3–127 ms.
