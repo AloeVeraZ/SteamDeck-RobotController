@@ -64,6 +64,11 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - Undo closed the open path.
 - At 390 px, the header menu overflowed and the Run button was crushed.
 - The touch Done button covered the Next button.
+- In narrow windows (700 px or less):
+  - The Run tab squeezed the field to 109 px.
+  - The Plan tab's toolbar covered the top of the field.
+  - Both tabs now scroll as one page with a full-width field (312 px at 390 px wide).
+  - Steam Deck sizes are unchanged.
 - The selected sub-tab looked unselected.
 - The README claimed Pedro ships in the app.
 - "Plan a route first." was shown even when a route existed but had an issue.

@@ -41,7 +41,3 @@
 ## UI polish
 
 5. A pass over the Setup wizard and the Run & review layout for beginners. The Setup screens, the Route and Diagnostics panels and the Export panel were reviewed at Steam Deck size; the export checkbox and two jargon notes were fixed.
-6. Narrow windows (700 px wide or less):
-   - On the Plan tab the field toolbar floats over the top of the field and can cover pins near the top edge.
-   - On the Run tab the timing card leaves the field only about 110 px tall at 390×844.
-   - Steam Deck sizes are not affected.

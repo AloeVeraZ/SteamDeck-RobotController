@@ -161,6 +161,12 @@ body.sim-workspace{overflow:hidden}
  .sim-workspace #field-help,.sim-workspace #sim-telemetry{display:none!important}
  .sim-workspace .sim-stage{min-height:60px}
  .sim-workspace .sim-toolbar{position:absolute;z-index:2;right:10px;gap:3px}
+ /* Plan and Run scroll as one page here, so the field keeps the full width (it was squeezed under the toolbar and
+    the timing card) and the toolbar sits above the field instead of over its top edge. */
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]){overflow-y:auto}
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]) .simulation-layout{grid-template-rows:auto auto;flex:none;min-height:auto}
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]) .sim-stage{flex:none;aspect-ratio:168/172;width:100%;min-height:0}
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]) .sim-toolbar{position:static}
  .sim-workspace #sim-source{height:120px}
  .sim-workspace .sim-panel input.num-slider{display:none}
  .sim-workspace .sim-panel .num-field:focus-within input.num-slider{display:block}
