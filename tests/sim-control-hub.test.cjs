@@ -70,3 +70,11 @@ for(const [drivetrain,localization] of [['tank','encoders'],['tank2','encoders']
       const t=e.truth();assert.ok(Math.hypot(t.x-100,t.y-100)<2.5,JSON.stringify(t));assert.equal(e.violations.size,0);
     }finally{e.dispose();}
   });
+
+test('an export without measured tuning uses the Deck controller defaults, never NaN',()=>{
+  const start={x:24,y:24,heading:0},layout={name:'No tuning',field:'empty',width:144,height:144,start,zones:[]},route=P.plan({start,zones:[],pins:[{x:90,y:24}],style:'sharp',clearance:1},{front:8,rear:8,half:8});
+  const routeJava=X.java(route,layout,{polygon:P.polygon}),files=F.files({route,layout,tuning:{},robot:{length:16,width:16},localization:'odometry',routeJava}).files;
+  for(const [name,src] of Object.entries(files))assert.doesNotMatch(src.split('\n').filter(l=>!/^ *(\*|\/\/|\/\*\*)/.test(l)).join('\n').replace(/Double\.(isNaN|NaN)/g,''),/NaN|Infinity|undefined/,name);
+  const constants=Object.entries(files).find(([k])=>k.endsWith('drive/Constants.java'))[1];
+  assert.match(constants,/config\.maxForward=60\.0; config\.maxStrafe=50\.0;/);assert.match(constants,/config\.positionD=0\.01;/);assert.match(constants,/config\.headingD=0\.12;/);
+});

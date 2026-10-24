@@ -34,7 +34,10 @@
   const names=list=>`new String[] {${list.map(javaString).join(', ')}}`;
   // The same application-owned controller is exported to the robot. Only this adapter
   // depends on the FTC SDK: hardware names, encoder geometry, sensor frames and motor mixing.
-  function constants(h,t,options){return `package ${options.packageName}.drive;
+  // Tuning the simulator has not measured falls back to the Deck controller's own Config defaults, so no NaN
+  // reaches the Java.
+  const DEFAULT_TUNING={maxForward:60,maxStrafe:50,maxTurn:5,translationalP:.09/.35,translationalD:.01,headingP:2/.7,headingD:.12};
+  function constants(h,raw,options){const t={...raw};for(const [k,v] of Object.entries(DEFAULT_TUNING))if(!Number.isFinite(t[k]))t[k]=v;return `package ${options.packageName}.drive;
 import deck.pathing.DeckFollower;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.ElapsedTime;
