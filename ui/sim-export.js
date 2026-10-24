@@ -161,6 +161,7 @@ ${parts.map(leg).join(',\n')}
 `;
   }
   // Deck path-file JSON (.pp): a start point and lines with optional Bezier control points.
+  const COLORS=['#2563eb','#16a34a','#d97706','#9333ea','#dc2626','#0891b2','#db2777','#65a30d'];
   function pp(route,layout,options={}){
     const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map(),to=pathIndex(route),stops=route.stops||[];
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
@@ -171,10 +172,13 @@ ${parts.map(leg).join(',\n')}
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
       const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
       const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
+      // The Visualizer's own fields: an atomic path, its heading as an object, a colour per Deck path.
+      line.kind='atomic';line.color=COLORS[to[i]%COLORS.length];if(!line.controlPoints)line.controlPoints=[];
+      line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:{x:+n(s.target.x),y:+n(s.target.y)}}}]}}:finite(s.endHeading)?{type:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)}:{type:'constant',degrees:+n(s.heading??route.heading)};
       return line;});
-    const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));
+    const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)})),color:'#dc2626',fillColor:'#ef444433'}));
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:route.segments.some(s=>s.target)?'deck-sim-2':'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
-      field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
+      field:{type:layout.field||'empty',width:layout.width||144,height:layout.height||144},startPoint:{x:+n(layout.start.x),y:+n(layout.start.y),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
   }
   return {legs,java,pp,validName,actions,slot,pySlot,where,describe,pathIndex};
 });

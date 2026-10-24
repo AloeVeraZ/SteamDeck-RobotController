@@ -139,7 +139,7 @@ The packaged app does not include Pedro. This is a development check.
 
 Tank-style robots are not offered: Pedro 3's REV hub module has mecanum and swerve drivetrains. `deck-sim export <setup> --format pedro --out TeamCode/src/main/java/` writes the same files.
 
-Control Hub TeamCode exports the same implementation as separate package files and preserves existing RobotActions.java. Route Java exports geometry for the bundled Deck API and is not a standalone FTC program. Deck path JSON carries geometry/modifiers for other consumers. MotionModule has its own timed Python exporter and virtual runtime check. Unsupported hardware adapters and IMU-only FTC setups do not claim a complete positional FTC export.
+Control Hub TeamCode exports the same implementation as separate package files and preserves existing RobotActions.java. Route Java exports geometry for the bundled Deck API and is not a standalone FTC program. The path file (`.pp`) opens in the current [Pedro Pathing visualizer](https://visualizer.pedropathing.com/): each line is an atomic path with its control points and a heading object (constant, linear, tangential, or a facing-point piecewise heading for tracking a target), the start has `headingDeg`, pauses and the action after them are `waitAfterMs`/`waitAfterName`, and no-go zones are shapes. Deck's own fields (motor power, action paths, turns at pins) stay alongside for other readers; the visualizer turns linear headings the short way round. MotionModule has its own timed Python exporter and virtual runtime check. Unsupported hardware adapters and IMU-only FTC setups do not claim a complete positional FTC export.
 
 ## Terminal (deck-sim)
 

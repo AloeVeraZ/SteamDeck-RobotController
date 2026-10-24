@@ -55,3 +55,14 @@ test('the shipped BIOBUZZ example stays a full-power, in-time, collision-free au
   const r=JSON.parse(await cli('test',file,'--json'));assert.equal(r.zoneTouches,0);assert.ok(r.fitsAuto&&r.finalMissIn<1.5,JSON.stringify(r));
   assert.ok(r.mechanisms.shots>=5&&r.mechanisms.held===0&&r.mechanisms.score>=20,JSON.stringify(r.mechanisms));
 });
+
+test('deck-sim pins keeps custom curves, tangent headings, targets, spins and actions exactly',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-sim-rt-')),setup=path.join(dir,'rt.json'),pinsFile=path.join(dir,'pins.json');
+  const pins=[{x:60,y:40,wait:.5,action:'Shoot',path:{kind:'action',action:'Spin up',controls:[{x:40,y:60},{x:50,y:20}],rotate:'tangent',power:.6,note:'curve'}},
+    {x:100,y:60,turn:90,turnMode:'absolute',path:{rotate:'track',target:{x:72,y:130}}},{x:100,y:110,path:{rotate:'spin',spins:-2,style:'spline'}},{x:40,y:110,action:'Intake',actionSeconds:.4,path:{rotate:'reverse'}}];
+  fs.writeFileSync(pinsFile,JSON.stringify(pins));await cli('new',setup,'--field','empty');await cli('start',setup,'24','24','0');await cli('pins',setup,pinsFile);
+  const saved=JSON.parse(fs.readFileSync(setup,'utf8')).layouts[0].pins;
+  pins.forEach((p,i)=>{for(const k of ['x','y','wait','action','turn','actionSeconds'])if(p[k]!==undefined)assert.equal(saved[i][k],p[k],`pin ${i} ${k}`);for(const [k,v] of Object.entries(p.path))assert.deepEqual(saved[i].path[k],v,`pin ${i} path.${k}`);});
+  assert.match(await cli('pin',setup,'add','30','80','--tangent','--curve','40,100,30,95'),/Pin 5/);const last=JSON.parse(fs.readFileSync(setup,'utf8')).layouts[0].pins.at(-1);
+  assert.deepEqual([last.path.rotate,last.path.controls],['tangent',[{x:40,y:100},{x:30,y:95}]]);await assert.rejects(cli('pin',setup,'add','30','80','--curve','1,2,3'),/1 to 3 control points/);
+});

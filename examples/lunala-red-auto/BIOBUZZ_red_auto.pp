@@ -2,7 +2,7 @@
   "fileName": "BIOBUZZ red auto.pp",
   "version": "deck-sim-1",
   "stopAndTurn": true,
-  "timestamp": "2026-10-24T08:19:21.020Z",
+  "timestamp": "2026-10-24T08:30:24.710Z",
   "field": {
     "type": "biobuzz",
     "width": 144,
@@ -11,6 +11,7 @@
   "startPoint": {
     "x": 9.1,
     "y": 26,
+    "headingDeg": -90,
     "heading": "constant",
     "degrees": -90
   },
@@ -27,7 +28,15 @@
       "motorPower": 1,
       "actionPath": true,
       "actionName": "Spin up",
-      "waitAfterName": "Shoot"
+      "waitAfterName": "Shoot",
+      "kind": "atomic",
+      "color": "#2563eb",
+      "controlPoints": [],
+      "heading": {
+        "type": "linear",
+        "startDeg": -90,
+        "endDeg": -90
+      }
     },
     {
       "id": "line-2",
@@ -41,7 +50,15 @@
       "motorPower": 1,
       "actionPath": true,
       "actionName": "Intake",
-      "waitAfterName": "Intake"
+      "waitAfterName": "Intake",
+      "kind": "atomic",
+      "color": "#16a34a",
+      "controlPoints": [],
+      "heading": {
+        "type": "linear",
+        "startDeg": -90,
+        "endDeg": -90
+      }
     },
     {
       "id": "line-3",
@@ -65,7 +82,14 @@
       "motorPower": 1,
       "actionPath": true,
       "actionName": "Spin up",
-      "waitAfterName": "Shoot"
+      "waitAfterName": "Shoot",
+      "kind": "atomic",
+      "color": "#d97706",
+      "heading": {
+        "type": "linear",
+        "startDeg": -90,
+        "endDeg": -180
+      }
     },
     {
       "id": "line-4",
@@ -79,7 +103,15 @@
       "motorPower": 1,
       "actionPath": true,
       "actionName": "Intake",
-      "waitAfterName": "Shoot"
+      "waitAfterName": "Shoot",
+      "kind": "atomic",
+      "color": "#9333ea",
+      "controlPoints": [],
+      "heading": {
+        "type": "linear",
+        "startDeg": -180,
+        "endDeg": -180
+      }
     }
   ],
   "shapes": []
