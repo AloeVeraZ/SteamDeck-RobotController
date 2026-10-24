@@ -71,6 +71,9 @@ The latest run passed with no warnings:
 
 ## lunala red auto (`deck-sim test`)
 
+Re-run at the end of the session, after every generator change: 9.77 s, 9.83 s and 10.0 s, unchanged. All runs: 40 points, 12/12 shots, no contact.
+
+
 Optimized route: 9.77 s with the follower, 9.83 s for OnBot on the virtual hub, 10.0 s for Pedro.
 - Every run: 40 points, 12/12 shots, no contact, parked 0.06–0.42 in from the end point.
 - With start nudges of ±0.75 in, it is faster than the original in every valid case.

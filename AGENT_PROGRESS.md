@@ -27,6 +27,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - **`.pp` files** now use the current Pedro Visualizer schema.
   - Long turns, spins and turns along curves are written so the Visualizer shows the turn the robot makes. Before, it turned them the wrong way.
   - This was checked by running the Visualizer's own code.
+  - The file sets the Visualizer's robot size to Deck's collision footprint, so its robot outline matches.
   - BIOBUZZ `.pp` files were drawn 1.33 in away from the walls. Deck's frame includes the wall, but the Visualizer's 141.5 in field starts at the inner wall. Game-field files are now shifted (`deckOrigin` records it).
 - **Generated OpModes stop the drive first** when they end: an error in a mechanism's stop code can no longer leave the wheels turning. This applies to OnBot, TeamCode and Pedro.
 - **Names cannot break the Java.** A setup or action name containing a Java unicode escape for `*/` (a backslash, `u002a`, then `/`) used to end a generated comment early, because javac decodes unicode escapes before comments.
@@ -71,6 +72,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 
 - **Compare with a robot log.** WPILOG Pose2d or CSV, drawn beside the plan, with average and worst deviation and the stop error.
   - CSV files exported from spreadsheets work: byte-order mark, quoted cells, decimal commas, and `pose_x` or `Robot X (in)` column names.
+  - The worst point is named by its path ("on path 6").
   - The same comparison runs from the terminal: `deck-sim compare <setup> <log>`.
   - Checked on the app's own AdvantageScope log.
 
