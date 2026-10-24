@@ -27,6 +27,7 @@
   - Unicode escapes in generated comments.
   - NaN motor power in exports without tuning.
   - CSV robot logs from spreadsheets.
+  - Backslashes in names breaking the MotionModule Python.
 
 ## Robot code correctness and safety
 
