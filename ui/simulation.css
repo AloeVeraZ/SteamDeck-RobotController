@@ -35,7 +35,7 @@
 .driver-station .sim-tabs{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:16px}.driver-station .sim-tabs>button{min-height:38px}
 .driver-station .sim-tabs>button[aria-selected=true]{background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--line-strong)}
 .sim-panel h2{font-size:16px;margin:18px 0 8px}.sim-panel [data-panel]>h2:first-child{margin-top:0}.sim-panel h3{font-size:14px;margin:16px 0 6px}
-.sim-panel label{display:block;margin:0 0 6px;font-size:12px}.sim-panel label.check{display:flex;gap:8px;align-items:center;margin:4px 0 8px}.sim-panel label.check input{width:auto;min-height:0;margin:0}
+.sim-panel label{display:block;margin:0 0 6px;font-size:12px}.sim-panel label.check{display:flex;justify-content:flex-start;gap:8px;align-items:center;margin:4px 0 8px}.sim-panel label.check input{width:auto;min-height:0;margin:0}
 .sim-panel input,.sim-panel select{width:100%;min-width:0;min-height:40px;margin:0 0 10px}
 .start-xy{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sim-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .sim-row{display:flex;gap:6px;align-items:center}.sim-row select,.sim-row .sim-rename{flex:1;margin:0}.sim-row .icon-button{flex:none}
