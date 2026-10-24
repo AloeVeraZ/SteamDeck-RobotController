@@ -173,7 +173,7 @@ public class MyAuto implements DeckAutonomous {
         <section class="sim-setup-page" data-setup-page="field" aria-labelledby="sim-setup-step-field">
         <h2>Field</h2><p class="hint">Pick the field you will practise on. BIOBUZZ, this season's FTC game, uses the official playing area inside the perimeter wall; an empty field can be any size.</p><div class="sim-setup-cols"><div class="sim-setup-col"><div class="sim-row"><label class="sr-only" for="sim-field">Field</label><select id="sim-field"></select><button type="button" id="sim-layout-rename" class="icon-button" aria-label="Rename this field" title="Rename">✎</button><button type="button" id="sim-layout-delete" class="icon-button" aria-label="Delete this field" title="Delete">×</button></div>
         <p id="sim-field-note" class="hint"></p>
-        <div id="sim-alliance-box"><label>Alliance</label>${segmented('alliance',{red:'Red',blue:'Blue'},'Alliance')}<p class="hint">Which hive your shots aim at and score for.</p></div></div><div class="sim-setup-col"><p id="sim-field-official" class="sim-field-official" hidden></p><div id="sim-field-size"><div class="start-xy"><div><label for="sim-field-width">Field width · in</label><input id="sim-field-width" type="number" min="1" step="any" data-slider-min="24" data-slider-max="288" data-slider-step="1"></div><div><label for="sim-field-height">Field depth · in</label><input id="sim-field-height" type="number" min="1" step="any" data-slider-min="24" data-slider-max="288" data-slider-step="1"></div></div><p class="hint" id="sim-field-size-note"></p></div>
+        <div id="sim-alliance-box"><label>Alliance</label>${segmented('alliance',{red:'Red',blue:'Blue'},'Alliance')}<p class="hint" id="sim-alliance-note">Which hive your shots aim at and score for. Switching moves the starting pose, paths and obstacles to that alliance’s side (turned 180° about the field centre, as the field is).</p></div></div><div class="sim-setup-col"><p id="sim-field-official" class="sim-field-official" hidden></p><div id="sim-field-size"><div class="start-xy"><div><label for="sim-field-width">Field width · in</label><input id="sim-field-width" type="number" min="1" step="any" data-slider-min="24" data-slider-max="288" data-slider-step="1"></div><div><label for="sim-field-height">Field depth · in</label><input id="sim-field-height" type="number" min="1" step="any" data-slider-min="24" data-slider-max="288" data-slider-step="1"></div></div><p class="hint" id="sim-field-size-note"></p></div>
         <label class="check"><input id="sim-game-elements" type="checkbox"> Physical game elements</label><p class="hint">Balls and field pieces use the game engine's physics, so your robot can push them and, with the mechanisms from step 3, pick them up and score. Turn off to drive on a clear field.</p></div></div>
         <section id="sim-start-controls"><h2 id="start-title">Starting pose</h2>
         <form id="start-form"><div class="sim-grid3"><div><label for="start-x">X · in</label><input id="start-x" type="number" step="any" required inputmode="decimal" data-slider-min="0" data-slider-max="144" data-slider-step="0.5" data-slider-submit></div><div><label for="start-y">Y · in</label><input id="start-y" type="number" step="any" required inputmode="decimal" data-slider-min="0" data-slider-max="144" data-slider-step="0.5" data-slider-submit></div><div><label for="start-heading">Heading °</label><input id="start-heading" type="number" step="any" required inputmode="decimal" data-slider-min="-180" data-slider-max="180" data-slider-step="1" data-slider-submit></div></div>
@@ -482,7 +482,7 @@ public class MyAuto implements DeckAutonomous {
   function commit(pose){
     const g=geometry(),next=field.validate(pose,g);
     if(info&&!planner.safePose(next,[...info.fieldZones,...L().zones],info.footprint,info.bounds))throw Error('That spot overlaps an obstacle. Choose a clear position outside the red boundary.');
-    start=next;preview={...start};tool=planningStep==='start'?'start':'select';pointer=null;inputs();L().start=start;
+    start=next;preview={...start};tool=planningStep==='start'?'start':'select';pointer=null;for(const key of ['x','y'])delete $('#start-'+key).dataset.typed;inputs();L().start=start;
     let saved=save();try{localStorage.setItem(field.KEY,field.serialize(start,g));}catch{saved=false;}
     status('#start-status',saved?'Starting pose saved.':'Starting pose set for this session. Device storage is unavailable.');
     changed('start');if(native&&info)void api.sim('start',start).catch(e=>status('#start-status',e.message));
@@ -561,7 +561,7 @@ public class MyAuto implements DeckAutonomous {
       if(path.rotate!=='keep'&&!route.nonholonomic){for(const t of [.25,.75]){const p=bez(s.points,t),h=planner.headingAt(s,t)*Math.PI/180,dx=Math.cos(h),dy=Math.sin(h),end={x:p.x+4*dx,y:p.y+4*dy};out.push(svg('path',{class:'sim-heading-arrow',stroke:appearance.color,d:`M${p.x} ${p.y}L${end.x} ${end.y}m${-1.5*dx+dy} ${-1.5*dy-dx}L${end.x} ${end.y}l${-1.5*dx-dy} ${-1.5*dy+dx}`}));}}
       if(!marks.has(k))marks.set(k,[]);marks.get(k).push(...points);});
     if(!route.nonholonomic)for(const [k,points] of marks){const path=pathOf(l,k);if(path.rotate==='keep')continue;const mid=points[Math.floor(points.length/2)];
-      const label=path.rotate==='spin'?`${path.spins>0?'↺':'↻'}${Math.abs(path.spins)}`:path.rotate==='relative'?`${path.angle>=0?'+':''}${path.angle}°`:path.rotate==='track'?'Track':path.rotate==='start'?'Start heading':`${Math.round(path.heading)}°`;
+      const label=path.rotate==='tangent'?'Along path':path.rotate==='reverse'?'Backwards':path.rotate==='spin'?`${path.spins>0?'↺':'↻'}${Math.abs(path.spins)}`:path.rotate==='relative'?`${path.angle>=0?'+':''}${path.angle}°`:path.rotate==='track'?'Track':path.rotate==='start'?'Start heading':`${Math.round(path.heading)}°`;
       out.push(svg('text',{class:'sim-path-mark',x:mid.x.toFixed(2),y:(-mid.y-2).toFixed(2),transform:'scale(1 -1)','text-anchor':'middle'},label));
       if(path.rotate==='track'&&path.target){const t=path.target;out.push(svg('circle',{class:'sim-aim-target',cx:t.x,cy:t.y,r:2}),svg('path',{class:'sim-aim-target',d:`M${t.x-3} ${t.y}h6M${t.x} ${t.y-3}v6`}));}}
     out.push(...turnGhosts(route));return out;
@@ -842,7 +842,7 @@ public class MyAuto implements DeckAutonomous {
   // The route as a Pedro Pathing-style path list: the start, then one row per path (each pin is the
   // end point of the path that drives to it). The open path is edited in place: end point, heading,
   // shape, power, wait and actions. The pin and path editors stay one click away for the rest.
-  const HEADINGS={keep:'Constant (hold heading)',turn:'Linear to a field heading',relative:'Turn by an angle',track:'Face a target',start:'Back to start heading',spin:'Spin'};
+  const HEADINGS={keep:'Constant (hold heading)',turn:'Linear to a field heading',tangent:'Face along the path (tangent)',reverse:'Face backwards along the path',relative:'Turn by an angle',track:'Face a target',start:'Back to start heading',spin:'Spin'};
   const HEADING_VALUE={turn:['heading','End heading · °'],relative:['angle','Turn by · ° (+ left, − right)'],spin:['spins','Full spins (+ left, − right)']};
   const openPath=()=>['pin','path'].includes(selected?.kind)&&L().pins[selected.index]?selected.index:-1;
   function choosePath(i){selected=i<0?null:{kind:'pin',index:i};pinPanel();draw();if(i>=0)$(`#sim-pin-list [data-path="${i}"]`)?.scrollIntoView({block:'nearest'});}
@@ -1546,7 +1546,11 @@ public class MyAuto implements DeckAutonomous {
   mechNumber('#mech-spinup',(m,v)=>m.shooter.spinUp=v);mechNumber('#mech-transfer',(m,v)=>m.transfer.seconds=v);mechNumber('#mech-index',(m,v)=>m.indexer.seconds=v);
   mechNumber('#mech-turret-speed',(m,v)=>m.turret.speed=v);mechNumber('#mech-turret-range',(m,v)=>{m.turret.min=-Math.abs(v);m.turret.max=Math.abs(v);});
   mechNumber('#mech-rpm',(m,v)=>m.shooter.rpm=v);mechNumber('#mech-tpr',(m,v)=>m.shooter.ticksPerRev=v);mechNumber('#mech-turret-tpd',(m,v)=>m.turret.ticksPerDegree=v);
-  for(const b of $$('[data-alliance]'))b.onclick=()=>{L().alliance=b.dataset.alliance;save();layoutPanel();mechanismsPanel();reload();};
+  for(const b of $$('[data-alliance]'))b.onclick=()=>{const l=L(),next=b.dataset.alliance;if((l.alliance||'red')===next)return;
+    // BIOBUZZ is point-symmetric: the other alliance runs the same route turned 180° about the centre.
+    const route=l.field==='biobuzz'&&(l.start||l.pins.length||l.zones.length);if(route){Object.assign(l,planner.allianceRoute(l,{mode:'rotate',width:l.width,height:l.height}));if(l.start){start=l.start;preview={...start};if(native&&info)void api.sim('start',start).catch(()=>{});}}
+    l.alliance=next;$('#sim-alliance-note').textContent=route?`Moved the starting pose${l.pins.length?`, ${l.pins.length} path${l.pins.length>1?'s':''}`:''}${l.zones.length?' and obstacles':''} to the ${next} side. Press ${next==='red'?'Blue':'Red'} to move them back.`:`Shots aim at the ${next} hive.`;
+    changed('zones');layoutPanel();mechanismsPanel();reload();};
   mechanismsPanel();presetPanel();
   // Setup runs in order like Path planning: 1 Field, 2 Robot controller (and its sensing), 3 Robot.
   // Mechanisms are part of the BIOBUZZ game; on an empty field the robot is a chassis that drives the route, so Setup skips them.
@@ -1634,8 +1638,13 @@ public class MyAuto implements DeckAutonomous {
   $('#start-form').addEventListener('submit',event=>{event.preventDefault();try{const pose=Object.fromEntries(['x','y','heading'].map(key=>[key,$('#start-'+key).valueAsNumber]));
     // A heading-only change (X/Y untouched or showing the live turn preview) turns along the wall.
     const same=q=>Math.abs(pose.x-q.x)<1e-6&&Math.abs(pose.y-q.y)<1e-6;
-    commit(finite(pose.heading)&&field.heading(pose.heading)!==start.heading&&(same(start)||same(preview))?turnStart(pose.heading):pose);}catch(error){status('#start-status',error.message);}});
-  $('#start-heading').addEventListener('input',event=>{const h=event.target.valueAsNumber;if(!finite(h))return;preview=turnStart(h);inputValue('#start-x',String(preview.x));inputValue('#start-y',String(preview.y));draw();});
+    const typed=$('#start-x').dataset.typed||$('#start-y').dataset.typed;
+    commit(!typed&&finite(pose.heading)&&field.heading(pose.heading)!==start.heading&&(same(start)||same(preview))?turnStart(pose.heading):pose);}catch(error){status('#start-status',error.message);}});
+  // Typing a heading previews the robot turned along the wall, unless X or Y were typed too: those win.
+  for(const key of ['x','y'])$('#start-'+key).addEventListener('input',e=>{e.target.dataset.typed='1';});
+  $('#start-heading').addEventListener('input',event=>{const h=event.target.valueAsNumber;if(!finite(h))return;
+    if($('#start-x').dataset.typed||$('#start-y').dataset.typed){const x=$('#start-x').valueAsNumber,y=$('#start-y').valueAsNumber;if(finite(x)&&finite(y))preview={x,y,heading:field.heading(h)};draw();return;}
+    preview=turnStart(h);inputValue('#start-x',String(preview.x));inputValue('#start-y',String(preview.y));draw();});
   // Start at edge places the robot at a clear spot by the left wall immediately; drag it from there.
   const startAtEdge=()=>{const next={...(clearStart(geometry())||field.edgePose(start.heading,geometry())),heading:start.heading};try{commit(next);status('#start-status','At a clear spot by the left wall. Drag the robot to move it.');}catch(e){status('#start-status',e.message);}};
   $('#start-edge').onclick=startAtEdge;$('#start-edge-plan').onclick=startAtEdge;

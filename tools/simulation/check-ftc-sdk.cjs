@@ -69,6 +69,8 @@ async function main(){
       {name:'turning route',localization:'odometry',robot:{drivetrain:'mecanum',length:24,width:12,heightIn:5,driveRpm:500,intakeIn:0},start:{x:72,y:30,heading:0},zones:[{id:'l',type:'rect',x:31.5,y:72,width:63,height:4},{id:'r',type:'rect',x:112.5,y:72,width:63,height:4}],pins:[{x:72,y:110},{x:30,y:120}],clearance:1},
       // Action paths, spins and turns while driving, pin turns and the RouteActions/RobotActions slots.
       {name:'actions',localization:'odometry',robot:{drivetrain:'mecanum',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:24,y:24,heading:0},zones:[],pins:[{x:110,y:30,path:{kind:'action',action:'Intake',rotate:'spin',spins:1}},{x:110,y:72,turn:90,wait:1.5,action:'Shoot'},{x:40,y:72,path:{kind:'action',action:'Shoot',rotate:'turn',heading:180}}],clearance:2},
+      // A custom curve driven facing along the path, then a straight path driven backwards (tangent headings).
+      {name:'tangent and custom curve',localization:'fused',robot:{drivetrain:'mecanum',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:24,y:24,heading:60},zones:[],pins:[{x:110,y:24,path:{rotate:'tangent',controls:[{x:50,y:80},{x:90,y:80}]}},{x:110,y:100,path:{rotate:'reverse'}}],clearance:2},
       // Tank-style robots: TankDrive and the tank drive-encoder localizer.
       ...[['tank','encoders'],['tank2','encoders'],['tracks','fused']].map(([drivetrain,localization])=>({name:drivetrain+' '+localization,localization,nonholonomic:true,robot:{drivetrain,length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:24,y:24,heading:0},zones:[],pins:[{x:100,y:24},{x:100,y:100,wait:.5,action:'Score'}],clearance:2}))];
     try{

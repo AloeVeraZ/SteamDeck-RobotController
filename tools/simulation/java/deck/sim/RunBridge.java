@@ -176,7 +176,10 @@ public final class RunBridge {
                 Path part = points.size() == 2 ? Paths.line(points.get(0), points.get(1)) : Paths.curve(points.toArray(new Point[0]));
                 double partHeading = turning && s.has("heading") ? Math.toRadians(num(s, "heading")) : heading;
                 // A path the robot turns or spins along: its heading changes steadily from start to end.
-                if (s.has("target")) {
+                if (s.has("tangent") && s.get("tangent").getAsBoolean()) {
+                    double flip = s.has("reverse") && s.get("reverse").getAsBoolean() ? Math.PI : 0;
+                    parts.add(part.heading((curve, t) -> { Point a = curve.get(Math.max(0, t - 1e-4)), b = curve.get(Math.min(1, t + 1e-4)); return Math.atan2(b.y() - a.y(), b.x() - a.x()) + flip; }));
+                } else if (s.has("target")) {
                     JsonObject target = s.getAsJsonObject("target");
                     double x = num(target, "x"), y = num(target, "y");
                     parts.add(part.heading((curve, t) -> { Point p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); }));

@@ -24,7 +24,7 @@
       const first=segs[from],path=pathOf(to[i]);
       out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,actionSeconds,cell,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
         power:powerOf(to[i]),heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
-        moving:path.kind==='action'?{action:path.action||'',note:path.note||'',seconds:finite(path.actionSeconds)?path.actionSeconds:null,cell:path.cell==='other'?1:0}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
+        moving:path.kind==='action'?{action:path.action||'',note:path.note||'',seconds:finite(path.actionSeconds)?path.actionSeconds:null,cell:path.cell==='other'?1:0}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='tangent'?'faces along the path':path.rotate==='reverse'?'faces backwards along the path':path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
       from=i+1;
     });
     return out;
@@ -61,7 +61,7 @@
   function java(route,layout,options={}){
     const className=options.className||'PlannedRoute',packageName=options.packageName??'org.firstinspires.ftc.teamcode';validName(className,packageName);
     const parts=legs(route),zones=(layout.zones||[]).map(z=>options.polygon(z)),start=layout.start,rad=d=>`Math.toRadians(${n(d)})`;
-    const heading=s=>s.target?`.heading(face(${n(s.target.x)}, ${n(s.target.y)}))`:finite(s.endHeading)?`.heading(turn(${n(s.heading)}, ${n(s.endHeading)}))`:finite(s.heading)?`.constant(${rad(s.heading)})`:'.constant(HEADING)';
+    const heading=s=>s.tangent?`.heading(tangent(${s.reverse?'true':'false'}))`:s.target?`.heading(face(${n(s.target.x)}, ${n(s.target.y)}))`:finite(s.endHeading)?`.heading(turn(${n(s.heading)}, ${n(s.endHeading)}))`:finite(s.heading)?`.constant(${rad(s.heading)})`:'.constant(HEADING)';
     const segment=s=>(s.type==='line'?`Paths.line(v(${n(s.points[0].x)}, ${n(s.points[0].y)}), v(${n(s.points[1].x)}, ${n(s.points[1].y)}))`:`Paths.curve(${s.points.map(p=>`v(${n(p.x)}, ${n(p.y)})`).join(', ')})`)+heading(s);
     const leg=l=>l.segments.length===1?`            ${segment(l.segments[0])}`:`            Paths.path(\n${l.segments.map(s=>'                '+segment(s)).join(',\n')}\n            )`;
     const headings=key=>parts.map(l=>finite(l[key])?rad(l[key]):'HEADING').join(', ');
@@ -147,6 +147,11 @@ ${parts.map(leg).join(',\n')}
         return (curve, t) -> { Point p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); };
     }
 
+    /** Face along the path (backwards: reverse), from the curve's direction at each point. */
+    private static Interpolator tangent(boolean reverse) {
+        return (curve, t) -> { Point a = curve.get(Math.max(0, t - 1e-4)), b = curve.get(Math.min(1, t + 1e-4)); return Math.atan2(b.y() - a.y(), b.x() - a.x()) + (reverse ? Math.PI : 0); };
+    }
+
     /** Heading that turns steadily from one angle to another (degrees; may span whole spins) along a path. */
     private static Interpolator turn(double fromDegrees, double toDegrees) {
         double from = Math.toRadians(fromDegrees), by = Math.toRadians(toDegrees - fromDegrees), full = 2 * Math.PI;
@@ -161,6 +166,7 @@ ${parts.map(leg).join(',\n')}
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
     const lines=route.segments.map((s,i)=>{const end=s.points.at(-1),line={id:`line-${i+1}`,endPoint:{x:+n(end.x),y:+n(end.y),...constant,degrees:+n(s.heading??route.heading)}};
       if(finite(s.endHeading))line.endPoint={x:+n(end.x),y:+n(end.y),heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
+      if(s.tangent){line.endPoint={x:+n(end.x),y:+n(end.y),heading:'tangential',reverse:!!s.reverse};}
       if(s.target){line.endPoint.heading='target';line.targetTracking={x:+n(s.target.x),y:+n(s.target.y)};}
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
       const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}

@@ -186,7 +186,7 @@
   // A custom curve: 1-3 Bezier control points between the path's start and its end point, placed by the
   // user like Pedro Pathing's visualizer. The robot drives exactly this curve (it is checked, never moved).
   const controlsOf=c=>{if(!Array.isArray(c))return null;const out=c.filter(q=>q&&finite(q.x)&&finite(q.y)).slice(0,3).map(q=>({x:Math.round(q.x*1000)/1000,y:Math.round(q.y*1000)/1000}));return out.length?out:null;};
-  function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin','relative','start','track'].includes(r.rotate)?r.rotate:'keep';
+  function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin','relative','start','track','tangent','reverse'].includes(r.rotate)?r.rotate:'keep';
     // actionSeconds: how long an action path's action runs from the start of the path (null: the whole path).
     return {controls:controlsOf(r.controls),kind:r.kind==='action'?'action':'regular',cell:r.cell==='other'?'other':'start',action:text(r.action,40),actionSeconds:finite(r.actionSeconds)&&r.actionSeconds>0?Math.min(30,r.actionSeconds):null,note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
   // At a pin the robot pauses for `wait`, then runs `action` for actionSeconds (null: until it finishes),
@@ -197,15 +197,19 @@
   function pathEnd(path,heading,start,point){return path.rotate==='relative'?heading+path.angle:path.rotate==='start'?start:path.rotate==='track'&&path.target?bearing(point,path.target):path.rotate==='turn'?path.heading:heading;}
   function pinHeading(p,heading,start){return p.turn===null||!finite(p.turn)?null:p.turnMode==='relative'?norm(heading+p.turn):p.turnMode==='start'?norm(start):p.turnMode==='track'&&p.target?bearing(p,p.target):norm(p.turn);}
   // Shared by clearance checks and preview; target bearings follow the actual Bezier point.
-  function headingAt(s,t){return s.target?bearing(bezier(s.points,t),s.target):finite(s.endHeading)?s.heading+(s.endHeading-s.heading)*t:s.heading;}
+  // Direction of travel along a Bezier curve, degrees: the last de Casteljau step (a numeric step where the curve stalls).
+  function tangentAt(points,t){let p=points.map(q=>({x:q.x,y:q.y}));while(p.length>2)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));let dx=p[1].x-p[0].x,dy=p[1].y-p[0].y;
+    if(Math.hypot(dx,dy)<1e-9){const a=bezier(points,Math.max(0,t-1e-3)),b=bezier(points,Math.min(1,t+1e-3));dx=b.x-a.x;dy=b.y-a.y;}return Math.atan2(dy,dx)*180/Math.PI;}
+  // Tangent segments face along the path (reverse: backwards along it), like Pedro Pathing's tangent heading.
+  function headingAt(s,t){return s.tangent?tangentAt(s.points,t)+(s.reverse?180:0):s.target?bearing(bezier(s.points,t),s.target):finite(s.endHeading)?s.heading+(s.endHeading-s.heading)*t:s.heading;}
   function pathDescription(raw,power=.8){const p=pathEffects(raw),bits=[`${Math.round((p.power??power)*100)}% motor power${p.power===null?' (setup)':''}`];
     if(p.kind==='action')bits.push(`${p.action||'Action'} while driving${finite(p.actionSeconds)?` for the first ${p.actionSeconds} s`:''}`);
-    bits.push(p.rotate==='relative'?`Turn by ${p.angle>=0?'+':''}${p.angle}°`:p.rotate==='turn'?`Face field heading ${p.heading}°`:p.rotate==='spin'?`Spin ${Math.abs(p.spins)} ${p.spins<0?'clockwise':'counterclockwise'}`:p.rotate==='start'?'Return to starting heading':p.rotate==='track'?`Track target ${p.target?`(${p.target.x}, ${p.target.y}) in`:'not selected'}`:'Hold inherited heading');
+    bits.push(p.rotate==='tangent'?'Face along the path (tangent)':p.rotate==='reverse'?'Face backwards along the path':p.rotate==='relative'?`Turn by ${p.angle>=0?'+':''}${p.angle}°`:p.rotate==='turn'?`Face field heading ${p.heading}°`:p.rotate==='spin'?`Spin ${Math.abs(p.spins)} ${p.spins<0?'clockwise':'counterclockwise'}`:p.rotate==='start'?'Return to starting heading':p.rotate==='track'?`Track target ${p.target?`(${p.target.x}, ${p.target.y}) in`:'not selected'}`:'Hold inherited heading');
     if(p.controls)bits.push(`Custom curve (${p.controls.length} handle${p.controls.length>1?'s':''})`);else if(p.style)bits.push(p.style==='spline'?'Smooth spline':'Straight segments');if(p.note)bits.push(p.note);return bits;}
   function pathAppearance(raw,power=.8){const p=pathEffects(raw),key=p.rotate==='track'?'track':p.rotate!=='keep'?'rotation':p.power!==null?'power':p.kind==='action'?'action':'normal';return {key,color:{track:'#49cbb3',rotation:'#b79bff',power:'#f2bc62',action:'#63c5ff',normal:'#aeb8c5'}[key],action:p.kind==='action',power:p.power??power};}
   const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,actionSeconds:p.actionSeconds,cell:p.cell,note:p.note,turn:p.turn,path:p.path});
-  const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||['relative','start','track'].includes(path.rotate)||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
-  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&(['turn','spin','relative','start','track'].includes(p?.path?.rotate)||controlsOf(p?.path?.controls)));
+  const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||['relative','start','track','tangent','reverse'].includes(path.rotate)||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
+  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&(['turn','spin','relative','start','track','tangent','reverse'].includes(p?.path?.rotate)||controlsOf(p?.path?.controls)));
   // Each segment records which pin it leads to, so paths can be told apart (action or regular).
   function annotate(route){const stops=route.stops||[];let k=0;route.segments.forEach((s,i)=>{while(k<stops.length-1&&stops[k].segment<i)k++;s.to=k;});return route;}
   // Inspect every endpoint even when another pin (or the start) prevents planning. Path checks
@@ -218,7 +222,7 @@
     pins.forEach((raw,i)=>{const p={...raw,...pinEffects(raw)},path=p.path,endHeading=project.nonholonomic?heading:pathEnd(path,heading,project.start?.heading||0,p),turn=pinHeading(p,endHeading,project.start?.heading||0);
       if(path.rotate==='track'&&!path.target)add(i,'target',`Path to pin ${i+1}: choose a target point to track.`);
       if(p.turnMode==='track'&&finite(p.turn)&&(!p.target||dist(p,p.target)<.25))add(i,'target',`Pin ${i+1}: choose a target away from this pin.`);
-      const headings=project.rotate===false||path.rotate!=='keep'?[endHeading]:[heading,...Array.from({length:24},(_,j)=>j*15)];
+      const headings=['tangent','reverse'].includes(path.rotate)?[heading,...Array.from({length:24},(_,j)=>j*15)]:project.rotate===false||path.rotate!=='keep'?[endHeading]:[heading,...Array.from({length:24},(_,j)=>j*15)];
       if(!headings.some(h=>safePose({...p,heading:h},all,fp,f)))add(i,'clearance',`Pin ${i+1}: the whole chassis does not fit here. Move this pin away from the wall or obstacle, or move the obstacle.`);
       if(finite(turn)&&Math.abs(norm(turn-endHeading))>1e-6&&!turnClear(p,endHeading,turn,all,fp,f,Math.max(MIN_CLEARANCE,project.clearance||1)))add(i,'turn',`Pin ${i+1}: the requested turn sweeps into a wall or obstacle. Move the pin into open space or remove its turn.`);
       if(paths&&!issues.some(q=>q.pin===i)&&!(i===0&&issues.some(q=>q.code==='start'))&&!(i>0&&issues.some(q=>q.pin===i-1))){
@@ -284,12 +288,16 @@
         const radius=reach(footprint)+.05,square={front:radius,rear:radius,half:radius},spin=p.path.rotate==='spin';
         // Try the actual heading interpolation first. A full rotation envelope at the start
         // incorrectly rejects a robot that safely drives away from a wall as it turns.
-        const tracking=p.path.rotate==='track';if(tracking&&!p.path.target)throw Error(`Path to pin ${i+1}: choose a target point to track.`);
+        const tracking=p.path.rotate==='track',along=['tangent','reverse'].includes(p.path.rotate),flip=p.path.rotate==='reverse'?180:0;if(tracking&&!p.path.target)throw Error(`Path to pin ${i+1}: choose a target point to track.`);
         const h0=tracking?bearing(at,p.path.target):at.heading,h1=spin?h0+360*p.path.spins:p.path.rotate==='relative'?h0+p.path.angle:h0+norm(pathEnd(p.path,h0,start.heading,p)-h0);
         if(tracking&&(!turnClear(at,at.heading,h0,all,footprint,field,clearance)||dist(at,p.path.target)<.25))throw Error(`Path to pin ${i+1}: no room to face the target at the path's start. Move the start or target.`);
-        const rotateRoute=r=>{const lengths=r.segments.map(s=>Array.from({length:32},(_,j)=>dist(bezier(s.points,j/32),bezier(s.points,(j+1)/32))).reduce((a,b)=>a+b,0)),total=lengths.reduce((a,b)=>a+b,0)||1;let done=0;
+        // Facing along the path: each segment's heading follows its own tangent; the robot turns in place where the
+        // path starts facing another way, and at any corner between segments.
+        const alongRoute=r=>{let last=at.heading;return {...r,segments:r.segments.map(s=>{const h=last+norm(tangentAt(s.points,0)+flip-last),e=h+norm(tangentAt(s.points,1)+flip-h);last=e;return {...s,tangent:true,...(flip?{reverse:true}:{}),heading:h,endHeading:e};})};};
+        const rotateRoute=r=>{if(along)return alongRoute(r);const lengths=r.segments.map(s=>Array.from({length:32},(_,j)=>dist(bezier(s.points,j/32),bezier(s.points,(j+1)/32))).reduce((a,b)=>a+b,0)),total=lengths.reduce((a,b)=>a+b,0)||1;let done=0;
           return {...r,segments:r.segments.map((s,j)=>{const a=h0+(h1-h0)*done/total;done+=lengths[j];return tracking?{...s,target:{...p.path.target},heading:bearing(s.points[0],p.path.target),endHeading:bearing(s.points.at(-1),p.path.target)}:{...s,heading:a,endHeading:h0+(h1-h0)*done/total};})};};
         const check=r=>{
+          if(along){let h=at.heading;for(const s of r.segments){if(Math.abs(norm(s.heading-h))>.5&&!turnClear(s.points[0],h,s.heading,all,footprint,field,clearance))throw Error('Turning sweep blocked.');h=s.endHeading;}}
           const padded={front:footprint.front+clearance/2,rear:footprint.rear+clearance/2,half:footprint.half+clearance/2};
           for(const s of r.segments){let prev={...s.points[0],heading:s.heading};const polyLength=s.points.slice(1).reduce((n,q,j)=>n+dist(q,s.points[j]),0),count=Math.max(64,Math.ceil(Math.abs(s.endHeading-s.heading)/2),Math.ceil(polyLength*(tracking?4:2)));
             for(let j=1;j<=count;j++){const pose={...bezier(s.points,j/count),heading:headingAt(s,j/count)};
@@ -304,7 +312,7 @@
           try{r=attempt(square);}
         catch(last){if(/Target lies/.test(first.message)||/Target lies/.test(last.message))throw Error(`Path to pin ${i+1}: target lies on the driving path. Move the target away from the route.`);throw Error(`The path to pin ${i+1} has no room to ${spin?'spin':'turn'} while driving: the turning robot needs ${(2*radius).toFixed(0)} in of clear width. Move pin ${i+1} or the path's start away from obstacles and walls, or turn at a pin instead.`);}
         }
-        add({...r,turnDegrees:Math.abs(h1-h0)},h0);
+        add({...r,turnDegrees:along?r.segments.reduce((n,s,j)=>n+Math.abs(s.endHeading-s.heading)+Math.abs(norm(s.heading-(j?r.segments[j-1].endHeading:at.heading))),0):Math.abs(h1-h0)},h0);
       }else{if(!chunk.length)base=i;chunk.push(p);}
       if(finite(p.turn)){flush();if(p.turnMode==='track'&&(!p.target||dist(p,p.target)<.25))throw Error(`Pin ${i+1}: choose a target away from this pin.`);p.turn=pinHeading(p,at.heading,start.heading);p.turnMode='absolute';const delta=norm(p.turn-at.heading);
         if(Math.abs(delta)>1e-6){if(!turnClear(at,at.heading,p.turn,all,footprint,field,clearance))throw Error(`Pin ${i+1} has no room to turn the robot to ${Math.round(p.turn)}°. Move it away from obstacles and walls.`);turnDegrees+=Math.abs(delta);at={...at,heading:norm(p.turn)};}}
@@ -507,5 +515,17 @@
     });
     return {...route,style:'sharp',nonholonomic:true,footprint,segments};
   }
-  return {SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
+  // The same route for the other alliance. mode 'rotate' turns everything 180° about the field centre
+  // (BIOBUZZ is point-symmetric: the red GARDEN bottom-left matches the blue one top-right); mode 'mirror'
+  // reflects it left-right (an empty field), which also reverses turn directions. Returns new start, pins
+  // and zones; alliance-relative settings (hive cell, relative turns in 'rotate') stay as they are.
+  function allianceRoute(layout,{mode='rotate',width=SIZE,height=SIZE}={}){
+    const rot=mode!=='mirror',r3=v=>Math.round(v*1e6)/1e6,pt=q=>q&&finite(q.x)&&finite(q.y)?{...q,x:r3(width-q.x),y:r3(rot?height-q.y:q.y)}:q,hd=h=>finite(h)?norm(rot?h+180:180-h):h,turnBy=a=>finite(a)?(rot?a:-a):a;
+    const zone=z=>{const out={...z,...pt(z)};if(z.type==='polygon')out.points=z.points.map(pt);if(finite(z.angle))out.angle=r3(rot?(z.angle+180)%360:(360-z.angle)%360);delete out.vertices;return out;};
+    const path=raw=>{if(!raw||typeof raw!=='object')return raw;const p={...raw};if(p.target)p.target=pt(p.target);if(Array.isArray(p.controls))p.controls=p.controls.map(pt);
+      if(p.rotate==='turn')p.heading=hd(p.heading);if(p.rotate==='relative')p.angle=turnBy(p.angle);if(p.rotate==='spin'&&finite(p.spins))p.spins=rot?p.spins:-p.spins;return p;};
+    const pin=raw=>{const p={...raw,...pt(raw)};if(p.target)p.target=pt(p.target);if(finite(p.turn))p.turn=p.turnMode==='relative'?turnBy(p.turn):p.turnMode==='start'||p.turnMode==='track'?p.turn:hd(p.turn);if(p.path)p.path=path(p.path);return p;};
+    return {start:layout.start?{...pt(layout.start),heading:hd(layout.start.heading)}:layout.start,pins:(layout.pins||[]).map(pin),zones:(layout.zones||[]).map(zone)};
+  }
+  return {allianceRoute,tangentAt,SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
 });

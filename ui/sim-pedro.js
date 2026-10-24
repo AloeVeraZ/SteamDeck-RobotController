@@ -32,13 +32,14 @@
   // Direction of travel at the start or end of a segment (first/last distinct control point).
   function tangent(s,atEnd){const p=s.points,a=atEnd?[...p].reverse():p,q=a.find(r=>Math.hypot(r.x-a[0].x,r.y-a[0].y)>1e-6);if(!q)return null;const dx=atEnd?a[0].x-q.x:q.x-a[0].x,dy=atEnd?a[0].y-q.y:q.y-a[0].y,l=Math.hypot(dx,dy);return {x:dx/l,y:dy/l};}
   const bearing=(p,t)=>Math.atan2(t.y-p.y,t.x-p.x)*180/Math.PI;
-  const startHeading=(s,fallback)=>s.target?bearing(s.points[0],s.target):finite(s.heading)?s.heading:fallback;
-  const finalHeading=(s,fallback)=>s.target?bearing(s.points.at(-1),s.target):finite(endOf(s))?endOf(s):fallback;
+  const startHeading=(s,fallback)=>s.tangent&&finite(s.heading)?s.heading:s.target?bearing(s.points[0],s.target):finite(s.heading)?s.heading:fallback;
+  const finalHeading=(s,fallback)=>s.tangent&&finite(s.endHeading)?s.endHeading:s.target?bearing(s.points.at(-1),s.target):finite(endOf(s))?endOf(s):fallback;
   // One planner segment as a Pedro path expression with its heading interpolation.
   function segment(s,fallback){
     for(const p of s.points)if(!finite(p.x)||!finite(p.y))throw Error('The route has a point that is not a number. Re-plan it before exporting.');
     const v=p=>`v(${n(p.x)}, ${n(p.y)})`,line=s.type==='line'||s.points.length===2;
     const geometry=line?`Paths.line(${v(s.points[0])}, ${v(s.points.at(-1))})`:`Paths.curve(${s.points.map(v).join(', ')})`;
+    if(s.tangent)return `${geometry}.${s.reverse?'reverseTangent':'tangent'}()`;
     if(s.target)return `${geometry}.facingPoint(${v(s.target)})`;
     const h0=finite(s.heading)?s.heading:fallback,h1=finite(s.endHeading)?s.endHeading:h0;
     if(Math.abs(h1-h0)<1e-6)return `${geometry}.constant(${rad(h0)})`;

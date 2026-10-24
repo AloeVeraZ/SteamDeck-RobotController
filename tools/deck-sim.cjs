@@ -228,7 +228,8 @@ Fields and setups
   robot <setup.json> [--cad robot.step [--units mm] [--up z|y] [--front +x] [--top +z]]
                      [--length L --width W --height H --drivetrain D --rpm R]
   start <setup.json> <x> <y> <heading>     Starting pose (checked against walls and field parts)
-  alliance <setup.json> red|blue           BIOBUZZ alliance: which hive shots aim at and score for
+  alliance <setup.json> red|blue [--keep]  BIOBUZZ alliance: which hive shots aim at and score for; moves the
+                                           route to that side (turned 180° about the centre) unless --keep
 
 Mechanisms (BIOBUZZ parts: intakes, shooters, storage, preloads)
   mech <setup.json> [--on|--off]
@@ -284,7 +285,10 @@ async function main(argv){
       let cadFound=[];if(flags.cad){const box=await cadBox(path.resolve(flags.cad),flags);Object.assign(setup.robot,pickSize(box,flags));setup.deckCli={model:cadRef(flags)};cadFound=setUpFromCad(setup,box,setup.deckCli.model);}
       return changed(setup,(cadFound.length?`From the CAD assembly names: ${cadFound.join('; ')}.
 `:'')+`Created ${file}: ${GAMES[setup.layouts[0].field]}, ${setup.robot.drivetrain} ${setup.robot.length} x ${setup.robot.width} x ${setup.robot.heightIn} in. Next: deck-sim start ${file} <x> <y> <heading>.`);}
-    case'alliance':{const setup=readSetup(file),l=layoutOf(setup),side=rest[0];if(!['red','blue'].includes(side))throw Error('Alliance is red or blue.');l.alliance=side;return changed(setup,`Alliance: ${side}. Shots aim at ${side}'s hive by default.`);}
+    case'alliance':{const setup=readSetup(file),l=layoutOf(setup),side=rest[0];if(!['red','blue'].includes(side))throw Error('Alliance is red or blue.');if((l.alliance||'red')===side)return say(`Alliance is already ${side}.`);
+      // BIOBUZZ is point-symmetric: the other alliance runs the same route turned 180° about the field centre.
+      const move=l.field==='biobuzz'&&!flags.keep&&(l.start||l.pins?.length||l.zones?.length);if(move)Object.assign(l,P.allianceRoute(l,{mode:'rotate',width:l.width,height:l.height}));
+      l.alliance=side;return changed(setup,`Alliance: ${side}. Shots aim at ${side}'s hive by default.${move?` Moved the starting pose, paths and obstacles to the ${side} side (turned 180° about the field centre; --keep leaves them).`:''}`);}
     case'mech':{const setup=readSetup(file),m=Mech.sanitize(setup.mechanisms),f=flags,set=(obj,key,flag,conv=v=>v)=>{if(obj&&f[flag]!==undefined&&f[flag]!==true)obj[key]=conv(f[flag]);};
       const oneOf=(flag,value,options)=>{if(!Object.hasOwn(options,value))throw Error(`--${flag} is one of: ${Object.keys(options).join(', ')}.`);return value;};
       // --intakes "front+back:sweeper,left:ramp": every intake, as sides:kind.
