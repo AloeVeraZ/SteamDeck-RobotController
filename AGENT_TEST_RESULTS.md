@@ -9,8 +9,8 @@ All commands run on this Windows laptop with the repo's Electron as Node:
 |---|---|
 | Baseline (before changes) | 263/265. Fails: the planner time budget (already failing before this session) and the motor-ceiling test (run-folder collision bug). |
 | After the Pedro export | 270/271. Only the time budget failed (6.2 s against 5 s). |
-| Latest full run | 293/294. The one failure was a spin-limit test, fixed right after by raising the limit to 100 spins. The time-budget test now passes (about 3 s). |
-| Since then | `sim-pedro` 8/8, `sim-pedro-runtime` 8/8, `sim-planner`/`deck-sim`/`sim-tangent`/`sim-custom-curve` 32/32. |
+| Mid-session full run | 293/294. The one failure was a spin-limit test, fixed right after by raising the limit to 100 spins. |
+| Latest full run (24 October, morning) | **324/324.** The 24-barrier time-budget test takes about 1.2 s. |
 
 New test files:
 - `sim-pedro`
@@ -19,8 +19,14 @@ New test files:
 - `sim-tangent`
 - `sim-alliance`
 - `sim-robot-log`
+- `sim-preview`
+- `sim-pp-headings`
+- `sim-pp-import`
+- `sim-hub-mounting`
+- `sim-export-fuzz`
+- `sim-action-names`
 
-New tests were also added to `sim-planner` and `deck-sim`.
+New tests were also added to `sim-planner`, `deck-sim`, `sim-pedro`, `sim-control-hub`, `sim-motionmodule` and `sim-robot-log`.
 
 ## Real-library compile check (`tools/simulation/check-ftc-sdk.cjs`, needs network)
 
