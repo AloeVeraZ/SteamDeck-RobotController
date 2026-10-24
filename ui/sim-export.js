@@ -191,14 +191,87 @@ ${parts.map(leg).join(',\n')}
       if(s.target){line.endPoint.heading='target';line.targetTracking=P(s.target);}
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(P);
       const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
-      const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
+      const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;if(finite(l.actionSeconds))line.actionSeconds=+n(l.actionSeconds);}
       // The Visualizer's own fields: an atomic path, its heading as an object, a colour per Deck path.
-      line.kind='atomic';line.color=COLORS[to[i]%COLORS.length];if(!line.controlPoints)line.controlPoints=[];
+      line.kind='atomic';line.color=COLORS[to[i]%COLORS.length];line.deckPath=to[i];if(s.custom)line.deckCurve='custom';if(!line.controlPoints)line.controlPoints=[];
       line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:P(s.target)}}]}}:finite(s.endHeading)?linearHeading(s):{type:'constant',degrees:+n(s.heading??route.heading)};
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(P),color:'#dc2626',fillColor:'#ef444433'}));
+    // Deck's own pins ride along, so opening the file in Deck again restores them exactly (unless the lines were edited).
+    const deck=Array.isArray(options.pins)?{start:layout.start,pins:options.pins,zones:layout.zones||[],signature:signature(lines)}:undefined;
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:route.segments.some(s=>s.target)?'deck-sim-2':'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
-      field:{type:layout.field||'empty',width:o.x?+n(options.bounds.x1-o.x):layout.width||144,height:o.y?+n(options.bounds.y1-o.y):layout.height||144},deckOrigin:{x:+n(o.x),y:+n(o.y)},startPoint:{...P(layout.start),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes},null,2)+'\n';
+      field:{type:layout.field||'empty',width:o.x?+n(options.bounds.x1-o.x):layout.width||144,height:o.y?+n(options.bounds.y1-o.y):layout.height||144},deckOrigin:{x:+n(o.x),y:+n(o.y)},startPoint:{...P(layout.start),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes,deck},null,2)+'\n';
   }
-  return {legs,java,pp,validName,actions,slot,pySlot,where,describe,pathIndex};
+  // A fingerprint of the drawn lines: Deck's saved pins are only used while the lines still match it.
+  function signature(lines){const s=JSON.stringify(lines.map(l=>[l.endPoint?.x,l.endPoint?.y,l.controlPoints,l.heading]));let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h.toString(16);}
+  // A path file (.pp) as Deck's start, pins and no-go zones. Deck's own unedited file comes back exactly. Otherwise each
+  // Pedro Visualizer line becomes a pin and its path: control points become a custom curve (Deck keeps up to 3), the
+  // heading object becomes the path's turning (tangential, constant, linear, facing a point), waits become pauses, and
+  // what Deck can only approximate is listed in notes. Coordinates go back to Deck's frame (deckOrigin, or the wall of
+  // a game field for a Visualizer file); on a game field the Visualizer's shapes are left out (Deck has the structures).
+  const round3=v=>Math.round(v*1000)/1000,normDeg=d=>((d%360)+540)%360-180,shortestDeg=(a,b)=>{const d=normDeg(b-a);return d===-180?180:d;};
+  function fromPP(text,{field='empty',bounds=null}={}){
+    let data;try{data=typeof text==='string'?JSON.parse(text):text;}catch{throw Error('That file is not a path file (.pp): it is not JSON.');}
+    if(!data||typeof data!=='object'||!Array.isArray(data.lines))throw Error('That file is not a path file (.pp): it has no lines.');
+    const copy=v=>JSON.parse(JSON.stringify(v));
+    if(data.deck&&Array.isArray(data.deck.pins)&&data.deck.start&&data.deck.signature===signature(data.lines))return {start:copy(data.deck.start),pins:copy(data.deck.pins),zones:Array.isArray(data.deck.zones)?copy(data.deck.zones):[],notes:[],exact:true};
+    const o=data.deckOrigin&&finite(+data.deckOrigin.x)&&finite(+data.deckOrigin.y)?{x:+data.deckOrigin.x,y:+data.deckOrigin.y}:field!=='empty'&&bounds?{x:bounds.x0,y:bounds.y0}:{x:0,y:0};
+    const at=q=>q&&finite(+q.x)&&finite(+q.y)?{x:round3(+q.x+o.x),y:round3(+q.y+o.y)}:null,notes=[];
+    const sp=data.startPoint||{},h0=[sp.headingDeg,sp.degrees,sp.startDeg].map(Number).find(Number.isFinite)??0,start={...(at(sp)||{x:72,y:72}),heading:normDeg(h0)};
+    // Older files keep the heading on the end point as a string.
+    const legacy=p=>{const e=p.endPoint||{};return e.heading==='tangential'?{type:'tangential',reverse:!!e.reverse}:e.heading==='linear'?{type:'linear',startDeg:+e.startDeg||0,endDeg:+e.endDeg||0}:e.heading==='target'&&p.targetTracking?{type:'piecewise',piecewiseHeading:{segments:[{interpolationType:'facing-point',parameters:{point:p.targetTracking}}]}}:{type:'constant',degrees:+e.degrees||0};};
+    // Driving order: the sequence when there is one (its waits pause at the previous end point), else the list.
+    const byId=new Map(data.lines.filter(l=>l&&l.id).map(l=>[l.id,l])),order=Array.isArray(data.sequence)&&data.sequence.some(s=>s?.kind==='path'&&byId.has(s.lineId))?data.sequence:data.lines.map(l=>({kind:'path',line:l}));
+    const atoms=[];let prev={x:start.x,y:start.y};
+    const length=(a,controls,b)=>{let len=0,q=a;for(const p of [...controls,b]){len+=Math.hypot(p.x-q.x,p.y-q.y);q=p;}return len;};
+    const addPath=(p,group)=>{
+      if(p?.kind==='compound'){const kids=[];const walk=x=>{for(const s of x.segments||[])s?.kind==='compound'?walk(s):s?.endPoint&&kids.push(s);};walk(p);
+        let from=prev;const lens=kids.map(k=>{const e=at(k.endPoint)||from,len=length(from,(k.controlPoints||[]).map(at).filter(Boolean),e);from=e;return len;}),total=lens.reduce((a,b)=>a+b,0)||1;
+        const h=p.heading;let done=0;kids.forEach((k,i)=>{let kh=h;if(h?.type==='linear'){const turn=shortestDeg(h.startDeg,h.endDeg),a=h.startDeg+turn*done/total,b=h.startDeg+turn*(done+lens[i])/total;kh={type:'linear',startDeg:a,endDeg:b};}done+=lens[i];
+          addPath({...k,heading:kh||k.heading,waitBeforeMs:i===0?p.waitBeforeMs:k.waitBeforeMs,waitBeforeName:i===0?p.waitBeforeName:k.waitBeforeName,waitAfterMs:i===kids.length-1?p.waitAfterMs:k.waitAfterMs,waitAfterName:i===kids.length-1?p.waitAfterName:k.waitAfterName},p.name||'a group');});
+        if(h?.type==='linear')notes.push(`${p.name||'A path group'}: one turn across its ${kids.length} segments, split by length.`);return;}
+      if(!p?.endPoint)return;const end=at(p.endPoint);if(!end)throw Error(`Path ${atoms.length+1} in the file has no end point.`);
+      atoms.push({line:p,end,from:prev,group});prev=end;};
+    for(const item of order){
+      if(item?.kind==='wait'){const ms=Math.max(0,+item.durationMs||0);if(!ms)continue;if(atoms.length){const a=atoms.at(-1);a.extraWait=(a.extraWait||0)+ms;if(item.name&&!a.extraName)a.extraName=item.name;}else notes.push(`A ${ms} ms wait before the first path was left out (Deck starts driving at once).`);continue;}
+      addPath(item.line||byId.get(item.lineId));}
+    if(!atoms.length)throw Error('The path file has no paths.');
+    // One Deck pin per drawn line, except that consecutive lines of one Deck path (deckPath) form one pin again.
+    const pins=[];let heading=start.heading;
+    atoms.forEach((a,i)=>{const p=a.line,label=p.name||`Path ${i+1}`;
+      const before=Math.max(0,+(p.waitBeforeMs??p.waitBefore?.durationMs)||0),beforeName=p.waitBeforeName||p.waitBefore?.name||'';
+      if(before||beforeName){if(pins.length){const q=pins.at(-1);q.wait=+(((q.wait||0)+before/1000).toFixed(3));if(beforeName&&!q.action)q.action=beforeName;}else notes.push(`${label}: its wait before driving was left out (Deck starts driving at once).`);}
+      let controls=(p.controlPoints||[]).map(at).filter(Boolean);
+      if(controls.length>3){notes.push(`${label}: ${controls.length} control points; Deck keeps 3 (first, middle and last).`);controls=[controls[0],controls[Math.floor(controls.length/2)],controls.at(-1)];}
+      if(Array.isArray(p.throughPoints)&&p.throughPoints.length)notes.push(`${label}: its ${p.throughPoints.length} through point${p.throughPoints.length>1?'s are':' is'} not used (Deck drives the curve from its control points).`);
+      const path={};if(controls.length)path.controls=controls;else path.style='sharp';
+      const h=p.heading&&typeof p.heading==='object'?p.heading:legacy(p),segs=h.type==='piecewise'?(h.piecewiseHeading?.segments||[]):[];
+      if(h.type==='tangential')Object.assign(path,{rotate:h.reverse?'reverse':'tangent'});
+      else if(h.type==='constant'){Object.assign(path,{rotate:'turn',heading:normDeg(+h.degrees||0)});if(Math.abs(shortestDeg(heading,+h.degrees||0))>1)notes.push(`${label}: holds ${round3(+h.degrees||0)}° from the start of the path; Deck turns to it while driving.`);}
+      else if(h.type==='linear'){const turn=shortestDeg(+h.startDeg||0,+h.endDeg||0);Object.assign(path,{rotate:'turn',heading:normDeg(+h.endDeg||0)});if(Math.abs(shortestDeg(heading,+h.startDeg||0))>1)notes.push(`${label}: its turn starts at ${round3(+h.startDeg||0)}° but the robot arrives at ${round3(heading)}°; Deck turns from where the robot is.`);void turn;}
+      else if(segs.length&&segs.every(s=>(s.interpolationType||'linear')==='linear')){const total=segs.reduce((sum,s)=>sum+shortestDeg(+s.parameters?.startDeg||0,+s.parameters?.endDeg||0),0),endDeg=+segs.at(-1).parameters?.endDeg||0;
+        Object.assign(path,Math.abs(total)<179?{rotate:'turn',heading:normDeg(endDeg)}:{rotate:'relative',angle:round3(total)});}
+      else if(segs.length===1&&segs[0].interpolationType==='facing-point'&&at(segs[0].parameters?.point))Object.assign(path,{rotate:'track',target:at(segs[0].parameters.point)});
+      else if(segs.length){const last=segs.at(-1),t=last.interpolationType;notes.push(`${label}: a heading in ${segs.length} parts; Deck uses its last part.`);
+        if(t==='facing-point'&&at(last.parameters?.point))Object.assign(path,{rotate:'track',target:at(last.parameters.point)});else if(t==='tangential')Object.assign(path,{rotate:last.reversed?'reverse':'tangent'});else if(t==='constant')Object.assign(path,{rotate:'turn',heading:normDeg(+last.parameters?.degrees||0)});else Object.assign(path,{rotate:'turn',heading:normDeg(+last.parameters?.endDeg||0)});}
+      // Deck's own fields, when the file came from Deck.
+      if(finite(+p.motorPower)&&p.motorPower!==null)path.power=Math.max(0,Math.min(1,+p.motorPower));if(p.actionPath){path.kind='action';if(p.actionName)path.action=String(p.actionName).slice(0,40);}
+      const pin={x:a.end.x,y:a.end.y,path};
+      const after=Math.max(0,+(p.waitAfterMs??p.waitAfter?.durationMs)||0)+(a.extraWait||0),afterName=p.waitAfterName||p.waitAfter?.name||a.extraName||'';
+      if(after)pin.wait=+(after/1000).toFixed(3);if(afterName)pin.action=String(afterName).slice(0,40);if(afterName&&finite(+p.actionSeconds)&&+p.actionSeconds>0)pin.actionSeconds=+p.actionSeconds;if(finite(+p.turnAfterDegrees)&&p.turnAfterDegrees!==null){pin.turn=normDeg(+p.turnAfterDegrees);pin.turnMode='absolute';}
+      // Lines of one Deck path that Deck routed itself (corners and smoothing, not a hand-drawn curve) are one pin again;
+      // Deck re-plans that path, as a spline when it was one.
+      const routed=l=>l&&finite(l.deckPath)&&l.deckCurve!=='custom',last=pins.at(-1);
+      const merge=last&&routed(p)&&routed(atoms[i-1]?.line)&&atoms[i-1].line.deckPath===p.deckPath&&!last.wait&&!last.action&&!finite(last.turn);
+      if(routed(p)&&controls.length){delete path.controls;path.style='spline';}
+      if(merge){Object.assign(last,{x:pin.x,y:pin.y,wait:pin.wait,action:pin.action,actionSeconds:pin.actionSeconds,turn:pin.turn,turnMode:pin.turnMode});if(path.style==='spline')last.path.style='spline';for(const k of Object.keys(last))if(last[k]===undefined)delete last[k];}else pins.push(pin);
+      heading=path.rotate==='turn'?path.heading:path.rotate==='relative'?normDeg(heading+path.angle):path.rotate==='track'?Math.atan2(path.target.y-a.end.y,path.target.x-a.end.x)*180/Math.PI:path.rotate==='tangent'||path.rotate==='reverse'?(()=>{const q=controls.at(-1)||a.from;return Math.atan2(a.end.y-q.y,a.end.x-q.x)*180/Math.PI+(path.rotate==='reverse'?180:0);})():heading;
+      if(finite(pin.turn))heading=pin.turn;});
+    if(pins.length>32)throw Error(`The path file has ${pins.length} paths; Deck holds up to 32.`);
+    let zones=[];const shapes=Array.isArray(data.shapes)?data.shapes:[];
+    if(field!=='empty'&&shapes.length)notes.push(`${shapes.length} shape${shapes.length>1?'s':''} from the file ${shapes.length>1?'were':'was'} left out: Deck's field already has the game's structures.`);
+    else zones=shapes.map((s,i)=>({s,points:(s.vertices||[]).map(at).filter(Boolean)})).filter(z=>z.points.length>=3&&z.points.length<=40).map((z,i)=>({id:`pp${i+1}`,type:'polygon',points:z.points}));
+    return {start,pins,zones,notes,exact:false};
+  }
+  return {legs,java,pp,fromPP,validName,actions,slot,pySlot,where,describe,pathIndex};
 });

@@ -81,6 +81,22 @@ The Visualizer's normalizer, path flattening and animation heading code (`segmen
 | lunala, BIOBUZZ red, BIOBUZZ dual examples | | at most 0.1° |
 | BIOBUZZ blue 15×15 | | 2.3° at the end of one tangent curve (the Visualizer uses a coarser tangent step) |
 
+## .pp import
+
+`tests/sim-pp-import.test.cjs` (6 tests):
+- Exact round trip.
+- Edited lines are converted instead.
+- From lines alone, a route with a custom curve, tangent, long turn, tracking, spin and actions re-plans with the same end points and length.
+- The Visualizer's default project (shifted to Deck's frame on BIOBUZZ, its goal shapes left out there).
+- Sequence waits, groups, more than 3 control points, piecewise headings.
+- Refusals.
+- `deck-sim import-pp`.
+
+On the example setups:
+- lunala, BIOBUZZ red and BIOBUZZ dual all import exactly.
+- Converted from their lines alone, they re-plan identical end points and lengths: 110.12, 142.52 and 128.32 in.
+- In the app, importing a Visualizer-style file into the Control Hub fixture planned a 137 in route, and Ctrl+Z restored the previous one.
+
 ## Robot log comparison on a real file
 
 `output/advantagescope/biobuzz-red-auto.wpilog` was already on disk (written by the app's own AdvantageScope export on 23 October).

@@ -14,6 +14,7 @@
 - Control Hub mounting setting for the IMU.
 - `.pp` turns shown correctly in the Pedro Visualizer.
 - `deck-sim compare`.
+- `.pp` import (Paths button and `deck-sim import-pp`).
 - Robot-log comparison. Checked on the app's own AdvantageScope export.
 - Planner made about 40% faster.
 - Lunala optimized.

@@ -129,7 +129,7 @@ downloads: physics, the path follower and the Java runtime it needs ship inside 
 - Run it through physics and replay it with a timeline and mechanism views, graph its speed, heading, sensor error, drive power and mechanisms, see a run analysis (pieces picked up, shot and scored), then export
   for your controller: Control Hub OnBot Java or TeamCode with working mechanism code, **Pedro Pathing
   3** TeamCode for a Pedro Quickstart project, or a MotionModule `autonomous.py`, plus a `.pp` path file
-  or timed commands. Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
+  or timed commands (a `.pp` from the Pedro Pathing visualizer can be imported too). Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
   Pathing 3.0.2) by the project's checks, and each export lists what still needs your robot: hardware
   names, tuning and a real test. Open a log from your real robot to compare where it drove with the plan.
 - Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export, compare a robot log) and have the

@@ -61,6 +61,11 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
   - A Keys line in Help.
   - The right-click editor matches the path card.
 - **`deck-sim pin --tangent/--reverse/--curve`** from the terminal.
+- **Import a path file (.pp).**
+  - From the Pedro Visualizer or Deck, via a Paths button or `deck-sim import-pp`. One Ctrl+Z undoes it.
+  - Deck's own unedited files come back exactly (embedded pins plus a fingerprint of the lines).
+  - Visualizer files become pins, curves, headings, waits and actions, with approximations listed.
+  - From their lines alone, the three examples re-plan identical routes.
 
 ### Run & review
 

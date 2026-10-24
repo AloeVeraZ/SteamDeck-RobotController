@@ -80,6 +80,7 @@ class SimulationHost{
     if(action==='robot-open'){const file=await open('Load a robot',[{name:'Deck robot',extensions:['json']}],PROJECT_LIMIT);return file&&{name:path.basename(file),text:fs.readFileSync(file,'utf8')};}
     if(action==='project-open'){const file=await open('Open simulation project',[{name:'Simulation project',extensions:['json']}],PROJECT_LIMIT);return file&&{name:path.basename(file),text:fs.readFileSync(file,'utf8')};}
     // A log from the real robot to compare with the plan: read only, never written back.
+    if(action==='pp-open'){const file=await open('Import a path file',[{name:'Path file',extensions:['pp','json']}],8*1024*1024);return file&&{name:path.basename(file),text:fs.readFileSync(file,'utf8')};}
     if(action==='robot-log-open'){const file=await open('Compare with a robot log',[{name:'Robot log',extensions:['wpilog','csv','txt']}],64*1024*1024);return file&&{name:path.basename(file),bytes:new Uint8Array(fs.readFileSync(file))};}
     if(action==='java-open'){const file=await open('Choose a Java autonomous program',[{name:'Java source',extensions:['java']}],SOURCE_LIMIT);return file&&{name:path.basename(file),source:fs.readFileSync(file,'utf8')};}
     // Only picks the file: the window confirms it is the robot's starting position before model-drop reads it.

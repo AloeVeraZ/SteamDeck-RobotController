@@ -183,7 +183,7 @@ function exported(setup,l,route,info,format){
   if(format==='teamcode'){const out=team(false);return {files:out.files,note:`OpMode ${out.opMode}. Mechanism code goes in RobotActions.java.`};}
   if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardwareIfSupported(info.robot,setup.sensors?.localization),tuning:info.tuning});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
   if(format==='java')return {files:{[`${names.className}.java`]:routeJava()}};
-  if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon,bounds:info.bounds})}};
+  if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon,bounds:info.bounds,pins:l.pins})}};
   if(format==='timed')return {files:{'timed-route.json':JSON.stringify({format:'deck-timed-drive-v1',controller:setup.controller,units:'inches',feedback:'IMU heading only; no X/Y feedback',start:l.start,field:l.field,...Timed.compile(route,timing)},null,2)}};
   if(format==='motionmodule')return {files:{'autonomous.py':M.autonomous(route,timing,{name:l.name,mechanisms:info.mechanisms,target:info.target}),'robot_actions.py':M.actionsFile(route,{name:l.name,mechanisms:info.mechanisms})}};
   throw Error('Formats: onbot, teamcode, pedro, java, pp, timed, motionmodule.');
@@ -273,6 +273,7 @@ Route
                                            Test-drive the route in the simulator physics (or run its exported code);
                                            --log saves the run as a WPILOG file
   optimize <setup.json>                    Test-drive spline/straight shapes per path; keep the fastest safe one
+  import-pp <setup.json> <file.pp>        Replace the start and paths with a Pedro Pathing visualizer (or Deck) .pp file
   compare <setup.json> <log.wpilog|log.csv> [--origin center] [--json]
                                            Compare a real robot's log with the planned route: average and worst
                                            distance from the plan, and from the last end point. CSV coordinates
@@ -395,6 +396,10 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
         const folder=names.length>1||format==='teamcode'||format==='pedro'||/[\\/]$/.test(out)||!path.extname(out)||fs.existsSync(out)&&fs.statSync(out).isDirectory();
         for(const [rel,text] of Object.entries(files)){const target=folder?path.resolve(out,rel):path.resolve(out);if(folder&&!target.startsWith(path.resolve(out)+path.sep))throw Error('Invalid export path.');fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
         say(`Wrote ${names.length} file${names.length>1?'s':''} to ${path.resolve(out)}${note?`. ${note}`:''}`);if(flags.show)say(show(file,setup,flags));return;}finally{e.dispose();}}
+    case'import-pp':{const pp=rest[0];if(!pp)throw Error('Use: import-pp <setup.json> <file.pp>.');
+      const setup=readSetup(file),l=layoutOf(setup),{e,info}=await load(setup);let r;try{r=X.fromPP(fs.readFileSync(pp,'utf8'),{field:l.field,bounds:info.bounds});}finally{e.dispose();}
+      l.start=r.start;l.pins=r.pins;if(r.zones.length||r.exact)l.zones=r.zones;l.route=null;l.tested=null;
+      return changed(setup,`Imported ${r.pins.length} path${r.pins.length===1?'':'s'} from ${path.basename(pp)}${r.exact?' exactly as Deck saved them':''}.${r.notes.length?'\n'+r.notes.map(n=>'  - '+n).join('\n'):''}`);}
     case'compare':{const log=rest[0];if(!log)throw Error('Use: compare <setup.json> <log.wpilog|log.csv> [--origin center].');
       const setup=readSetup(file),{e,info,l}=await load(setup);
       try{const route=planRoute(setup,l,info),data=RobotLog.parse({name:path.basename(log),bytes:new Uint8Array(fs.readFileSync(log))},{origin:flags.origin==='center'?'center':'corner'}),r=RobotLog.compare(data,route),f=v=>+v.toFixed(2);
