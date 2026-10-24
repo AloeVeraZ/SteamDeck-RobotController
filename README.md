@@ -132,7 +132,7 @@ downloads: physics, the path follower and the Java runtime it needs ship inside 
   or timed commands. Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
   Pathing 3.0.2) by the project's checks, and each export lists what still needs your robot: hardware
   names, tuning and a real test. Open a log from your real robot to compare where it drove with the plan.
-- Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export) and have the
+- Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export, compare a robot log) and have the
   result open in the app on Run & review.
 
 See [the simulator guide](docs/SIMULATION.md).
