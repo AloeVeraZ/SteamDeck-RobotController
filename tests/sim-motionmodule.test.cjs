@@ -47,3 +47,15 @@ test('MotionModule turns with its own TurnPID where a turning route needs it',{s
   assert.ok(Math.abs(mm.truth.heading-90)<3,JSON.stringify(mm.truth));// MotionModule's turn settles anywhere within its ±3° tolerance, so the drive after it lands a little wider.
   assert.ok(Math.hypot(mm.truth.x-72,mm.truth.y-115)<3,JSON.stringify(mm.truth));assert.deepEqual(mm.violations,[]);
 });
+
+test('names with backslashes or triple quotes cannot break the exported Python',()=>{
+  const start={x:24,y:24,heading:0},timing=Timed.settings({});
+  for(const name of ['C:\\New route','Red \\x auto \\u00','"""quoted"""','ends with \\']){
+    const route=P.plan({start,zones:[],pins:[{x:90,y:24,action:name,wait:.3},{x:90,y:90,path:{kind:'action',action:name+' 2'}}],style:'sharp',clearance:1},{front:8,rear:8,half:8});
+    for(const src of [M.autonomous(route,timing,{name}),M.actionsFile(route,{name})]){
+      // Inside every docstring, backslashes come in pairs, so none of them starts an escape.
+      for(const block of src.split('"""').filter((_,i)=>i%2))for(const run of block.match(/\\+/g)||[])assert.equal(run.length%2,0,block.slice(0,120));
+      if(python){const r=spawnSync(python,['-I','-W','error','-c','import ast,sys;ast.parse(sys.stdin.read())'],{input:src,encoding:'utf8',windowsHide:true});assert.equal(r.status,0,r.stderr);}
+    }
+  }
+});

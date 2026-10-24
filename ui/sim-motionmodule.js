@@ -8,6 +8,8 @@
   const DEG=180/Math.PI,wrap=d=>((d+180)%360+360)%360-180;
   const num=v=>{const s=String(Number(Number(v).toFixed(4)));return /[.e]/.test(s)?s:s+'.0';};
   const pyString=s=>JSON.stringify(String(s));
+  // Text inside a docstring: backslashes doubled (C:\New would be a \N escape) and no closing triple quotes.
+  const doc=s=>String(s).replace(/"""/g,'').replace(/\\/g,'\\\\');
   // The timed plan as MotionModule PLAN steps. Forward/strafe are fractions of DRIVE_SPEED; strafe is
   // positive to the right (MotionModule's convention); turns are degrees left of the start heading.
   function plan(route,timing,options={}){
@@ -30,7 +32,7 @@
     return {steps,power,config:compiled.config,aims,movingSeconds};
   }
   function autonomous(route,timing,options={}){
-    const mech=options.mechanisms?.enabled?options.mechanisms:null,p=plan(route,timing,{mechanisms:mech,target:options.target,robot:options.robot}),name=String(options.name||'Planned route').replace(/"""/g,'');
+    const mech=options.mechanisms?.enabled?options.mechanisms:null,p=plan(route,timing,{mechanisms:mech,target:options.target,robot:options.robot}),name=doc(options.name||'Planned route');
     const steps=p.steps.map(s=>s[0]==='power'?`    ("power", ${num(s[1])}),`:s[0]==='disabled'?`    ("disabled",),`:s[0]==='drive'?`    ("drive", ${num(s[1])}, ${num(s[2])}, ${num(s[3])}${s[4]?`, ${pyString(s[4])}`:''}),`:s[0]==='turn'?`    ("turn", ${num(s[1])}),`:s[0]==='action'?`    ("action", ${pyString(s[1])}, ${num(s[2])}),`:s[0]==='aim'?`    ("aim", ${num(s[1])}),`:s[0]==='glide'?`    ("glide", ${num(s[1])}, ${num(s[2])}, ${num(s[3])}, ${num(s[4])}${s[5]?`, ${pyString(s[5])}`:''}),`:`    ("hold", ${num(s[1])}),`).join('\n'),list=Export.actions(route);
     return `"""${name}: autonomous exported by Deck Driver Station.
 
@@ -104,11 +106,11 @@ def load_actions():
 
 ${list.map(a=>{const k=mech?Mech.action(a.name):null,built=k&&(k.kind==='intake'||(mech.shooter.type!=='none'&&['spin','aim','shoot'].includes(k.kind)));return built?`
 def ${a.py}(step):
-    """"${a.name.replace(/"/g,"'")}": run by the Mechanisms settings."""
+    """"${doc(a.name.replace(/"/g,"'"))}": run by the Mechanisms settings."""
     return MECHANISMS.run(${pyString(k.kind)}, ${k.count||0}, step)
 `:`
 def ${a.py}(step):
-    """Placeholder for "${a.name.replace(/"/g,"'")}" until robot_actions.py defines ${a.py}(step)."""
+    """Placeholder for "${doc(a.name.replace(/"/g,"'"))}" until robot_actions.py defines ${a.py}(step)."""
     return True
 `;}).join('')}
 # Actions the simulator's Mechanisms settings run; robot_actions.py cannot replace them.
@@ -438,7 +440,7 @@ def create_autonomous(module, drive):
   }
   // robot_actions.py: the team's mechanism code, created once next to autonomous.py and never overwritten.
   function actionsFile(route,options={}){
-    const mech=options.mechanisms?.enabled?options.mechanisms:null,list=Export.actions(route).filter(a=>{const k=mech?Mech.action(a.name):null;return !(k&&(k.kind==='intake'||(mech.shooter.type!=='none'&&['spin','aim','shoot'].includes(k.kind))));}),name=String(options.name||'Planned route').replace(/"""/g,'');
+    const mech=options.mechanisms?.enabled?options.mechanisms:null,list=Export.actions(route).filter(a=>{const k=mech?Mech.action(a.name):null;return !(k&&(k.kind==='intake'||(mech.shooter.type!=='none'&&['spin','aim','shoot'].includes(k.kind))));}),name=doc(options.name||'Planned route');
     return `"""Your mechanism code for the autonomous actions of ${name}.
 
 Deck Driver Station created this file once and never overwrites it. autonomous.py
@@ -462,7 +464,7 @@ def setup(module):
 
 ${list.map(a=>`
 def ${a.py}(step):
-    """"${a.name.replace(/"/g,"'")}": ${a.uses.map(u=>Export.where(u)+(u.note?` (${u.note.replace(/"/g,"'")})`:'')).join('; ').replace(/[\r\n]/g,' ')}."""
+    """"${doc(a.name.replace(/"/g,"'"))}": ${doc(a.uses.map(u=>Export.where(u)+(u.note?` (${u.note.replace(/"/g,"'")})`:'')).join('; ').replace(/[\r\n]/g,' '))}."""
     # TODO: ${a.uses.some(u=>u.moving)?'start the mechanism when step.first, stop it when step.last.':'run the mechanism, return False until it is done.'}
     return True
 `).join('')}
