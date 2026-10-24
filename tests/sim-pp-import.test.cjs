@@ -68,3 +68,9 @@ test('deck-sim import-pp replaces the start and paths from a path file',async()=
     assert.deepEqual(l.start,{x:30,y:30,heading:90});assert.deepEqual(l.pins,[{x:30,y:90,path:{style:'sharp',rotate:'tangent'},wait:.4,action:'Shoot'}]);assert.match(out.join('\n'),/Imported 1 path from route\.pp/);}
   finally{console.log=log;}
 });
+
+test('a Visualizer file drawn for a different robot size says so',()=>{
+  const file={startPoint:{x:24,y:24,headingDeg:0},lines:[{kind:'atomic',id:'a',endPoint:{x:60,y:24},controlPoints:[],heading:{type:'constant',degrees:0}}],settings:{rWidth:16,rHeight:16}};
+  assert.match(X.fromPP(file,{robot:{length:17.56,width:17.79}}).notes.join(' '),/drawn for a 16 × 16 in robot; this one is 17\.56 × 17\.79 in/);
+  assert.deepEqual(X.fromPP(file,{robot:{length:16.2,width:15.9}}).notes,[]);assert.deepEqual(X.fromPP(file,{}).notes,[]);
+});

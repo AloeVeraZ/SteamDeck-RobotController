@@ -1016,7 +1016,7 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-clearance').onchange=e=>{L().clearance=Math.max(planner.MIN_CLEARANCE,finite(e.target.valueAsNumber)?e.target.valueAsNumber:L().clearance);e.target.value=L().clearance;changed('plan');};
   $('#sim-clear-pins').onclick=()=>{L().pins=[];selected=null;changed('pins');};
   // A .pp from the Pedro Pathing visualizer (or Deck) replaces the starting pose and paths; one Ctrl+Z undoes it.
-  $('#sim-import-pp').onclick=async()=>{try{const file=await api.simFile('pp-open');if(!file)return;const l=L(),r=exporter.fromPP(file.text,{field:l.field,bounds:geometry().bounds});
+  $('#sim-import-pp').onclick=async()=>{try{const file=await api.simFile('pp-open');if(!file)return;const l=L(),r=exporter.fromPP(file.text,{field:l.field,bounds:geometry().bounds,robot:project.robot});
     l.start=start=field.validate({...r.start},geometry());l.pins=r.pins;if(r.zones.length||r.exact)l.zones=r.zones;preview={...start};selected=null;inputs();changed('zones');if(native&&info)void api.sim('start',start).catch(()=>{});
     status('#sim-plan-status',`Imported ${r.pins.length} path${r.pins.length===1?'':'s'} from ${file.name}${r.exact?' exactly as Deck saved them':''}. Ctrl+Z undoes it.${r.notes.length?' '+r.notes.join(' '):''}`);}catch(e){status('#sim-plan-status',e.message);}};
   $('#sim-clear-zones').onclick=()=>{L().zones=[];selected=null;changed('zones');};

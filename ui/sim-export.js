@@ -210,7 +210,7 @@ ${parts.map(leg).join(',\n')}
   // what Deck can only approximate is listed in notes. Coordinates go back to Deck's frame (deckOrigin, or the wall of
   // a game field for a Visualizer file); on a game field the Visualizer's shapes are left out (Deck has the structures).
   const round3=v=>Math.round(v*1000)/1000,normDeg=d=>((d%360)+540)%360-180,shortestDeg=(a,b)=>{const d=normDeg(b-a);return d===-180?180:d;};
-  function fromPP(text,{field='empty',bounds=null}={}){
+  function fromPP(text,{field='empty',bounds=null,robot=null}={}){
     let data;try{data=typeof text==='string'?JSON.parse(text):text;}catch{throw Error('That file is not a path file (.pp): it is not JSON.');}
     if(!data||typeof data!=='object'||!Array.isArray(data.lines))throw Error('That file is not a path file (.pp): it has no lines.');
     const copy=v=>JSON.parse(JSON.stringify(v));
@@ -271,6 +271,8 @@ ${parts.map(leg).join(',\n')}
     let zones=[];const shapes=Array.isArray(data.shapes)?data.shapes:[];
     if(field!=='empty'&&shapes.length)notes.push(`${shapes.length} shape${shapes.length>1?'s':''} from the file ${shapes.length>1?'were':'was'} left out: Deck's field already has the game's structures.`);
     else zones=shapes.map((s,i)=>({s,points:(s.vertices||[]).map(at).filter(Boolean)})).filter(z=>z.points.length>=3&&z.points.length<=40).map((z,i)=>({id:`pp${i+1}`,type:'polygon',points:z.points}));
+    // The Visualizer saves the robot size it drew for; a different robot may not clear the same paths.
+    const drawn=[+data.settings?.rWidth,+data.settings?.rHeight];if(robot&&drawn.every(v=>finite(v)&&v>0)&&finite(robot.length)&&finite(robot.width)){const a=[...drawn].sort((x,y)=>x-y),b=[robot.length,robot.width].sort((x,y)=>x-y);if(Math.abs(a[0]-b[0])>.5||Math.abs(a[1]-b[1])>.5)notes.push(`The file was drawn for a ${round3(drawn[0])} × ${round3(drawn[1])} in robot; this one is ${round3(robot.length)} × ${round3(robot.width)} in, so check the clearances Deck reports.`);}
     return {start,pins,zones,notes,exact:false};
   }
   return {legs,java,pp,fromPP,validName,actions,slot,pySlot,where,describe,pathIndex};
