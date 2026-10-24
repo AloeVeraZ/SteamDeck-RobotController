@@ -93,6 +93,14 @@ The Visualizer's normalizer, path flattening and animation heading code (`segmen
 - **Line widths:** 0.9 at fit, 0.46 when zoomed about 4×.
 - **Delete:** removes the open path, and Ctrl+Z restores it.
 - **Selected step under the mouse:** keeps its dark fill.
+- **Shift-drag of a curve handle:** snaps to (32.5, 42).
+- **Robot log comparison, end to end:** Run & review → Data → Open robot log…, with the real AdvantageScope file. It draws 225 logged poses in orange beside the plan, with the same mean, worst and end figures.
+- **Narrow windows:** at 360 px and 390 px wide, no tab scrolls sideways.
+
+## Planning time (`deck-sim` setups, planner only)
+
+- 2 to 6 pins: 3–127 ms.
+- 18-pin BIOBUZZ blue auto: about 190 ms.
 
 ## Not verified
 

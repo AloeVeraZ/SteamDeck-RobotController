@@ -71,7 +71,7 @@ Run & review → **Data** records every frame of a run and graphs it: speed, hea
 **Compare with a robot log** (Run & review → **Data**) opens a log from the real robot and draws where it actually drove in orange beside the planned route. It lists how far the robot strayed from the plan (on average and at the worst point, which is circled) and how far from the last end point it stopped. Supported logs:
 
 - WPILOG with a Pose2d entry, such as AdvantageKit's `/RealOutputs/Odometry/Robot`, in the FTC field frame AdvantageScope uses. Deck's own run logs read back exactly.
-- CSV with `x`, `y` and optional `heading` and `time` columns. Units come from the header (`x_in`, `x_m`, `heading_deg`, `heading_rad`); without them the values are taken as inches, and headings that all fit within ±2π as radians. Coordinates are measured either from the bottom-left corner (Deck, Pedro Pathing) or from the field centre (FTC SDK).
+- CSV with `x`, `y` and optional `heading` and `time` columns. Names such as `pose_x` or `Robot X (in)` work too, and so do spreadsheet exports: a byte-order mark, quoted cells, and decimal commas when `;` separates the columns. Units come from the header (`x_in`, `x_m`, `heading_deg`, `heading_rad`); without them the values are taken as inches, and headings that all fit within ±2π as radians. Coordinates are measured either from the bottom-left corner (Deck, Pedro Pathing) or from the field centre (FTC SDK).
 
 Only logged positions are used. A log without poses is refused, and nothing is filled in.
 

@@ -32,13 +32,17 @@
     return {format:'wpilog',key:pick.name,poses,others:candidates.slice(1).map(c=>c.name)};
   }
   function csv(text,{units,headingUnits,origin='corner'}={}){
-    const rows=String(text).split(/\r?\n/).map(l=>l.trim()).filter(l=>l&&!l.startsWith('#'));if(rows.length<2)throw Error('The CSV needs a header row and at least one pose.');
-    const sep=rows[0].includes(';')&&!rows[0].includes(',')?';':rows[0].includes('\t')?'\t':',',head=rows[0].split(sep).map(h=>h.trim().toLowerCase());
-    const col=re=>head.findIndex(h=>re.test(h)),xi=col(/^x(\b|_|\s|\(|$)/),yi=col(/^y(\b|_|\s|\(|$)/),hi=col(/^(heading|h|theta|rotation|angle|yaw)(\b|_|\s|\(|$)/),ti=col(/^(t|time|timestamp|seconds)(\b|_|\s|\(|$)/);
+    // Spreadsheet exports: a byte-order mark, quoted fields, and decimal commas when ";" separates the columns.
+    const rows=String(text).replace(/^﻿/,'').split(/\r?\n/).map(l=>l.trim()).filter(l=>l&&!l.startsWith('#'));if(rows.length<2)throw Error('The CSV needs a header row and at least one pose.');
+    const sep=rows[0].includes(';')&&!rows[0].includes(',')?';':rows[0].includes('\t')?'\t':',',cell=s=>s.trim().replace(/^"(.*)"$/,'$1').trim(),head=rows[0].split(sep).map(h=>cell(h).toLowerCase());
+    // A column named exactly x, then one starting with x (x_in, x (m)), then one ending in x (pose_x, robot x).
+    const col=(...res)=>{for(const re of res){const i=head.findIndex(h=>re.test(h));if(i>=0)return i;}return -1;},axis=a=>[new RegExp(`^${a}$`),new RegExp(`^${a}(_|\\s|\\(|$)`),new RegExp(`(^|[\\s_.\\/])${a}(\\s*\\(.*\\)|_(m|in|meters|metres|inches))?$`)];
+    const xi=col(...axis('x')),yi=col(...axis('y')),hi=col(/^(heading|h|theta|rotation|angle|yaw)(\b|_|\s|\(|$)/,/(^|[\s_.\/])(heading|theta|rotation|yaw)(\b|_|\s|\(|$)/),ti=col(/^(t|time|timestamp|seconds)(\b|_|\s|\(|$)/);
     if(xi<0||yi<0)throw Error('The CSV header needs x and y columns (and heading for the robot’s direction).');
     const unitOf=i=>/(_|\(|\s)(m|meters|metres)\)?$/.test(head[i])?'m':/(_|\(|\s)(in|inch|inches)\)?$/.test(head[i])?'in':null;
     const linear=units||unitOf(xi)||'in',scale=linear==='m'?1/INCH:1;
-    const values=rows.slice(1).map(r=>r.split(sep).map(s=>Number(s.trim()))).filter(r=>Number.isFinite(r[xi])&&Number.isFinite(r[yi]));
+    const number=s=>{const v=cell(s);return Number(sep===';'?v.replace(',','.'):v);};
+    const values=rows.slice(1).map(r=>r.split(sep).map(number)).filter(r=>Number.isFinite(r[xi])&&Number.isFinite(r[yi]));
     if(!values.length)throw Error('The CSV has no rows with numeric x and y.');
     let hu=headingUnits||(hi>=0&&/(_|\(|\s)(rad|radians)\)?$/.test(head[hi])?'rad':hi>=0&&/(_|\(|\s)(deg|degrees)\)?$/.test(head[hi])?'deg':null);
     if(!hu&&hi>=0)hu=values.every(r=>!Number.isFinite(r[hi])||Math.abs(r[hi])<=2*Math.PI+.01)?'rad':'deg';

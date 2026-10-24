@@ -29,3 +29,13 @@ test('comparison: distance from the planned route along the way and at the stop'
   assert.equal(r.samples,4);assert.equal(r.duration,3);assert.ok(near(r.maxError,3));assert.deepEqual([r.worst.x,r.worst.y],[60,27]);assert.ok(near(r.meanError,(0+3+1+.5)/4));
   assert.ok(near(r.endError,Math.hypot(2,.5)));assert.throws(()=>Log.compare({poses:[]},route),/no poses/);
 });
+
+test('CSV from spreadsheets: byte-order mark, quotes, decimal commas and pose_x / Robot X column names',()=>{
+  const bom=Log.parse({name:'a.csv',text:'\uFEFFtime,x,y,heading\n0,24,24,90\n'});assert.deepEqual([bom.poses[0].x,bom.poses[0].y,bom.poses[0].heading],[24,24,90]);
+  const quoted=Log.parse({name:'b.csv',text:'"time","x","y"\n"0","24","30"\n'});assert.deepEqual([quoted.poses[0].x,quoted.poses[0].y],[24,30]);
+  const euro=Log.parse({name:'c.csv',text:'t;x (m);y (m);heading (deg)\n0;0,6096;1,2192;90\n'});assert.ok(near(euro.poses[0].x,24)&&near(euro.poses[0].y,48));assert.equal(euro.poses[0].heading,90);
+  const pose=Log.parse({name:'d.csv',text:'timestamp,pose_x,pose_y,pose_heading_deg\n0,10,20,45\n'});assert.deepEqual([pose.poses[0].x,pose.poses[0].y,pose.poses[0].heading],[10,20,45]);
+  const robot=Log.parse({name:'e.csv',text:'Time,Robot X (in),Robot Y (in),Robot Heading (deg)\n0,10,20,-30\n'});assert.deepEqual([robot.poses[0].x,robot.poses[0].y,robot.poses[0].heading],[10,20,-30]);
+  // An exact x column wins over one that only ends in x.
+  const exact=Log.parse({name:'f.csv',text:'max_x,x,y\n100,10,20\n'});assert.equal(exact.poses[0].x,10);
+});
