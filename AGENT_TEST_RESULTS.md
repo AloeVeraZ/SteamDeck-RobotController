@@ -123,6 +123,7 @@ After the reduced visibility graph, the original planner and the new one were ru
   - 317 failed identically in both (pins inside obstacles).
   - Total time 181 s → 72 s.
 - The 24-barrier unit test case: 2.45 s → 0.72 s.
+- Turn to fit, with a 26×12 in robot that must turn 90° to pass a gap: 11 random fields plan identical turning routes, 1.46× faster. A typical case takes about 0.3 s.
 
 Before that change:
 
