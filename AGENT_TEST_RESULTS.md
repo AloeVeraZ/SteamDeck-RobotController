@@ -13,6 +13,7 @@ All commands run on this Windows laptop with the repo's Electron as Node:
 | Full run (24 October, morning) | **324/324.** The 24-barrier time-budget test takes about 1.2 s. |
 | After drag-to-pan, the field map and the two-view Paths panel | **325/325.** `tests/simulation-ui.cjs` passes too. |
 | After mechanism hardware and Send to robot (24 October, afternoon) | **343/343** (one OnBot test updated for the check TeleOp beside the autonomous). New: `sim-mechanism-hardware` (7), `robot-link` (6). `tests/simulation-ui.cjs` passes all 16 sections. |
+| After one-button setup, phase 2 (24 October, evening) | **350/350**. New: `sim-guided-check` (3), and 4 more `robot-link` tests (10 in all). The check TeleOp test in `sim-mechanism-hardware` was rewritten for the guided check. `tests/robot-setup-app.cjs` passes, and `tests/simulation-ui.cjs` passes all 16 sections. |
 
 New test files:
 - `sim-pedro`
@@ -52,6 +53,13 @@ Run again after mechanism hardware (24 October, afternoon). It passed with no wa
   - two shooters, one fixed.
 - Stand-ins: 240 members match (`setVelocityPIDFCoefficients` added).
 
+Run again after the guided check replaced the check TeleOp (24 October, evening). It passed with no warnings:
+- every TeamCode, OnBot Java and Pedro case;
+- the four mechanism hardware cases;
+- every example and the swerve Pedro case.
+
+The guided check now uses the IMU (`RevHubOrientationOnRobot`, `YawPitchRollAngles`) and `Locale`, and it compiles in all of them. Stand-ins: 240 members match.
+
 ## Mechanism hardware on the virtual Control Hub (`tests/sim-mechanism-hardware.test.cjs`)
 
 BIOBUZZ red, route with Spin up, Shoot, Intake. The OnBot export of each variant gives the same shots, pickups and points as the simulator's own run (6 shots, 2 picked up, 20 points):
@@ -81,6 +89,30 @@ MotionModule (its runtime, Python 3.12): continuous-servo rollers, a second flyw
   - stops paths that leave `/src`;
   - its form encoding survives the round trip.
 - In the app (Playwright probe): Check robot found 5 of 10 names to fix, Use these names applied them, Upload and build put both files on the simulated hub with the robot's names, and it built.
+
+## One-button setup, phase 2 (24 October, evening)
+
+**The guided check on the virtual Control Hub** (`tests/sim-guided-check.test.cjs`). The virtual robot is wired as the "true" settings say, and the code is exported from settings that get it wrong. A scripted person answers from what each device really did:
+- **Motor robot.** Two drive wheels, the second roller, one flywheel motor and the feeder were wrong, and the turret encoder was 5 ticks per degree against the setting's 4.6.
+  - Every direction was found in 29 presses.
+  - Ticks per degree measured 5.011.
+  - Top speed was 1400 ticks/s, with REV's PIDF from it.
+- **Servo robot.** A kicker, a servo pusher and a reversed servo turret.
+  - Positions were found exactly (0.15/0.85, 0.25/0.65).
+  - The turret center was 0.55, its range 272.7° (truth 270), and its direction reversed. This took 58 presses.
+- **Both.** The autonomous from the corrected settings shoots, picks up and scores what the simulator planned.
+
+**Configurations and the check over Robocol** (`tests/robot-link.test.cjs`, now 10 tests). Port planning, adding to a configuration without changing it, a scanned configuration equal to the Configure Robot fixture line for line, swaps and refusals, save, activate, read back, restart, refusing a name the robot has, and the guided check run from Deck (INIT, START, presses from the panel and Controller 1, results, STOP).
+
+**In the app** (`tests/robot-setup-app.cjs`, simulated hub with OnBot Java), passed:
+- four Pedro-style names taken from the robot;
+- two missing devices added to "competition Deck" with a port swapped by hand, then built;
+- the Guided check answered from the panel;
+- "Use these settings and send…" stopped the check, saved its setting and sent again, and the code on the robot then had the front left wheel FORWARD;
+- Drive opened with "BIOBUZZ red auto (Deck)" selected;
+- a robot with no configuration got "Deck biobuzz-red-auto" with all ten devices;
+- at Steam Deck size (1280×800) the port list fits the panel with full labels (the selects stack);
+- Space stopped a running check.
 
 ## Pedro Pathing 3.0.2's real Follower on the virtual Control Hub (`tests/sim-pedro-runtime.test.cjs`)
 
@@ -206,5 +238,6 @@ Before that change:
 ## Not verified
 
 - No physical robot test of any export. No robot hardware was available.
+- Send to robot's configuration writing and the guided check have not run on a real Control Hub. Their formats come from the FTC SDK 12.0 classes, and they are tested against the simulated hub and, for the check TeleOp itself, the virtual Control Hub.
 - Pedro starter constants are model estimates. A team must still run the Quickstart tuners.
 - The Pedro Visualizer reading the new `.pp` files was checked by running its own loader and animation code under Node, not by opening the file in the hosted website.

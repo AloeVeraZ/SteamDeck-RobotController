@@ -361,6 +361,7 @@ public final class RunBridge {
         SimClock.setSeconds(num(m, "t"));
         JsonObject odo = m.has("odo") && m.get("odo").isJsonObject() ? m.getAsJsonObject("odo") : null;
         hub.mechanismState(m.has("mech") && m.get("mech").isJsonObject() ? m.getAsJsonObject("mech") : null);
+        for (int user = 1; user <= 2; user++) if (m.has("gamepad" + user) && m.get("gamepad" + user).isJsonObject()) hub.gamepad(user, m.getAsJsonObject("gamepad" + user));
         if (!hub.done()) {
             try {
                 hub.tick(odo == null ? 0 : num(odo, "dx"), odo == null ? 0 : num(odo, "dy"), num(m, "imu"), num(m, "dt"));
@@ -380,6 +381,7 @@ public final class RunBridge {
         hub.telemetry().forEach(telemetry::addProperty);
         cmd.add("telemetry", telemetry);
         cmd.add("mech", hub.mechanismOutputs());
+        cmd.add("devices", hub.devices());
         cmd.addProperty("done", hub.done());
         return cmd;
     }

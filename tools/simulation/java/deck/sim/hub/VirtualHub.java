@@ -78,6 +78,11 @@ public final class VirtualHub {
     private final List<SimServo> ramps = new ArrayList<>();
     private final List<double[]> rampPositions = new ArrayList<>();
     private final List<Shooter> shooters = new ArrayList<>();
+    /** What each named device does on the robot this tick, as someone watching it would see it: a drive wheel's forward
+     * command, a roller's pull-in, a flywheel's shooting spin, a feeder's feed (each mount x applied power), a servo's
+     * position, a turret's commanded angle in degrees (NaN when it is not being turned). The guided check is tested with it. */
+    private final Map<String, DoubleSupplier> devices = new LinkedHashMap<>();
+    private OpMode opMode;
 
     private static final class Shooter {
         final List<SimMotor> flywheels = new ArrayList<>();
@@ -118,6 +123,7 @@ public final class VirtualHub {
             SimMotor motor = new SimMotor(port++, m.get("mount").getAsInt());
             drive.put(e.getKey(), motor);
             map.put(m.get("name").getAsString(), motor);
+            devices.put(m.get("name").getAsString(), motor::wheelCommand);
         }
         if (hub.has("pods")) for (JsonElement e : hub.getAsJsonArray("pods")) {
             JsonObject p = e.getAsJsonObject();
@@ -143,6 +149,7 @@ public final class VirtualHub {
                 if (r.has("kind") && "crservo".equals(r.get("kind").getAsString())) { SimCRServo servo = new SimCRServo(servoPort++); map.put(name, servo); pull = () -> mount * servo.output(); }
                 else { SimMotor motor = new SimMotor(port++, 1); map.put(name, motor); pull = () -> mount * motor.commanded(1); }
                 rollers.computeIfAbsent(part, k -> new ArrayList<>()).add(pull);
+                devices.put(name, pull);
             }
             if (mech.has("kickers")) for (JsonElement e : mech.getAsJsonArray("kickers")) {
                 JsonObject k = e.getAsJsonObject();
@@ -150,6 +157,7 @@ public final class VirtualHub {
                 kickers.add(servo);
                 kickerPositions.add(new double[] { k.get("down").getAsDouble(), k.get("up").getAsDouble() });
                 map.put(k.get("name").getAsString(), servo);
+                devices.put(k.get("name").getAsString(), servo::output);
             }
             if (mech.has("ramps")) for (JsonElement e : mech.getAsJsonArray("ramps")) {
                 JsonObject k = e.getAsJsonObject();
@@ -157,6 +165,7 @@ public final class VirtualHub {
                 ramps.add(servo);
                 rampPositions.add(new double[] { k.get("down").getAsDouble(), k.get("up").getAsDouble() });
                 map.put(k.get("name").getAsString(), servo);
+                devices.put(k.get("name").getAsString(), servo::output);
             }
             if (mech.has("shooters")) for (JsonElement e : mech.getAsJsonArray("shooters")) {
                 JsonObject s = e.getAsJsonObject();
@@ -166,9 +175,11 @@ public final class VirtualHub {
                     shooter.full = s.get("ticksPerSecond").getAsDouble();
                     for (JsonElement f : s.getAsJsonArray("flywheels")) {
                         SimMotor motor = new SimMotor(port++, 1);
+                        int flywheelMount = mount(f.getAsJsonObject());
                         map.put(f.getAsJsonObject().get("name").getAsString(), motor);
                         shooter.flywheels.add(motor);
-                        shooter.flywheelMounts.add(mount(f.getAsJsonObject()));
+                        shooter.flywheelMounts.add(flywheelMount);
+                        devices.put(f.getAsJsonObject().get("name").getAsString(), () -> flywheelMount * motor.commanded(shooter.full));
                     }
                 } else {
                     JsonObject f = s.getAsJsonObject("flywheel");
@@ -176,6 +187,7 @@ public final class VirtualHub {
                     map.put(f.get("name").getAsString(), motor);
                     shooter.flywheels.add(motor);
                     shooter.flywheelMounts.add(1);
+                    devices.put(f.get("name").getAsString(), () -> motor.commanded(shooter.full));
                     shooter.full = f.get("ticksPerSecond").getAsDouble();
                 }
                 // The feeder: a motor or continuous servo (mount x power), or a servo pusher or gate (at its feed position or not).
@@ -188,7 +200,9 @@ public final class VirtualHub {
                     double feed = x.get("feed").getAsDouble(), rest = x.get("rest").getAsDouble();
                     map.put(feederName, servo);
                     shooter.feeder = () -> { double p = servo.output(); return !Double.isNaN(p) && Math.abs(p - feed) < Math.abs(p - rest) ? 1 : 0; };
+                    devices.put(feederName, servo::output);
                 } else { SimMotor motor = new SimMotor(port++, 1); map.put(feederName, motor); shooter.feeder = () -> feederMount * motor.commanded(1); }
+                if (!devices.containsKey(feederName)) devices.put(feederName, shooter.feeder);
                 if (s.has("turret")) {
                     JsonObject t = s.getAsJsonObject("turret");
                     shooter.turretMount = mount(t);
@@ -200,6 +214,7 @@ public final class VirtualHub {
                         map.put(t.get("name").getAsString(), shooter.turret = new SimMotor(port++, 1));
                         shooter.turretTicksPerDegree = t.get("ticksPerDegree").getAsDouble();
                     }
+                    devices.put(t.get("name").getAsString(), shooter::turretTarget);
                 }
                 shooters.add(shooter);
             }
@@ -219,6 +234,7 @@ public final class VirtualHub {
         }
         opMode.hardwareMap = v.map;
         opMode.telemetry = v.telemetry;
+        v.opMode = opMode;
         Runnable body = opMode instanceof LinearOpMode ? () -> {
             try {
                 ((LinearOpMode) opMode).runOpMode();
@@ -400,6 +416,35 @@ public final class VirtualHub {
         return out;
     }
     public Map<String, String> telemetry() { return telemetry.shown(); }
+
+    /** Gamepad 1 or 2 as the Driver Station sends it: sticks and triggers, then buttons. */
+    public void gamepad(int user, JsonObject g) {
+        if (opMode == null || g == null) return;
+        com.qualcomm.robotcore.hardware.Gamepad pad = user == 2 ? opMode.gamepad2 : opMode.gamepad1;
+        pad.left_stick_x = axis(g, "left_stick_x"); pad.left_stick_y = axis(g, "left_stick_y");
+        pad.right_stick_x = axis(g, "right_stick_x"); pad.right_stick_y = axis(g, "right_stick_y");
+        pad.left_trigger = axis(g, "left_trigger"); pad.right_trigger = axis(g, "right_trigger");
+        pad.dpad_up = button(g, "dpad_up"); pad.dpad_down = button(g, "dpad_down"); pad.dpad_left = button(g, "dpad_left"); pad.dpad_right = button(g, "dpad_right");
+        pad.a = button(g, "a"); pad.b = button(g, "b"); pad.x = button(g, "x"); pad.y = button(g, "y");
+        pad.guide = button(g, "guide"); pad.start = button(g, "start"); pad.back = button(g, "back");
+        pad.left_bumper = button(g, "left_bumper"); pad.right_bumper = button(g, "right_bumper");
+        pad.left_stick_button = button(g, "left_stick_button"); pad.right_stick_button = button(g, "right_stick_button");
+    }
+
+    private static float axis(JsonObject g, String name) {
+        if (!g.has(name) || !g.get(name).isJsonPrimitive()) return 0;
+        double v = g.get(name).getAsDouble();
+        return Double.isFinite(v) ? (float) Math.max(-1, Math.min(1, v)) : 0;
+    }
+
+    private static boolean button(JsonObject g, String name) { return g.has(name) && g.get(name).isJsonPrimitive() && g.get(name).getAsBoolean(); }
+
+    /** Each named device's effect this tick (see devices); null where it has none. */
+    public JsonObject devices() {
+        JsonObject out = new JsonObject();
+        devices.forEach((name, effect) -> { double v = effect.getAsDouble(); if (Double.isNaN(v)) out.add(name, com.google.gson.JsonNull.INSTANCE); else out.addProperty(name, v); });
+        return out;
+    }
     public boolean done() { return OpModeHost.finished(); }
     public String opMode() { return className; }
     public void stop() { OpModeHost.stop(); }

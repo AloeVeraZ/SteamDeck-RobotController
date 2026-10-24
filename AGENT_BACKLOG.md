@@ -30,17 +30,16 @@
   - CSV robot logs from spreadsheets.
   - Backslashes in names breaking the MotionModule Python.
 
-## One-button setup, phase 2 (see docs/MECHANISM_ACTIONS.md)
+## One-button setup (see docs/MECHANISM_ACTIONS.md)
 
-- Try Send to robot on a real Control Hub (only the simulated one has been used).
-- Write a configuration for a robot that has none:
-  - generate the XML from the setup and a port list;
-  - get the hub layout from `CMD_SCAN`;
-  - save it as a new name with `CMD_SAVE_CONFIGURATION`, never over an existing one.
-- Ask "did the intake pull in?" during the check TeleOp and flip that direction in the setup.
-- Read the check TeleOp's measurements (top speed and PIDF, servo positions) from telemetry back into the setup.
-- Select the new autonomous on the Driver Station after a successful build.
-- Piece sensors (stop intaking when full, shoot until empty), and an adjustable hood servo.
+Phase 2 is done: configurations for missing devices, the guided check, and Drive preselect. Next:
+
+1. Try Send to robot and the guided check on a real Control Hub. Only the simulated one has been used. Watch:
+   - how long the robot's web server takes to answer after the configuration restart;
+   - the real telemetry line format (`caption : value`).
+2. Settings for Pinpoint and OTOS (encoder directions, offsets, pod type) and for odometry pod directions, with a check step that pushes the robot by hand.
+3. Use an Expansion Hub that is plugged in but missing from the configuration when ports run out (a scanned hub can be added as a new `LynxModule` element).
+4. Piece sensors (stop intaking when full, shoot until empty), and an adjustable hood servo.
 
 ## Robot code correctness and safety
 

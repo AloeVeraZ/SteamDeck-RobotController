@@ -45,10 +45,11 @@
   function hardwareIfSupported(robot,localization){try{return hardware(robot,localization);}catch{return null;}}
   // Every device name a Control Hub export looks up, what the robot configuration must have under it, and the setting that
   // holds the name: the list Send to robot checks against the robot's own configuration. motorOrCr: the code uses
-  // DcMotorSimple there, so a motor or a continuous servo both work.
+  // DcMotorSimple there, so a motor or a continuous servo both work. device: what the settings say it is, for adding it
+  // to a configuration.
   function robotNeeds(robot,localization,mechanisms){
-    const slots=deviceSlots(robot,localization).map(s=>({name:s.name,need:s.kind,label:s.label,setting:{robot:s.key}}));
-    const mech=mechanisms?.enabled?mechanismDevices(mechanisms,robot).map(x=>({name:x.name,need:x.device==='servo'?'servo':x.role==='flywheel'||x.role==='turret'?'motor':'motorOrCr',label:x.label,setting:x.setting})):[];
+    const slots=deviceSlots(robot,localization).map(s=>({name:s.name,need:s.kind,device:s.kind,label:s.label,setting:{robot:s.key}}));
+    const mech=mechanisms?.enabled?mechanismDevices(mechanisms,robot).map(x=>({name:x.name,need:x.device==='servo'?'servo':x.role==='flywheel'||x.role==='turret'?'motor':'motorOrCr',device:x.device,label:x.label,setting:x.setting})):[];
     return [...slots,...mech];
   }
   // Java double literals: Java numeric literals retain a decimal point for generated calibration constants.
@@ -760,127 +761,381 @@ ${motorTurrets.map(x=>`        ${x.field}.setPower(0);`).join('\n')}
 }
 `.replace(/\n\n\n+/g,'\n\n');
   }
-  // The check TeleOp: runs each device the autonomous uses on its own, so names, directions, servo positions and
-  // flywheel speed can be checked on the robot before the autonomous runs. mechType is Mechanisms, or
-  // Outer.Mechanisms for the single OnBot Java file.
+  // The check TeleOp: a guided check of every device the autonomous uses, one at a time. Each step turns a device or
+  // moves a servo and asks on gamepad 1 what happened; the answers become Deck settings, listed on the "Deck results"
+  // telemetry line (CHECK_RESULTS reads them back). Deck's Send to robot can run it and press the buttons; on any Driver
+  // Station a gamepad answers. mechType is Mechanisms, or Outer.Mechanisms for the single OnBot Java file.
+  const DRIVE_LABELS={frontLeft:'front left wheel',frontRight:'front right wheel',backLeft:'back left wheel',backRight:'back right wheel',left:'left wheels',right:'right wheels'};
+  // The setting a device's direction answer sets, by the field that holds its name.
+  const REVERSED_FIELD={motor:'reversed',motor2:'reversed2',indexer:'indexerReversed',turretMotor:'turretReversed'};
   function checkOpMode(options,h,m,mechType='Mechanisms'){
-    // h is null for a drivetrain Deck exports no drive code for (a Pedro swerve robot): the check then has no drive test.
-    const name=options.checkName,motors=h?.drive?Object.values(h.drive.motors):[],velocity=!m||m.shooter.control!=='power',d=m?mechanismDevices(m):[];
-    const has=role=>d.some(x=>x.role===role),turret=has('turret'),servos=d.some(x=>x.device==='servo');
+    // h is null for a drivetrain Deck exports no drive code for (a Pedro swerve robot): the check then has no drive or IMU steps.
+    const name=options.checkName,motors=h?.drive?Object.entries(h.drive.motors):[],velocity=!!m&&m.shooter.control!=='power',d=m?mechanismDevices(m):[],M=mechType;
+    const of=role=>d.filter(x=>x.role===role),say=javaString,steps=[],gets=[];
+    const key=x=>`${x.setting.list}.${x.setting.index}.${REVERSED_FIELD[x.setting.field]}`,named=x=>`${x.label.toLowerCase()} ("${x.name}")`;
+    const step=(title,body)=>steps.push(`        next(${say(title)});\n${body}`);
+    if(h){
+      gets.push(`        IMU imu = hardwareMap.tryGet(IMU.class, ${say(h.imu)});`,`        if (imu != null) imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.${h.hub.logo}, RevHubOrientationOnRobot.UsbFacingDirection.${h.hub.usb})));`);
+      step(`IMU ("${h.imu}")`,`        if (imu == null) result("imu", "?missing");
+        else {
+            YawPitchRollAngles level = imu.getRobotYawPitchRollAngles();
+            boolean tilted = Math.abs(level.getPitch(AngleUnit.DEGREES)) > 15 || Math.abs(level.getRoll(AngleUnit.DEGREES)) > 15;
+            result("imu.level", tilted ? "?tilted" : "ok");
+            double before = level.getYaw(AngleUnit.DEGREES);
+            if (ask(String.format(Locale.US, "The IMU reads pitch %.0f and roll %.0f degrees%s. Turn the robot a quarter turn LEFT (counterclockwise, seen from above), then press A.", level.getPitch(AngleUnit.DEGREES), level.getRoll(AngleUnit.DEGREES), tilted ? ": tilted, so the Control Hub mounting in Deck is wrong" : ""), "A: turned it | B: skip") == YES) {
+                double turned = AngleUnit.normalizeDegrees(imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.DEGREES) - before);
+                result("imu.turn", turned > 45 ? "ok" : turned < -45 ? "?backward" : "?none");
+            }
+        }`);
+      gets.push(`        DcMotorEx[] drive = new DcMotorEx[DRIVE.length];`,`        for (int i = 0; i < DRIVE.length; i++) {`,`            drive[i] = hardwareMap.tryGet(DcMotorEx.class, DRIVE[i]);`,
+        `            if (drive[i] != null) { drive[i].setDirection(direction(DRIVE_REVERSED[i])); drive[i].setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); }`,`        }`);
+      motors.forEach(([k,x],i)=>step(`${DRIVE_LABELS[k]} ("${x.name}")`,`        if (drive[${i}] == null) result("robot.${k}.reversed", "?missing");
+        else direction("robot.${k}.reversed", DRIVE_REVERSED[${i}], turn(drive[${i}], 0.3, TURN_SECONDS, ${say(`Did the ${DRIVE_LABELS[k]} turn so the robot would drive FORWARD?`)}));`));
+    }
+    // A device by its Mechanisms constant, with the direction the code sets for it.
+    const device=(x,type,setup='')=>{gets.push(`        ${type} ${x.field} = hardwareMap.tryGet(${type}.class, ${M}.${x.constant});`,...(setup?[`        if (${x.field} != null) ${setup}`]:[]));};
+    for(const x of of('roller')){device(x,'DcMotorSimple',`${x.field}.setDirection(direction(${M}.${x.constant}_REVERSED));`);
+      step(named(x),`        if (${x.field} == null) result("${key(x)}", "?missing");
+        else direction("${key(x)}", ${M}.${x.constant}_REVERSED, turn(${x.field}, ${M}.${x.constant}_POWER, TURN_SECONDS, ${say(`Did the ${x.label.toLowerCase()} pull pieces IN?`)}));`);}
+    for(const x of d.filter(x=>x.role==='kicker'||x.role==='ramp')){device(x,'Servo');const at=`intakes.${x.index}`;
+      step(named(x),`        if (${x.field} == null) result("${at}.downPos", "?missing");
+        else {
+            double down = position(${x.field}, ${M}.${x.constant}_DOWN, ${say(`Move the ${x.role} DOWN, to where it ${x.role==='kicker'?'scoops pieces in':'picks pieces up'}.`)});
+            if (!Double.isNaN(down)) result("${at}.downPos", number(down));
+            double up = position(${x.field}, ${M}.${x.constant}_UP, ${say(`Now move it UP, to where it waits while the robot drives.`)});
+            if (!Double.isNaN(up)) result("${at}.upPos", number(up));
+        }`);}
+    const flywheels=of('flywheel');
+    for(const x of flywheels){device(x,'DcMotorEx',`${x.field}.setDirection(direction(${M}.${x.constant}_REVERSED));`);
+      step(named(x),`        if (${x.field} == null) result("${key(x)}", "?missing");
+        else {
+            ${x.field}.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+            int answer = turn(${x.field}, 0.3, TURN_SECONDS, ${say(`Did the ${x.label.toLowerCase()} spin ${x.setting.field==='motor2'?'the flywheel ':''}the way that shoots pieces OUT?`)});
+            direction("${key(x)}", ${M}.${x.constant}_REVERSED, answer);
+            // The top speed is measured with every motor turning the flywheel the right way.
+            if (answer == NO) ${x.field}.setDirection(direction(!${M}.${x.constant}_REVERSED));
+        }`);}
+    if(velocity&&flywheels.length)step('flywheel top speed',`        if (ask("Next the flywheels run at full power for 3 s, to measure their top speed. Stand clear of the shooter.", "A: run them | B: skip") == YES) {
+            double top = topSpeed(new DcMotorEx[] {${flywheels.map(x=>x.field).join(', ')}});
+            if (top <= 0) result("shooter.topSpeed", "?none");
+            else {
+                // REV's velocity PIDF from the top speed: F = 32767 / top, P = 0.1 F, I = 0.1 P, D = 0.
+                double f = 32767 / top, p = 0.1 * f, i = 0.1 * p;
+                result("shooter.topSpeed", String.format(Locale.US, "%.0f", top));
+                result("shooter.pidf", String.format(Locale.US, "%.4f,%.4f,0,%.4f", p, i, f));
+                if (top < 0.98 * ${M}.FLYWHEEL_TICKS_PER_SECOND) result("shooter.rpm", "?high");
+            }
+        }`);
+    for(const x of of('feeder')){const at=`shooters.${x.index}`;
+      if(x.feeder==='pusher'||x.feeder==='gate'){device(x,'Servo');step(named(x),`        if (${x.field} == null) result("${at}.restPos", "?missing");
+        else {
+            double rest = position(${x.field}, ${M}.${x.constant}_REST, ${say(x.feeder==='pusher'?'Move the pusher to REST, back where the next piece can drop in front of it.':'Move the gate to REST: closed, holding the pieces back.')});
+            if (!Double.isNaN(rest)) result("${at}.restPos", number(rest));
+            double feed = position(${x.field}, ${M}.${x.constant}_FEED, ${say(x.feeder==='pusher'?'Now move it to FEED, where it has pushed a piece into the flywheel.':'Now move it to FEED: open, letting pieces through to the flywheel.')});
+            if (!Double.isNaN(feed)) result("${at}.feedPos", number(feed));
+        }`);}
+      else{device(x,'DcMotorSimple',`${x.field}.setDirection(direction(${M}.${x.constant}_REVERSED));`);step(named(x),`        if (${x.field} == null) result("${key(x)}", "?missing");
+        else direction("${key(x)}", ${M}.${x.constant}_REVERSED, turn(${x.field}, ${M}.FEEDER_POWER, TURN_SECONDS, ${say(`Did the ${x.label.toLowerCase()} move pieces toward the flywheel?`)}));`);}}
+    of('turret').forEach((x,i)=>{
+      if(x.device==='servo'){device(x,'Servo');step(named(x),`        if (${x.field} == null) result("${key(x)}", "?missing");
+        else {
+            double center = position(${x.field}, ${M}.TURRET_SERVO_CENTER, "Point the turret straight ahead, toward the front of the robot.");${i?'':`
+            if (!Double.isNaN(center)) result("turret.servoCenter", number(center));`}
+            double from = Double.isNaN(center) ? ${M}.TURRET_SERVO_CENTER : center;
+            double left = position(${x.field}, clamp(from + (${M}.${x.constant}_REVERSED ? -90 : 90) / ${M}.TURRET_SERVO_DEGREES), "Now point it a quarter turn LEFT (90 degrees counterclockwise, seen from above).");
+            if (!Double.isNaN(left) && Math.abs(left - from) > 0.005) {
+                result("${key(x)}", String.valueOf(left < from));${i?'':`
+                result("turret.servoDegrees", String.format(Locale.US, "%.1f", 90 / Math.abs(left - from)));`}
+            }
+            ${x.field}.setPosition(from);
+        }`);return;}
+      device(x,'DcMotorEx');
+      step(named(x),`        if (${x.field} == null) result("${key(x)}", "?missing");
+        else {
+            ${x.field}.setDirection(direction(${M}.${x.constant}_REVERSED));
+            ${x.field}.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+            int answer = turnTo(${x.field}, 20 * ${M}.TURRET_TICKS_PER_DEGREE, "Did the turret turn LEFT (counterclockwise, seen from above)?");
+            direction("${key(x)}", ${M}.${x.constant}_REVERSED, answer);
+            // The rest of the check turns it the right way.
+            if (answer == NO) ${x.field}.setDirection(direction(!${M}.${x.constant}_REVERSED));${i?'':`
+            if (answer == YES || answer == NO) {
+                double ahead = aim(${x.field}, "Point the turret straight ahead, toward the front of the robot.");
+                double left = Double.isNaN(ahead) ? Double.NaN : aim(${x.field}, "Now point it a quarter turn LEFT (90 degrees counterclockwise, seen from above).");
+                if (!Double.isNaN(left) && Math.abs(left - ahead) > 9) result("turret.ticksPerDegree", String.format(Locale.US, "%.3f", Math.abs(left - ahead) / 90));
+                if (!Double.isNaN(ahead)) turnTo(${x.field}, ahead, "");
+            }`}
+            ${x.field}.setPower(0);
+        }`);});
+    const stops=[...motors.length?['        for (DcMotorEx motor : drive) if (motor != null) motor.setPower(0);']:[],...d.filter(x=>x.device!=='servo').map(x=>`        if (${x.field} != null) ${x.field}.setPower(0);`)];
     return `package ${options.packageName};
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;${h?`
+import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
+import com.qualcomm.robotcore.hardware.IMU;`:''}
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
+import java.util.Locale;${h?`
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;`:''}
 
 /**
- * Checks the hardware the "${comment(options.layoutName||'route')}" autonomous uses, one device at a time, before you run it.
- * Generated by Deck Driver Station with the autonomous. Put the robot on blocks: the wheels will turn.
+ * A guided check of the hardware the "${comment(options.layoutName||'route')}" autonomous uses, generated by Deck Driver Station
+ * with it. Run it before the autonomous, with the robot on blocks: the wheels and mechanisms move.
  *
- * Hold on gamepad 1:${motors.length?`
- *  - A: each drive wheel in turn, at low power. Each one must turn so the robot would drive FORWARD.`:''}${m?`
- *  - Right bumper: the intake. Pieces must go IN.${m.shooters.length?`
- *  - Left trigger: the flywheels at their shooting speed${velocity?'; telemetry shows the speed each one measures':''}.
- *  - Right trigger: the feeders (a pusher pushes, a gate opens).${velocity?`
- *  - Y: the flywheels at full power for their top speed, and REV's velocity PIDF from it.`:''}`:''}${turret?`
- *  - D-pad left / right / up: the turrets 30 degrees left / right / straight ahead.`:''}${servos?`
- *  - Back: the next servo. Then move the left stick up or down to move it slowly and read its position.`:''}`:''}
- * Anything that turns the wrong way: set "turns the other way" for it in Deck and export again.
+ * Each step turns one device or moves one servo, then asks on the Driver Station. Answer on gamepad 1:
+ *  - a device that turned: A yes, B no (it turned the other way), X nothing moved, Y run it again;
+ *  - a servo: the D-pad moves it (up and down a little, right and left more), A saves where it is, B keeps the setting.
+ * The answers are Deck settings, listed on the "Deck results" line. Deck applies them when it runs this check
+ * (Send to robot, Guided check); otherwise enter them in Deck. Then export (or send) again.${m?`
+ * After the last step: right bumper runs the intake, left trigger the flywheels, right trigger the feeders.`:''}
  */
 @TeleOp(name = ${javaString((options.layoutName||'Planned route')+' check (Deck)')}, group = "Deck Driver Station")
 public class ${name} extends LinearOpMode {
-    /** The drive motors, in the order A turns them, and which are reversed (as the autonomous sets them). */
-    private static final String[] DRIVE = ${names(motors.map(x=>x.name))};
-    private static final boolean[] DRIVE_REVERSED = {${motors.map(x=>String(x.mount<0)).join(', ')}};
+    /** The drive motors, and which are reversed (as the autonomous sets them). */
+    private static final String[] DRIVE = ${names(motors.map(([,x])=>x.name))};
+    private static final boolean[] DRIVE_REVERSED = {${motors.map(([,x])=>String(x.mount<0)).join(', ')}};
+    private static final int STEPS = ${steps.length};
+    private static final double TURN_SECONDS = 1.5;
+    private static final int STOPPED = 0, YES = 1, NO = 2, NOTHING = 3, AGAIN = 4;
+    private static final String TURNED = "A: yes | B: no, the other way | X: nothing moved | Y: again";
+    /** The answers as Deck settings: "v1", then key=value for each (a value starting with ? is a problem). */
+    private final StringBuilder results = new StringBuilder("v1");
+    private int step;
+    private String title = "";
 
     @Override
     public void runOpMode() {
-        DcMotorEx[] drive = new DcMotorEx[DRIVE.length];
-        String missing = "";
-        for (int i = 0; i < DRIVE.length; i++) {
-            drive[i] = hardwareMap.tryGet(DcMotorEx.class, DRIVE[i]);
-            if (drive[i] == null) { missing += " " + DRIVE[i]; continue; }
-            drive[i].setDirection(DRIVE_REVERSED[i] ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD);
-            drive[i].setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        }${m?`
-        ${mechType} mech = new ${mechType}();
-        String mechProblem = "";
+${gets.join('\n')}
+        show("Deck's guided check: " + STEPS + " steps. Put the robot on blocks with its wheels off the floor, then press START.", "");
+        waitForStart();
+${steps.join('\n')}
+${stops.join('\n')}
+        // Done: the results stay on the screen, and the mechanisms can be tried with the settings in the code.
+        title = "Done";${m?`
+        ${M} mech = new ${M}();
         try {
             mech.init(hardwareMap);
         } catch (IllegalArgumentException e) {
-            mechProblem = e.getMessage();
             mech = null;
-        }`:''}
-        telemetry.addLine("Robot on blocks? Press START, then hold a button (see the list in the file).");
-        if (!missing.isEmpty()) telemetry.addLine("Not in the robot configuration:" + missing);${m?`
-        if (mech == null) telemetry.addLine("Mechanisms: " + mechProblem);`:''}
-        telemetry.update();
-        waitForStart();
-        ElapsedTime wheels = new ElapsedTime();${m?`
-        boolean intaking = false, spinning = false, feeding = false, measuring = false, back = false;
-        int turret = 0, servo = 0;
-        double top = 0;
-        ElapsedTime loop = new ElapsedTime();`:''}
-        while (opModeIsActive()) {${motors.length?`
-            // A: one drive wheel at a time, 1.5 s each.
-            int wheel = gamepad1.a ? (int) (wheels.seconds() / 1.5) % DRIVE.length : -1;
-            if (!gamepad1.a) wheels.reset();
-            for (int i = 0; i < DRIVE.length; i++) if (drive[i] != null) drive[i].setPower(i == wheel ? 0.3 : 0);
-            telemetry.addData("Drive", wheel < 0 ? "hold A" : DRIVE[wheel] + " should turn the robot FORWARD");`:''}${m?`
-            if (mech != null) {
-                // Each test starts and stops when its button changes, so the servo finder can move servos in between.
-                if (gamepad1.right_bumper != intaking) { intaking = gamepad1.right_bumper; mech.intake(intaking); }
-                telemetry.addData("Intake", intaking ? "running: pieces should go IN" : "hold right bumper");${m.shooters.length?`
-                boolean spin = gamepad1.left_trigger > 0.5;
-                if (spin != spinning && !measuring) { spinning = spin; mech.spin(spinning); }
-                double[] speeds = mech.flywheelSpeeds();
-                String measured = "";
-                for (int i = 0; i < speeds.length; i++) measured += String.format("%s %.0f  ", ${mechType}.FLYWHEEL_NAMES[i], speeds[i]);
-                telemetry.addData("Flywheels", spinning ? ${velocity?`String.format("target %.0f ticks/s, %s", ${mechType}.FLYWHEEL_TICKS_PER_SECOND, mech.ready() ? "at speed" : "spinning up")`:`String.format("power %.2f", ${mechType}.FLYWHEEL_POWER)`} : "hold left trigger");
-                telemetry.addData("Measured ticks/s", measured);
-                boolean feed = gamepad1.right_trigger > 0.5;
-                if (feed != feeding) { feeding = feed; mech.feed(feeding); }
-                telemetry.addData("Feeders", feeding ? "feeding" : "hold right trigger");${velocity?`
-                // Y: full power without velocity control; the highest speed seen is the top speed.
-                if (gamepad1.y && !measuring) {
-                    measuring = true;
-                    top = 0;
-                    for (DcMotorEx f : mech.flywheels()) { f.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); f.setPower(1); }
-                } else if (!gamepad1.y && measuring) {
-                    measuring = false;
-                    for (DcMotorEx f : mech.flywheels()) { f.setPower(0); f.setMode(DcMotor.RunMode.RUN_USING_ENCODER); }
-                    spinning = false;
-                }
-                if (measuring) for (double v : speeds) top = Math.max(top, Math.abs(v));
-                if (top > 0) {
-                    double f = 32767 / top, p = 0.1 * f, i = 0.1 * p;
-                    telemetry.addData("Top speed", "%.0f ticks/s (hold Y for 3 s on a full battery)", top);
-                    telemetry.addData("Velocity PIDF for Deck", "P %.3f  I %.4f  D 0  F %.3f", p, i, f);
-                }`:''}`:''}${turret?`
-                if (gamepad1.dpad_left && turret != 30) { turret = 30; mech.turnTurrets(30); }
-                if (gamepad1.dpad_right && turret != -30) { turret = -30; mech.turnTurrets(-30); }
-                if (gamepad1.dpad_up && turret != 0) { turret = 0; mech.turnTurrets(0); }
-                telemetry.addData("Turrets", "%d degrees (%s)", turret, mech.aimed() ? "there" : "turning");`:''}${servos?`
-                // Back picks the next servo; the left stick moves it 0.3 of its range per second.
-                Servo[] servos = mech.servos();
-                if (gamepad1.back && !back) servo = (servo + 1) % servos.length;
-                back = gamepad1.back;
-                double dt = loop.seconds();
-                if (Math.abs(gamepad1.left_stick_y) > 0.1) servos[servo].setPosition(Math.max(0, Math.min(1, servos[servo].getPosition() - gamepad1.left_stick_y * 0.3 * dt)));
-                telemetry.addData("Servo (back: next)", "%s at %.3f", ${mechType}.SERVO_NAMES[servo], servos[servo].getPosition());`:''}
-            }
-            loop.reset();`:''}
-            telemetry.update();
         }
-        for (DcMotorEx motor : drive) if (motor != null) motor.setPower(0);${m?`
+        boolean intaking = false, spinning = false, feeding = false;`:''}
+        while (opModeIsActive()) {${m?`
+            if (mech != null) {
+                if (gamepad1.right_bumper != intaking) { intaking = gamepad1.right_bumper; mech.intake(intaking); }
+                boolean spin = gamepad1.left_trigger > 0.5, feed = gamepad1.right_trigger > 0.5;
+                if (spin != spinning) { spinning = spin; mech.spin(spinning); }
+                if (feed != feeding) { feeding = feed; mech.feed(feeding); }
+            }`:''}
+            telemetry.addData("Step", "Done");
+            telemetry.addLine("Every step is done. Send to robot again from Deck to use the results.${m?' To try the mechanisms with the settings in this code: right bumper intake, left trigger flywheels, right trigger feeders.':''}");
+            telemetry.addData("Deck results", results.toString());
+            telemetry.update();
+        }${m?`
         if (mech != null) mech.stop();`:''}
     }
-}
-`;}
+
+    private static DcMotorSimple.Direction direction(boolean reversed) {
+        return reversed ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD;
+    }
+
+    private static double clamp(double position) {
+        return Math.max(0, Math.min(1, position));
+    }
+
+    private static String number(double value) {
+        return String.format(Locale.US, "%.3f", value);
+    }
+
+    private void next(String what) {
+        step++;
+        title = what;
+    }
+
+    private void result(String key, String value) {
+        results.append(' ').append(key).append('=').append(value);
+    }
+
+    /** The screen: the step, what to do, the answers on gamepad 1 and the results so far. */
+    private void show(String what, String answers) {
+        telemetry.addData("Step", step == 0 ? "Ready" : String.format(Locale.US, "%d of %d: %s", step, STEPS, title));
+        telemetry.addLine(what);
+        if (!answers.isEmpty()) telemetry.addData("Answer", answers);
+        telemetry.addData("Deck results", results.toString());
+        telemetry.update();
+    }
+
+    private boolean pressed() {
+        return gamepad1.a || gamepad1.b || gamepad1.x || gamepad1.y || gamepad1.dpad_up || gamepad1.dpad_down || gamepad1.dpad_left || gamepad1.dpad_right;
+    }
+
+    private void release(String what, String answers) {
+        while (opModeIsActive() && pressed()) show(what, answers);
+    }
+
+    /** Waits for A, B, X or Y, pressed and let go. STOPPED when the op mode is stopped first. */
+    private int ask(String what, String answers) {
+        release(what, answers);
+        while (opModeIsActive()) {
+            int answer = gamepad1.a ? YES : gamepad1.b ? NO : gamepad1.x ? NOTHING : gamepad1.y ? AGAIN : STOPPED;
+            show(what, answers);
+            if (answer != STOPPED) {
+                release(what, answers);
+                return answer;
+            }
+        }
+        return STOPPED;
+    }
+
+    /** Runs a motor or continuous servo at a power for some seconds, then asks; Y runs it again. */
+    private int turn(DcMotorSimple device, double power, double seconds, String question) {
+        for (;;) {
+            ElapsedTime time = new ElapsedTime();
+            device.setPower(power);
+            while (opModeIsActive() && time.seconds() < seconds) show("Watch it: it turns now.", "");
+            device.setPower(0);
+            int answer = ask(question, TURNED);
+            if (answer != AGAIN) return answer;
+        }
+    }
+
+    /** The "turns the other way" setting that makes a device turn as asked, from the answer. */
+    private void direction(String key, boolean reversed, int answer) {
+        if (answer == YES) result(key, String.valueOf(reversed));
+        else if (answer == NO) result(key, String.valueOf(!reversed));
+        else if (answer == NOTHING) result(key, "?none");
+    }
+
+    /** Moves a servo with the D-pad, starting from its setting. Returns where A saved it, or NaN for B (the setting stays). */
+    private double position(Servo servo, double setting, String what) {
+        double p = clamp(setting);
+        servo.setPosition(p);
+        String answers = "D-pad up/down: move | D-pad right/left: move more | A: save | B: keep " + number(setting);
+        ElapsedTime held = new ElapsedTime();
+        boolean holding = false;
+        int repeats = 0;
+        release(what, answers);
+        while (opModeIsActive()) {
+            double move = gamepad1.dpad_up ? 0.01 : gamepad1.dpad_down ? -0.01 : gamepad1.dpad_right ? 0.05 : gamepad1.dpad_left ? -0.05 : 0;
+            // One step per press; held, it repeats after 0.4 s, every 0.1 s.
+            if (move != 0 && (!holding || held.seconds() >= (repeats == 0 ? 0.4 : 0.1))) {
+                repeats = holding ? repeats + 1 : 0;
+                p = clamp(Math.round((p + move) * 1000) / 1000.0);
+                servo.setPosition(p);
+                held.reset();
+            }
+            holding = move != 0;
+            if (gamepad1.a || gamepad1.b) {
+                boolean save = gamepad1.a;
+                release(what, answers);
+                if (!save) servo.setPosition(clamp(setting));
+                return save ? p : Double.NaN;
+            }
+            show(what + " Now at " + number(p) + ".", answers);
+        }
+        return Double.NaN;
+    }
+${flywheels.length&&velocity?`
+    /** Every flywheel motor at full power without velocity control for 3 s: the highest speed seen, in ticks per second. */
+    private double topSpeed(DcMotorEx[] motors) {
+        for (DcMotorEx motor : motors) if (motor != null) { motor.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); motor.setPower(1); }
+        ElapsedTime time = new ElapsedTime();
+        double top = 0;
+        while (opModeIsActive() && time.seconds() < 3) {
+            for (DcMotorEx motor : motors) if (motor != null) top = Math.max(top, Math.abs(motor.getVelocity()));
+            show(String.format(Locale.US, "Full power: %.0f ticks/s so far.", top), "");
+        }
+        for (DcMotorEx motor : motors) if (motor != null) { motor.setPower(0); motor.setMode(DcMotor.RunMode.RUN_USING_ENCODER); }
+        return top;
+    }
+`:''}${of('turret').some(x=>x.device==='motor')?`
+    /** Turns a turret motor to an encoder position and, with a question, asks it (Y turns it there again). */
+    private int turnTo(DcMotorEx motor, double ticks, String question) {
+        for (;;) {
+            motor.setTargetPosition((int) Math.round(ticks));
+            motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+            motor.setPower(0.3);
+            ElapsedTime time = new ElapsedTime();
+            while (opModeIsActive() && time.seconds() < TURN_SECONDS) show(question.isEmpty() ? "Turning back." : "Watch it: it turns now.", "");
+            if (question.isEmpty()) return STOPPED;
+            int answer = ask(question, TURNED);
+            motor.setTargetPosition(0);
+            time.reset();
+            while (opModeIsActive() && motor.isBusy() && time.seconds() < TURN_SECONDS) show("Turning back.", "");
+            if (answer != AGAIN) return answer;
+        }
+    }
+
+    /** Points a turret motor with the D-pad (left and right a degree, up and down ten). Returns its encoder position at A, or NaN for B. */
+    private double aim(DcMotorEx motor, String what) {
+        String answers = "D-pad left/right: turn 1 degree | D-pad up/down: turn 10 degrees | A: it points there | B: skip";
+        double target = motor.getCurrentPosition();
+        boolean holding = false;
+        release(what, answers);
+        while (opModeIsActive()) {
+            double degrees = gamepad1.dpad_left ? 1 : gamepad1.dpad_right ? -1 : gamepad1.dpad_up ? 10 : gamepad1.dpad_down ? -10 : 0;
+            if (degrees != 0 && !holding) {
+                target += degrees * ${M}.TURRET_TICKS_PER_DEGREE;
+                motor.setTargetPosition((int) Math.round(target));
+                motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+                motor.setPower(0.3);
+            }
+            holding = degrees != 0;
+            if (gamepad1.a || gamepad1.b) {
+                boolean save = gamepad1.a;
+                release(what, answers);
+                return save ? motor.getCurrentPosition() : Double.NaN;
+            }
+            show(what, answers);
+        }
+        return Double.NaN;
+    }
+`:''}}
+`.replace(/\n\n\n+/g,'\n\n');}
+  // The guided check's "Deck results" line read back ("v1 key=value ..."; a value starting with ? is a problem), or
+  // null when the text is not one.
+  function checkResults(line){
+    const text=String(line||'').trim().replace(/^Deck results\s*:\s*/,'');if(!/^v1(\s|$)/.test(text))return null;
+    const values={};for(const item of text.split(/\s+/).slice(1)){const at=item.indexOf('=');if(at>0)values[item.slice(0,at)]=item.slice(at+1);}
+    return values;
+  }
+  // The check's results applied to the setup the code was exported from: the robot settings (drive directions) and the
+  // mechanisms (directions, servo positions, turret calibration, flywheel PIDF), with each change and each problem to fix
+  // on the robot in plain words. Only values that differ count as changes. The caller sanitizes the returned settings.
+  function applyCheck(values,{robot,mechanisms,localization}){
+    const r=structuredClone(robot||{}),m=structuredClone(mechanisms||{}),changes=[],problems=[],devices={...(r.devices||{})};
+    let h=null;try{h=hardware(robot,localization);}catch{}
+    const d=m?.enabled?mechanismDevices(m,robot):[],cap=s=>s[0].toUpperCase()+s.slice(1),num=v=>+Number(v).toFixed(3);
+    const deviceFor=(list,index,field)=>d.find(x=>x.setting.list===list&&x.setting.index===index&&(REVERSED_FIELD[x.setting.field]===field||x.setting.field===field));
+    const POSITIONS={downPos:['servo','down'],upPos:['servo','up'],restPos:['indexer','rest'],feedPos:['indexer','feed']};
+    const labelOf=key=>{let k;
+      if((k=/^robot\.(\w+)\./.exec(key)))return cap(DRIVE_LABELS[k[1]]||k[1]);
+      if((k=/^(intakes|shooters)\.(\d+)\.(\w+)$/.exec(key))){const x=deviceFor(k[1],+k[2],POSITIONS[k[3]]?.[0]||k[3]);return x?x.label:`${k[1]==='intakes'?'Intake':'Shooter'} ${+k[2]+1}`;}
+      return {imu:'IMU','imu.level':'IMU','imu.turn':'IMU','shooter.topSpeed':'Flywheel','shooter.rpm':'Flywheel'}[key]||key;};
+    const PROBLEMS={'imu.level':'reads the robot tilted: the Control Hub mounting in Deck (Setup → Robot controller) does not match the robot.',
+      'imu.turn':{'?backward':'read the quarter turn left as a turn right: the Control Hub mounting in Deck (Setup → Robot controller) is wrong.','?none':'did not see the quarter turn. Check the IMU name and the Control Hub mounting.'},
+      'shooter.topSpeed':'encoder read no speed at full power: check the flywheel motor\'s encoder cable.','shooter.rpm':'top speed is below the shooting speed: lower the shooter RPM in Mechanisms.'};
+    for(const [key,value] of Object.entries(values||{})){
+      if(value.startsWith('?')){const own=PROBLEMS[key],text=typeof own==='string'?own:own?.[value];
+        problems.push(`${labelOf(key)} ${text||(value==='?missing'?'is not on the robot: its name is not in the robot configuration, or it is another kind of device there.':'did not move. Check its cable and port, and that the robot configuration has it on that port.')}`);continue;}
+      let k;const flag=value==='true'?true:value==='false'?false:null,n=Number(value);
+      if((k=/^robot\.(\w+)\.reversed$/.exec(key))&&h?.drive.motors[k[1]]&&flag!==null){
+        if((h.drive.motors[k[1]].mount<0)!==flag){devices[k[1]]={...devices[k[1]],reversed:flag};changes.push(`${labelOf(key)}: turns the other way ${flag?'on':'off'}.`);}}
+      // Only for a device the setup has: a position for its kicker, ramp or servo feeder, a direction for its motor or roller.
+      else if((k=/^(intakes|shooters)\.(\d+)\.(\w+)$/.exec(key))){const part=m[k[1]]?.[+k[2]],x=deviceFor(k[1],+k[2],POSITIONS[k[3]]?.[0]||k[3]);if(!part||!x||POSITIONS[k[3]]&&x.device!=='servo')continue;
+        if(Object.values(REVERSED_FIELD).includes(k[3])){if(flag!==null&&!!part[k[3]]!==flag){part[k[3]]=flag;changes.push(`${labelOf(key)}: turns the other way ${flag?'on':'off'}.`);}}
+        else if(POSITIONS[k[3]]&&Number.isFinite(n)&&n>=0&&n<=1&&Math.abs((part[k[3]]??-1)-n)>5e-4){changes.push(`${labelOf(key)} ${POSITIONS[k[3]][1]} position: ${num(part[k[3]])} → ${num(n)}.`);part[k[3]]=num(n);}}
+      else if(key==='shooter.pidf'&&m.shooter){const [p,i,dd,f]=value.split(',').map(Number);if([p,i,dd,f].every(Number.isFinite)&&f>0){m.shooter.pidf={p:num(p),i:+i.toFixed(4),d:num(dd),f:num(f)};changes.push(`Flywheel velocity PIDF: P ${num(p)}, I ${+i.toFixed(4)}, D ${num(dd)}, F ${num(f)}${values['shooter.topSpeed']?` (top speed ${values['shooter.topSpeed']} ticks/s)`:''}.`);}}
+      else if(m.turret&&Number.isFinite(n)&&n>0){
+        if(key==='turret.servoCenter'&&n<=1&&Math.abs(m.turret.servoCenter-n)>5e-4){changes.push(`Turret servo facing the front: ${num(m.turret.servoCenter)} → ${num(n)}.`);m.turret.servoCenter=num(n);}
+        else if(key==='turret.servoDegrees'&&Math.abs(m.turret.servoDegrees-n)>.5){changes.push(`Turret servo range: ${+m.turret.servoDegrees.toFixed(1)} → ${+n.toFixed(1)} degrees.`);m.turret.servoDegrees=+n.toFixed(1);}
+        else if(key==='turret.ticksPerDegree'&&Math.abs(m.turret.ticksPerDegree-n)>.005){changes.push(`Turret encoder: ${num(m.turret.ticksPerDegree)} → ${num(n)} ticks per degree.`);m.turret.ticksPerDegree=num(n);}}
+    }
+    r.devices=devices;return {robot:r,mechanisms:m,changes,problems};
+  }
   // Every TeamCode file for the Control Hub, keyed by path under TeamCode/src/main/java. RobotActions
   // is listed in keep: it is written only when it does not exist yet.
   function files({route,layout,tuning,robot,localization,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',routeJava,mechanisms=null,target=null,exporter=globalThis.DeckSimExport||require('./sim-export.js')}){
@@ -929,5 +1184,5 @@ public class ${name} extends LinearOpMode {
       {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low power first. Simulation and compilation do not prove the robot will follow the path.'}
     ];
   }
-  return {checklist,hardware,hardwareIfSupported,deviceSlots,robotNeeds,files,onBotJava,mechanismDevices,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,checkOpMode,SUPPORTED,MOTORS,TANK,ticksPerRev};
+  return {checklist,hardware,hardwareIfSupported,deviceSlots,robotNeeds,files,onBotJava,mechanismDevices,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,checkOpMode,checkResults,applyCheck,SUPPORTED,MOTORS,TANK,ticksPerRev};
 });

@@ -7,37 +7,124 @@
 //    library): POST /java/file/save?f=/src/<path> with the form field data, GET /java/file/get?f=..., and
 //    /java/build/start, /java/build/status ({completed, running, successful, startTimestamp, timestamp}) and
 //    /java/build/log.
-// It never starts an op mode and never changes the robot configuration.
+//  - Scans the robot's hubs as Configure Robot's Scan does (CMD_SCAN, then CMD_DISCOVER_LYNX_MODULES for each hub portal),
+//    and saves a configuration with CMD_SAVE_CONFIGURATION, which the robot writes, makes active and announces with
+//    CMD_NOTIFY_ACTIVE_CONFIGURATION. Only under a name the robot does not have yet: a saved configuration is never replaced.
+//  - Runs the guided check TeleOp when the person asks (runCheck). It never starts the autonomous.
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),net=require('node:net');
 const Robocol=require('../ui/ftc/robocol.js'),RobotConfig=require('../ui/ftc/robot-config.js'),{FtcSocket}=require('./ftc.cjs');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 // A robot address: an IP address or a host name, nothing else (no scheme, port or path).
 function checkHost(host){const h=String(host||'').trim();if(!net.isIP(h)&&!/^[A-Za-z0-9]([A-Za-z0-9-]{0,62}\.)*[A-Za-z0-9-]{1,63}$/.test(h))throw Error('Enter the robot address, such as 192.168.43.1.');return h;}
 
-// ---- the robot configuration, over Robocol
-async function readRobot(host,{timeout=8000,socket=null}={}){
+// ---- a Driver Station session, over Robocol
+// Connects as a Driver Station, runs task, then disconnects. ask(command, extra) sends a command and waits for the
+// robot's next <command>_RESP; until(test) waits for the station's state to pass test; sent(command) waits until the
+// robot has acknowledged a command.
+async function session(host,task,{timeout=8000,socket=null}={}){
   host=checkHost(host);
   let link=socket;if(!link){try{link=await new FtcSocket(host).open();}catch(e){throw Error(/in use/.test(e.message)?'Another FTC Driver Station on this computer is using the robot connection. Close the robot in Drive (or the other app) and try again.':e.message);}}
   const ds=new Robocol.DriverStation({send:bytes=>link.send(bytes)}),off=link.onPacket(bytes=>ds.receive(bytes)),answers=new Map(),waiters=[];
   ds.on('command',c=>{answers.set(c.name,c.extra);for(const w of [...waiters])if(w.name===c.name){waiters.splice(waiters.indexOf(w),1);w.done(c.extra);}});
   const answer=(name,ms=timeout)=>answers.has(name)?Promise.resolve(answers.get(name)):new Promise((done,fail)=>{const w={name,done:v=>{clearTimeout(t);done(v);}},t=setTimeout(()=>{waiters.splice(waiters.indexOf(w),1);fail(Error(`The robot did not answer ${name}.`));},ms);waiters.push(w);});
+  const ask=(name,extra='',ms=timeout)=>{answers.delete(name+'_RESP');ds.command(name,extra);return answer(name+'_RESP',ms);};
   const until=(test,ms,message)=>new Promise((done,fail)=>{if(test(ds.state))return done(ds.state);const stop=ds.on('state',s=>{if(test(s)){clearTimeout(t);stop();done(s);}}),t=setTimeout(()=>{stop();fail(Error(message));},ms);});
+  const sent=(command,ms=timeout)=>new Promise((done,fail)=>{const began=Date.now(),end=error=>{clearInterval(t);stop();error?fail(error):done();};
+    const stop=ds.on('command-failed',c=>{if(c===command)end(Error(`The robot did not take ${command.name}.`));});
+    const t=setInterval(()=>{if(!ds.pending.includes(command))end();else if(Date.now()-began>ms)end(Error(`The robot did not take ${command.name}.`));},20);});
   try{
     ds.start();
     const s=await until(s=>['connected','rejected','incompatible'].includes(s.connection),timeout,`No FTC robot answered at ${host}. Join the robot's Wi-Fi and check the Robot Controller app is running.`);
     if(s.connection==='rejected')throw Error('Another Driver Station is connected to this robot. Disconnect it, then try again.');
     if(s.connection==='incompatible')throw Error(`This robot runs an FTC SDK older than this app supports (Robocol ${s.robot?.robocol}).`);
-    // On connecting the station asks for the op modes and the active configuration; the list of configurations comes next.
-    ds.command('CMD_REQUEST_CONFIGURATIONS');
-    const list=JSON.parse(await answer('CMD_REQUEST_CONFIGURATIONS_RESP')),configurations=Array.isArray(list)?list:[];
-    const activeName=(await until(s=>s.activeConfig,timeout,'The robot did not say which configuration is active.')).activeConfig.name;
-    const active=configurations.find(c=>c?.name===activeName)||null;
-    if(!active)return {robot:ds.state.robot,configurations:configurations.map(c=>c.name),active:null,devices:[],hubs:[],opModes:ds.state.opModes};
-    ds.command('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(active));
-    const xml=await answer('CMD_REQUEST_PARTICULAR_CONFIGURATION_RESP'),parsed=RobotConfig.parse(xml);
-    return {robot:ds.state.robot,configurations:configurations.map(c=>c.name),active:{name:active.name,dirty:!!active.isDirty},xml,...parsed,opModes:ds.state.opModes};
+    return await task({ds,ask,answer,until,sent,host});
   }finally{ds.stop();off();if(!socket)await link.close();}
 }
+const configFile=name=>({name,resourceId:0,location:'LOCAL_STORAGE',isDirty:false});
+// The saved configurations (RobotConfigFile entries) and the active one's name.
+async function configurations({ask,until},timeout){
+  const list=JSON.parse(await ask('CMD_REQUEST_CONFIGURATIONS')),files=Array.isArray(list)?list.filter(c=>c&&typeof c.name==='string'):[];
+  // On connecting the station asks for the op modes and the active configuration.
+  const active=(await until(s=>s.activeConfig,timeout,'The robot did not say which configuration is active.')).activeConfig.name;
+  return {files,active};
+}
+// The robot's hubs: each hub portal's serial number ("(embedded)" for a Control Hub's own board) and the hubs behind it.
+async function scanHubs(ask){
+  const serials=RobotConfig.lynxSerials(await ask('CMD_SCAN','',20000)),portals=[];
+  for(const serial of serials)portals.push(RobotConfig.lynxModules(await ask('CMD_DISCOVER_LYNX_MODULES',serial,20000)));
+  return portals.filter(p=>p.modules.length);
+}
+
+// ---- the robot configuration
+// The active configuration's devices and hubs. scan: also scan the robot's hubs (portals), to add devices or to make
+// a configuration for a robot that has none.
+async function readRobot(host,{timeout=8000,socket=null,scan=false}={}){
+  return session(host,async link=>{
+    const {ask,ds}=link,{files,active:activeName}=await configurations(link,timeout),active=files.find(c=>c.name===activeName)||null,names=files.map(c=>c.name);
+    const portals=scan?await scanHubs(ask):undefined,extra=portals?{portals}:{};
+    if(!active)return {robot:ds.state.robot,configurations:names,active:null,devices:[],hubs:[],opModes:ds.state.opModes,...extra};
+    const xml=await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(active)),parsed=RobotConfig.parse(xml);
+    return {robot:ds.state.robot,configurations:names,active:{name:active.name,dirty:!!active.isDirty},xml,...parsed,opModes:ds.state.opModes,...extra};
+  },{timeout,socket});
+}
+// Saves xml as a new configuration and makes it active (the robot announces it), reads it back, then restarts the robot
+// so its hardware map is built from it. A name the robot already has is refused.
+async function writeConfiguration(host,{name,xml}={},{timeout=8000,socket=null,restart=true}={}){
+  if(!RobotConfig.validName(name))throw Error('A configuration name has letters, digits, spaces, - and _ only (up to 40).');
+  // A Robocol command carries at most 64 KB.
+  if(typeof xml!=='string'||Buffer.byteLength(xml)>60000)throw Error('That is not a robot configuration the robot can take.');
+  const devices=RobotConfig.parse(xml).devices;if(xml.includes(';'))throw Error('The robot cannot take a configuration with a ; in it.');
+  return session(host,async link=>{
+    const {ds,ask,until,sent}=link,{files}=await configurations(link,timeout);
+    if(files.some(c=>c.name.toLowerCase()===name.toLowerCase()))throw Error(`The robot already has a configuration named “${name}”. Deck never replaces one.`);
+    await sent(ds.command('CMD_SAVE_CONFIGURATION',`${JSON.stringify(configFile(name))};${xml}`));
+    await until(s=>s.activeConfig?.name===name,15000,`The robot did not save “${name}”. Check the Robot Controller app, then try again.`);
+    const saved=RobotConfig.parse(await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(configFile(name)))).devices;
+    if(saved.length!==devices.length||devices.some(d=>!saved.some(s=>s.name===d.name&&s.tag===d.tag&&s.port===d.port&&s.bus===d.bus)))throw Error(`The robot saved “${name}” differently from what was sent. Check it in Configure Robot.`);
+    if(restart)await sent(ds.restartRobot());
+    return {name,devices:saved.length,restarted:restart};
+  },{timeout,socket});
+}
+
+// ---- the guided check, run from Deck
+// Runs the check TeleOp as a Driver Station does (INIT, then START once it has initialized) and stays connected while
+// it runs: onUpdate gets its telemetry, press() presses a gamepad 1 button for the person answering in Deck, and stop()
+// stops the op mode (as a Driver Station's stop button does) and disconnects. The check also ends when the op mode stops
+// on the robot, when the connection drops, and after `limit`. ended resolves with why: stopped, ended, time or lost.
+const BUTTONS=new Set(['a','b','x','y','dpad_up','dpad_down','dpad_left','dpad_right']);
+function runCheck(host,opMode,{onUpdate=()=>{},limit=20*60e3,timeout=8000,socket=null}={}){
+  if(typeof opMode!=='string'||!opMode||opMode.length>200)throw Error('Which op mode is the check?');
+  let finish=()=>{},ds=null,release=null,running=false,stopping=false;const done=new Promise(r=>{finish=why=>{stopping=true;r(why);};});
+  const ended=session(host,async({ds:station,until})=>{
+    ds=station;
+    // The robot lists its op modes on connecting.
+    await until(s=>s.opModes.length,timeout,'The robot did not list its op modes.').catch(()=>{});
+    if(!ds.state.opModes.some(m=>m.name===opMode))throw Error(`The robot has no op mode “${opMode}”. Send to robot first, so it is built.`);
+    if(ds.state.opModeState!=='stopped')throw Error(`“${ds.state.activeOpMode}” is running on the robot. Stop it first.`);
+    ds.initOpMode(opMode);await until(s=>s.activeOpMode===opMode&&s.opModeState==='init',10000,'The robot did not INIT the check.');
+    // Stopped while it initialized: it never starts.
+    if(stopping){ds.stopOpMode();await until(s=>s.opModeState==='stopped',3000,'').catch(()=>{});return 'stopped';}
+    ds.startOpMode(opMode);await until(s=>s.opModeState==='running',10000,'The robot did not START the check.');running=true;
+    const report=()=>onUpdate({state:ds.state.opModeState,lines:ds.state.telemetry.lines});report();
+    const offState=ds.on('state',s=>{report();if(s.connection!=='connected')finish('lost');else if(s.opModeState==='stopped')finish('ended');});
+    const timer=setTimeout(()=>finish('time'),limit);
+    const why=await done;clearTimeout(timer);offState();clearTimeout(release);running=false;
+    if(ds.connected()&&ds.state.opModeState!=='stopped'){ds.setGamepad(1,null);ds.stopOpMode();await until(s=>s.opModeState==='stopped',3000,'').catch(()=>{});}
+    return why;
+  },{timeout,socket});
+  ended.catch(()=>{}).finally(()=>{running=false;});
+  let held=false;
+  return {ended,
+    // A short press (200 ms), as a person taps a button. Only while the check runs.
+    press(button){if(!running||!BUTTONS.has(button))return false;clearTimeout(release);ds.setGamepad(1,{id:1,timestamp:Date.now(),[button]:true});release=setTimeout(()=>ds.setGamepad(1,{id:1,timestamp:Date.now()}),200);return true;},
+    // This computer's controller 1 (a Steam Deck's own controls, as a standard-mapping gamepad): its face buttons and
+    // D-pad are gamepad 1's on the robot for as long as they are held.
+    pad(p){if(!running)return;const down=PAD.filter(([i])=>p?.buttons?.[i]?.pressed).map(([,name])=>name);
+      if(down.length){clearTimeout(release);held=true;ds.setGamepad(1,{id:1,timestamp:Date.now(),...Object.fromEntries(down.map(name=>[name,true]))});}
+      else if(held){held=false;ds.setGamepad(1,{id:1,timestamp:Date.now()});}},
+    stop(){finish('stopped');}};
+}
+const PAD=[[0,'a'],[1,'b'],[2,'x'],[3,'y'],[12,'dpad_up'],[13,'dpad_down'],[14,'dpad_left'],[15,'dpad_right']];
 
 // ---- OnBot Java, over HTTP on port 8080
 // The OnBot Java editor's own form encoding (encodeURIComponent, plus ! ' ( ) *).
@@ -89,7 +176,9 @@ function buildErrors(log){
 // first (backupDir); files listed in keep are written only when the robot does not have them yet.
 async function send(host,files,{keep=[],backupDir,onProgress=()=>{},client=new OnBotJava(host)}={}){
   const entries=Object.entries(files||{});if(!entries.length)throw Error('Nothing to send.');
-  const backups=[],written=[],kept=[];await client.available();
+  const backups=[],written=[],kept=[];
+  // Just after a new configuration the robot restarts, and its web server may refuse a connection for a moment.
+  for(let attempt=0;;attempt++){try{await client.available();break;}catch(e){if(!['ECONNREFUSED','ECONNRESET'].includes(e.code)||attempt>=8)throw e;await delay(1000);}}
   for(const [file,text] of entries){
     if(typeof text!=='string'||text.length>4*1024*1024)throw Error(`${file} is not a source file.`);
     onProgress('uploading',path.basename(file));
@@ -103,4 +192,4 @@ async function send(host,files,{keep=[],backupDir,onProgress=()=>{},client=new O
   const result=await client.build({onProgress});
   return {...result,written,kept,backups};
 }
-module.exports={readRobot,OnBotJava,send,buildErrors,formEncode,checkHost};
+module.exports={readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};

@@ -1,8 +1,9 @@
 # Mechanism actions: from a path pin to a spinning motor
 
 How Intake, Spin up, Aim and Shoot get from Path planning to the motors and servos on a real robot,
-what could stop that from working, what other path planners do, and the plan for setting up a
-Control Hub with one button. Written 24 October 2026.
+what could stop that from working, what other path planners do, and how a Control Hub is set up
+with one button. Written 24 October 2026; phase 2 (configurations, the guided check, Drive
+selection) added the same day.
 
 ## Short answer
 
@@ -21,11 +22,14 @@ Control Hub with one button. Written 24 October 2026.
   and every mechanism motor turning forward. A robot built differently would crash at INIT or run
   something backwards. This change describes the common variants and adds a way to test each device
   on the robot.
-- **One-button setup is possible.** The app is already an FTC Driver Station. The FTC SDK lets a
-  Driver Station read the robot's configuration, and the Control Hub's OnBot Java server accepts
-  uploads and builds over Wi-Fi. So the app can check the robot, fix up names, upload the code and
-  build it. The parts the app cannot know (which port a motor is plugged into, which way it turns,
-  servo positions, real flywheel speed) need the robot itself. A guided check finds them.
+- **One-button setup is built (phase 2).** The app is already an FTC Driver Station. The FTC SDK
+  lets a Driver Station read and save the robot's configuration and scan its hubs, and the Control
+  Hub's OnBot Java server accepts uploads and builds over Wi-Fi. Send to robot checks every name
+  against the robot, takes the robot's own names, and adds any missing device to a new configuration
+  with the port to plug it into. It then uploads and builds the code and selects the autonomous in
+  Drive. What settings cannot tell (which way each motor turns, servo positions, the real flywheel
+  speed, the turret's encoder) needs the robot itself. The guided check finds each one from a yes or
+  no answer, or a servo moved into place, and puts it into the setup.
 
 ## How an action runs today
 
@@ -143,8 +147,16 @@ Checked in FIRST's own FTC SDK 12.0 libraries (RobotCore, FtcCommon, OnBotJava a
   `CMD_REQUEST_PARTICULAR_CONFIGURATION` with one of those entries returns its XML (every hub, port,
   device type and name). `CMD_REQUEST_ACTIVE_CONFIG` names the active one.
 - **Writing a configuration.** `CMD_SAVE_CONFIGURATION` carries `<that JSON>;<XML>`. The robot
-  writes `<name>.xml` and makes it the active configuration. `CMD_ACTIVATE_CONFIGURATION` switches
-  configurations. `CMD_SCAN` lists the connected hubs.
+  splits it at every `;` (so a name with `;`, or with `&amp;` and the like, cannot be sent), writes
+  `<name>.xml`, makes it active and announces it with `CMD_NOTIFY_ACTIVE_CONFIGURATION`. It replaces
+  a file of the same name, so Deck refuses any name the robot already has. `CMD_ACTIVATE_CONFIGURATION`
+  switches configurations, and `CMD_RESTART_ROBOT` rebuilds the hardware map from the active one.
+- **Scanning the hubs.** `CMD_SCAN` answers `{"map":[{"key":"(embedded)","value":"LYNX_USB_DEVICE"}]}`
+  (a Control Hub's own board is `(embedded)`; an Expansion Hub on USB has its serial number).
+  `CMD_DISCOVER_LYNX_MODULES` with a serial number answers the hubs behind it:
+  `{"serialNumber":...,"modules":[{"moduleAddress":173,"isParent":true,"imuType":"BHI260"}]}`.
+  The robot checks each hub's IMU for this (`discoverModules(true)`), so the right IMU tag is known:
+  `ControlHubImuBHI260AP` for a BHI260, `LynxEmbeddedIMU` for a BNO055.
 - **Uploading code.** The Control Hub's OnBot Java server (port 8080) saves a file with
   `POST /java/file/save?f=/src/org/firstinspires/ftc/teamcode/Name.java` and a form field `data`.
   It reads one back with `/java/file/get`.
@@ -158,28 +170,51 @@ Checked in FIRST's own FTC SDK 12.0 libraries (RobotCore, FtcCommon, OnBotJava a
 
 ### The button, step by step
 
+**Send to robot…** (Run & review → Export) does steps 2 to 4 and says what it will do. **Save and
+send** (or **Upload and build**) then does steps 5 to 7.
+
 1. **Connect.** Join the robot's Wi-Fi (Settings already saves it). The Control Hub is at
    `192.168.43.1`.
 2. **Read the robot.** Read the active configuration and list every device: name, kind (motor,
    servo, continuous servo, IMU, Pinpoint, OTOS...), hub and port.
 3. **Check the export against it.** Every name the code uses must exist on the robot as the right
-   kind. A missing name gets a list of the robot's devices of that kind to pick from. The choice
-   becomes the name in the setup, so the code uses the robot's own names.
-4. **Upload and build.** Save the files with OnBot Java and build. Compiler errors are shown with
+   kind. A name the robot has under another spelling (`leftFront` for `front_left`) is picked
+   already. Another device of that kind can be picked from a list, and the choice becomes the name
+   in the setup, so the code uses the robot's own names.
+4. **Plan what is missing.** A device the robot does not have at all is added to the robot's
+   configuration. Deck scans the robot's hubs and gives each device a free port:
+   - drive motors on the Control Hub;
+   - other motors on the Expansion Hub first;
+   - servos and sensors on the Control Hub first, sensors from I2C bus 1 (bus 0 has the hub's own
+     IMU).
+
+   A list shows the port for each device and a motor type for each motor. Picking another port for
+   one device swaps it with whatever device was planned there. A robot with no configuration gets
+   one with every hub its scan found.
+5. **Save the configuration.** It is saved under a new name ("competition Deck", or "Deck <setup>"
+   for a robot that had none) and made active, and the robot restarts. A saved configuration is
+   never replaced. Deck reads the new one back and compares it with what it sent.
+6. **Upload and build.** Save the files with OnBot Java and build. Compiler errors are shown with
    their file and line. Before replacing a file, the app reads the robot's copy. If someone edited
    it there, a copy is kept on this computer. OnBot Java also keeps its own copy on every build.
-5. **Test on the robot.** Run the generated mechanism check: each device runs while a button is
-   held, servos can be moved to find their positions, and a flywheel can measure its top speed.
-   Telemetry prints the numbers to enter, including REV's PIDF values from that top speed.
-6. **Drive.** The autonomous is listed on the Driver Station. INIT, START.
+7. **Select it.** The next time this robot is opened in Drive (within the hour), the new autonomous
+   is selected.
+8. **Check on the robot.** **Start the guided check…** runs the check TeleOp from the same panel.
+   Each step turns one device or moves one servo, and the panel asks what happened, with buttons for
+   the answers. Controller 1's buttons answer too, and so does a gamepad on any Driver Station.
+   **Use these settings and send…** stops the check and puts the answers into the setup. It then
+   runs Send to robot again, so only **Upload and build** is left to press.
+9. **Drive.** INIT, START.
 
 ### What one button cannot do, and how to close each gap
 
-| Gap | Why the app cannot know | How to close it |
+| Gap | Why the app cannot know | How it is closed |
 | --- | --- | --- |
-| A robot with no configuration yet | The app cannot see which port each motor is plugged into. | Phase 2: generate the XML from the setup plus a port list the team fills in, then save it as a new configuration (never over an existing one). The hub layout comes from `CMD_SCAN`. |
-| Motor directions | Depends on how each motor is mounted. | The check OpMode runs each device. A wrong direction is one checkbox in Deck. Phase 2: the app asks "did the intake pull in?" and flips it itself. |
-| Servo positions, flywheel speed, turret ticks per degree | Physical measurements. | The check OpMode shows them live. Phase 2: the check prints them as telemetry, which this app receives as the Driver Station, so they can be filled in without typing. |
+| A robot with no configuration yet, or missing devices | The app cannot see which port each motor is plugged into. | Done: Deck plans a port for each device from the robot's scan, the team moves any that are wired elsewhere, and the result is saved as a new configuration. |
+| Motor directions | Depends on how each motor is mounted. | Done: the guided check turns each one and asks. "No, the other way" flips its setting. |
+| Servo positions, turret calibration, flywheel speed | Physical measurements. | Done: the guided check moves each servo with the D-pad until the person saves it. It points the turret straight ahead, then a quarter turn left, and measures the flywheel's top speed for REV's PIDF. The results come back over telemetry. |
+| IMU mounting | Depends on how the Control Hub is mounted. | Reported, not fixed: the check says when the hub reads the robot as tilted, or a left turn as a right turn. The mounting setting has to be changed by hand. |
+| Odometry pod, Pinpoint and OTOS directions and offsets | Deck has no settings for them yet. | Later. |
 | Shot speed for a distance | Needs real shots. | Test shots on the field. |
 | Firmware, Wi-Fi channel | Outside the autonomous. | The REV Hardware Client. |
 
@@ -191,12 +226,13 @@ Checked in FIRST's own FTC SDK 12.0 libraries (RobotCore, FtcCommon, OnBotJava a
   - Robot names for drive motors and sensors.
   - Reading the robot's configuration and checking the export against it.
   - Upload and build through OnBot Java.
-- **Phase 2:**
-  - Writing a configuration for a new robot.
-  - Directions answered with yes or no.
-  - Measured values coming back from telemetry.
-  - Selecting the new autonomous on the Driver Station after the build.
+- **Phase 2 (done):**
+  - Writing a configuration for a new robot, or adding missing devices to a copy of one.
+  - The guided check: directions answered with yes or no, servo positions, turret calibration and
+    flywheel PIDF coming back from telemetry, run from Deck or any Driver Station.
+  - Selecting the new autonomous in Drive after the build.
 - **Later:**
+  - Pinpoint, OTOS and odometry pod directions and offsets, as settings the check can find.
   - Piece sensors (stop intaking when full, shoot until empty).
   - An adjustable hood.
   - TeamCode upload with ADB for Android Studio teams.
@@ -208,7 +244,7 @@ Checked in FIRST's own FTC SDK 12.0 libraries (RobotCore, FtcCommon, OnBotJava a
 | Hardware settings for every part, stored only when they differ from the plain setup, so older saves load unchanged | `ui/sim-mechanisms.js`, Setup → Mechanisms → Robot hardware, `deck-sim mech` flags |
 | Device names and directions for the drive motors and sensors | `ui/sim-config.js`, Setup → Robot controller → Device names on the robot, `deck-sim robot --names --reversed` |
 | `Mechanisms.java` written device by device, with every direction set in `init`, PIDF when set, power control without an encoder, pushers that push once per feed cycle, gates, and servo turrets tracked to 2° | `ui/sim-ftc.js` (`mechanismDevices`, `mechanismsSource`) |
-| The check TeleOp for TeamCode, OnBot Java and Pedro | `ui/sim-ftc.js` (`checkOpMode`) |
+| The check TeleOp for TeamCode, OnBot Java and Pedro (made a guided check in phase 2) | `ui/sim-ftc.js` (`checkOpMode`) |
 | `RobotActions` shows how to replace a built-in action | `ui/sim-ftc.js` (`robotActions`) |
 | MotionModule: continuous-servo rollers, second motors, servo feeders, directions as signed power | `ui/sim-motionmodule.js`, `tools/simulation/motionmodule-bridge.py` |
 | The virtual Control Hub registers each device as what it is, mounted as the settings say, and only a forward command takes pieces in, feeds or spins a flywheel | `tools/simulation/java/deck/sim/hub/VirtualHub.java`, `src/sim-engine.cjs` |
@@ -242,6 +278,50 @@ Checked in FIRST's own FTC SDK 12.0 libraries (RobotCore, FtcCommon, OnBotJava a
   - a robot already in use by another Driver Station;
   - a robot with no active configuration.
 
+## What was built (phase 2)
+
+| Piece | Where |
+| --- | --- |
+| Port planning, adding devices to a configuration without changing anything else in it, a new configuration from a scan in the SDK's own layout, new configuration names | `ui/ftc/robot-config.js` (`planPorts`, `portChoices`, `movePort`, `addDevices`, `newConfiguration`) |
+| Scanning the hubs, saving and activating a configuration (refusing a name the robot has), reading it back, restarting the robot | `src/robot-link.cjs` (`readRobot` with `scan`, `writeConfiguration`) |
+| Send to robot as one flow: names, the port list, one confirmation for the configuration, upload and build | `ui/simulation.js` |
+| Drive selects the autonomous just built | `src/main.cjs` (`ftc-info`), `ui/ftc/ds.js` |
+| The guided check TeleOp. It replaces the hold-a-button check, and its results are Deck settings: `v1 robot.frontRight.reversed=true intakes.0.downPos=0.150 shooter.pidf=...` | `ui/sim-ftc.js` (`checkOpMode`, `checkResults`, `applyCheck`) |
+| Running the check from Deck: INIT and START, gamepad 1 pressed from the panel or from Controller 1, STOP (Space too), stopped when leaving the Simulation view | `src/robot-link.cjs` (`runCheck`), `src/main.cjs`, `ui/simulation.js` |
+| Gamepad input for team code on the virtual Control Hub, and what each device physically does (a wheel's forward command, a roller's pull-in, a servo's position, a turret's angle) | `VirtualHub.java`, `RunBridge.java`, `src/sim-engine.cjs` (`setGamepad`, `hubDevices`) |
+| The simulated Control Hub answers Scan, discovery, Save and Activate, lists the op modes OnBot Java built, and runs a stand-in for the check | `tools/ftc-sim.cjs` (`--empty --onbot` tries it all without a robot) |
+
+### How it was checked (phase 2)
+
+- **The guided check on the virtual Control Hub** (`tests/sim-guided-check.test.cjs`). The virtual
+  robot is wired one way, and the code is exported from settings that get it wrong. A scripted
+  person answers each question from what the device really did, and moves servos to where they
+  really belong.
+  - On a robot with two drive wheels, the second roller, one flywheel motor and the feeder all
+    turning the wrong way, and a turret encoder of 5 ticks per degree against the setting's 4.6, the
+    check found every direction and measured 5.011 ticks per degree. It also measured the top speed
+    and REV's PIDF from it.
+  - On a robot with a kicker, a servo pusher and a reversed servo turret, it found every position
+    exactly (0.15 and 0.85, 0.25 and 0.65). It found the turret's center (0.55), range (272.7
+    degrees against 270) and direction.
+  - In both cases the autonomous exported from the corrected settings shoots, picks up and scores
+    exactly what the simulator planned.
+- **Writing configurations** (`tests/robot-link.test.cjs`):
+  - free ports on the right hubs;
+  - nothing in the robot's own configuration changes, and the added line goes inside the Control Hub;
+  - from a scan, the configuration Configure Robot saved, line for line;
+  - swaps, refusals for taken ports, an IMU of unknown type, names with `;` or escapes;
+  - saved and made active over Robocol, read back, robot restarted;
+  - a second save under the same name (in any case) refused.
+- **Running the check from Deck** against the simulated hub: INIT and START, answers pressed on
+  gamepad 1 (from the panel and from Controller 1), the results line read back, STOP.
+- **In the app** (`tests/robot-setup-app.cjs`, against the simulated hub and its OnBot Java):
+  - a robot with the Pedro Quickstart's drive names and two devices missing: four names taken from
+    the robot, two devices added to "competition Deck" with one port swapped by hand, built;
+  - the Guided check answered from the panel and its setting saved;
+  - Drive opened with the autonomous selected;
+  - a robot with no configuration got one with all ten devices.
+
 ## Limits
 
 - No physical robot was available. The protocol details come from FIRST's own SDK classes, and the
@@ -250,7 +330,15 @@ Checked in FIRST's own FTC SDK 12.0 libraries (RobotCore, FtcCommon, OnBotJava a
   run on the virtual Control Hub, but the first real run should be with the robot on blocks.
 - Shooting is timed. With no piece sensor the code cannot tell a jam from a shot.
 - The flywheel's at-speed check trusts the encoder. A flywheel with no encoder cable plugged in reads 0
-  in velocity mode, so it shoots after the timeout. Use "Set power (no encoder)" for that robot.
+  in velocity mode, so it shoots after the timeout. Use "Set power (no encoder)" for that robot. The
+  guided check says so when its top-speed step reads no speed.
+- Adding devices uses the hubs already in the robot's configuration. An Expansion Hub that is
+  plugged in but not configured, or a Servo Hub, is not used; when ports run out, Deck says so.
+  An I2C sensor gets a bus of its own.
+- The guided check covers what Deck has settings for. It reports a wrong Control Hub mounting but
+  does not work out the right one. It does not check odometry pods, Pinpoint or OTOS yet.
+- After saving a configuration the robot restarts. Deck waits up to 8 s for OnBot Java to answer
+  again before uploading.
 
 ## Sources
 

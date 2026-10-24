@@ -23,7 +23,7 @@ final class SimTelemetry implements Telemetry {
     }
 
     private Item put(String caption, String value) {
-        if (pending.size() < 60) pending.put(caption == null || caption.isEmpty() ? "line " + ++lines : caption, value.length() > 200 ? value.substring(0, 200) : value);
+        if (pending.size() < 60) pending.put(caption == null || caption.isEmpty() ? "line " + ++lines : caption, value.length() > 4000 ? value.substring(0, 4000) : value);
         return new Entry(caption);
     }
     @Override public Item addData(String caption, String format, Object... args) { return put(caption, String.format(Locale.ROOT, format, args)); }

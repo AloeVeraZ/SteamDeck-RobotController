@@ -285,7 +285,16 @@
 .sim-send-devices li{padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius);line-height:1.45}
 .sim-send-devices li.problem{border-color:var(--warning);background:var(--warning-bg)}.sim-send-devices b{color:var(--text);font-weight:600}
 .sim-send-devices select{display:block;width:100%;margin-top:6px}
-.sim-send-confirm{margin:8px 0;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--well)}.sim-send-confirm p{margin:0 0 8px;font-size:13px}
+.sim-send-confirm{margin:8px 0;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--well)}.sim-send-confirm p{margin:0 0 8px;font-size:13px}.sim-send-confirm p:empty{display:none}
+.sim-send-steps{margin:0 0 10px;padding-left:20px;font-size:13px;line-height:1.45;display:grid;gap:4px}
+.sim-send-plan{margin:10px 0}.sim-send-plan h4{margin:0 0 4px;font-size:13px}.sim-send-plan .hint{margin:0}
+.sim-send-plan li{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:6px;align-items:center}.sim-send-plan li.problem{display:block}
+.sim-send-plan li>div,.sim-send-plan li>select:only-of-type{grid-column:1/-1}.sim-send-plan li>select{width:100%;min-width:0;margin-top:0}
+.sim-check{margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}.sim-check h4{margin:0 0 4px;font-size:13px}
+.sim-check-run{margin:8px 0;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--well);display:grid;gap:8px}
+.sim-check-run p{margin:0}.sim-check-step{font-weight:600;font-size:13px}.sim-check-prompt{font-size:14px;line-height:1.45;min-height:2.9em}
+.sim-check-answers{display:flex;flex-wrap:wrap;gap:6px}.sim-check-answers button{flex:1 1 140px;min-height:40px}
+.sim-check-stop{min-height:44px;font-weight:700;letter-spacing:.04em;color:var(--bg);background:var(--danger);border:1px solid var(--danger);border-radius:var(--radius)}.sim-check-stop:hover{filter:brightness(1.1)}
 /* Custom curve handles (Pedro Pathing style): dashed guides from the path's ends to its control points. */
 .sim-control{fill:var(--bg);stroke:var(--accent);stroke-width:.7;cursor:grab}
 .sim-control:hover,.sim-control.active{fill:var(--accent);cursor:grabbing}

@@ -203,6 +203,9 @@ async function boot(){
   session=new R.DriverStation({send:bytes=>host.send(bytes)});host.onPacket(bytes=>session.receive(bytes));
   host.onActive?.(on=>{inputsOn=on;pollGamepads();});
   session.on('state',queueRender);
+  // The autonomous the simulator's Send to robot just built is selected once the robot lists it, unless one is chosen first.
+  let sent=info.select||null;
+  session.on('state',s=>{if(!sent)return;if(selected||s.opModeState!=='stopped'){sent=null;return;}const m=opMode(sent);if(m){selected=m;sent=null;toast(`${m.name} is selected: Deck just sent it to the robot.`);queueRender();}});
   session.on('op-mode-ended',m=>{const next=m.autoTransition&&opMode(m.autoTransition);if(next&&next.flavor==='TELEOP'){selected=next;timerOn=false;session.initOpMode(next.name);toast(`Initializing ${next.name}`);}});
   session.on('toast',t=>toast(t.message,(t.duration||3)*1000));
   session.on('dialog',d=>{$('#ds-dialog').dataset.id=d.id;showDialog(d.title||'Robot Controller',d.message);});

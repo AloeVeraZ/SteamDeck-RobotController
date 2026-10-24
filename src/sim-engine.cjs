@@ -390,16 +390,19 @@ class SimEngine{
       else{this.mechCell=this.mechAct&&this.legCells?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']?'other':'start';const next=this.mechRunner.commands(this.mechAct&&{...this.mechAct,path:this.legPaths?.[this.mechAct.leg],seconds:this.legSeconds?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy;}
     }
     const reading=this.tick(this.command),seq=bridge.seq;bridge.ticks++;
-    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState()};
+    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState(),...(bridge.kind==='opmode'&&this.gamepads?{gamepad1:this.gamepads[1]||{},gamepad2:this.gamepads[2]||{}}:{})};
     // The first ticks include JIT warm-up; later ticks must return promptly.
     let reply;try{reply=await this.request(bridge,msg,bridge.ticks<30?5000:750,'One loop() call');}catch(e){this.fail(e.message,seq);return;}
     if(seq!==this.runSeq)return; // stopped while waiting: discard the stale reply
     if(reply.type==='error'){this.fail(this.describe(reply),seq,reply);return;}
     const d=reply.drive||{},n=v=>finite(v)?clamp(v,-1,1):0;this.command={forward:n(d.forward),strafe:n(d.strafe),turn:n(d.turn),float:d.float===true};
-    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;this.mechAct=reply.act||null;this.mechDevices=reply.mech||null;
+    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;this.mechAct=reply.act||null;this.mechDevices=reply.mech||null;this.hubDevices=reply.devices||null;
     if(reply.log?.length)this.emit({type:'log',lines:reply.log.slice(-60)});
     if(reply.done)this.finish(seq);
   }
+  // Gamepad 1 or 2 for team code on the virtual Control Hub (a TeleOp such as the guided check): FTC gamepad fields
+  // (a, b, dpad_up, left_stick_y, ...). null releases every button and stick.
+  setGamepad(user,state){if(user!==1&&user!==2)return;this.gamepads={...this.gamepads,[user]:state&&typeof state==='object'?{...state}:{}};}
   finish(seq){
     if(seq!==this.runSeq)return;
     // A program can end while the robot still rolls (timed driving cuts power early so the robot

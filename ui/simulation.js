@@ -265,11 +265,19 @@ public class MyAuto implements DeckAutonomous {
         <p class="hint">Optimize test-drives straight and smooth shapes for your paths in the simulator and keeps the fastest one that stays clear and ends on target. Shapes you chose yourself are kept.</p><p id="sim-plan-status" role="status"></p><div id="sim-tested" class="sim-tested"></div>
         <div class="button-row"><button id="sim-import-pp" class="text-button" type="button" title="Replace the starting pose and paths with a Pedro Pathing visualizer (or Deck) .pp file. Ctrl+Z undoes it.">Import path file (.pp)…</button><button id="sim-clear-pins" class="text-button" type="button">Clear all paths</button><button id="sim-clear-zones" class="text-button" type="button">Clear zones</button></div>
         <h3 id="sim-export-title">Export the route</h3><div class="button-row sim-export-buttons"><button id="sim-export-onbot" class="primary" type="button">OnBot Java (.java)…</button><button id="sim-export-java" class="secondary" type="button">Route Java…</button><button id="sim-export-timed" class="secondary" type="button">Timed commands (.json)…</button><button id="sim-export-pp" class="secondary" type="button">Path file (.pp)…</button><button id="sim-export-teamcode" class="secondary" type="button">TeamCode folder…</button><button id="sim-export-pedro" class="secondary" type="button">Pedro Pathing 3…</button><button id="sim-export-motionmodule" class="secondary" type="button">MotionModule autonomous.py…</button></div><p id="sim-execution-note" class="hint"></p><details id="sim-export-ready" class="sim-more"><summary>Before you run it on the robot</summary><ul id="sim-export-checklist" class="sim-checklist"></ul></details>
-        <section id="sim-send" class="sim-send" hidden aria-labelledby="sim-send-title"><h3 id="sim-send-title">Send to robot</h3><p class="hint">Join your Control Hub's Wi-Fi first. Deck reads the robot's configuration and checks every device name this code uses. Then it uploads the OnBot Java autonomous and its check TeleOp, and builds them. It never starts an op mode.</p>
+        <section id="sim-send" class="sim-send" hidden aria-labelledby="sim-send-title"><h3 id="sim-send-title">Send to robot</h3><p class="hint">Join your Control Hub's Wi-Fi first. Deck reads the robot's configuration and checks every device name this code uses. A device the robot does not have is added to a new configuration, with the port to plug it into; the robot's own configurations are never changed. Then Deck uploads the OnBot Java autonomous and its check TeleOp, builds them, and selects the autonomous in Drive. It never starts an op mode.</p>
         <label for="sim-send-robot">Robot</label><select id="sim-send-robot"></select>
         <div class="button-row"><button id="sim-send-check" class="secondary" type="button">Check robot</button><button id="sim-send-go" class="primary" type="button">Send to robot…</button></div>
-        <div id="sim-send-confirm" class="sim-send-confirm" hidden><p id="sim-send-summary"></p><div class="button-row"><button id="sim-send-yes" class="primary" type="button">Upload and build</button><button id="sim-send-no" class="secondary" type="button">Cancel</button></div></div>
-        <p id="sim-send-status" class="hint" role="status"></p><ul id="sim-send-devices" class="sim-send-devices"></ul><button id="sim-send-apply" class="secondary" type="button" hidden>Use these names</button></section>
+        <div id="sim-send-confirm" class="sim-send-confirm" hidden><p id="sim-send-summary"></p><ol id="sim-send-steps" class="sim-send-steps"></ol><div class="button-row"><button id="sim-send-yes" class="primary" type="button">Upload and build</button><button id="sim-send-no" class="secondary" type="button">Cancel</button></div></div>
+        <p id="sim-send-status" class="hint" role="status"></p>
+        <div id="sim-send-plan" class="sim-send-plan" hidden><h4 id="sim-send-plan-title"></h4><p id="sim-send-plan-note" class="hint"></p><ul id="sim-send-ports" class="sim-send-devices"></ul></div>
+        <ul id="sim-send-devices" class="sim-send-devices"></ul><button id="sim-send-apply" class="secondary" type="button" hidden>Use these names</button>
+        <div id="sim-check" class="sim-check"><h4>Guided check</h4><p id="sim-check-intro" class="hint">Deck runs the check TeleOp on the robot and asks you here about each device it turns or moves. Your answers become the setup's directions, servo positions, turret calibration and flywheel PIDF. Send to robot first, so the robot has it built.</p>
+          <div class="button-row"><button id="sim-check-start" class="secondary" type="button">Start the guided check…</button></div>
+          <div id="sim-check-confirm" class="sim-send-confirm" hidden><p>The wheels and mechanisms will move. Put the robot on blocks with its wheels off the floor, keep clear of the shooter, and keep STOP in reach (Space stops it too).</p><div class="button-row"><button id="sim-check-go" class="primary" type="button">Start</button><button id="sim-check-cancel" class="secondary" type="button">Cancel</button></div></div>
+          <div id="sim-check-run" class="sim-check-run" hidden><p id="sim-check-step" class="sim-check-step"></p><p id="sim-check-prompt" class="sim-check-prompt" aria-live="polite"></p><div id="sim-check-answers" class="sim-check-answers"></div>
+            <button id="sim-check-stop" class="sim-check-stop" type="button">STOP</button><p class="hint">Controller 1's A, B, X, Y and D-pad answer too.</p></div>
+          <p id="sim-check-status" class="hint" role="status"></p><ul id="sim-check-changes" class="sim-send-devices"></ul><button id="sim-check-apply" class="primary" type="button" hidden>Use these settings and send…</button></div></section>
         <label class="check"><input id="sim-export-keep" type="checkbox"> Keep the exported file updated</label>
         <details class="sim-more"><summary>Java names</summary><div class="start-xy"><div><label for="sim-export-package">Package</label><input id="sim-export-package" type="text" spellcheck="false"></div><div><label for="sim-export-class">Class</label><input id="sim-export-class" type="text" spellcheck="false"></div></div></details>
         <p id="sim-export-status" class="hint"></p><button id="sim-plan-next" class="primary" type="button">Next: run & review →</button></div></div>
@@ -1125,10 +1133,17 @@ public class MyAuto implements DeckAutonomous {
       routeJava:exporter.java(route,lay,{className:project.export.className,packageName:project.export.packageName,polygon:planner.polygon})});}
   $('#sim-export-onbot').onclick=()=>void exportRoute('onbot');
   // ------------------------------------------------------------------ send to robot
-  // A Control Hub on this computer's Wi-Fi: read its configuration, check every device name the OnBot Java export uses
-  // (picking the robot's own names where they differ), then upload and build it. The robot side is src/robot-link.cjs.
+  // A Control Hub on this computer's Wi-Fi: read its configuration and check every device name the OnBot Java export
+  // uses, picking the robot's own names where they differ. Devices the robot does not have go into a new configuration
+  // (a copy of its active one, or one made from a scan of its hubs), each with the port to plug it into. Then the code
+  // is uploaded and built, and the autonomous is selected in Drive. The robot side is src/robot-link.cjs.
   const RobotConfig=window.DeckRobotConfig;let sendState=null;
-  const robotNeeds=()=>window.DeckSimFtc.robotNeeds(project.robot,project.sensors.localization,project.mechanisms);
+  // Choices made in the lists, kept while the panel is re-read: robot names by "<host>|<export name>", and ports and
+  // motor types of planned devices by the same key.
+  const namePicks=new Map(),portPicks=new Map(),pickKey=name=>`${sendState?.host}|${name}`;
+  // The same robot and mechanisms the export is generated from.
+  const robotNeeds=()=>window.DeckSimFtc.robotNeeds(info?.robot||project.robot,project.sensors.localization,info?info.mechanisms:project.mechanisms);
+  const plural=(n,word)=>`${n} ${word}${n===1?'':'s'}`;
   async function sendPanel(){
     const box=$('#sim-send');box.hidden=!native||!api.robotLink||$('#sim-export-onbot').hidden;if(!box.hidden&&!$('#sim-send-robot').options.length)await robotChoices();
   }
@@ -1139,51 +1154,167 @@ public class MyAuto implements DeckAutonomous {
     select.replaceChildren(...choices.filter((c,i)=>choices.findIndex(x=>x[0]===c[0])===i).map(([host,text])=>new Option(text,host)));if(keep&&[...select.options].some(o=>o.value===keep))select.value=keep;
   }
   if(native&&api.robotLink)$('#sim-send-robot').addEventListener('focus',()=>void robotChoices());
-  // One line per device name: whether the robot has it, and for one it lacks, its devices to choose from.
+  // One line per device name: whether the robot has it, and for one it lacks, its devices to choose from (or, for a
+  // name it has no device for, adding it to the robot's configuration).
   function showCheck(){
     const list=$('#sim-send-devices'),result=sendState?.result;if(!result){list.replaceChildren();$('#sim-send-apply').hidden=true;return;}
     list.replaceChildren(...result.rows.map((row,i)=>{const li=document.createElement('li'),mark=document.createElement('b'),text=document.createElement('span');
       const good=row.status==='ok'&&!row.duplicate;li.className=good?'ok':'problem';mark.textContent=`${good?'✓':'✗'} ${row.label}`;text.textContent=' '+RobotConfig.explain(row);li.append(mark,text);
       const usable=row.candidates.filter(name=>C.deviceName(name)===name);
       if(!good&&usable.length){const pick=document.createElement('select');pick.dataset.row=String(i);pick.setAttribute('aria-label',`Robot device for ${row.label}`);
-        pick.append(new Option(`Keep "${row.name}"`,''),...usable.map(name=>new Option(`Use "${name}"`,name)));pick.value=row.suggestion&&usable.includes(row.suggestion)?row.suggestion:'';li.append(pick);}
+        pick.append(new Option(row.status==='missing'&&!row.duplicate?`Add "${row.name}" to the robot`:`Keep "${row.name}"`,''),...usable.map(name=>new Option(`Use "${name}"`,name)));
+        const kept=namePicks.get(pickKey(row.name));pick.value=kept!==undefined&&(!kept||usable.includes(kept))?kept:row.suggestion&&usable.includes(row.suggestion)?row.suggestion:'';
+        pick.onchange=()=>{namePicks.set(pickKey(row.name),pick.value);refreshPlan();};li.append(pick);}
       return li;}));
     $('#sim-send-apply').hidden=!list.querySelector('select');
   }
-  async function readRobot(){
+  // The robot devices picked for names: {export name: robot name}.
+  const pickedNames=()=>Object.fromEntries($$('#sim-send-devices select').map(s=>[sendState?.result?.rows[+s.dataset.row]?.name,s.value]).filter(([mine,theirs])=>mine&&theirs));
+  // scan: also scan the robot's hubs, which adding devices needs.
+  async function readRobot(scan=false){
     const host=$('#sim-send-robot').value,label=$('#sim-send-robot').selectedOptions[0]?.textContent||host;status('#sim-send-status',`Reading the configuration of ${label}…`);$('#sim-send-confirm').hidden=true;
-    try{const robot=await api.robotLink('read',{host});
-      if(!robot.active){sendState=null;showCheck();status('#sim-send-status',`The robot has no active configuration${robot.configurations.length?` (it has ${robot.configurations.join(', ')})`:''}. Make or activate one on the Driver Station (Configure Robot), then check again.`);return null;}
-      sendState={host,label,robot,result:RobotConfig.check(robotNeeds(),robot)};showCheck();
+    try{const robot=await api.robotLink('read',{host,scan});sendState={host,label,robot,result:RobotConfig.check(robotNeeds(),robot)};showCheck();showPlan();
+      if(!robot.active){status('#sim-send-status',`The robot has no active configuration${robot.configurations.length?` (it has ${robot.configurations.join(', ')}: you can activate one on the Driver Station, in Configure Robot)`:''}. Send to robot makes one for this code.`);return sendState;}
       const bad=sendState.result.rows.filter(r=>r.status!=='ok'||r.duplicate).length;
-      status('#sim-send-status',bad?`${bad} of ${sendState.result.rows.length} device names do not match the configuration “${robot.active.name}”. Pick the robot's own names below, or rename them on the robot.`:`Every device name matches the configuration “${robot.active.name}” (${sendState.result.rows.length} devices).${sendState.result.unused.length?` Not used by this code: ${sendState.result.unused.map(d=>d.name).join(', ')}.`:''}`);
+      status('#sim-send-status',bad?`${bad} of ${sendState.result.rows.length} device names do not match the configuration “${robot.active.name}”. Pick the robot's own names below, or let Send to robot add the devices.`:`Every device name matches the configuration “${robot.active.name}” (${sendState.result.rows.length} devices).${sendState.result.unused.length?` Not used by this code: ${sendState.result.unused.map(d=>d.name).join(', ')}.`:''}`);
       return sendState;}
-    catch(e){sendState=null;showCheck();status('#sim-send-status',e.message);return null;}
+    catch(e){sendState=null;showCheck();showPlan();status('#sim-send-status',e.message);return null;}
   }
   $('#sim-send-check').onclick=()=>void readRobot();
   // The picked robot names go into the setup: drive and sensor names (Robot controller) and mechanism names (Mechanisms).
-  $('#sim-send-apply').onclick=()=>{if(!sendState)return;const m=structuredClone(project.mechanisms),devices={...(project.robot.devices||{})},base=deviceDefaults();let robotChanged=false,count=0;
-    for(const pick of $$('#sim-send-devices select')){const name=pick.value,row=sendState.result.rows[+pick.dataset.row];if(!name||!row)continue;count++;
+  function usePicks(chosen){const m=structuredClone(project.mechanisms),devices={...(project.robot.devices||{})},base=deviceDefaults();let robotChanged=false,count=0;
+    for(const row of sendState.result.rows){const name=chosen[row.name];if(!name)continue;count++;
       if(row.setting.robot){const key=row.setting.robot,entry={...(devices[key]||{}),name};if(name===base.find(s=>s.key===key)?.name)delete entry.name;if(Object.keys(entry).length)devices[key]=entry;else delete devices[key];robotChanged=true;}
       else{const part=m[row.setting.list]?.[row.setting.index];if(part)part[row.setting.field]=name;}}
-    if(!count)return status('#sim-send-status','Pick a robot device for at least one name first.');
-    project.mechanisms=MECH.sanitize(m);if(robotChanged)project.robot=C.robot({...project.robot,devices},project.controller);save();mechanismsPanel();robotPanel();reload();
-    sendState.result=RobotConfig.check(robotNeeds(),sendState.robot);showCheck();
-    status('#sim-send-status',`Using ${count} name${count>1?'s':''} from the robot.${sendState.result.ok?' Every device name matches now.':''} The setup is saved with them.`);};
-  // Send: check the robot, say what will be uploaded, then upload and build on a second press.
+    if(!count)return 0;for(const mine of Object.keys(chosen))namePicks.delete(pickKey(mine));
+    project.mechanisms=MECH.sanitize(m);if(robotChanged)project.robot=C.robot({...project.robot,devices},project.controller);save();mechanismsPanel();robotPanel();reload();return count;}
+  $('#sim-send-apply').onclick=()=>{if(!sendState)return;const count=usePicks(pickedNames());if(!count)return status('#sim-send-status','Pick a robot device for at least one name first.');
+    sendState.result=RobotConfig.check(robotNeeds(),sendState.robot);showCheck();refreshPlan();
+    status('#sim-send-status',`Using ${plural(count,'name')} from the robot.${sendState.result.ok?' Every device name matches now.':''} The setup is saved with them.`);};
+  // The devices to add: names the robot has no device for and no robot device was picked for, on planned ports (or the
+  // ports picked instead). A robot with an active configuration gets a copy of it with them added; one without gets a
+  // configuration of every hub its scan found. null: nothing to add; {scan: true}: the robot's hubs are not known yet.
+  function makePlan(){
+    const s=sendState,chosen=pickedNames(),adds=RobotConfig.missingDevices(s.result.rows.filter(r=>!chosen[r.name]));if(!adds.length)return null;if(!s.robot.portals)return {scan:true};
+    const fresh=!s.robot.active,context={modules:fresh?RobotConfig.modulesFromScan(s.robot.portals):RobotConfig.modulesOf(s.robot,s.robot.portals),devices:fresh?[]:s.robot.devices};
+    let {assignments,problems}=RobotConfig.planPorts(adds.map(a=>a.device==='motor'&&portPicks.get(pickKey(a.name))?.motorType?{...a,motorType:portPicks.get(pickKey(a.name)).motorType}:a),context);
+    for(const a of [...assignments]){const key=portPicks.get(pickKey(a.name))?.key,at=assignments.findIndex(b=>b.name===a.name);
+      if(key&&RobotConfig.portChoices(assignments,at,context).some(c=>c.key===key&&!c.taken))assignments=RobotConfig.movePort(assignments,at,key,context);}
+    const name=RobotConfig.configurationName(fresh?`Deck ${project.setupName||L().name}`:`${s.robot.active.name} Deck`,s.robot.configurations);
+    return {fresh,assignments,problems,context,name,unseen:context.modules.filter(m=>m.missing).map(m=>m.name)};
+  }
+  // The planned devices: each with the port to plug it into (a list to move it to the port it is already in) and, for a
+  // motor, its type. done: after saving, as a plain wiring list.
+  function showPlan(done=false){
+    const box=$('#sim-send-plan'),plan=sendState?.plan;box.hidden=!plan?.assignments||!plan.assignments.length&&!plan.problems.length;if(box.hidden)return;const from=sendState.robot.active?.name;
+    $('#sim-send-plan-title').textContent=done?`Plug these into the robot (configuration “${plan.name}”)`:plan.fresh?`New configuration “${plan.name}”`:`Added to a copy of “${from}”, saved as “${plan.name}”`;
+    $('#sim-send-plan-note').textContent=done?'The robot now expects each device on this port: the code cannot drive one plugged in somewhere else.':`Plug each device into the port beside it, or pick the port it is already in.${plan.fresh?'':` “${from}” stays as it is.`}${plan.unseen.length?` The robot did not report ${plan.unseen.join(' or ')}: check its cable.`:''}`;
+    $('#sim-send-ports').replaceChildren(...plan.assignments.map((a,i)=>{const li=document.createElement('li'),head=document.createElement('div'),mark=document.createElement('b'),text=document.createElement('span');mark.textContent=a.name;text.textContent=` ${a.label}`;head.append(mark,text);li.append(head);
+      const choices=done?[]:RobotConfig.portChoices(plan.assignments,i,plan.context),type=a.device==='motor'?`, ${RobotConfig.MOTOR_TYPES[a.tag]||a.tag}`:'';
+      if(!choices.length){const at=document.createElement('span');at.textContent=`: ${RobotConfig.portLabel(a)}${a.device==='imu'?' (the hub’s own IMU)':done?type:''}`;head.append(at);}
+      else{const port=document.createElement('select');port.setAttribute('aria-label',`Port for ${a.label}`);
+        port.append(...choices.map(c=>{const o=new Option(c.label+(c.taken?` (has ${c.taken})`:c.swap?` (swap with ${c.swap})`:''),c.key);o.disabled=!!c.taken;return o;}));port.value=RobotConfig.portKeyOf(a);
+        port.onchange=()=>{let moved;try{moved=RobotConfig.movePort(plan.assignments,i,port.value,plan.context);}catch(e){return status('#sim-send-status',e.message);}
+          for(const b of moved)portPicks.set(pickKey(b.name),{...portPicks.get(pickKey(b.name)),key:RobotConfig.portKeyOf(b)});refreshPlan();};li.append(port);
+        if(a.device==='motor'){const kind=document.createElement('select');kind.setAttribute('aria-label',`Motor type for ${a.label}`);kind.append(...Object.entries(RobotConfig.MOTOR_TYPES).map(([tag,label])=>new Option(label,tag)));kind.value=a.tag;
+          kind.onchange=()=>{portPicks.set(pickKey(a.name),{...portPicks.get(pickKey(a.name)),motorType:kind.value});refreshPlan();};li.append(kind);}}
+      return li;}),...plan.problems.map(p=>{const li=document.createElement('li');li.className='problem';li.textContent=p;return li;}));
+  }
+  // After a pick or a port changes. A device newly left to add on a robot not scanned yet needs Send to robot again.
+  function refreshPlan(){
+    if(!sendState?.result||!sendState.plan&&$('#sim-send-confirm').hidden)return;const plan=makePlan();
+    if(plan?.scan){sendState.plan=null;showPlan();$('#sim-send-confirm').hidden=true;return status('#sim-send-status','Press Send to robot again: Deck scans the robot to plan the devices to add.');}
+    sendState.plan=plan;showPlan();if(!$('#sim-send-confirm').hidden)summary();
+  }
+  // What Send does, in order: the names picked, the configuration, the upload. Nothing runs on the robot.
+  function summary(){
+    const s=sendState,plan=s.plan,chosen=Object.entries(pickedNames()),steps=[],adding=plan?.assignments?.length||0;
+    if(chosen.length)steps.push(`Use the robot's own names: ${chosen.map(([mine,theirs])=>`“${theirs}” for “${mine}”`).join(', ')}. The setup is saved with them.`);
+    if(adding)steps.push(plan.fresh?`Save a new configuration “${plan.name}” with the robot's hubs and ${plural(adding,'device')} (below, with the port for each). It becomes the active configuration, and the robot restarts.`
+      :`Save “${plan.name}”: a copy of “${s.robot.active.name}” with ${plural(adding,'device')} added (below, with the port for each). It becomes the active configuration, and the robot restarts.`);
+    steps.push(`Upload ${s.fileNames.join(' and ')} to ${s.label} and build them. Files with these names are replaced; one that was changed on the robot is copied to this computer first.`);
+    const left=s.result.rows.filter(r=>!chosen.some(([mine])=>mine===r.name)&&(r.status==='kind'||r.duplicate)).length+(plan?.problems?.length||0);
+    $('#sim-send-summary').textContent=left?`${plural(left,'device')} will still not match the robot, and the autonomous stops at INIT until ${left>1?'they do':'it does'} (see below).`:'';
+    $('#sim-send-steps').replaceChildren(...steps.map(t=>{const li=document.createElement('li');li.textContent=t;return li;}));$('#sim-send-yes').textContent=adding?'Save and send':'Upload and build';
+  }
+  // Send: check the robot (scanning its hubs when devices are to be added), say what will happen, then do it all on a
+  // second press.
   $('#sim-send-go').onclick=async()=>{
     if(!L().route)return status('#sim-send-status',noRoute());if(!info)return status('#sim-send-status','Wait for the simulation to load.');
-    const check=await readRobot();if(!check)return;let out;try{out=teamCode(L().route,true);}catch(e){return status('#sim-send-status',e.message);}
-    const names=Object.keys(out.files).map(f=>f.split('/').pop()),bad=check.result.rows.filter(r=>r.status!=='ok'||r.duplicate).length;
-    $('#sim-send-summary').textContent=`${bad?`${bad} device name${bad>1?'s do':' does'} not match the robot: the autonomous will stop at INIT until ${bad>1?'they do':'it does'}. `:''}Upload ${names.join(' and ')} to ${check.label} and build? Files with these names are replaced; one that was changed on the robot is copied to this computer first.`;
-    $('#sim-send-confirm').hidden=false;$('#sim-send-yes').focus();sendState.files=out.files;sendState.opModes=[out.source,out.check.source].map(s=>(/@(?:Autonomous|TeleOp)\(name = "((?:\\.|[^"\\])*)"/.exec(s)||[])[1]).filter(Boolean);};
+    let check=await readRobot();if(!check)return;let out;try{out=teamCode(L().route,true);}catch(e){return status('#sim-send-status',e.message);}
+    if(makePlan()?.scan){status('#sim-send-status',`Scanning the hubs of ${check.label}…`);check=await readRobot(true);if(!check)return;}
+    check.plan=makePlan();check.fileNames=Object.keys(out.files).map(f=>f.split('/').pop());showPlan();summary();$('#sim-send-confirm').hidden=false;$('#sim-send-yes').focus();};
   $('#sim-send-no').onclick=()=>{$('#sim-send-confirm').hidden=true;status('#sim-send-status','Nothing was sent.');};
-  $('#sim-send-yes').onclick=async()=>{const s=sendState;if(!s?.files)return;$('#sim-send-confirm').hidden=true;$('#sim-send-go').disabled=true;status('#sim-send-status',`Uploading to ${s.label}…`);
-    try{const r=await api.robotLink('send',{host:s.host,files:s.files});
-      status('#sim-send-status',r.built?`Built on the robot in ${r.seconds} s. On the Driver Station, run “${s.opModes[1]||'the check TeleOp'}” (TeleOp) first to test each device, then “${s.opModes[0]||'the autonomous'}” (Autonomous).${r.backups.length?` The robot's earlier ${r.backups.map(f=>f.split(/[\\/]/).pop().replace(/^[\d-TZ]+-/,'')).join(' and ')} ${r.backups.length>1?'are':'is'} kept in ${r.backups[0].replace(/[\\/][^\\/]+$/,'')}.`:''}`
-        :`Uploaded, but the robot could not build it${r.errors.length?`: ${r.errors.slice(0,3).map(e=>`${e.file} line ${e.line}: ${e.message}`).join('; ')}`:'.'} An error in any OnBot Java file stops the whole build, including files Deck did not send.`);}
+  $('#sim-send-yes').onclick=async()=>{const s=sendState;if(!s?.fileNames)return;const plan=s.plan?.assignments?.length?s.plan:null,chosen=pickedNames();$('#sim-send-confirm').hidden=true;$('#sim-send-go').disabled=true;
+    try{
+      if(usePicks(chosen))await ready();
+      if(plan){status('#sim-send-status',`Saving the configuration “${plan.name}” on ${s.label}…`);
+        await api.robotLink('configure',{host:s.host,name:plan.name,xml:plan.fresh?RobotConfig.newConfiguration(s.robot.portals,plan.assignments):RobotConfig.addDevices(s.robot.xml,plan.assignments)});
+        for(const a of plan.assignments)portPicks.delete(pickKey(a.name));}
+      // The code is generated now, with the names just picked.
+      const out=teamCode(L().route,true),opModes=[out.source,out.check.source].map(src=>(/@(?:Autonomous|TeleOp)\(name = "((?:\\.|[^"\\])*)"/.exec(src)||[])[1]).filter(Boolean);
+      status('#sim-send-status',`Uploading to ${s.label}…`);const r=await api.robotLink('send',{host:s.host,files:out.files});
+      const saved=plan?`Saved “${plan.name}” as the robot's active configuration (the robot restarted). `:'',kept=r.backups.length?` The robot's earlier ${r.backups.map(f=>f.split(/[\\/]/).pop().replace(/^[\d-TZ]+-/,'')).join(' and ')} ${r.backups.length>1?'are':'is'} kept in ${r.backups[0].replace(/[\\/][^\\/]+$/,'')}.`:'';
+      let picked='';if(r.built&&opModes[0])try{await api.robotLink('select',{host:s.host,opMode:opModes[0]});picked=` In Drive, “${opModes[0]}” is selected when you open this robot.`;}catch{}
+      status('#sim-send-status',r.built?`${saved}Built on the robot in ${r.seconds} s. ${plan?'Plug in the devices listed below, then on':'On'} the Driver Station, run “${opModes[1]||'the check TeleOp'}” (TeleOp) first to test each device, then “${opModes[0]||'the autonomous'}” (Autonomous).${picked}${kept}`
+        :`${saved}Uploaded, but the robot could not build it${r.errors.length?`: ${r.errors.slice(0,3).map(e=>`${e.file} line ${e.line}: ${e.message}`).join('; ')}`:'.'} An error in any OnBot Java file stops the whole build, including files Deck did not send.`);
+      sendState={...s,result:null,fileNames:null};showCheck();showPlan(true);}
     catch(e){status('#sim-send-status',e.message);}finally{$('#sim-send-go').disabled=false;}};
   if(native&&api.onRobotLink)api.onRobotLink(({stage,file})=>status('#sim-send-status',stage==='uploading'?`Uploading ${file}…`:'Building on the robot… (this takes up to a minute)'));
+  // ------------------------------------------------------------------ guided check
+  // The check TeleOp, run from here (src/robot-link.cjs runCheck): Deck starts it on the robot, shows each step with its
+  // answers as buttons that press gamepad 1's on the robot, and puts the results into the setup.
+  let checking=null;
+  const checkOpModeName=()=>{try{const out=teamCode(L().route,true);return (/@TeleOp\(name = "((?:\\.|[^"\\])*)"/.exec(out.check.source)||[])[1]?.replace(/\\(.)/g,'$1')||null;}catch{return null;}};
+  const ARROWS={up:'▲',down:'▼',left:'◀',right:'▶'};
+  // The check's answers line ("A: yes | B: no, the other way | D-pad up/down: move") as gamepad buttons.
+  function answerButtons(text){
+    const out=[];for(const part of String(text||'').split(' | ')){const at=part.indexOf(': ');if(at<0)continue;const key=part.slice(0,at),label=part.slice(at+2);
+      if(/^[ABXY]$/.test(key))out.push({button:key.toLowerCase(),text:`${key} · ${label}`});
+      else{const pad=/^D-pad ((?:up|down|left|right)(?:\/(?:up|down|left|right))*)$/.exec(key);if(pad)for(const dir of pad[1].split('/'))out.push({button:'dpad_'+dir,text:`${ARROWS[dir]} ${label}`});}}
+    return out;}
+  // The settings the results so far would change, and what to fix on the robot by hand.
+  function checkChanges(){
+    const list=$('#sim-check-changes'),values=checking?.values;if(!values){list.replaceChildren();$('#sim-check-apply').hidden=true;return;}
+    const a=window.DeckSimFtc.applyCheck(values,{robot:project.robot,mechanisms:project.mechanisms,localization:project.sensors.localization});checking.applied=a;
+    const item=(text,kind)=>{const li=document.createElement('li');li.className=kind;li.textContent=text;return li;};
+    list.replaceChildren(...a.changes.map(t=>item(t,'ok')),...a.problems.map(t=>item(t,'problem')));applyButton();
+  }
+  // Offered once every step is done (the check keeps running for trying the mechanisms) or once it has stopped.
+  const applyButton=()=>{$('#sim-check-apply').hidden=!checking?.applied?.changes.length||!checking.values||checking.running&&!checking.done;};
+  // One telemetry update from the check: its step, what to do, the answers and the results so far.
+  function checkLines(lines){
+    const get=caption=>{const line=lines.find(l=>l.startsWith(caption+' : '));return line===undefined?null:line.slice(caption.length+3);},step=get('Step'),answer=get('Answer'),results=get('Deck results');
+    $('#sim-check-step').textContent=step==='Done'?'Done: every step is checked.':step&&step!=='Ready'?`Step ${step}`:'Starting…';
+    $('#sim-check-prompt').textContent=lines.filter(l=>!/^(Step|Answer|Deck results) : /.test(l)).join(' ');
+    if(answer!==checking.answer){checking.answer=answer;$('#sim-check-answers').replaceChildren(...answerButtons(answer).map(({button,text})=>{const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=text;b.dataset.button=button;
+      b.onclick=()=>void api.robotLink('check-press',{button}).catch(()=>{});return b;}));}
+    checking.done=step==='Done';
+    const values=results===null?null:window.DeckSimFtc.checkResults(results);if(values&&JSON.stringify(values)!==JSON.stringify(checking.values)){checking.values=values;checkChanges();}else applyButton();
+  }
+  function checkEnded(){if(checking)checking.running=false;$('#sim-check-run').hidden=true;$('#sim-check-start').disabled=false;checkChanges();}
+  const stopCheck=()=>void api.robotLink('check-stop').catch(()=>{});
+  $('#sim-check-start').onclick=()=>{if(!L().route)return status('#sim-check-status',noRoute());$('#sim-check-confirm').hidden=false;$('#sim-check-go').focus();};
+  $('#sim-check-cancel').onclick=()=>{$('#sim-check-confirm').hidden=true;};
+  $('#sim-check-go').onclick=async()=>{$('#sim-check-confirm').hidden=true;const host=$('#sim-send-robot').value,label=$('#sim-send-robot').selectedOptions[0]?.textContent||host,opMode=checkOpModeName();
+    if(!opMode)return status('#sim-check-status','Wait for the simulation to load, then start again.');
+    checking={host,label,opMode,running:true,values:null,answer:undefined};checkChanges();$('#sim-check-run').hidden=false;$('#sim-check-start').disabled=true;
+    $('#sim-check-step').textContent='Starting…';$('#sim-check-prompt').textContent='';$('#sim-check-answers').replaceChildren();status('#sim-check-status',`Starting “${opMode}” on ${label}…`);
+    try{await api.robotLink('check-start',{host,opMode});status('#sim-check-status','');$('#sim-check-stop').focus();}catch(e){checkEnded();status('#sim-check-status',e.message);}};
+  $('#sim-check-stop').onclick=stopCheck;
+  // Space stops the check, as it stops an op mode on a Driver Station.
+  addEventListener('keydown',e=>{if(e.code==='Space'&&checking?.running&&!e.target?.closest?.('input,textarea,select,[contenteditable]')){e.preventDefault();stopCheck();}},true);
+  if(native&&api.onRobotCheck)api.onRobotCheck(update=>{if(!checking?.running)return;
+    if(update.lines)checkLines(update.lines);
+    if(update.ended||update.error){const done=checking.done;checkEnded();
+      status('#sim-check-status',(update.error||{stopped:done?'Stopped.':'Stopped before the last step: the results so far are below.',ended:'The check stopped on the robot.',time:'Stopped after 20 minutes.',lost:'The connection to the robot was lost, so the robot stopped the check.'}[update.ended]||'Stopped.')
+        +(checking.applied?.changes.length?' Use these settings and send puts them in the setup and on the robot.':''));}});
+  // The results go into the setup, then Send to robot runs again with them: what is left is its confirmation.
+  $('#sim-check-apply').onclick=async()=>{const a=checking?.applied;if(!a?.changes.length)return;$('#sim-check-apply').hidden=true;
+    if(checking.running){checking.running=false;status('#sim-check-status','Stopping the check…');await api.robotLink('check-stop').catch(()=>{});checkEnded();}
+    project.robot=C.robot(a.robot,project.controller);project.mechanisms=MECH.sanitize(a.mechanisms);save();mechanismsPanel();robotPanel();reload();
+    const n=a.changes.length;checking.values=null;checking.applied=null;checkChanges();status('#sim-check-status',`Saved ${plural(n,'setting')} from the check. Send to robot puts ${n>1?'them':'it'} on the robot.`);
+    try{await ready();}catch{return;}$('#sim-send-go').scrollIntoView({block:'nearest'});$('#sim-send-go').click();};
   $('#sim-export-teamcode').onclick=async()=>{try{if(!L().route)throw Error(noRoute());const out=teamCode(L().route),r=await api.simFile('teamcode-save',{files:out.files,keep:out.keep});if(r)status('#sim-export-status',`Wrote ${r.count} TeamCode files under ${r.name}${r.kept?.length?` (kept your ${r.kept.join(', ')})`:''}. OpMode: ${out.opMode.split('.').pop()}. Mechanism code goes in RobotActions.java.`);}catch(e){status('#sim-export-status',e.message);}};
   // Pedro Pathing 3: the route, its OpMode and action slots for a TeamCode built from the Pedro Quickstart.
   function pedroCode(route){const l=L(),lay={name:l.name,field:l.field,fieldName:GAMES[l.field],width:l.width,height:l.height,start,zones:l.zones};if(!info)throw Error('Wait for the simulation to load.');

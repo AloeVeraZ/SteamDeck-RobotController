@@ -95,7 +95,9 @@ ipcMain.on('controller-input',(e,pads)=>{
   if(suspended||state.recovering)blockHeldControllers();sendControllers();
   // The simulation process accepts Controller 1 only during an explicitly started TELEOP
   // practice phase. Autonomous and transition always reject it; robot output stays paused.
-  if(simulation?.running&&state.page==='simulation'){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture||keyboardSource&&shellKeyboardEditing;simulation.practiceInput(blocked?null:controllerOutput({...padState,paused:false})[0]);}
+  // A guided check running from the Send panel takes Controller 1's face buttons and D-pad as its answers.
+  if((simulation?.running||robotCheck)&&state.page==='simulation'){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture||keyboardSource&&shellKeyboardEditing;
+    const pad=blocked?null:controllerOutput({...padState,paused:false})[0];if(simulation?.running)simulation.practiceInput(pad);robotCheck?.pad(pad);}
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -266,7 +268,9 @@ async function openManager(){
   update({manager:true});fitView();void view.webContents.loadURL(localUrl);return true;
 }
 ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents&&bridge instanceof FtcSocket&&bytes instanceof Uint8Array)bridge.send(bytes);});
-ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',controllerCount:active?.controllerCount||1,...device,steamDeck:device.controllerFamily==='steamdeck'};});
+ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');
+  const select=sentOpMode?.host===bridge.host&&Date.now()-sentOpMode.at<3600e3?sentOpMode.name:null;if(select)sentOpMode=null;
+  return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',controllerCount:active?.controllerCount||1,...device,steamDeck:device.controllerFamily==='steamdeck',...(select?{select}:{})};});
 ipcMain.handle('ftc-controller-capture',(e,slot)=>{if(e.sender!==robotView?.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC driver station is open.');return captureController(slot);});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 handle('manager-close',closeManager);
@@ -293,8 +297,8 @@ async function setPage(page){
   update({page});fitView();
   // Simulation is offline. Close the live robot, including its active FTC op mode.
   if(page==='simulation'){finding?.abort();await closeRobot();}
-  // Leaving Simulation ends its processes, including any running Java program.
-  else simulation?.stop();
+  // Leaving Simulation ends its processes, including any running Java program, and a guided check running on a robot.
+  else {simulation?.stop();robotCheck?.stop();}
   return snapshot();
 }
 handle('page',setPage);
@@ -320,12 +324,27 @@ handle('cursor',(x,y)=>{
 app.on('will-quit',()=>{try{cursorHelper?.kill();}catch{}});
 handle('sim',async(method,args)=>{if(state.page!=='simulation')throw Error('Open the Simulation view first.');return simulation.call(method,args);});
 handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
-// Send to robot (Simulation → Run & review → Export): reads a Control Hub's configuration and uploads and builds the
-// exported OnBot Java over its Wi-Fi. It never starts an op mode. robots lists the saved FTC robots to pick from.
+// Send to robot (Simulation → Run & review → Export): reads a Control Hub's configuration (and scans its hubs to add
+// devices), saves a new configuration with the devices it lacks, and uploads and builds the exported OnBot Java over its
+// Wi-Fi. It never starts an op mode. robots lists the saved FTC robots to pick from.
+// select: the autonomous just built, which Drive selects when that robot is next opened (within the hour).
+// check-start / check-press / check-stop: the guided check TeleOp, run from the Send panel; its telemetry arrives as
+// robot-link-check events, then one {ended} (or {error}) when it stops.
+let sentOpMode=null,robotCheck=null;
 handle('robot-link',async(action,data)=>{
   if(action==='robots')return library.list().filter(r=>r.kind==='ftc').map(r=>{let host='';try{host=new URL(r.url).hostname;}catch{}return {name:r.name,host};}).filter(r=>r.host);
+  if(action==='select'){const name=typeof data?.opMode==='string'?data.opMode:'';if(!name||name.length>200)throw Error('No op mode to select.');sentOpMode={host:robotLink.checkHost(data?.host),name,at:Date.now()};return true;}
+  if(action==='check-press')return !!robotCheck?.press(String(data?.button||''));
+  // Resolves once the robot has stopped the check and the connection is free (5 s at most).
+  if(action==='check-stop'){const check=robotCheck;if(check){check.stop();await Promise.race([check.ended.catch(()=>{}),delay(5000)]);}return true;}
+  if(robotCheck)throw Error('The guided check is still running. Stop it first.');
   if(bridge instanceof FtcSocket)throw Error('Close the robot in Drive first: its Driver Station is using the robot connection.');
-  if(action==='read')return robotLink.readRobot(data?.host);
+  if(action==='check-start'){
+    const check=robotLink.runCheck(data?.host,data?.opMode,{onUpdate:update=>emit('robot-link-check',update)});robotCheck=check;
+    check.ended.then(why=>emit('robot-link-check',{ended:why}),e=>emit('robot-link-check',{error:e.message})).finally(()=>{if(robotCheck===check)robotCheck=null;});
+    return true;}
+  if(action==='read')return robotLink.readRobot(data?.host,{scan:data?.scan===true});
+  if(action==='configure')return robotLink.writeConfiguration(data?.host,{name:data?.name,xml:data?.xml});
   if(action==='send')return robotLink.send(data?.host,data?.files,{keep:Array.isArray(data?.keep)?data.keep:[],backupDir:path.join(app.getPath('userData'),'robot-backups'),onProgress:(stage,file)=>emit('robot-link-progress',{stage,file})});
   throw Error('Unknown robot action.');
 });
@@ -396,4 +415,4 @@ app.whenReady().then(async()=>{
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });
-let closing=false;app.on('before-quit',e=>{simulation?.stop();if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());
+let closing=false;app.on('before-quit',e=>{simulation?.stop();robotCheck?.stop();if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());

@@ -4,7 +4,8 @@
 // (tools/ftc-sim.cjs), which answers the same commands and routes as FTC SDK 12.0.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const RobotConfig=require('../ui/ftc/robot-config.js'),F=require('../ui/sim-ftc.js'),Mech=require('../ui/sim-mechanisms.js'),P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js');
-const {startUdpRobot,startOnBotJava,CONFIG_XML}=require('../tools/ftc-sim.cjs'),{readRobot,OnBotJava,send,buildErrors,formEncode,checkHost}=require('../src/robot-link.cjs');
+const {startUdpRobot,startOnBotJava,CONFIG_XML,HUBS,OP_MODES}=require('../tools/ftc-sim.cjs'),{readRobot,writeConfiguration,runCheck,OnBotJava,send,buildErrors,formEncode,checkHost}=require('../src/robot-link.cjs');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const {FtcSocket}=require('../src/ftc.cjs'),robot={drivetrain:'mecanum',length:17,width:17,heightIn:12,driveRpm:312,intakeIn:0};
 // The simulated robot and this station use their own loopback addresses (Robocol needs port 20884 on both ends), so these
 // tests can run beside ftc.test.cjs, which uses 127.0.0.1 and 127.0.0.2.
@@ -52,6 +53,95 @@ test('Send to robot reads the active configuration over Robocol, as a Driver Sta
   assert.ok(r.opModes.length>0,'the op mode list comes along');
   // No active configuration on the robot: nothing to check against, and that is said.
   robot2.sim.active='No Config Set';const none=await read();assert.equal(none.active,null);assert.deepEqual(none.devices,[]);
+});
+
+test('adding devices to a configuration: free ports on the right hubs, and nothing already there changed',()=>{
+  const portals=HUBS.map(h=>RobotConfig.lynxModules(JSON.stringify({serialNumber:h.serial,modules:h.modules}))),config=RobotConfig.parse(CONFIG_XML),modules=RobotConfig.modulesOf(config,portals);
+  assert.deepEqual(modules.map(m=>[m.name,m.parent,m.imu]),[['Expansion Hub 2',false,'BNO055'],['Control Hub',true,'BHI260']]);
+  // The setup adds a kicker servo and a second flywheel motor to the robot in CONFIG_XML, whose eight motor ports are full.
+  const m=Mech.sanitize({enabled:true,intakes:[{kind:'kicker',sides:['front'],motor:'intake',servo:'kicker'}],shooters:[{type:'turret',mount:'center',motor:'shooter',motor2:'shooter2',indexer:'indexer',turretMotor:'turret'}]});
+  const adds=RobotConfig.missingDevices(RobotConfig.check(F.robotNeeds(robot,'fused',m),config).rows);
+  assert.deepEqual(adds.map(a=>[a.name,a.device]),[['kicker','servo'],['shooter2','motor']]);
+  const plan=RobotConfig.planPorts(adds,{modules,devices:config.devices});
+  assert.deepEqual(plan.assignments.map(a=>[a.name,RobotConfig.portLabel(a),a.tag]),[['kicker','Control Hub servo port 0','Servo']]);
+  assert.deepEqual(plan.problems,['No motor port is free for "shooter2" (Shooter 1 second flywheel motor). Add an Expansion Hub, or run a roller on a continuous servo.']);
+  const xml=RobotConfig.addDevices(CONFIG_XML,plan.assignments);
+  assert.equal(xml,CONFIG_XML.replace('            <goBILDAPinpoint name="pinpoint" port="0" bus="1" />\n','$&            <Servo name="kicker" port="0" />\n'),'one line added inside the Control Hub, everything else as it was');
+  // Sensors start at I2C bus 1, past the hub's IMU; a port another device takes is skipped, and one name gets one port.
+  const otos=RobotConfig.planPorts([{name:'sensor_otos',label:'SparkFun OTOS',device:'otos'},{name:'odo',label:'Pod',device:'motor'},{name:'odo',label:'Pod',device:'motor'}],{modules,devices:config.devices.filter(d=>d.name!=='intake')});
+  assert.deepEqual(otos.assignments.map(a=>[a.name,RobotConfig.portLabel(a),a.tag]),[['sensor_otos','Control Hub I2C bus 2','SparkFunOTOS'],['odo','Expansion Hub 2 motor port 3','goBILDA5202SeriesMotor']]);
+  // A team's own device type might be on a motor or a servo port, so neither is offered; digital devices take neither.
+  const own=RobotConfig.parse(CONFIG_XML.replace('<goBILDAPinpoint','<MyServoThing name="thing" port="0" />\n            <RevTouchSensor name="touch" port="1" />\n            <goBILDAPinpoint'));
+  assert.deepEqual(RobotConfig.planPorts([{name:'a',label:'A',device:'servo'},{name:'b',label:'B',device:'servo'}],{modules,devices:own.devices}).assignments.map(a=>a.port),[1,2]);
+  // A hub's IMU type decides its tag; a hub the scan did not report gets none, and the reason is given.
+  const imu=[{name:'imu',label:'IMU',device:'imu'}],bare={modules:RobotConfig.modulesOf(RobotConfig.parse('<Robot><LynxUsbDevice name="P" serialNumber="(embedded)" parentModuleAddress="173"><LynxModule name="Control Hub" port="173" /></LynxUsbDevice></Robot>'),portals)};
+  assert.equal(RobotConfig.planPorts(imu,bare).assignments[0].tag,'ControlHubImuBHI260AP');
+  assert.match(RobotConfig.planPorts(imu,{modules:bare.modules.map(h=>({...h,imu:'UNKNOWN'}))}).problems[0],/could not tell which IMU Control Hub has/);
+  // A name with an XML escape or a ; cannot travel in CMD_SAVE_CONFIGURATION, which the robot splits at ;.
+  assert.throws(()=>RobotConfig.addDevices(CONFIG_XML.replace('"shooter"','"shooter &amp; feeder"'),plan.assignments),/cannot be sent to the robot/);
+  assert.equal(RobotConfig.configurationName('competition Deck',['Competition Deck','competition Deck 2']),'competition Deck 3');assert.equal(RobotConfig.configurationName('Deck lunala: red/auto'),'Deck lunala red auto');
+  assert.equal(RobotConfig.validName('competition Deck'),true);for(const bad of ['a;b',' a','a/b','',null,'x'.repeat(41)])assert.equal(RobotConfig.validName(bad),false,String(bad));
+});
+
+test('a configuration for a robot that has none: every hub the scan found, in the SDK\'s own layout, and ports to swap',()=>{
+  const portals=HUBS.map(h=>RobotConfig.lynxModules(JSON.stringify({serialNumber:h.serial,modules:h.modules}))),modules=RobotConfig.modulesFromScan(portals);
+  assert.deepEqual(modules.map(m=>[m.name,m.parent]),[['Control Hub',true],['Expansion Hub 2',false]]);
+  const needs=F.robotNeeds(robot,'fused',Mech.sanitize({enabled:true}));
+  let {assignments,problems}=RobotConfig.planPorts(RobotConfig.missingDevices(RobotConfig.check(needs,{devices:[]}).rows),{modules});assert.deepEqual(problems,[]);
+  assert.deepEqual(assignments.map(a=>[a.name,RobotConfig.portLabel(a)]),[['front_left','Control Hub motor port 0'],['front_right','Control Hub motor port 1'],['back_left','Control Hub motor port 2'],['back_right','Control Hub motor port 3'],
+    ['imu','Control Hub I2C bus 0'],['pinpoint','Control Hub I2C bus 1'],['intake','Expansion Hub 2 motor port 0'],['shooter','Expansion Hub 2 motor port 1'],['indexer','Expansion Hub 2 motor port 2'],['turret','Expansion Hub 2 motor port 3']],'drive motors on the Control Hub, mechanism motors on the Expansion Hub');
+  // Moving a device onto another planned device's port swaps them; a configured device's port is refused.
+  const at=name=>assignments.findIndex(a=>a.name===name),choices=RobotConfig.portChoices(assignments,at('intake'),{modules});
+  assert.deepEqual(choices.filter(c=>c.swap).map(c=>[c.label,c.swap]).slice(0,2),[['Control Hub motor port 0','front_left'],['Control Hub motor port 1','front_right']]);
+  for(const [name,port] of [['shooter',0],['indexer',1],['turret',2]])assignments=RobotConfig.movePort(assignments,at(name),choices.find(c=>c.module.address===2&&c.port===port).key,{modules});
+  assert.equal(RobotConfig.portLabel(assignments[at('intake')]),'Expansion Hub 2 motor port 3');
+  const arm=[{name:'arm',kind:'motor',module:{portal:'(embedded)',address:173},port:1}],armPort=RobotConfig.portChoices(assignments,0,{modules,devices:arm}).find(c=>c.taken);
+  assert.equal(armPort.label,'Control Hub motor port 1');assert.throws(()=>RobotConfig.movePort(assignments,0,armPort.key,{modules,devices:arm}),/has "arm"/);
+  // With the fixture's names and ports, it is the configuration Configure Robot saved (CONFIG_XML), line for line.
+  assert.equal(RobotConfig.newConfiguration(portals,assignments),CONFIG_XML);
+  assert.equal(RobotConfig.withType(assignments[0],'RevRoboticsCoreHexMotor').tag,'RevRoboticsCoreHexMotor');
+  // An Expansion Hub on its own USB cable is a second portal, and the Control Hub stays the parent.
+  const usb=RobotConfig.modulesFromScan([...portals,{serial:'DQ12AB34',modules:[{address:3,parent:true,imu:'BNO055'}]}]);assert.deepEqual(usb.map(m=>[m.name,m.parent]),[['Control Hub',true],['Expansion Hub 2',false],['Expansion Hub 3',false]]);
+  assert.match(RobotConfig.newConfiguration([...portals,{serial:'DQ12AB34',modules:[{address:3,parent:true,imu:'BNO055'}]}],[]),/<LynxUsbDevice name="Expansion Hub Portal 1" serialNumber="DQ12AB34" parentModuleAddress="3">\n        <LynxModule name="Expansion Hub 3" port="3" \/>/);
+  assert.deepEqual(RobotConfig.lynxSerials('{"map":[{"key":"(embedded)","value":"LYNX_USB_DEVICE"},{"key":"UVC:046D:0825","value":"WEBCAM"}]}'),['(embedded)']);
+});
+
+test('Send to robot scans the hubs and saves a new configuration as the active one, never over a saved one',async t=>{
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot2.close());
+  const r=await read({scan:true});assert.deepEqual(r.portals,[{serial:'(embedded)',modules:[{address:173,parent:true,imu:'BHI260'},{address:2,parent:false,imu:'BNO055'}]}]);
+  const plan=RobotConfig.planPorts([{name:'kicker',label:'Intake 1 kicker servo',device:'servo'}],{modules:RobotConfig.modulesOf(r,r.portals),devices:r.devices}),xml=RobotConfig.addDevices(r.xml,plan.assignments);
+  const write=async(name,text)=>{const socket=await station();try{return await writeConfiguration(ROBOT,{name,xml:text},{socket});}finally{await socket.close();}};
+  assert.deepEqual(await write('competition Deck',xml),{name:'competition Deck',devices:11,restarted:true});
+  assert.equal(robot2.sim.active,'competition Deck');assert.equal(robot2.sim.restarts,1,'the robot restarts to build its hardware map from it');
+  assert.equal(robot2.sim.configurations.find(c=>c.name==='competition').xml,CONFIG_XML,'the configuration it came from is kept as it was');
+  const after=await read();assert.equal(after.active.name,'competition Deck');assert.deepEqual(after.configurations,['competition','competition Deck']);
+  assert.ok(after.devices.some(d=>d.name==='kicker'&&d.kind==='servo'&&d.hub==='Control Hub'&&d.port===0));
+  await assert.rejects(write('Competition deck',xml),/already has a configuration named “Competition deck”/);assert.equal(robot2.sim.restarts,1);
+  await assert.rejects(write('bad;name',xml),/letters, digits, spaces/);
+  await assert.rejects(write('other',xml.replace('"kicker"','"a;b"')),/cannot take a configuration with a ;/);
+  // A robot with no configuration at all.
+  robot2.sim.configurations=[];robot2.sim.active='No Config Set';const none=await read({scan:true});assert.equal(none.active,null);assert.equal(none.portals.length,1);
+});
+
+test('the guided check runs from Deck: INIT and START, answers pressed on gamepad 1, the results read back, then STOP',async t=>{
+  // The simulated hub runs a stand-in for any op mode named "... check (Deck)": a wheel question, then a servo to move.
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT,opModes:[...OP_MODES,{flavor:'TELEOP',group:'Deck Driver Station',name:'Test check (Deck)',source:'ONBOTJAVA'}]});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot2.close());const socket=await station(),updates=[];
+  try{
+    const check=runCheck(ROBOT,'Test check (Deck)',{socket,onUpdate:u=>updates.push(u)});
+    const seen=async test=>{const end=Date.now()+8000;while(Date.now()<end){const u=updates.at(-1);if(u&&test(u.lines||[]))return u;await delay(40);}throw Error('not seen; last: '+JSON.stringify(updates.at(-1)));};
+    await seen(l=>l.includes('Answer : A: yes | B: no, the other way | X: nothing moved | Y: again'));assert.equal(robot2.sim.opState,'running','INIT, then START');
+    assert.equal(check.press('b'),true);await seen(l=>l.some(x=>x.startsWith('Answer : D-pad up/down: move')));
+    check.press('dpad_up');await delay(400);check.press('dpad_right');await seen(l=>l.some(x=>x.includes('Now at 0.460.')));
+    // Controller 1 of this computer answers too, held as long as it is held.
+    check.pad({buttons:Object.assign([],{0:{pressed:true}})});await delay(250);check.pad({buttons:[]});
+    const done=await seen(l=>l.includes('Step : Done'));
+    assert.deepEqual(F.checkResults(done.lines.find(x=>x.startsWith('Deck results : '))),{'robot.frontLeft.reversed':'false','intakes.0.downPos':'0.460'});
+    assert.equal(check.press('start'),false,'only the buttons the check answers with');
+    check.stop();assert.equal(await check.ended,'stopped');assert.equal(robot2.sim.opState,'stopped','Deck stops the op mode');assert.equal(check.press('a'),false);
+    await assert.rejects(runCheck(ROBOT,'Missing check (Deck)',{socket}).ended,/The robot has no op mode “Missing check \(Deck\)”\. Send to robot first/);
+  }finally{await socket.close();}
 });
 
 test('Send to robot refuses a robot that another Driver Station is using, and an address that is not one',async t=>{

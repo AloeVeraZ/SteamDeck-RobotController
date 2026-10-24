@@ -89,22 +89,31 @@ desktops, stacked on narrow windows like the phone app.
 - This is an independent implementation written from the published FTC SDK sources. It is not
   the REV Driver Hub software and is not certified for FIRST competitions; event rules may
   require an official Driver Station.
-- Not implemented: robot configuration editing, Wi-Fi channel/password changes, firmware
-  updates, Self Inspect, match logging, and gamepad LED effects. The simulator's Send to robot
-  reads the active configuration (below), but nothing in the app changes it.
+- Not implemented: editing a robot configuration device by device, Wi-Fi channel/password
+  changes, firmware updates, Self Inspect, match logging, and gamepad LED effects. The simulator's
+  Send to robot (below) saves new configurations, but never changes or replaces a saved one.
 
 ## Sending an autonomous from the simulator
 
 Simulation → Run & review → Export → **Send to robot** puts an OnBot Java autonomous and its
 check TeleOp on a Control Hub over its Wi-Fi. It reads the robot's active configuration with the
 same commands the FTC Driver Station uses (`CMD_REQUEST_CONFIGURATIONS`,
-`CMD_REQUEST_PARTICULAR_CONFIGURATION`), checks every device name the code uses, then uploads and
-builds the files with the hub's own OnBot Java server on port 8080. It never starts an op mode.
-Close the robot in Drive first, because only one Driver Station can talk to a robot at a time.
-See [the simulator guide](SIMULATION.md#send-to-robot).
+`CMD_REQUEST_PARTICULAR_CONFIGURATION`) and checks every device name the code uses. A device the
+robot does not have goes into a new configuration: Deck scans the hubs (`CMD_SCAN`,
+`CMD_DISCOVER_LYNX_MODULES`), plans a port for each device, and saves and activates the result
+(`CMD_SAVE_CONFIGURATION`, then `CMD_RESTART_ROBOT`). Then it uploads and builds the files with
+the hub's own OnBot Java server on port 8080, and Drive selects the new autonomous the next time
+the robot is opened. It never starts the autonomous.
 
-`node tools/ftc-sim.cjs 127.0.0.2 --onbot` also serves a simulated OnBot Java on port 8080,
-with a robot configuration, for trying it without a robot.
+Its **Guided check** runs the check TeleOp from the same panel: INIT and START as a Driver Station,
+each question shown with buttons that press gamepad 1 on the robot (Controller 1 answers too), STOP
+or Space to stop. The answers are put into the setup. Close the robot in Drive first, because only
+one Driver Station can talk to a robot at a time. See
+[the simulator guide](SIMULATION.md#send-to-robot).
+
+`node tools/ftc-sim.cjs 127.0.0.2 --onbot` also serves a simulated OnBot Java on port 8080, with a
+robot configuration (or none, with `--empty`), a hub scan, and a stand-in for the check TeleOp,
+for trying it all without a robot.
 
 ## Testing without a robot
 

@@ -75,20 +75,24 @@ test('the generated Mechanisms.java: per-device code with directions, two flywhe
   assert.deepEqual(F.mechanismDevices(Mech.sanitize({enabled:true,...VARIANTS.rollers})).map(d=>[d.name,d.device,d.reversed]),[['roller','crservo',false],['roller2','crservo',true],['shooter','motor',false],['shooter_b','motor',true],['indexer','motor',true],['turret','motor',true]]);
 });
 
-test('the check TeleOp tests every device: drive wheels, intake, flywheels with top speed and PIDF, feeders, turrets and servo positions',()=>{
+test('the check TeleOp is a guided check of every device: drive wheels, rollers, flywheels with top speed and PIDF, feeders, turrets and servo positions',()=>{
   const m=Mech.sanitize({enabled:true,...VARIANTS.pusher}),out=exportFor(m),check=out.files[dir+'PlannedRouteCheck.java'];
   assert.ok(check,'TeamCode gets PlannedRouteCheck.java');assert.equal(out.check.opMode,'org.firstinspires.ftc.teamcode.PlannedRouteCheck');
   assert.match(check,/@TeleOp\(name = "Hardware check \(Deck\)", group = "Deck Driver Station"\)/);
   assert.match(check,/DRIVE = new String\[\] \{"front_left", "front_right", "back_left", "back_right"\};\n\s+private static final boolean\[\] DRIVE_REVERSED = \{true, false, true, false\};/);
   assert.match(check,/hardwareMap\.tryGet\(DcMotorEx\.class, DRIVE\[i\]\)/,'a missing drive motor is reported, not a crash');
-  assert.match(check,/mech\.intake\(intaking\)/);assert.match(check,/mech\.feed\(feeding\)/);assert.match(check,/mech\.turnTurrets\(30\)/);assert.match(check,/Servo\[\] servos = mech\.servos\(\);/);
-  assert.doesNotMatch(check,/Top speed/,'no encoder on the flywheel: no top-speed measurement');
+  // Every device by its Mechanisms constant, so the check uses what the autonomous uses.
+  assert.match(check,/DcMotorSimple intake1 = hardwareMap\.tryGet\(DcMotorSimple\.class, Mechanisms\.INTAKE_1\);/);
+  assert.match(check,/position\(feeder1, Mechanisms\.FEEDER_1_REST, "Move the pusher to REST/);assert.match(check,/position\(turret1, Mechanisms\.TURRET_SERVO_CENTER,/);
+  assert.match(check,/mech\.intake\(intaking\)/,'after the last step the mechanisms can be tried');
+  assert.doesNotMatch(check,/topSpeed\(/,'no encoder on the flywheel: no top-speed measurement');
   const v=exportFor(Mech.sanitize({enabled:true,...VARIANTS.rollers})).files[dir+'PlannedRouteCheck.java'];assert.match(v,/double f = 32767 \/ top, p = 0\.1 \* f, i = 0\.1 \* p;/);
+  assert.match(v,/turnTo\(turret1, 20 \* Mechanisms\.TURRET_TICKS_PER_DEGREE,/);assert.match(v,/result\("turret\.ticksPerDegree"/);assert.match(v,/result\("intakes\.0\.reversed2", "\?missing"\)/);
   // OnBot Java: the check is its own file and uses the autonomous file's Mechanisms.
   const one=exportFor(m,'onBotJava');assert.deepEqual(Object.keys(one.files),[dir+'PlannedRouteAuto.java',dir+'PlannedRouteCheck.java']);
-  assert.match(one.check.source,/PlannedRouteAuto\.Mechanisms mech = new PlannedRouteAuto\.Mechanisms\(\);/);assert.doesNotMatch(one.source,/class PlannedRouteCheck/);
-  // Without mechanisms the check still tests the drive.
-  const plain=exportFor(Mech.sanitize({})).files[dir+'PlannedRouteCheck.java'];assert.match(plain,/each drive wheel in turn/);assert.doesNotMatch(plain,/Mechanisms/);
+  assert.match(one.check.source,/PlannedRouteAuto\.Mechanisms mech = new PlannedRouteAuto\.Mechanisms\(\);/);assert.match(one.check.source,/hardwareMap\.tryGet\(DcMotorSimple\.class, PlannedRouteAuto\.Mechanisms\.INTAKE_1\)/);assert.doesNotMatch(one.source,/class PlannedRouteCheck/);
+  // Without mechanisms the check still tests the IMU and the drive.
+  const plain=exportFor(Mech.sanitize({})).files[dir+'PlannedRouteCheck.java'];assert.match(plain,/private static final int STEPS = 5;/);assert.doesNotMatch(plain,/Mechanisms|intake/);
   // Pedro: the same check beside the Pedro OpMode.
   const route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5}),pedro=Pedro.files({route,layout:{name:'Hardware',start,zones:[]},setupName:'Hardware test',robot,mechanisms:m,target,defaultPower:.8,hardware:F.hardware(robot,'fused')});
   assert.match(pedro.files[dir+'PlannedRouteCheck.java'],/Mechanisms mech = new Mechanisms\(\);/);

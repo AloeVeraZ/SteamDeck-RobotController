@@ -58,6 +58,21 @@ Done and committed (`examples/lunala-red-auto.json` plus exports in `examples/lu
 - **Testing Send to robot without a robot:** run `node tools/ftc-sim.cjs 127.0.0.2 --onbot`. In the app, the station must bind 127.0.0.1 to reach 127.0.0.2 (the E2E patches `FtcSocket.prototype.open` for that), and the robot has to be saved as an FTC robot to appear in the list.
 - **Another session works in this folder.** It committed `a7dfa9b` (run videos) on `testing` during this work. Stage only your own files.
 
+## One-button setup, phase 2
+
+- **Saving a configuration.** `CMD_SAVE_CONFIGURATION` is split at every `;` by the robot, so the XML may not contain one (an `&amp;` in a name counts). The robot overwrites a configuration of the same name, so `writeConfiguration` refuses any existing name, ignoring case.
+- **Hubs are keyed by portal plus address.** The portal is the USB serial, `(embedded)` for a Control Hub. A device's ports come from its tag:
+  - motor tags take motor ports;
+  - `@ServoType` tags (Servo, ContinuousRotationServo, RevBlinkinLedDriver, RevSPARKMini) take servo ports;
+  - digital and analog tags take none;
+  - an unknown tag blocks both a motor and a servo port.
+- **The check's results protocol** is `v1 key=value ...`. Values are absolute settings (`robot.frontRight.reversed=true`, `intakes.0.downPos=0.150`, `turret.servoDegrees=272.7`, `shooter.pidf=p,i,0,f`), and a value starting with `?` is a problem. Numbers are written with `Locale.US`.
+  - The keys come from `mechanismDevices` settings (`list.index.field`).
+  - `applyCheck` ignores keys for devices the setup does not have.
+- **Testing the check:** `tests/sim-guided-check.test.cjs` runs the real check TeleOp on the virtual hub. Its `operate()` presses buttons for 3 ticks and reads `e.hubDevices`. If a step's wording changes, update the operator's patterns (`A: yes | B: no`, `D-pad up/down: move`, `D-pad left/right: turn 1 degree`).
+- **`tests/robot-setup-app.cjs`** is the app test for Send to robot and the Guided check (about 1 minute). It uses robot 127.0.0.6, station 127.0.0.7 and CDP port 9337, so it can run beside the other app tests.
+- **The SimTelemetry value limit** was raised to 4000 characters, because a results line is longer than the old 200.
+
 ## Next steps
 
 AGENT_BACKLOG.md is in priority order.

@@ -134,10 +134,13 @@ downloads: physics, the path follower and the Java runtime it needs ship inside 
   3** TeamCode for a Pedro Quickstart project, or a MotionModule `autonomous.py`, plus a `.pp` path file
   or timed commands (a `.pp` from the Pedro Pathing visualizer can be imported too). Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
   Pathing 3.0.2) by the project's checks, and each export lists what still needs your robot: hardware
-  names, tuning and a real test. Control Hub exports come with a check TeleOp that tests every drive
-  motor and mechanism device on the robot. **Send to robot** checks the device names against the
-  Control Hub's own configuration (and can use its names), then uploads and builds the OnBot Java over
-  Wi-Fi. Open a log from your real robot to compare where it drove with the plan.
+  names, tuning and a real test. Control Hub exports come with a guided check TeleOp that turns each
+  drive motor and mechanism device on the robot and asks what it did. **Send to robot** checks the
+  device names against the Control Hub's own configuration (and can use its names), adds any missing
+  device to a new configuration with the port to plug it into, uploads and builds the OnBot Java over
+  Wi-Fi, and runs the guided check from the app, putting its answers (directions, servo positions,
+  turret calibration, flywheel PIDF) into the setup. Open a log from your real robot to compare where
+  it drove with the plan.
 - Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export, compare a robot log) and have the
   result open in the app on Run & review.
 

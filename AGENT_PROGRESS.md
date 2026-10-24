@@ -108,6 +108,23 @@ The user asked how Intake, Spin up and Shoot reach real motors and servos, wheth
   - `tools/ftc-sim.cjs` answers the configuration commands and `--onbot` serves OnBot Java.
 - **Exports:** OnBot Java is now the autonomous plus its check file (app save, deck-sim and Send to robot). The examples were regenerated.
 
+### One-button setup, phase 2 (24 October, evening)
+
+The user's goal: plug into the Control Hub, press one button, and everything for the autonomous is set up. Phase 2 of `docs/MECHANISM_ACTIONS.md`:
+
+- **Configurations for missing devices** (`ui/ftc/robot-config.js`, `src/robot-link.cjs`).
+  - Send to robot scans the hubs (`CMD_SCAN`, `CMD_DISCOVER_LYNX_MODULES`, formats read from the SDK's `ScannedDevices$MapAdapter` and `LynxModuleMetaList`) and plans a port for each device the robot lacks. The plan is shown as a list where ports swap and motor types are picked.
+  - The result is a copy of the active configuration with the lines added, or a whole new configuration from the scan.
+  - It is saved with `CMD_SAVE_CONFIGURATION` under a new name, read back, and the robot restarts. A name the robot has is refused, because the SDK overwrites it.
+- **One flow.** "Send to robot…" checks, scans and shows one summary. "Save and send" applies the picked names, saves the configuration, uploads and builds, and keeps the wiring list on screen.
+- **Drive preselect.** After a build, `robot-link select` remembers the autonomous. `ftc-info` hands it to `ds.js` once, which selects it when the robot lists it.
+- **The guided check** replaces the hold-a-button check TeleOp (`checkOpMode` in `ui/sim-ftc.js`).
+  - Steps: the IMU, each drive wheel, each roller, each flywheel motor, top speed and PIDF, each feeder, turret direction and calibration, and servo positions.
+  - Every answer is an absolute Deck setting on a "Deck results" telemetry line, which `checkResults` and `applyCheck` read back.
+  - It runs from the Send panel (`runCheck`: INIT, START, button presses, STOP, and Controller 1 passed through), and from any Driver Station.
+- **Virtual hub:** gamepad input for team code (`SimEngine.setGamepad`) and a per-device readout of what each device physically does (`hubDevices`), so a scripted operator can answer the check as a person would.
+- **Simulated hub** (`tools/ftc-sim.cjs`): Scan, discovery, Save, Activate, op modes from what OnBot Java built (`listBuilt`), `--empty`, and `CheckScript`, a stand-in for the check TeleOp.
+
 ### Bugs fixed
 
 - Run-folder collision between engines (compile errors in tests and in background test drives).
