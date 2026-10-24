@@ -147,10 +147,10 @@ function describeMechanisms(m,l){
   if(!m.enabled)return 'Mechanisms: off (the robot pushes pieces but cannot carry or shoot). Turn on: deck-sim mech <setup> --on';
   const s=m.shooter,t=Mech.target(m,l.field,l.alliance),cap=m.capacity;
   return [`Mechanisms: on · ${l.alliance||'red'} alliance · holds ${cap.pollen} pollen${cap.nectar?` + ${cap.nectar} nectar`:''} · preloads ${m.preload.pollen} pollen`,
-    ...(m.intakes.length?m.intakes.map((i,n)=>`  Intake ${n+1}: ${Mech.INTAKES[i.kind]} on the ${i.sides.join(' + ')}${i.kind==='kicker'?'':` · motor "${i.motor}" at ${i.power}`}${Mech.deploys(i.kind)?` · servo "${i.servo}" (down in ${i.down} s, up in ${i.up} s)`:''}`):['  Intake: none (shoots its preloads)']),
-    ...(m.shooters.length?m.shooters.map((x,n)=>`  Shooter ${n+1}: ${x.sharesTurret?"on shooter 1's turret":x.type==='turret'?'turret':`fixed, firing ${x.facing}`} at ${Mech.MOUNTS[x.mount].toLowerCase()} · ${Mech.PIECES[x.pieces].toLowerCase()} · flywheel "${x.motor}" · ${Mech.INDEXERS[x.indexerKind].toLowerCase()} indexer "${x.indexer}"${x.type==='turret'&&!x.sharesTurret?` · turret motor "${x.turretMotor}"`:''}`):['  Shooter: none']),
-    m.shooters.length?`  Timing: ${s.rpm} RPM flywheels · spin-up ${s.spinUp} s · transfer ${m.transfer.seconds} s · indexing ${m.indexer.seconds} s`:'',
-    Mech.hasTurret(m)?`  Turrets: ${m.turret.speed}°/s · ${m.turret.min}° to ${m.turret.max}° · ${m.turret.ticksPerDegree} ticks/°`:'',
+    ...(m.intakes.length?m.intakes.map((i,n)=>`  Intake ${n+1}: ${Mech.INTAKES[i.kind]} on the ${i.sides.join(' + ')}${i.kind==='kicker'?'':` · ${i.device==='crservo'?'continuous servo':'motor'} "${i.motor}"${i.reversed?' (reversed)':''}${i.motor2?` + "${i.motor2}"${i.reversed2?' (reversed)':''}`:''} at ${i.power}`}${Mech.deploys(i.kind)?` · servo "${i.servo}" (down in ${i.down} s, up in ${i.up} s)`:''}`):['  Intake: none (shoots its preloads)']),
+    ...(m.shooters.length?m.shooters.map((x,n)=>`  Shooter ${n+1}: ${x.sharesTurret?"on shooter 1's turret":x.type==='turret'?'turret':`fixed, firing ${x.facing}`} at ${Mech.MOUNTS[x.mount].toLowerCase()} · ${Mech.PIECES[x.pieces].toLowerCase()} · flywheel "${x.motor}"${x.reversed?' (reversed)':''}${x.motor2?` + "${x.motor2}"${x.reversed2?' (reversed)':''}`:''} · ${Mech.INDEXERS[x.indexerKind].toLowerCase()} feeder "${x.indexer}"${Mech.servoFeeder(x.indexerKind)?` (feed ${x.feedPos}, rest ${x.restPos})`:x.indexerReversed?' (reversed)':''}${x.type==='turret'&&!x.sharesTurret?` · turret ${m.turret.kind} "${x.turretMotor}"${x.turretReversed?' (reversed)':''}`:''}`):['  Shooter: none']),
+    m.shooters.length?`  Timing: ${s.control==='power'?`flywheels at power ${s.power} (no encoder)`:`${s.rpm} RPM flywheels, at speed within ${round(s.tolerance*100,1)}%${s.pidf?`, PIDF ${s.pidf.p}/${s.pidf.i}/${s.pidf.d}/${s.pidf.f}`:''}`} · spin-up ${s.spinUp} s · transfer ${m.transfer.seconds} s · indexing ${m.indexer.seconds} s${m.shooters.some(x=>x.indexerKind==='pusher')?` · push ${m.indexer.pushSeconds} s`:''}`:'',
+    Mech.hasTurret(m)?`  Turrets: ${m.turret.speed}°/s · ${m.turret.min}° to ${m.turret.max}° · ${m.turret.kind==='servo'?`servo facing forward at ${m.turret.servoCenter}, ${m.turret.servoDegrees}° from 0 to 1`:`${m.turret.ticksPerDegree} ticks/°`}`:'',
     m.shooters.length?`  Aims at (${round(t.x)}, ${round(t.y)})${m.target?'':' (own hive up cell)'}`:''].filter(Boolean).join('\n');
 }
 function describe(setup,l,route){
@@ -179,7 +179,8 @@ function pedroForSim(setup,l,route,info){
 function exported(setup,l,route,info,format){
   const lay=layoutFor(l),names=javaNames(setup),routeJava=()=>X.java(route,lay,{...names,polygon:P.polygon}),team=onbot=>teamCode(setup,l,route,info,onbot);
   const timing={...info.timing,power:power(setup)};
-  if(format==='onbot'){const out=team(true);return {files:{[out.name]:out.source}};}
+  // OnBot Java: the autonomous and its check TeleOp (which tests each device on the robot first).
+  if(format==='onbot'){const out=team(true);return {files:{[out.name]:out.source,[out.check.name]:out.check.source},note:`Upload both files to OnBot Java. Run ${out.check.name.replace(/\.java$/,'')} (TeleOp) first to test each device.`};}
   if(format==='teamcode'){const out=team(false);return {files:out.files,note:`OpMode ${out.opMode}. Mechanism code goes in RobotActions.java.`};}
   if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardwareIfSupported(info.robot,setup.sensors?.localization),tuning:info.tuning});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
   if(format==='java')return {files:{[`${names.className}.java`]:routeJava()}};
@@ -232,6 +233,8 @@ Fields and setups
   robot <setup.json> [--cad robot.step [--units mm] [--up z|y] [--front +x] [--top +z]]
                      [--length L --width W --height H --drivetrain D --rpm R]
                      [--hub-logo up --hub-usb forward]   how the Control Hub is mounted (for its IMU)
+                     [--names frontLeft=leftFront,imu=imu]   the robot's names for drive motors and sensors (keys: ${C.DEVICE_KEYS.join(', ')})
+                     [--reversed frontLeft=off,frontRight=on]   drive motors that turn the other way (Deck reverses the left side)
   start <setup.json> <x> <y> <heading>     Starting pose (checked against walls and field parts)
   alliance <setup.json> red|blue [--keep]  BIOBUZZ alliance: which hive shots aim at and score for; moves the
                                            route to that side (turned 180° about the centre) unless --keep
@@ -247,6 +250,12 @@ Mechanisms (BIOBUZZ parts: intakes, shooters, storage, preloads)
        [--pollen 4] [--nectar 0] [--preload 4]   how many of each piece it holds (4 together at most), pollen it starts with
        [--index-seconds 0.35] [--rpm 3000] [--ticks-per-rev 28] [--spin-up 0.8] [--shot-gap 0.3] [--hood 75]
        [--turret-speed 240] [--turret-min -170] [--turret-max 170] [--turret-ticks-per-degree 4.6] [--target x,y|auto]
+     Robot hardware (first intake and shooter):
+       [--intake-device motor|crservo] [--intake-reversed on|off] [--intake-second NAME|none] [--intake-second-reversed on|off]
+       [--flywheel-reversed on|off] [--flywheel-second NAME|none] [--flywheel-second-reversed on|off]
+       [--indexer motor|crservo|pusher|gate] [--indexer-reversed on|off] [--feed-pos 1] [--rest-pos 0] [--push-seconds 0.15]
+       [--flywheel-control velocity|power] [--flywheel-power 1] [--at-speed 5 (percent)] [--pidf p,i,d,f|default]
+       [--turret-kind motor|servo] [--turret-servo-center 0.5] [--turret-servo-degrees 300] [--turret-reversed on|off]
   Two shooters: the first takes pollen and the second nectar; they spin, aim and feed together.
   A ramp intake is rollers on a ramp a servo folds down while Intake runs; only a ramp that is down picks up, and it reaches flower pollen.
   Route actions the mechanisms run: Intake, Spin up, Aim, Shoot (once per storage slot) or Shoot N.
@@ -321,6 +330,20 @@ async function main(argv){
       if(f.shooter==='none')m.shooters=[];else if(typeof f.shooter==='string'){oneOf('shooter',f.shooter,Mech.SHOOTERS);if(!m.shooters.length)m.shooters.push({});m.shooters[0].type=f.shooter;}
       if(typeof f.mount==='string')m.shooters[0]&&(m.shooters[0].mount=oneOf('mount',f.mount,Mech.MOUNTS));if(typeof f.facing==='string')m.shooters[0]&&(m.shooters[0].facing=oneOf('facing',f.facing,Mech.FACING));if(typeof f.pieces==='string')m.shooters[0]&&(m.shooters[0].pieces=oneOf('pieces',f.pieces,Mech.PIECES));
       set(m.shooters[0],'motor','shooter-motor');set(m.shooters[0],'indexer','indexer-name');set(m.shooters[0],'turretMotor','turret-motor');if(typeof f.indexer==='string'&&m.shooters[0])m.shooters[0].indexerKind=oneOf('indexer',f.indexer,Mech.INDEXERS);
+      // Robot hardware for the first intake and shooter: what each runs on, second motors, which way each turns,
+      // servo feeder positions, how the flywheels hold their speed and what the turret turns on.
+      const onOff=flag=>{const v=f[flag];if(v===true||v==='on')return true;if(v==='off')return false;throw Error(`--${flag} is on or off.`);},second=v=>v==='none'?'':String(v);
+      if(typeof f['intake-device']==='string'&&m.intakes[0])m.intakes[0].device=oneOf('intake-device',f['intake-device'],Mech.ROLLERS);
+      if(f['intake-second']!==undefined&&m.intakes[0])m.intakes[0].motor2=second(f['intake-second']);
+      for(const [flag,key] of [['intake-reversed','reversed'],['intake-second-reversed','reversed2']])if(f[flag]!==undefined&&m.intakes[0])m.intakes[0][key]=onOff(flag);
+      if(f['flywheel-second']!==undefined&&m.shooters[0])m.shooters[0].motor2=second(f['flywheel-second']);
+      for(const [flag,key] of [['flywheel-reversed','reversed'],['flywheel-second-reversed','reversed2'],['indexer-reversed','indexerReversed'],['turret-reversed','turretReversed']])if(f[flag]!==undefined&&m.shooters[0])m.shooters[0][key]=onOff(flag);
+      set(m.shooters[0],'feedPos','feed-pos',v=>num(v,'--feed-pos'));set(m.shooters[0],'restPos','rest-pos',v=>num(v,'--rest-pos'));set(m.indexer,'pushSeconds','push-seconds',v=>num(v,'--push-seconds'));
+      if(typeof f['flywheel-control']==='string')m.shooter.control=oneOf('flywheel-control',f['flywheel-control'],Mech.FLYWHEELS);
+      set(m.shooter,'power','flywheel-power',v=>num(v,'--flywheel-power'));set(m.shooter,'tolerance','at-speed',v=>num(v,'--at-speed')/100);
+      if(f.pidf==='default')delete m.shooter.pidf;else if(typeof f.pidf==='string'){const [p,i,d,ff]=f.pidf.split(',').map(v=>num(v,'--pidf'));if(![p,i,d,ff].every(finite))throw Error('--pidf is four numbers p,i,d,f (or default).');m.shooter.pidf={p,i,d,f:ff};}
+      if(typeof f['turret-kind']==='string')m.turret.kind=oneOf('turret-kind',f['turret-kind'],Mech.TURRETS);
+      set(m.turret,'servoCenter','turret-servo-center',v=>num(v,'--turret-servo-center'));set(m.turret,'servoDegrees','turret-servo-degrees',v=>num(v,'--turret-servo-degrees'));
       // Storage: --pollen and --nectar capacity (--storage is the pollen capacity), --preload pollen.
       set(m.capacity,'pollen','pollen',v=>num(v,'--pollen'));set(m.capacity,'pollen','storage',v=>num(v,'--storage'));set(m.capacity,'nectar','nectar',v=>num(v,'--nectar'));set(m.preload,'pollen','preload',v=>num(v,'--preload'));
       set(m.indexer,'seconds','index-seconds',v=>num(v,'--index-seconds'));set(m.indexer,'power','indexer-power',v=>num(v,'--indexer-power'));
@@ -336,9 +359,16 @@ async function main(argv){
       // Control Hub mounting for its IMU: --hub-logo and --hub-usb, each up, down, forward, backward, left or right.
       for(const [flag,key] of [['hub-logo','hubLogo'],['hub-usb','hubUsb']])if(flags[flag]!==undefined){const v=String(flags[flag]).toLowerCase();if(!C.HUB.includes(v))throw Error(`--${flag} is one of: ${C.HUB.join(', ')}.`);setup.robot[key]=v;}
       if((flags['hub-logo']!==undefined||flags['hub-usb']!==undefined)&&C.hubMounting(setup.robot).hubUsb!==(setup.robot.hubUsb||'forward'))throw Error('The Control Hub logo and USB ports cannot face along the same axis (for example up and down).');
+      // The robot's own device names (--names frontLeft=leftFront,imu=imu) and drive motors that turn the other way (--reversed frontRight=on).
+      const pairs=(flag,check)=>String(flags[flag]).split(',').filter(Boolean).map(entry=>{const [key,value]=entry.split('=').map(v=>v?.trim());if(!C.DEVICE_KEYS.includes(key))throw Error(`--${flag} keys are ${C.DEVICE_KEYS.join(', ')}.`);check(key,value);return [key,value];});
+      if(flags.names!==undefined||flags.reversed!==undefined){const devices={...(setup.robot.devices||{})},entry=key=>devices[key]={...(devices[key]||{})};
+        if(flags.names!==undefined)for(const [key,value] of pairs('names',(k,v)=>{if(!C.deviceName(v||''))throw Error(`--names ${k}= needs a name of letters, digits, spaces, _ . or -.`);}))entry(key).name=value;
+        if(flags.reversed!==undefined)for(const [key,value] of pairs('reversed',(k,v)=>{if(!C.DEVICE_KEYS.slice(0,6).includes(k)||!['on','off'].includes(v))throw Error('--reversed takes drive motors (frontLeft, frontRight, backLeft, backRight, left, right) with on or off.');}))entry(key).reversed=value==='on';
+        setup.robot.devices=devices;}
       let cadFound=[];if(flags.cad){const box=await cadBox(path.resolve(flags.cad),flags);Object.assign(setup.robot,pickSize(box,flags));setup.deckCli={...setup.deckCli,model:cadRef(flags)};cadFound=setUpFromCad(setup,box,setup.deckCli.model);}
       else Object.assign(setup.robot,pickSize({},flags));
-      return changed(setup,`Robot: ${setup.robot.drivetrain} ${setup.robot.length} x ${setup.robot.width} x ${setup.robot.heightIn} in${setup.deckCli?.model?` from ${path.basename(setup.deckCli.model.file)}`:''}.${cadFound.length?`
+      const own=C.devices(setup.robot.devices),named=Object.entries(own).map(([k,v])=>`${k}${v.name?` "${v.name}"`:''}${v.reversed!==undefined?` ${v.reversed?'reversed':'forward'}`:''}`);
+      return changed(setup,`Robot: ${setup.robot.drivetrain} ${setup.robot.length} x ${setup.robot.width} x ${setup.robot.heightIn} in${setup.deckCli?.model?` from ${path.basename(setup.deckCli.model.file)}`:''}.${named.length?` Names on the robot: ${named.join(', ')}.`:''}${cadFound.length?`
 From the CAD assembly names: ${cadFound.join('; ')}.`:''}`);}
     case'start':{const setup=readSetup(file),l=layoutOf(setup),[x,y,heading]=rest.map((v,i)=>num(v,['x','y','heading'][i]));const {e,info}=await load(setup,{...l,start:{x,y,heading}});
       try{if(!P.safePose({x,y,heading},info.fieldZones,info.footprint,info.bounds))throw Error(`The robot overlaps a wall or field part at (${x}, ${y}). Field bounds ${JSON.stringify(info.bounds)}; robot reaches ${info.footprint.front} in forward, ${info.footprint.rear} back, ${info.footprint.half} to each side.`);}finally{e.dispose();}
@@ -392,9 +422,10 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
         return changed(setup,`Fastest safe shape: ${chosen.label.toLowerCase()} in ${round(chosen.time)} s (${rows.length} tested). Saved to ${file}.`);}finally{e.dispose();}}
     case'export':{const setup=readSetup(file),format=flags.format||'onbot',out=flags.out;if(!out||out===true)throw Error('Give --out <file or folder>.');const {e,info,l}=await load(setup);
       try{const route=planRoute(setup,l,info),{files,note}=exported(setup,l,route,info,format),names=Object.keys(files);
-        // A path ending in a slash, without an extension, or already a folder receives the files by name.
-        const folder=names.length>1||format==='teamcode'||format==='pedro'||/[\\/]$/.test(out)||!path.extname(out)||fs.existsSync(out)&&fs.statSync(out).isDirectory();
-        for(const [rel,text] of Object.entries(files)){const target=folder?path.resolve(out,rel):path.resolve(out);if(folder&&!target.startsWith(path.resolve(out)+path.sep))throw Error('Invalid export path.');fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
+        // A path ending in a slash, without an extension, or already a folder receives the files by name. A file path receives
+        // the first file, and any others go beside it by name (OnBot Java's check TeleOp, MotionModule's robot_actions.py).
+        const folder=format==='teamcode'||format==='pedro'||/[\\/]$/.test(out)||!path.extname(out)||fs.existsSync(out)&&fs.statSync(out).isDirectory();
+        for(const [i,[rel,text]] of Object.entries(files).entries()){const target=folder?path.resolve(out,rel):i===0?path.resolve(out):path.resolve(path.dirname(out),path.basename(rel));if(folder&&!target.startsWith(path.resolve(out)+path.sep))throw Error('Invalid export path.');fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
         say(`Wrote ${names.length} file${names.length>1?'s':''} to ${path.resolve(out)}${note?`. ${note}`:''}`);if(flags.show)say(show(file,setup,flags));return;}finally{e.dispose();}}
     case'import-pp':{const pp=rest[0];if(!pp)throw Error('Use: import-pp <setup.json> <file.pp>.');
       const setup=readSetup(file),l=layoutOf(setup),{e,info}=await load(setup);let r;try{r=X.fromPP(fs.readFileSync(pp,'utf8'),{field:l.field,bounds:info.bounds,robot:{length:info.footprint.front+info.footprint.rear,width:2*info.footprint.half}});}finally{e.dispose();}

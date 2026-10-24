@@ -56,13 +56,17 @@ test('the Control Hub export runs the mechanisms itself; RobotActions keeps only
   const m=on({intake:{motor:'roller'},indexer:{kind:'crservo',name:'feeder'},shooter:{rpm:4200,ticksPerRev:28},turret:{ticksPerDegree:3}}),layout={name:'Mech test',start,zones:[]},route=P.plan({start,zones:[],pins:[...pins,{x:30,y:40,action:'Park'}],clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5});
   const out=F.files({route,layout,tuning:{},robot,localization:'fused',mechanisms:m,target:{x:59.25,y:58.56},routeJava:X.java(route,layout,{polygon:P.polygon})}),dir='org/firstinspires/ftc/teamcode/';
   const mech=out.files[dir+'Mechanisms.java'],route_=out.files[dir+'RouteActions.java'],team=out.files[dir+'RobotActions.java'];
-  assert.match(mech,/INTAKE_MOTORS = \{"roller"\}/);assert.match(mech,/FLYWHEEL_MOTORS = \{"shooter"\}, INDEXERS = \{"feeder"\}/);assert.match(mech,/TURRET_MOTORS = \{"turret"\}/);assert.match(mech,/FLYWHEEL_TICKS_PER_SECOND = 1960\.0/);assert.match(mech,/TURRET_TICKS_PER_DEGREE = 3\.0/);assert.match(mech,/flywheel\.setVelocity/);
+  assert.match(mech,/INTAKE_1 = "roller";/);assert.match(mech,/FLYWHEEL_1 = "shooter";/);assert.match(mech,/FEEDER_1 = "feeder";/);assert.match(mech,/TURRET_1 = "turret";/);assert.match(mech,/FLYWHEEL_TICKS_PER_SECOND = 1960\.0/);assert.match(mech,/TURRET_TICKS_PER_DEGREE = 3\.0/);assert.match(mech,/flywheel1\.setVelocity\(speed\)/);
+  // Rollers and roller feeders are DcMotorSimple, so the code runs whether the robot has a motor or a continuous servo there.
+  assert.match(mech,/feeder1 = map\.get\(DcMotorSimple\.class, FEEDER_1\);\n\s+feeder1\.setDirection\(direction\(FEEDER_1_REVERSED\)\)/);assert.match(mech,/intake1 = map\.get\(DcMotorSimple\.class, INTAKE_1\)/);
   assert.match(route_,/public boolean shoot\(Step step\) \{\n\s+return mech\.shoot\(0, step\);/);assert.match(route_,/mech\.intake\(!done\)/);assert.match(route_,/mech\.init\(hardwareMap\)/);
-  assert.match(team,/public boolean park\(Step step\)/);assert.doesNotMatch(team,/public boolean shoot\(|public boolean intake\(|spinUp\(/);assert.match(team,/super\.stop\(\)/);
-  assert.deepEqual(out.hardware.mechanisms,{intakes:['roller'],shooters:[{flywheel:{name:'shooter',ticksPerSecond:1960},indexer:{name:'feeder',kind:'crservo'},turret:{name:'turret',ticksPerDegree:3}}]});
+  assert.match(team,/public boolean park\(Step step\)/);assert.doesNotMatch(team,/^\s*public boolean (shoot|intake|spinUp)\(/m,'built-in actions are not team methods');assert.match(team,/super\.stop\(\)/);
+  assert.match(team,/\/\/ +@Override\n\s+\/\/ +public boolean shoot\(Step step\) \{/,'the team file shows how to override a built-in action');
+  assert.deepEqual(out.hardware.mechanisms,{intakes:[{name:'roller',kind:'motor',mount:1,part:0}],shooters:[{flywheels:[{name:'shooter',mount:1}],ticksPerSecond:1960,indexer:{name:'feeder',kind:'crservo',mount:1},turret:{name:'turret',kind:'motor',ticksPerDegree:3,mount:1}}]});
   // Two intakes and two shooters: one device list each; a fixed shooter has no turret motor.
   const both=F.files({route,layout,tuning:{},robot,localization:'fused',mechanisms:on({intakes:[{sides:['front']},{sides:['back']}],shooters:[{type:'turret'},{type:'fixed',pieces:'nectar',mount:'back'}],capacity:{pollen:2,nectar:2}}),target:{x:59.25,y:58.56},routeJava:X.java(route,layout,{polygon:P.polygon})}).files[dir+'Mechanisms.java'];
-  assert.match(both,/INTAKE_MOTORS = \{"intake", "intake2"\}/);assert.match(both,/FLYWHEEL_MOTORS = \{"shooter", "shooter2"\}, INDEXERS = \{"indexer", "indexer2"\}/);assert.match(both,/TURRET_MOTORS = \{"turret", null\}/);assert.match(both,/Shooter 2 \(nectar\): fixed at the back, firing toward the front/);
+  assert.match(both,/INTAKE_1 = "intake";[\s\S]*INTAKE_2 = "intake2";/);assert.match(both,/FLYWHEEL_1 = "shooter";[\s\S]*FLYWHEEL_2 = "shooter2";/);assert.match(both,/FEEDER_1 = "indexer";[\s\S]*FEEDER_2 = "indexer2";/);
+  assert.match(both,/TURRET_1 = "turret";/);assert.doesNotMatch(both,/TURRET_2 =/,'a fixed shooter has no turret motor');assert.match(both,/Shooter 2 \(nectar\): fixed at the back, firing toward the front/);
   const one=F.onBotJava({route,layout,tuning:{},robot,localization:'fused',mechanisms:m,target:{x:59.25,y:58.56},routeJava:X.java(route,layout,{polygon:P.polygon})});
   assert.match(one.source,/public static class Mechanisms \{/);assert.match(one.source,/DeckFollower\.Pose pose/);assert.doesNotMatch(one.source,/^import deck\./m);
   // Without mechanisms the export is unchanged: no Mechanisms file, placeholder slots.
@@ -72,7 +76,7 @@ test('the Control Hub export runs the mechanisms itself; RobotActions keeps only
 test('the MotionModule export runs the mechanisms on its own outputs and aims the turret from the plan',()=>{
   const m=on(),route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5}),timing=Timed.settings({}),source=MM.autonomous(route,timing,{name:'Mech',mechanisms:m,target:{x:59.25,y:58.56}}),actions=MM.actionsFile(route,{name:'Mech',mechanisms:m});
   assert.match(source,/^class Mechanisms:/m);assert.match(source,/BUILT_IN = \{"spin_up", "shoot", "intake"\}/);assert.match(source,/return MECHANISMS\.run\("shoot", 0, step\)/);assert.match(source,/^AIMS = \{\d+: /m);
-  assert.doesNotMatch(actions,/def shoot\(|def intake\(/);assert.deepEqual(MM.mechanismHardware(m),{intakes:[5],shooters:[{indexer:{channel:6,servo:false},flywheel:7,turret:{servo:0,center:90,perDegree:1}}]});
+  assert.doesNotMatch(actions,/def shoot\(|def intake\(/);assert.deepEqual(MM.mechanismHardware(m),{intakes:[{channel:5,servo:false,mount:1,part:0}],shooters:[{indexer:{channel:6,servo:false,mount:1},flywheels:[{channel:7,mount:1}],turret:{servo:0,center:90,perDegree:1,mount:1}}]});
   // MotionModule has four free motor channels (5-8): a fifth mechanism motor is called out in the code.
   const big=on({intakes:[{sides:['front']},{sides:['back']}],shooters:[{type:'turret'},{type:'fixed',pieces:'nectar',mount:'back'}],capacity:{pollen:2,nectar:2}});
   assert.equal(MM.motorsOver(big),2);assert.match(MM.autonomous(route,timing,{name:'Big',mechanisms:big,target:{x:59.25,y:58.56}}),/need 2 more/);
@@ -157,7 +161,7 @@ test('a shooter with no intake: no Intake action, and the robot code has no inta
   const r=new Mech.Runner(m);assert.equal(r.commands({name:'Intake',leg:0,moving:true},new Mech.Model(m).state(),0).cmd.intake,false);
   const route=P.plan({start,zones:[],pins:[{x:30,y:30,action:'Shoot'}],clearance:2},{front:8.5,rear:8.5,half:8.5}),layout={name:'No intake',start,zones:[]};
   const out=F.files({route,layout,tuning:{},robot,localization:'fused',mechanisms:m,target:{x:59,y:58},routeJava:X.java(route,layout,{polygon:P.polygon})}),mech=out.files['org/firstinspires/ftc/teamcode/Mechanisms.java'];
-  assert.match(mech,/INTAKE_MOTORS = \{\};/);assert.equal(out.hardware.mechanisms.intakes,undefined);
+  assert.doesNotMatch(mech,/INTAKE_1 =|intake1/);assert.equal(out.hardware.mechanisms.intakes,undefined);
   assert.equal(MM.mechanismHardware(m).intakes,undefined);assert.match(MM.autonomous(route,Timed.settings({}),{mechanisms:m,target:{x:59,y:58}}),/INTAKES = \[\]/);
 });
 test('an all-around intake catches pieces with any edge; a front intake only with its front',{skip:!built&&'run node tools/simulation/build.cjs first'},async()=>{
@@ -305,10 +309,10 @@ test('a deployable ramp is a sweeper on a servo: it picks up only once folded do
   // The physics' kind is the first intake that reaches into flowers: a sweeper first does not hide a ramp.
   assert.equal(Mech.flowerKind(on({intakes:[{sides:['front']},{kind:'ramp',sides:['back']}]})),'ramp');assert.equal(Mech.flowerKind(on()),'sweeper');
   // Exports fold the ramp with its servo and run its rollers as an intake motor.
-  const hw=F.mechanismHardware(m);assert.deepEqual([hw.intakes,hw.ramps],[['rollers'],[{name:'rampServo',down:0,up:1}]]);
+  const hw=F.mechanismHardware(m);assert.deepEqual([hw.intakes,hw.ramps],[[{name:'rollers',kind:'motor',mount:1,part:0}],[{name:'rampServo',down:0,up:1}]]);
   const layout={name:'Ramp',start,zones:[]},route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5});
   const java=F.files({route,layout,tuning:{},robot,localization:'fused',mechanisms:m,target:{x:59.25,y:58.56},routeJava:X.java(route,layout,{polygon:P.polygon})}).files['org/firstinspires/ftc/teamcode/Mechanisms.java'];
-  assert.match(java,/INTAKE_MOTORS = \{"rollers"\}/);assert.match(java,/RAMP_SERVOS = \{"rampServo"\}/);assert.match(java,/ramps\[i\]\.setPosition\(on \? RAMP_DOWN\[i\] : RAMP_UP\[i\]\)/);
+  assert.match(java,/INTAKE_1 = "rollers";/);assert.match(java,/RAMP_1 = "rampServo";/);assert.match(java,/ramp1\.setPosition\(on \? RAMP_1_DOWN : RAMP_1_UP\)/);
   const py=MM.autonomous(route,Timed.settings({}),{name:'Ramp',mechanisms:m,target:{x:59.25,y:58.56}});assert.match(py,/RAMPS = \[\n\s+\("rampServo", 0, 0\.0, 180\.0\),/);assert.match(py,/for servo, down, up in self\.kickers \+ self\.ramps:/);
   assert.deepEqual(MM.mechanismHardware(m).ramps,[{servo:0,down:0,up:180}]);
 });
@@ -328,7 +332,7 @@ test('two shooters can ride one turret, or each have their own',()=>{
   assert.deepEqual(F.mechanismHardware(shared).shooters.map(x=>!!x.turret),[true,false]);assert.deepEqual(MM.mechanismHardware(shared).shooters.map(x=>!!x.turret),[true,false]);
   const layout={name:'Shared',start,zones:[]},route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5});
   const java=F.files({route,layout,tuning:{},robot,localization:'fused',mechanisms:shared,target:{x:59.25,y:58.56},routeJava:X.java(route,layout,{polygon:P.polygon})}).files['org/firstinspires/ftc/teamcode/Mechanisms.java'];
-  assert.match(java,/TURRET_MOTORS = \{"turret", null\}/);assert.match(java,/Shooter 2 \(nectar\): on shooter 1's turret/);
+  assert.match(java,/TURRET_1 = "turret";/);assert.doesNotMatch(java,/TURRET_2 =/);assert.match(java,/Shooter 2 \(nectar\): on shooter 1's turret/);
 });
 
 test('the terminal sets a ramp intake and a shared turret',async()=>{
@@ -399,12 +403,12 @@ test('CAD auto setup finds every separate mechanism: two shooters on two indepen
   // Exports: each turret has its own motor and aims from its own spot (Control Hub Java and MotionModule).
   const route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5}),layout={name:'Twin',start,zones:[]},target={x:59.25,y:58.56},size={length:16.5,width:15.5};
   const java=F.files({route,layout,tuning:{},robot:{...robot,...size},localization:'fused',mechanisms:m,target,routeJava:X.java(route,layout,{polygon:P.polygon})}).files['org/firstinspires/ftc/teamcode/Mechanisms.java'];
-  assert.match(java,/TURRET_MOTORS = \{"turret", "turret2"\}/);assert.match(java,/TURRET_X = \{-[\d.]+, [\d.]+\}/);
+  assert.match(java,/TURRET_1 = "turret";[\s\S]*TURRET_2 = "turret2";/);assert.match(java,/TURRET_1_X = -[\d.]+, TURRET_1_Y = -?[\d.]+;[\s\S]*TURRET_2_X = [\d.]+, TURRET_2_Y = -?[\d.]+;/);
   assert.deepEqual(MM.mechanismHardware(m).shooters.map(x=>x.turret?.servo),[0,1]);
   const source=MM.autonomous(route,Timed.settings({}),{name:'Twin',mechanisms:m,target,robot:size}),aims=/^AIMS = \{(.*)\}$/m.exec(source)[1];
   assert.match(aims,/^\d+: \(-?[\d.]+, -?[\d.]+\)/,'one angle per turret: '+aims);assert.ok([...aims.matchAll(/\((-?[\d.]+), (-?[\d.]+)\)/g)].some(([,a,b])=>a!==b),aims);
   // The generated aim() points each turret servo at its own angle, or every turret at one angle.
   if(python){const aim=/\n    def aim\(self, degrees\):\n[\s\S]*?(?=\n    def )/.exec(source)[0];
-    const code=`import time\nclass O:\n    def __init__(self): self.angles = []\n    def set_angle(self, v): self.angles.append(v)\nclass Mechanisms:\n    TURRET_MIN, TURRET_MAX, TURRET_SPEED, TURRET_SERVO_CENTER, TURRET_SERVO_PER_DEGREE = -170.0, 170.0, 240.0, 90.0, 1.0${aim}\nm = Mechanisms()\nm.turrets, m.turret_angle, m.turret_ready_at = [O(), O()], [0.0, 0.0], 0.0\nm.aim((10.0, -20.0))\nm.aim(5.0)\nprint([t.angles for t in m.turrets])\n`;
+    const code=`import time\nclass O:\n    def __init__(self): self.angles = []\n    def set_angle(self, v): self.angles.append(v)\nclass Mechanisms:\n    TURRET_MIN, TURRET_MAX, TURRET_SPEED, TURRET_SERVO_CENTER, TURRET_SERVO_PER_DEGREE = -170.0, 170.0, 240.0, 90.0, 1.0${aim}\nm = Mechanisms()\nm.turrets, m.turret_angle, m.turret_ready_at = [(O(), 1), (O(), 1)], [0.0, 0.0], 0.0\nm.aim((10.0, -20.0))\nm.aim(5.0)\nprint([t.angles for t, sign in m.turrets])\n`;
     const r=spawnSync(python,['-c',code],{encoding:'utf8',windowsHide:true});assert.equal(r.status,0,r.stderr);assert.equal(r.stdout.trim(),'[[100.0, 95.0], [70.0, 95.0]]');}
 });

@@ -90,7 +90,21 @@ desktops, stacked on narrow windows like the phone app.
   the REV Driver Hub software and is not certified for FIRST competitions; event rules may
   require an official Driver Station.
 - Not implemented: robot configuration editing, Wi-Fi channel/password changes, firmware
-  updates, Self Inspect, match logging, and gamepad LED effects.
+  updates, Self Inspect, match logging, and gamepad LED effects. The simulator's Send to robot
+  reads the active configuration (below), but nothing in the app changes it.
+
+## Sending an autonomous from the simulator
+
+Simulation → Run & review → Export → **Send to robot** puts an OnBot Java autonomous and its
+check TeleOp on a Control Hub over its Wi-Fi. It reads the robot's active configuration with the
+same commands the FTC Driver Station uses (`CMD_REQUEST_CONFIGURATIONS`,
+`CMD_REQUEST_PARTICULAR_CONFIGURATION`), checks every device name the code uses, then uploads and
+builds the files with the hub's own OnBot Java server on port 8080. It never starts an op mode.
+Close the robot in Drive first, because only one Driver Station can talk to a robot at a time.
+See [the simulator guide](SIMULATION.md#send-to-robot).
+
+`node tools/ftc-sim.cjs 127.0.0.2 --onbot` also serves a simulated OnBot Java on port 8080,
+with a robot configuration, for trying it without a robot.
 
 ## Testing without a robot
 

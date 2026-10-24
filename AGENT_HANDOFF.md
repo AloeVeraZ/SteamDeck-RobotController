@@ -40,6 +40,24 @@ Done and committed (`examples/lunala-red-auto.json` plus exports in `examples/lu
 - Scoring is unchanged: 40 points, 12/12 shots.
 - The user's own saved setup inside the app was not modified. They can open the optimized one with `deck-sim show examples/lunala-red-auto.json --tab plan`, which adds it as a new saved setup.
 
+## Mechanism hardware and Send to robot
+
+- Read `docs/MECHANISM_ACTIONS.md` first. It covers how actions reach hardware, the research, the decision and the one-button plan.
+- **One device list.** `F.mechanismDevices(m, robot)` in `ui/sim-ftc.js` is the single list of mechanism devices, and three things are built from it:
+  - `Mechanisms.java` (`mechanismsSource`);
+  - the virtual hub wiring (`mechanismHardware`, read by `VirtualHub.java`);
+  - the robot check (`robotNeeds`).
+
+  Change it there, rebuild with `tools/simulation/build.cjs`, then run `tests/sim-mechanism-hardware.test.cjs`.
+- **Mounting is physical truth.** `mount: -1` in the hub JSON means the setup says the device turns the other way, and the code must set REVERSE. The engine only counts forward commands (`src/sim-engine.cjs` programTick). The MotionModule bridge applies the same mounts.
+- **The Robocol and OnBot Java formats** came from FTC SDK 12.0 AARs on Maven Central, read with `.cache/simulation-runtime/jdk/.../javap.exe`:
+  - `FtcEventLoopBase` handles the configuration commands. `CMD_SAVE_CONFIGURATION` is `<RobotConfigFile JSON>;<XML>`, and it saves and activates.
+  - `OnBotJavaProgrammingMode` lists the routes; `SaveFile` takes `f` plus form `data`.
+  - A missing file is a 404 with "File Not Found!".
+  - `/java/build/start` returns the start time as JSON.
+- **Testing Send to robot without a robot:** run `node tools/ftc-sim.cjs 127.0.0.2 --onbot`. In the app, the station must bind 127.0.0.1 to reach 127.0.0.2 (the E2E patches `FtcSocket.prototype.open` for that), and the robot has to be saved as an FTC robot to appear in the list.
+- **Another session works in this folder.** It committed `a7dfa9b` (run videos) on `testing` during this work. Stage only your own files.
+
 ## Next steps
 
 AGENT_BACKLOG.md is in priority order.

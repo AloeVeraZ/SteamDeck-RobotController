@@ -69,6 +69,8 @@ final class SimMotor implements DcMotorEx {
     /** Velocity control (ticks per second), as the SDK runs it with RUN_USING_ENCODER. */
     @Override public void setVelocity(double angularRate) { velocityTarget = angularRate; power = 0; }
     @Override public void setVelocity(double angularRate, AngleUnit unit) { setVelocity(angularRate); }
+    /** The simulator's flywheel reaches its speed over the spin-up time whatever the gains, so they change nothing here. */
+    @Override public void setVelocityPIDFCoefficients(double p, double i, double d, double f) {}
     @Override public double getVelocity() { return ticksPerSecond * sign(); }
     @Override public double getVelocity(AngleUnit unit) { throw new UnsupportedOperationException("getVelocity(AngleUnit) needs the motor's ticks per revolution; use getVelocity()."); }
     @Override public double getCurrent(CurrentUnit unit) { return unit == CurrentUnit.AMPS ? Math.abs(power) * 4 : Math.abs(power) * 4000; }

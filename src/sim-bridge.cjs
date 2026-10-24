@@ -127,11 +127,14 @@ class SimulationHost{
       if(!EXPORTS[data.format]||typeof data.text!=='string'||data.text.length>EXPORT_LIMIT)throw Error('Invalid export.');
       // A companion file (MotionModule's robot_actions.py) goes beside the export, only when it is missing.
       const companion=file=>{const c=data.companion;if(!c||typeof c.text!=='string'||c.text.length>EXPORT_LIMIT||!/^[A-Za-z0-9_]+\.py$/.test(c.name||''))return null;const target=path.join(path.dirname(file),c.name);if(fs.existsSync(target))return null;fs.writeFileSync(target,c.text);return c.name;};
-      if(action==='export-update'){const t=targets[data.key];if(!t||t.format!==data.format)return null;fs.writeFileSync(t.path,data.text);return {name:path.basename(t.path),created:companion(t.path)};}
+      // Generated files that always go beside an OnBot Java export (its check TeleOp), replaced on every export.
+      const beside=file=>(data.format==='onbot'&&Array.isArray(data.beside)?data.beside:[]).filter(b=>b&&typeof b.text==='string'&&b.text.length<=EXPORT_LIMIT&&/^[A-Za-z0-9_]+\.java$/.test(b.name||'')&&b.name!==path.basename(file))
+        .map(b=>{fs.writeFileSync(path.join(path.dirname(file),b.name),b.text);return b.name;});
+      if(action==='export-update'){const t=targets[data.key];if(!t||t.format!==data.format)return null;fs.writeFileSync(t.path,data.text);return {name:path.basename(t.path),created:companion(t.path),beside:beside(t.path)};}
       const r=await dialog.showSaveDialog(win,{title:`Export ${EXPORTS[data.format].name}`,defaultPath:typeof data.name==='string'?path.basename(data.name):'PlannedRoute.'+EXPORTS[data.format].extensions[0],filters:[EXPORTS[data.format]]});
       if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,data.text);
       if(data.keep){targets[data.key]={path:r.filePath,format:data.format};save();}
-      return {name:path.basename(r.filePath),created:companion(r.filePath)};
+      return {name:path.basename(r.filePath),created:companion(r.filePath),beside:beside(r.filePath)};
     }
     throw Error('Unknown simulator file action.');
   }

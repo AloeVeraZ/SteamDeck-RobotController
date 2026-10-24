@@ -21,7 +21,7 @@ let suspended=false,interruption=null,connectionEpoch=0,pageEpoch=0;const recove
 const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
 app.setName('Deck Driver Station');
 // Offline simulator: a utility process started by the Simulation view, never connected to a robot.
-const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;
+const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;const robotLink=require('./robot-link.cjs');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
 if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',(_event,argv)=>{win?.show();win?.focus();terminalSetup(argv);});
 // Terminal integration: `tools/deck-sim.cjs show` launches the app (or reaches the running one
@@ -320,6 +320,15 @@ handle('cursor',(x,y)=>{
 app.on('will-quit',()=>{try{cursorHelper?.kill();}catch{}});
 handle('sim',async(method,args)=>{if(state.page!=='simulation')throw Error('Open the Simulation view first.');return simulation.call(method,args);});
 handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
+// Send to robot (Simulation → Run & review → Export): reads a Control Hub's configuration and uploads and builds the
+// exported OnBot Java over its Wi-Fi. It never starts an op mode. robots lists the saved FTC robots to pick from.
+handle('robot-link',async(action,data)=>{
+  if(action==='robots')return library.list().filter(r=>r.kind==='ftc').map(r=>{let host='';try{host=new URL(r.url).hostname;}catch{}return {name:r.name,host};}).filter(r=>r.host);
+  if(bridge instanceof FtcSocket)throw Error('Close the robot in Drive first: its Driver Station is using the robot connection.');
+  if(action==='read')return robotLink.readRobot(data?.host);
+  if(action==='send')return robotLink.send(data?.host,data?.files,{keep:Array.isArray(data?.keep)?data.keep:[],backupDir:path.join(app.getPath('userData'),'robot-backups'),onProgress:(stage,file)=>emit('robot-link-progress',{stage,file})});
+  throw Error('Unknown robot action.');
+});
 handle('save',async input=>{const wifi=await refreshNetwork();const robot=library.upsert({...input,ssid:wifi.ssid||''});if(active?.id===robot.id){active=robot;controllerHub.setCount(robot.controllerCount);update({robot});sendControllers(true);}else update();return robot;});handle('remove',id=>{library.remove(id);update();});
 handle('network',refreshNetwork);handle('scan',()=>network.scan());
 handle('discovery-info',async()=>{const context=await network.context();return {...context,reason:discovery.eligibility(context)};});

@@ -24,12 +24,33 @@
     if(!tank&&drivetrain!=='mecanum')throw Error('Autonomous on a Control Hub is exported for mecanum and tank-style drivetrains (tank, differential, 6- and 8-wheel, tracks). Swerve, X-drive, Kiwi, H-drive and butterfly export timed commands or route geometry for your own drivetrain code.');
     const rpm=robot.driveRpm||312,inches=Math.PI*(robot.wheelDiameterMm||WHEEL_MM)/25.4;
     const mount=(globalThis.DeckSimConfig||require('./sim-config.js')).hubMounting(robot);
-    return {localization,imu:'imu',hub:{logo:mount.hubLogo.toUpperCase(),usb:mount.hubUsb.toUpperCase()},drive:{kind:tank?'tank':'mecanum',ticksPerInch:ticksPerRev(rpm)/inches,ticksPerRev:ticksPerRev(rpm),halfLength:robot.length/2,halfWidth:robot.width/2,motors:drivetrain==='tank2'?DIFF:MOTORS},
-      pods:(PODS[localization]||[]).map(p=>({...p,ticksPerInch:POD_TICKS_PER_INCH})),...(localization==='fused'?{pinpoint:'pinpoint'}:{}),...(localization==='optical'?{otos:'sensor_otos'}:{})};
+    // The robot's own names for these devices (Setup → Robot controller, or picked from its configuration), and drive
+    // motors set to turn the other way. mount is the physical truth the virtual Control Hub drives: -1 is REVERSE.
+    const own=robot.devices||{},named=(key,fallback)=>own[key]?.name||fallback;
+    const motors=Object.fromEntries(Object.entries(drivetrain==='tank2'?DIFF:MOTORS).map(([key,m])=>[key,{name:named(key,m.name),mount:typeof own[key]?.reversed==='boolean'?(own[key].reversed?-1:1):m.mount}]));
+    return {localization,imu:named('imu','imu'),hub:{logo:mount.hubLogo.toUpperCase(),usb:mount.hubUsb.toUpperCase()},drive:{kind:tank?'tank':'mecanum',ticksPerInch:ticksPerRev(rpm)/inches,ticksPerRev:ticksPerRev(rpm),halfLength:robot.length/2,halfWidth:robot.width/2,motors},
+      pods:(PODS[localization]||[]).map(p=>({...p,name:named(p.name,p.name),ticksPerInch:POD_TICKS_PER_INCH})),...(localization==='fused'?{pinpoint:named('pinpoint','pinpoint')}:{}),...(localization==='optical'?{otos:named('otos','sensor_otos')}:{})};
+  }
+  // Deck's own name for each drive and sensor device a robot of this kind uses, keyed as robot.devices keys them, with
+  // what it is (for the robot configuration check and the Robot controller step).
+  function deviceSlots(robot,localization){
+    let h;try{h=hardware(robot,localization);}catch{return [];}
+    const labels={frontLeft:'Front left drive motor',frontRight:'Front right drive motor',backLeft:'Back left drive motor',backRight:'Back right drive motor',left:'Left drive motor',right:'Right drive motor'};
+    return [...Object.entries(h.drive.motors).map(([key,m])=>({key,label:labels[key],name:m.name,kind:'motor',reversed:m.mount<0})),{key:'imu',label:'IMU',name:h.imu,kind:'imu'},
+      ...h.pods.map((p,i)=>({key:PODS[localization][i].name,label:`Odometry pod (${p.axis==='forward'?'forward':'sideways'}${p.y>0?', left':p.y<0?', right':''}): plugged into a motor port's encoder`,name:p.name,kind:'motor'})),
+      ...(h.pinpoint?[{key:'pinpoint',label:'goBILDA Pinpoint',name:h.pinpoint,kind:'pinpoint'}]:[]),...(h.otos?[{key:'otos',label:'SparkFun OTOS',name:h.otos,kind:'otos'}]:[])];
   }
   // The hardware description for drivetrains the Control Hub exports support, or null (a swerve robot's Pedro export
   // then comes without starter constants).
   function hardwareIfSupported(robot,localization){try{return hardware(robot,localization);}catch{return null;}}
+  // Every device name a Control Hub export looks up, what the robot configuration must have under it, and the setting that
+  // holds the name: the list Send to robot checks against the robot's own configuration. motorOrCr: the code uses
+  // DcMotorSimple there, so a motor or a continuous servo both work.
+  function robotNeeds(robot,localization,mechanisms){
+    const slots=deviceSlots(robot,localization).map(s=>({name:s.name,need:s.kind,label:s.label,setting:{robot:s.key}}));
+    const mech=mechanisms?.enabled?mechanismDevices(mechanisms,robot).map(x=>({name:x.name,need:x.device==='servo'?'servo':x.role==='flywheel'||x.role==='turret'?'motor':'motorOrCr',label:x.label,setting:x.setting})):[];
+    return [...slots,...mech];
+  }
   // Java double literals: Java numeric literals retain a decimal point for generated calibration constants.
   const n=v=>{const s=String(Number(Number(v).toPrecision(6)));return /[.eE]/.test(s)?s:s+'.0';};
   const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/\\(?=u)/g,'\\ ').replace(/[\r\n]+/g,' ').trim();
@@ -87,14 +108,14 @@ public final class RobotDrive implements Drivetrain, Localizer {
     double limit=${n(.6)};
     private MotionState state=MotionState.ofVelocity(Pose.zero(),Velocity.zero());
     public RobotDrive(HardwareMap map) {
-${motors.map(([key,m],i)=>`        motors[${i}]=map.get(DcMotorEx.class, "${m.name}"); motors[${i}].setDirection(DcMotorSimple.Direction.${m.mount<0?'REVERSE':'FORWARD'});`).join('\n')}
+${motors.map(([key,m],i)=>`        motors[${i}]=map.get(DcMotorEx.class, ${javaString(m.name)}); motors[${i}].setDirection(DcMotorSimple.Direction.${m.mount<0?'REVERSE':'FORWARD'});`).join('\n')}
         for(DcMotorEx m:motors){m.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);}
-${pods.map((p,i)=>`        pods[${i}]=map.get(DcMotorEx.class,"${p.name}");`).join('\n')}
-        imu=map.get(IMU.class,"${h.imu}");
+${pods.map((p,i)=>`        pods[${i}]=map.get(DcMotorEx.class,${javaString(p.name)});`).join('\n')}
+        imu=map.get(IMU.class,${javaString(h.imu)});
         // How the Control Hub is mounted (Deck: Setup → Robot controller). If this is wrong, every turn and heading is wrong.
         imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.${h.hub.logo},RevHubOrientationOnRobot.UsbFacingDirection.${h.hub.usb})));
-        pinpoint=${h.localization==='fused'?`map.get(GoBildaPinpointDriver.class,"${h.pinpoint}")`:'null'};
-        otos=${h.localization==='optical'?`map.get(SparkFunOTOS.class,"${h.otos}")`:'null'};
+        pinpoint=${h.localization==='fused'?`map.get(GoBildaPinpointDriver.class,${javaString(h.pinpoint)})`:'null'};
+        otos=${h.localization==='optical'?`map.get(SparkFunOTOS.class,${javaString(h.otos)})`:'null'};
         if(otos!=null){otos.setLinearUnit(DistanceUnit.INCH);otos.setAngularUnit(AngleUnit.RADIANS);}
         setPose(Pose.zero());
     }
@@ -400,7 +421,15 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  * you removed.
  */
 public class RobotActions extends RouteActions {
-    // Example: private DcMotorEx intake;
+${mech?`    // Deck's Intake, Spin up, Aim and Shoot already run the mechanisms set up in Deck (Mechanisms.java, as
+    // mech). To do one of them your own way, override it here. For example, to shoot with your own code:
+    //     @Override
+    //     public boolean shoot(Step step) {
+    //         // Called every loop until it returns true. Never sleep() here: the robot stops following its path.
+    //         return mech.shoot(0, step); // Deck's version: start from it, or replace it
+    //     }
+
+`:''}    // Example: private DcMotorEx intake;
 
     @Override
     public void init(HardwareMap hardwareMap, Telemetry telemetry) {
@@ -433,156 +462,257 @@ ${list.map(a=>`
     if(a.kind==='shoot'&&shooter)return `return mech.shoot(${a.count}, step);`;
     return '';
   }
-  // The virtual Control Hub's mechanism ports for these settings.
+  // Every mechanism device the export drives, with the Java field and constant it gets. Mechanisms.java, the
+  // mechanism check, the robot configuration check and the virtual Control Hub are all built from this one list.
+  // device: what it is in the robot configuration (motor, crservo or servo).
+  function mechanismDevices(m,robot={}){
+    const Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),out=[];
+    m.intakes.forEach((i,k)=>{const no=k+1,base={part:'intake',index:k};
+      if(i.kind!=='kicker'){const device=i.device==='crservo'?'crservo':'motor';
+        out.push({...base,role:'roller',field:`intake${no}`,constant:`INTAKE_${no}`,name:i.motor,device,reversed:!!i.reversed,power:i.power,label:`Intake ${no} roller`,setting:{list:'intakes',index:k,field:'motor'}});
+        if(i.motor2)out.push({...base,role:'roller',field:`intake${no}b`,constant:`INTAKE_${no}B`,name:i.motor2,device,reversed:!!i.reversed2,power:i.power,label:`Intake ${no} second roller`,setting:{list:'intakes',index:k,field:'motor2'}});}
+      if(Mech.deploys(i.kind))out.push({...base,role:i.kind,field:`${i.kind}${no}`,constant:`${i.kind.toUpperCase()}_${no}`,name:i.servo,device:'servo',down:i.downPos,up:i.upPos,label:`Intake ${no} ${i.kind} servo`,setting:{list:'intakes',index:k,field:'servo'}});
+    });
+    m.shooters.forEach((s,k)=>{const no=k+1,base={part:'shooter',index:k};
+      out.push({...base,role:'flywheel',field:`flywheel${no}`,constant:`FLYWHEEL_${no}`,name:s.motor,device:'motor',reversed:!!s.reversed,label:`Shooter ${no} flywheel`,setting:{list:'shooters',index:k,field:'motor'}});
+      if(s.motor2)out.push({...base,role:'flywheel',field:`flywheel${no}b`,constant:`FLYWHEEL_${no}B`,name:s.motor2,device:'motor',reversed:!!s.reversed2,label:`Shooter ${no} second flywheel motor`,setting:{list:'shooters',index:k,field:'motor2'}});
+      const kind=s.indexerKind;
+      out.push({...base,role:'feeder',field:`feeder${no}`,constant:`FEEDER_${no}`,name:s.indexer,device:kind==='motor'||kind==='crservo'?kind:'servo',feeder:kind,reversed:!!s.indexerReversed,feed:s.feedPos,rest:s.restPos,label:`Shooter ${no} feeder`,setting:{list:'shooters',index:k,field:'indexer'}});
+      if(s.type==='turret'&&!s.sharesTurret)out.push({...base,role:'turret',field:`turret${no}`,constant:`TURRET_${no}`,name:s.turretMotor,device:m.turret.kind==='servo'?'servo':'motor',reversed:!!s.turretReversed,offset:Mech.mountOffset(s.mount,robot),label:`Shooter ${no} turret`,setting:{list:'shooters',index:k,field:'turretMotor'}});
+    });
+    return out;
+  }
+  // The virtual Control Hub's mechanism ports for these settings. mount is the physical truth from the settings (-1: the
+  // device is mounted to turn the other way), so robot code has to set the same direction for a piece to go in.
   function mechanismHardware(m){
-    const out={},rollers=m.intakes.filter(i=>i.kind!=='kicker'),kickers=m.intakes.filter(i=>i.kind==='kicker');if(rollers.length)out.intakes=rollers.map(i=>i.motor);
-    if(kickers.length)out.kickers=kickers.map(i=>({name:i.servo,down:i.downPos,up:i.upPos}));
-    const ramps=m.intakes.filter(i=>i.kind==='ramp');if(ramps.length)out.ramps=ramps.map(i=>({name:i.servo,down:i.downPos,up:i.upPos}));
-    // A shooter on the first one's turret has no turret motor of its own.
-    if(m.shooters.length)out.shooters=m.shooters.map(s=>({flywheel:{name:s.motor,ticksPerSecond:m.shooter.rpm*m.shooter.ticksPerRev/60},indexer:{name:s.indexer,kind:s.indexerKind},...(s.type==='turret'&&!s.sharesTurret?{turret:{name:s.turretMotor,ticksPerDegree:m.turret.ticksPerDegree}}:{})}));
+    const d=mechanismDevices(m),Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),out={},mount=x=>x.reversed?-1:1;
+    const rollers=d.filter(x=>x.role==='roller');if(rollers.length)out.intakes=rollers.map(x=>({name:x.name,kind:x.device,mount:mount(x),part:x.index}));
+    for(const role of ['kicker','ramp']){const list=d.filter(x=>x.role===role);if(list.length)out[role+'s']=list.map(x=>({name:x.name,down:x.down,up:x.up}));}
+    if(m.shooters.length)out.shooters=m.shooters.map((s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k),f=mine.find(x=>x.role==='feeder'),t=mine.find(x=>x.role==='turret');
+      return {flywheels:mine.filter(x=>x.role==='flywheel').map(x=>({name:x.name,mount:mount(x)})),ticksPerSecond:m.shooter.rpm*m.shooter.ticksPerRev/60,
+        indexer:{name:f.name,kind:f.feeder,mount:mount(f),...(Mech.servoFeeder(f.feeder)?{feed:f.feed,rest:f.rest}:{})},
+        ...(t?{turret:t.device==='servo'?{name:t.name,kind:'servo',center:m.turret.servoCenter,degrees:m.turret.servoDegrees,mount:mount(t)}:{name:t.name,kind:'motor',ticksPerDegree:m.turret.ticksPerDegree,mount:mount(t)}}:{})};});
     return out;
   }
   function mechanismsSource(options,m,target,robot={}){
-    const Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),shooter=m.shooters.length>0,turret=m.shooters.some(s=>s.type==='turret'),fixed=m.shooters.some(s=>s.type==='fixed'),flywheel=m.shooter.rpm*m.shooter.ticksPerRev/60;
-    const list=values=>values.length?`{${values.join(', ')}}`:'{}',where=mount=>Mech.MOUNTS[mount].toLowerCase();
-    const describe=(s,i)=>` *  - Shooter ${i+1} (${Mech.PIECES[s.pieces].toLowerCase()}): ${s.sharesTurret?`on shooter 1's turret (turret motor "${comment(s.turretMotor)}")`:s.type==='turret'?`turret at the ${where(s.mount)}, turret motor "${comment(s.turretMotor)}"`:`fixed at the ${where(s.mount)}, firing toward the ${s.facing}`}; flywheel "${comment(s.motor)}", indexer ${s.indexerKind==='crservo'?'continuous servo':'motor'} "${comment(s.indexer)}".`;
+    const Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),d=mechanismDevices(m,robot),of=role=>d.filter(x=>x.role===role),velocity=m.shooter.control!=='power';
+    const rollers=of('roller'),swings=d.filter(x=>x.role==='kicker'||x.role==='ramp'),flywheels=of('flywheel'),feeders=of('feeder'),turrets=of('turret');
+    const motorTurrets=turrets.filter(x=>x.device==='motor'),servoTurrets=turrets.filter(x=>x.device==='servo'),pushers=feeders.filter(x=>x.feeder==='pusher');
+    const q=s=>`"${comment(s)}"`,turns=x=>x.reversed?' (turns the other way)':'',where=mount=>Mech.MOUNTS[mount].toLowerCase(),list=values=>`{${values.join(', ')}}`;
+    const FEEDERS={motor:'motor',crservo:'continuous servo',pusher:'servo pusher',gate:'servo gate'};
+    const intakeText=(i,k)=>{const mine=d.filter(x=>x.part==='intake'&&x.index===k);
+      return ` *  - Intake ${k+1} (${i.sides.join(' + ')} ${Mech.INTAKES[i.kind].toLowerCase()}): ${mine.map(x=>x.role==='roller'?`${x.device==='crservo'?'continuous servo':'motor'} ${q(x.name)}${turns(x)}`:`${x.role} servo ${q(x.name)}`).join(', ')}.`;};
+    const shooterText=(s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k),f=mine.find(x=>x.role==='feeder'),t=mine.find(x=>x.role==='turret'),fw=mine.filter(x=>x.role==='flywheel');
+      const kind=s.sharesTurret?`on shooter 1's turret`:s.type==='turret'?`turret at the ${where(s.mount)}`:`fixed at the ${where(s.mount)}, firing toward the ${s.facing}`;
+      return ` *  - Shooter ${k+1} (${Mech.PIECES[s.pieces].toLowerCase()}): ${kind}; flywheel motor${fw.length>1?'s':''} ${fw.map(x=>q(x.name)+turns(x)).join(' and ')}, feeder ${FEEDERS[f.feeder]} ${q(f.name)}${Mech.servoFeeder(f.feeder)?'':turns(f)}${t?`, turret ${t.device} ${q(t.name)}${turns(t)}`:''}.`;};
+    // Constants, one block per part, then the shared timing.
+    const C=[];
+    m.intakes.forEach((i,k)=>{const mine=d.filter(x=>x.part==='intake'&&x.index===k);C.push(`    // ---- Intake ${k+1}: ${i.sides.join(' + ')} ${Mech.INTAKES[i.kind].toLowerCase()}.`);
+      for(const x of mine){if(x.role==='roller')C.push(`    /** ${x.label}: a ${x.device==='crservo'?'continuous servo':'DC motor'} that runs at its power while an Intake action runs. */`,`    public static final String ${x.constant} = ${javaString(x.name)};`,`    public static final boolean ${x.constant}_REVERSED = ${x.reversed};`,`    public static final double ${x.constant}_POWER = ${n(x.power)};`);
+        else C.push(`    /** ${x.label}: its position down (${x.role==='kicker'?'scooping':'picking up'}) while an Intake action runs, and up otherwise. */`,`    public static final String ${x.constant} = ${javaString(x.name)};`,`    public static final double ${x.constant}_DOWN = ${n(x.down)}, ${x.constant}_UP = ${n(x.up)};`);}
+      C.push('');});
+    m.shooters.forEach((s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k);C.push(`    // ---- Shooter ${k+1}: ${Mech.PIECES[s.pieces].toLowerCase()}.`);
+      const fw=mine.filter(x=>x.role==='flywheel');C.push(`    /** Flywheel motor${fw.length>1?'s (both spin the flywheel; set each one\'s direction so they push the same way)':''}. */`,`    public static final String ${fw.map(x=>`${x.constant} = ${javaString(x.name)}`).join(', ')};`,`    public static final boolean ${fw.map(x=>`${x.constant}_REVERSED = ${x.reversed}`).join(', ')};`);
+      const f=mine.find(x=>x.role==='feeder');
+      if(Mech.servoFeeder(f.feeder))C.push(`    /** Feeder: a ${FEEDERS[f.feeder]}. ${f.feeder==='pusher'?'FEED pushes a piece into the flywheel; REST lets the next one drop in.':'FEED is open (pieces pass); REST is closed.'} */`,`    public static final String ${f.constant} = ${javaString(f.name)};`,`    public static final double ${f.constant}_FEED = ${n(f.feed)}, ${f.constant}_REST = ${n(f.rest)};`);
+      else C.push(`    /** Feeder: a ${FEEDERS[f.feeder]} that runs at FEEDER_POWER while shooting. */`,`    public static final String ${f.constant} = ${javaString(f.name)};`,`    public static final boolean ${f.constant}_REVERSED = ${f.reversed};`);
+      const t=mine.find(x=>x.role==='turret');
+      if(t)C.push(`    /** Turret: a ${t.device==='servo'?'servo':'motor with an encoder'}. It aims from where it turns on the robot, inches forward and left of the center. */`,`    public static final String ${t.constant} = ${javaString(t.name)};`,`    public static final boolean ${t.constant}_REVERSED = ${t.reversed};`,`    public static final double ${t.constant}_X = ${n(t.offset[0])}, ${t.constant}_Y = ${n(t.offset[1])};`);
+      C.push('');});
+    if(m.shooters.length){
+      C.push('    // ---- Flywheels (every shooter).');
+      if(velocity)C.push(`    /** Shooting speed in encoder ticks per second: ${+m.shooter.rpm.toPrecision(6)} RPM x ${+m.shooter.ticksPerRev.toPrecision(6)} ticks per revolution / 60. */`,`    public static final double FLYWHEEL_TICKS_PER_SECOND = ${n(m.shooter.rpm*m.shooter.ticksPerRev/60)};`,
+        '    /** A flywheel is at speed within this fraction of FLYWHEEL_TICKS_PER_SECOND. */',`    public static final double AT_SPEED_TOLERANCE = ${n(m.shooter.tolerance)};`,
+        '    /** Seconds to reach speed. A flywheel still short of it SPIN_UP_SECONDS + 0.5 s after starting shoots anyway. */',`    public static final double SPIN_UP_SECONDS = ${n(m.shooter.spinUp)};`,
+        ...(m.shooter.pidf?['    /** Velocity PIDF for the flywheel motors (REV: F = 32767 / top speed, P = 0.1 F, I = 0.1 P, D = 0). */',`    public static final double FLYWHEEL_P = ${n(m.shooter.pidf.p)}, FLYWHEEL_I = ${n(m.shooter.pidf.i)}, FLYWHEEL_D = ${n(m.shooter.pidf.d)}, FLYWHEEL_F = ${n(m.shooter.pidf.f)};`]:[]));
+      else C.push('    /** No encoder: the flywheels run at FLYWHEEL_POWER and count as at speed SPIN_UP_SECONDS after they start. */',`    public static final double FLYWHEEL_POWER = ${n(m.shooter.power)}, SPIN_UP_SECONDS = ${n(m.shooter.spinUp)};`);
+      C.push('','    // ---- Feeding (every shooter), timed: there is no piece sensor.',
+        '    /** From a piece touching an intake to sitting in the shooter; how long a kicker takes to swing back up after an intake. */',`    public static final double TRANSFER_SECONDS = ${n(m.transfer.seconds)}, KICKER_UP_SECONDS = ${n(Mech.liftSeconds(m))};`,
+        `    /** For the next piece to move up into the shooter after a shot.${pushers.length?' A pusher pushes for PUSH_SECONDS at the start of every FEED_CYCLE_SECONDS.':''} */`,`    public static final double INDEX_SECONDS = ${n(m.indexer.seconds)}${pushers.length?`, PUSH_SECONDS = ${n(m.indexer.pushSeconds)}`:''};`,
+        `    /** A volley of N shots feeds for (N - 1) x FEED_CYCLE_SECONDS + LAST_SHOT_SECONDS. */`,`    public static final double FEED_CYCLE_SECONDS = ${n(pushers.length?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds)}, LAST_SHOT_SECONDS = ${n(Mech.shootSeconds(m,1))};`,
+        ...(feeders.some(x=>!Mech.servoFeeder(x.feeder))?[`    public static final double FEEDER_POWER = ${n(m.indexer.power)};`]:[]),
+        `    /** Pieces the robot can hold: ${m.capacity.pollen} pollen${m.capacity.nectar?` and ${m.capacity.nectar} nectar`:''}. "Shoot" with no number shoots this many. */`,`    public static final int STORAGE = ${m.storage};`,
+        '    /** The field points shots aim at, in inches: the hive cell up at the start, and the other cell. */',`    public static final double TARGET_X = ${n(target.x)}, TARGET_Y = ${n(target.y)}, OTHER_TARGET_X = ${n(target.x)}, OTHER_TARGET_Y = ${n(144-target.y)};`);
+      if(turrets.length)C.push('','    // ---- Turrets: 0 degrees faces the robot\'s front, positive turns counterclockwise (to the robot\'s left).',`    public static final double TURRET_MIN_DEGREES = ${n(m.turret.min)}, TURRET_MAX_DEGREES = ${n(m.turret.max)};`,
+        ...(motorTurrets.length?['    /** Encoder ticks per turret degree and the motor power for RUN_TO_POSITION. Zero is where the turret is at INIT. */',`    public static final double TURRET_TICKS_PER_DEGREE = ${n(m.turret.ticksPerDegree)}, TURRET_POWER = 1.0;`]:[]),
+        ...(servoTurrets.length?['    /** Servo position facing the front, and turret degrees from servo position 0 to 1. A servo has no feedback, so its angle', '     *  is tracked as it turns at TURRET_DEGREES_PER_SECOND, and it counts as aimed within AIMED_DEGREES of its target. */',`    public static final double TURRET_SERVO_CENTER = ${n(m.turret.servoCenter)}, TURRET_SERVO_DEGREES = ${n(m.turret.servoDegrees)}, TURRET_DEGREES_PER_SECOND = ${n(m.turret.speed)}, AIMED_DEGREES = 2.0;`]:[]));
+    }
+    // Device fields and setup.
+    const type=x=>x.device==='servo'?'Servo':x.role==='flywheel'||x.role==='turret'?'DcMotorEx':'DcMotorSimple';
+    const fields=d.map(x=>`    private ${type(x)} ${x.field};`);
+    const init=[];
+    for(const x of d){
+      if(x.role==='roller')init.push(`        ${x.field} = map.get(DcMotorSimple.class, ${x.constant});`,`        ${x.field}.setDirection(direction(${x.constant}_REVERSED));`,`        if (${x.field} instanceof DcMotor) ((DcMotor) ${x.field}).setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);`);
+      else if(x.role==='kicker'||x.role==='ramp')init.push(`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(${x.constant}_UP);`);
+      else if(x.role==='flywheel')init.push(`        ${x.field} = flywheel(map, ${x.constant}, ${x.constant}_REVERSED);`);
+      else if(x.role==='feeder')init.push(...(Mech.servoFeeder(x.feeder)?[`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(${x.constant}_REST);`]:[`        ${x.field} = map.get(DcMotorSimple.class, ${x.constant});`,`        ${x.field}.setDirection(direction(${x.constant}_REVERSED));`]));
+      else if(x.role==='turret')init.push(...(x.device==='servo'?[`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(TURRET_SERVO_CENTER);`]:[`        ${x.field} = turretMotor(map, ${x.constant}, ${x.constant}_REVERSED);`]));
+    }
+    const intakeLines=[...rollers.map(x=>`        ${x.field}.setPower(on ? ${x.constant}_POWER : 0);`),...swings.map(x=>`        ${x.field}.setPosition(on ? ${x.constant}_DOWN : ${x.constant}_UP);`)];
+    const spinLines=!flywheels.length?[]:velocity?['        double speed = on ? FLYWHEEL_TICKS_PER_SECOND : 0;',...flywheels.map(x=>`        ${x.field}.setVelocity(speed);`)]:['        double power = on ? FLYWHEEL_POWER : 0;',...flywheels.map(x=>`        ${x.field}.setPower(power);`)];
+    const feedLines=feeders.map(x=>x.feeder==='pusher'?`        ${x.field}.setPosition(push ? ${x.constant}_FEED : ${x.constant}_REST);`:x.feeder==='gate'?`        ${x.field}.setPosition(feeding ? ${x.constant}_FEED : ${x.constant}_REST);`:`        ${x.field}.setPower(feeding ? FEEDER_POWER : 0);`);
+    const turnLines=turrets.map(x=>`        turn${x.field[0].toUpperCase()+x.field.slice(1)}(degrees);`),aimLines=turrets.map(x=>`        turn${x.field[0].toUpperCase()+x.field.slice(1)}(bearing(pose, ${x.constant}_X, ${x.constant}_Y, x, y));`);
+    const turnMethods=turrets.map(x=>{const name='turn'+x.field[0].toUpperCase()+x.field.slice(1);
+      return x.device==='servo'?`
+    /** Turret ${x.index+1} to an angle (degrees from the robot's front, counterclockwise), within its range. */
+    private void ${name}(double degrees) {
+        degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
+        trackServoTurrets();
+        ${x.field}Degrees = degrees;
+        double position = TURRET_SERVO_CENTER + (${x.constant}_REVERSED ? -degrees : degrees) / TURRET_SERVO_DEGREES;
+        ${x.field}.setPosition(Math.max(0, Math.min(1, position)));
+    }`:`
+    /** Turret ${x.index+1} to an angle (degrees from the robot's front, counterclockwise), within its range. */
+    private void ${name}(double degrees) {
+        degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
+        ${x.field}.setTargetPosition((int) Math.round(degrees * TURRET_TICKS_PER_DEGREE));
+        ${x.field}.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        ${x.field}.setPower(TURRET_POWER);
+    }`;}).join('\n');
+    const aimed=[...motorTurrets.map(x=>`!${x.field}.isBusy()`),...servoTurrets.map(x=>`Math.abs(${x.field}At - ${x.field}Degrees) <= AIMED_DEGREES`)];
+    const servos=d.filter(x=>x.device==='servo');
+    const shooter=m.shooters.length>0;
     return `package ${options.packageName};
 
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import ${options.poseImport||'deck.pathing.DeckFollower.Pose'};
 
 /**
- * The mechanisms of "${comment(options.layoutName||'route')}", generated by Deck Driver Station from its Mechanisms
- * settings. Export rewrites this file: change the settings in the simulator, or edit the constants
- * below to match your robot. Device names must match the Control Hub configuration.
- *  - ${m.intakes.length?`Intakes: ${m.intakes.map(i=>i.kind==='kicker'?`kicker servo "${comment(i.servo)}" (${i.sides.join(' + ')})`:i.kind==='ramp'?`ramp servo "${comment(i.servo)}" with roller motor "${comment(i.motor)}" (${i.sides.join(' + ')})`:`motor "${comment(i.motor)}" (${i.sides.join(' + ')})`).join(', ')}. Motors run at INTAKE_POWERS while an Intake action runs; kickers swing to KICKER_DOWN then, and back to KICKER_UP after; ramps fold to RAMP_DOWN then, and back to RAMP_UP after.`:'No intake: the robot shoots the pieces it starts with.'}
-${shooter?m.shooters.map(describe).join('\n')+`
- *  - Flywheels use velocity control (RUN_USING_ENCODER); at speed they turn FLYWHEEL_TICKS_PER_SECOND
- *    (${n(m.shooter.rpm)} RPM x ${n(m.shooter.ticksPerRev)} encoder ticks per revolution / 60).${turret?`
- *  - Turrets use RUN_TO_POSITION. Zero is facing the robot's front at INIT; positive turns
- *    counterclockwise (to the robot's left). They aim at TARGET from the robot's pose.`:''}${fixed?`
- *  - Fixed shooters: the route turns the robot so they face TARGET before each Shoot.`:''}
- * Timing, with no piece sensor: a piece takes up to TRANSFER_SECONDS from touching an intake to sitting in
- * the shooter, and INDEX_SECONDS to move up into the shooter after the one ahead of it is shot; a piece in
- * the shooter fires as soon as the flywheel is at speed and the shooter is on target. Shooters spin up, aim
- * and feed together. "Shoot N" waits TRANSFER_SECONDS after the last intake, then runs the indexer for N
- * shots ((N - 1) x INDEX_SECONDS plus a moment for the last one). "Shoot" with no number shoots once for
- * every storage slot (STORAGE).`:' *  - No shooter.'}
+ * The mechanisms of "${comment(options.layoutName||'route')}", generated by Deck Driver Station from Setup → Mechanisms.
+ * Export rewrites this file: change the settings in Deck, or edit the constants below to match your robot.
+ *
+ * The route's actions call these methods every loop. None of them waits, so the robot keeps following
+ * its path (or holding its pin) while they run:
+ *  - Intake: intake(true) runs the rollers at their power and lowers kickers and ramps; intake(false)
+ *    stops the rollers and raises them again.${shooter?`
+ *  - Spin up: spin(true) starts the flywheels toward their speed${velocity?' (velocity control on the hub: RUN_USING_ENCODER)':' (a set power: no encoder)'}.
+ *  - Aim: aim(pose, cell) turns each turret toward the hive cell from the robot's estimated pose.
+ *  - Shoot: shoot(n, step) spins up and aims. Once ready() and aimed(), and pieces from the last intake
+ *    have had TRANSFER_SECONDS to move up, the feeders run for n shots: the first piece is already in the
+ *    shooter, and each next one needs FEED_CYCLE_SECONDS. Then the feeders and flywheels stop.`:`
+ *  - No shooter.`}
+ * To replace one of these with your own code, override that action in RobotActions.
+ *
+ * Hardware. Names must match the Control Hub configuration exactly, and "turns the other way" is set
+ * in Deck (each device's direction is applied in init):
+${[...m.intakes.map(intakeText),...m.shooters.map(shooterText)].join('\n')||' *  - No mechanisms.'}
+ * Test every device with the mechanism check TeleOp before running the autonomous.
  */
 public class Mechanisms {
-    public static final String[] INTAKE_MOTORS = ${list(m.intakes.filter(i=>i.kind!=='kicker').map(i=>javaString(i.motor)))};
-    public static final double[] INTAKE_POWERS = ${list(m.intakes.filter(i=>i.kind!=='kicker').map(i=>n(i.power)))};
-    /** Kicker servos and their positions down (scooping) and up (carrying in); KICKER_UP_SECONDS to swing back up. */
-    public static final String[] KICKER_SERVOS = ${list(m.intakes.filter(i=>i.kind==='kicker').map(i=>javaString(i.servo)))};
-    public static final double[] KICKER_DOWN = ${list(m.intakes.filter(i=>i.kind==='kicker').map(i=>n(i.downPos)))}, KICKER_UP = ${list(m.intakes.filter(i=>i.kind==='kicker').map(i=>n(i.upPos)))};
-    public static final double KICKER_UP_SECONDS = ${n(Mech.liftSeconds(m))};
-    /** Ramp servos and their positions down (picking up, rollers running) and up (folded in). */
-    public static final String[] RAMP_SERVOS = ${list(m.intakes.filter(i=>i.kind==='ramp').map(i=>javaString(i.servo)))};
-    public static final double[] RAMP_DOWN = ${list(m.intakes.filter(i=>i.kind==='ramp').map(i=>n(i.downPos)))}, RAMP_UP = ${list(m.intakes.filter(i=>i.kind==='ramp').map(i=>n(i.upPos)))};
-    public static final String[] FLYWHEEL_MOTORS = ${list(m.shooters.map(s=>javaString(s.motor)))}, INDEXERS = ${list(m.shooters.map(s=>javaString(s.indexer)))};
-    /** Each shooter's turret motor, or null for a fixed shooter (or one on the first shooter's turret). */
-    public static final String[] TURRET_MOTORS = ${list(m.shooters.map(s=>s.type==='turret'&&!s.sharesTurret?javaString(s.turretMotor):'null'))};
-    /** Where each turret turns, inches forward and left of the robot's center: each aims from its own spot. */
-    public static final double[] TURRET_X = ${list(m.shooters.map(s=>n(Mech.mountOffset(s.mount,robot)[0])))}, TURRET_Y = ${list(m.shooters.map(s=>n(Mech.mountOffset(s.mount,robot)[1])))};
-    public static final double TRANSFER_SECONDS = ${n(m.transfer.seconds)}, INDEX_SECONDS = ${n(m.indexer.seconds)}, INDEXER_POWER = ${n(m.indexer.power)}, FIRE_MARGIN_SECONDS = ${n(Mech.FIRE_MARGIN)};
-    public static final double FLYWHEEL_TICKS_PER_SECOND = ${n(flywheel)}, SPIN_UP_SECONDS = ${n(m.shooter.spinUp)};
-    /** Pieces the robot can hold: ${m.capacity.pollen} pollen${m.capacity.nectar?` and ${m.capacity.nectar} nectar`:''}. */
-    public static final int STORAGE = ${m.storage};
-    /** The field points shots aim at, in inches: the hive cell up at the start, and the other cell. */
-    public static final double TARGET_X = ${n(target.x)}, TARGET_Y = ${n(target.y)}, OTHER_TARGET_X = ${n(target.x)}, OTHER_TARGET_Y = ${n(144-target.y)};
-    public static final double TURRET_TICKS_PER_DEGREE = ${n(m.turret.ticksPerDegree)}, TURRET_MIN_DEGREES = ${n(m.turret.min)}, TURRET_MAX_DEGREES = ${n(m.turret.max)}, TURRET_POWER = 1.0;
+${C.join('\n').replace(/\n+$/,'')}
 
-    private final DcMotorEx[] intakes = new DcMotorEx[INTAKE_MOTORS.length];
-    private final Servo[] kickers = new Servo[KICKER_SERVOS.length];
-    private final Servo[] ramps = new Servo[RAMP_SERVOS.length];
-    private final DcMotorEx[] flywheels = new DcMotorEx[FLYWHEEL_MOTORS.length];
-    private final DcMotorSimple[] indexers = new DcMotorSimple[INDEXERS.length];
-    private final DcMotorEx[] turrets = new DcMotorEx[TURRET_MOTORS.length];
+${fields.join('\n')}
     private final ElapsedTime clock = new ElapsedTime();
-    private double feedStart = -1, spinStart = -1, lastIntake = -1e9;
+    private double feedStart = -1, spinStart = -1, lastIntake = -1e9${servoTurrets.length?`, trackedAt = 0${servoTurrets.map(x=>`, ${x.field}Degrees = 0, ${x.field}At = 0`).join('')}`:''};
     private boolean spinning, shot;
 
     public void init(HardwareMap map) {
-        for (int i = 0; i < intakes.length; i++) {
-            intakes[i] = map.get(DcMotorEx.class, INTAKE_MOTORS[i]);
-            intakes[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-        }
-        for (int i = 0; i < kickers.length; i++) {
-            kickers[i] = map.get(Servo.class, KICKER_SERVOS[i]);
-            kickers[i].setPosition(KICKER_UP[i]);
-        }
-        for (int i = 0; i < ramps.length; i++) {
-            ramps[i] = map.get(Servo.class, RAMP_SERVOS[i]);
-            ramps[i].setPosition(RAMP_UP[i]);
-        }
-        for (int i = 0; i < flywheels.length; i++) {
-            indexers[i] = map.get(DcMotorSimple.class, INDEXERS[i]);
-            flywheels[i] = map.get(DcMotorEx.class, FLYWHEEL_MOTORS[i]);
-            flywheels[i].setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-            flywheels[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-            if (TURRET_MOTORS[i] == null) continue;
-            turrets[i] = map.get(DcMotorEx.class, TURRET_MOTORS[i]);
-            turrets[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-            turrets[i].setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-            turrets[i].setTargetPosition(0);
-            turrets[i].setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        }
+${init.join('\n')}
     }
 
+    private static DcMotorSimple.Direction direction(boolean reversed) {
+        return reversed ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD;
+    }
+${flywheels.length?`
+    private static DcMotorEx flywheel(HardwareMap map, String name, boolean reversed) {
+        DcMotorEx motor = map.get(DcMotorEx.class, name);
+        motor.setDirection(direction(reversed));
+        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        motor.setMode(DcMotor.RunMode.${velocity?'RUN_USING_ENCODER':'RUN_WITHOUT_ENCODER'});${velocity&&m.shooter.pidf?`
+        motor.setVelocityPIDFCoefficients(FLYWHEEL_P, FLYWHEEL_I, FLYWHEEL_D, FLYWHEEL_F);`:velocity?`
+        // Velocity control uses the SDK's default PIDF. For a heavy flywheel, measure its top speed with the
+        // mechanism check (Y) and enter the PIDF it prints in Deck.`:''}
+        return motor;
+    }
+`:''}${motorTurrets.length?`
+    private static DcMotorEx turretMotor(HardwareMap map, String name, boolean reversed) {
+        DcMotorEx motor = map.get(DcMotorEx.class, name);
+        motor.setDirection(direction(reversed));
+        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        // Zero is wherever the turret is now: start the robot with the turret facing forward.
+        motor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motor.setTargetPosition(0);
+        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        return motor;
+    }
+`:''}
+    /** Intake on or off: rollers run at their power; kickers and ramps go down, and back up when it stops. */
     public void intake(boolean on) {
-        if (on && (intakes.length > 0 || kickers.length > 0)) lastIntake = clock.seconds();
-        for (int i = 0; i < intakes.length; i++) intakes[i].setPower(on ? INTAKE_POWERS[i] : 0);
-        for (int i = 0; i < kickers.length; i++) kickers[i].setPosition(on ? KICKER_DOWN[i] : KICKER_UP[i]);
-        for (int i = 0; i < ramps.length; i++) ramps[i].setPosition(on ? RAMP_DOWN[i] : RAMP_UP[i]);
+        if (on) lastIntake = clock.seconds();
+${intakeLines.join('\n')}
     }
 
-    /** Flywheels on (to FLYWHEEL_TICKS_PER_SECOND) or off. */
+    /** Flywheels on (toward their speed) or off. */
     public void spin(boolean on) {
         if (on && !spinning) spinStart = clock.seconds();
         spinning = on;
-        for (DcMotorEx flywheel : flywheels) flywheel.setVelocity(on ? FLYWHEEL_TICKS_PER_SECOND : 0);
+${spinLines.join('\n')}
     }
 
-    /** Every flywheel is within 5% of its speed (or has had SPIN_UP_SECONDS plus half a second). */
+    /** ${velocity?'True once every flywheel is within AT_SPEED_TOLERANCE of its speed (or SPIN_UP_SECONDS + 0.5 s have passed).':'True once the flywheels have had SPIN_UP_SECONDS.'} */
     public boolean ready() {
-        if (!spinning) return false;
+        if (!spinning) return false;${!flywheels.length?`
+        return true;`:velocity?`
         if (clock.seconds() - spinStart > SPIN_UP_SECONDS + 0.5) return true;
-        for (DcMotorEx flywheel : flywheels) if (Math.abs(flywheel.getVelocity() - FLYWHEEL_TICKS_PER_SECOND) >= 0.05 * FLYWHEEL_TICKS_PER_SECOND) return false;
-        return true;
+        return ${flywheels.map(x=>`atSpeed(${x.field})`).join(' && ')};`:`
+        return clock.seconds() - spinStart >= SPIN_UP_SECONDS;`}
+    }
+${velocity&&flywheels.length?`
+    private static boolean atSpeed(DcMotorEx flywheel) {
+        return Math.abs(flywheel.getVelocity() - FLYWHEEL_TICKS_PER_SECOND) < AT_SPEED_TOLERANCE * FLYWHEEL_TICKS_PER_SECOND;
+    }
+`:''}
+    /** Point every turret at a hive cell (0 TARGET, 1 OTHER_TARGET) from this pose. Fixed shooters are aimed by the route. */
+    public void aim(Pose pose, int cell) {${turrets.length?`
+        double x = cell == 1 ? OTHER_TARGET_X : TARGET_X, y = cell == 1 ? OTHER_TARGET_Y : TARGET_Y;
+${aimLines.join('\n')}`:''}
     }
 
-    /** Point every turret at a cell (0 TARGET, 1 OTHER_TARGET) from this pose. Fixed shooters are aimed by the route. */
-    public void aim(Pose pose, int cell) {
-        double x = cell == 1 ? OTHER_TARGET_X : TARGET_X, y = cell == 1 ? OTHER_TARGET_Y : TARGET_Y, c = Math.cos(pose.heading()), s = Math.sin(pose.heading());
-        for (int i = 0; i < turrets.length; i++) {
-            DcMotorEx turret = turrets[i];
-            if (turret == null) continue;
-            double tx = pose.x() + TURRET_X[i] * c - TURRET_Y[i] * s, ty = pose.y() + TURRET_X[i] * s + TURRET_Y[i] * c;
-            double degrees = Math.toDegrees(Math.atan2(y - ty, x - tx) - pose.heading());
-            degrees = ((degrees % 360) + 540) % 360 - 180;
-            degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
-            turret.setTargetPosition((int) Math.round(degrees * TURRET_TICKS_PER_DEGREE));
-            turret.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-            turret.setPower(TURRET_POWER);
-        }
+    /** Every turret to this angle, degrees from the robot's front (counterclockwise). The mechanism check uses it. */
+    public void turnTurrets(double degrees) {
+${turnLines.join('\n')}
+    }
+${turrets.length?`
+    /** Degrees from the robot's front (counterclockwise) to (x, y), from a turret at (dx, dy) on the robot. */
+    private static double bearing(Pose pose, double dx, double dy, double x, double y) {
+        double c = Math.cos(pose.heading()), s = Math.sin(pose.heading());
+        double tx = pose.x() + dx * c - dy * s, ty = pose.y() + dx * s + dy * c;
+        double degrees = Math.toDegrees(Math.atan2(y - ty, x - tx) - pose.heading());
+        return ((degrees % 360) + 540) % 360 - 180;
+    }
+${turnMethods}
+`:''}
+${servoTurrets.length?`    /** Where the servo turrets are by now: each turns toward its target at TURRET_DEGREES_PER_SECOND. */
+    private void trackServoTurrets() {
+        double now = clock.seconds(), step = (now - trackedAt) * TURRET_DEGREES_PER_SECOND;
+        trackedAt = now;
+${servoTurrets.map(x=>`        ${x.field}At += Math.max(-step, Math.min(step, ${x.field}Degrees - ${x.field}At));`).join('\n')}
     }
 
-    public boolean aimed() {
-        for (DcMotorEx turret : turrets) if (turret != null && turret.isBusy()) return false;
-        return true;
+`:''}    /** True once every turret has reached its angle. */
+    public boolean aimed() {${servoTurrets.length?`
+        trackServoTurrets();`:''}
+        return ${aimed.join(' && ')||'true'};
     }
 
-    private void feed(boolean on) {
-        for (DcMotorSimple indexer : indexers) indexer.setPower(on ? INDEXER_POWER : 0);
+    /** Feeders on or off, for the mechanism check: rollers run, gates open, pushers push. */
+    public void feed(boolean on) {
+        feeders(on, 0);
+    }
+
+    /** The feeders t seconds into a volley: rollers run and gates stay open while feeding${pushers.length?'; a pusher pushes for\n     *  PUSH_SECONDS at the start of every FEED_CYCLE_SECONDS and is back at rest in between, so the next piece can drop in':''}. */
+    private void feeders(boolean feeding, double t) {${pushers.length?`
+        boolean push = feeding && t % FEED_CYCLE_SECONDS < PUSH_SECONDS;`:''}
+${feedLines.join('\n')}
     }
 
     /** One call of "Shoot N" (count 0: every storage slot). Returns true once all N shots have had time. */
-    public boolean shoot(int count, RouteActions.Step step) {
+    public boolean shoot(int count, RouteActions.Step step) {${shooter?`
         int want = count > 0 ? count : STORAGE;
         if (step.first) { feedStart = -1; shot = false; }
         if (shot) return true;
@@ -592,24 +722,165 @@ public class Mechanisms {
         // Start once spun up and on target, and pieces from the last intake have moved up.
         if (feedStart < 0 && ready() && aimed() && now - lastIntake >= TRANSFER_SECONDS + KICKER_UP_SECONDS) feedStart = now;
         // Shooting for a set time keeps feeding until the route's last call; otherwise long enough for N shots.
-        double window = step.duration > 0 ? Double.MAX_VALUE : (want - 1) * INDEX_SECONDS + FIRE_MARGIN_SECONDS;
+        double window = step.duration > 0 ? Double.MAX_VALUE : (want - 1) * FEED_CYCLE_SECONDS + LAST_SHOT_SECONDS;
         boolean feeding = feedStart >= 0 && now - feedStart < window;
-        feed(feeding && !step.last);
+        feeders(feeding && !step.last, feedStart >= 0 ? now - feedStart : 0);
         if (feedStart >= 0 && !feeding) shot = true;
         boolean done = shot || step.last;
-        if (done) { feed(false); spin(false); }
-        return done;
+        if (done) { feeders(false, 0); spin(false); }
+        return done;`:`
+        return true;`}
     }
+
+    /** Measured flywheel speeds in encoder ticks per second, in the order of flywheels(). */
+    public double[] flywheelSpeeds() {
+        return new double[] ${list(flywheels.map(x=>`${x.field}.getVelocity()`))};
+    }
+
+    /** The flywheel motors and their names, for the mechanism check. */
+    public DcMotorEx[] flywheels() {
+        return new DcMotorEx[] ${list(flywheels.map(x=>x.field))};
+    }
+
+    public static final String[] FLYWHEEL_NAMES = ${list(flywheels.map(x=>x.constant))};
+
+    /** Every servo (kickers, ramps, servo feeders, servo turrets) and its name, for finding positions with the mechanism check. */
+    public Servo[] servos() {
+        return new Servo[] ${list(servos.map(x=>x.field))};
+    }
+
+    public static final String[] SERVO_NAMES = ${list(servos.map(x=>x.constant))};
 
     public void stop() {
         intake(false);
-        feed(false);
+        feeders(false, 0);
         spin(false);
-        for (DcMotorEx turret : turrets) if (turret != null) turret.setPower(0);
+${motorTurrets.map(x=>`        ${x.field}.setPower(0);`).join('\n')}
     }
 }
-`;
+`.replace(/\n\n\n+/g,'\n\n');
   }
+  // The check TeleOp: runs each device the autonomous uses on its own, so names, directions, servo positions and
+  // flywheel speed can be checked on the robot before the autonomous runs. mechType is Mechanisms, or
+  // Outer.Mechanisms for the single OnBot Java file.
+  function checkOpMode(options,h,m,mechType='Mechanisms'){
+    // h is null for a drivetrain Deck exports no drive code for (a Pedro swerve robot): the check then has no drive test.
+    const name=options.checkName,motors=h?.drive?Object.values(h.drive.motors):[],velocity=!m||m.shooter.control!=='power',d=m?mechanismDevices(m):[];
+    const has=role=>d.some(x=>x.role===role),turret=has('turret'),servos=d.some(x=>x.device==='servo');
+    return `package ${options.packageName};
+
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+/**
+ * Checks the hardware the "${comment(options.layoutName||'route')}" autonomous uses, one device at a time, before you run it.
+ * Generated by Deck Driver Station with the autonomous. Put the robot on blocks: the wheels will turn.
+ *
+ * Hold on gamepad 1:${motors.length?`
+ *  - A: each drive wheel in turn, at low power. Each one must turn so the robot would drive FORWARD.`:''}${m?`
+ *  - Right bumper: the intake. Pieces must go IN.${m.shooters.length?`
+ *  - Left trigger: the flywheels at their shooting speed${velocity?'; telemetry shows the speed each one measures':''}.
+ *  - Right trigger: the feeders (a pusher pushes, a gate opens).${velocity?`
+ *  - Y: the flywheels at full power for their top speed, and REV's velocity PIDF from it.`:''}`:''}${turret?`
+ *  - D-pad left / right / up: the turrets 30 degrees left / right / straight ahead.`:''}${servos?`
+ *  - Back: the next servo. Then move the left stick up or down to move it slowly and read its position.`:''}`:''}
+ * Anything that turns the wrong way: set "turns the other way" for it in Deck and export again.
+ */
+@TeleOp(name = ${javaString((options.layoutName||'Planned route')+' check (Deck)')}, group = "Deck Driver Station")
+public class ${name} extends LinearOpMode {
+    /** The drive motors, in the order A turns them, and which are reversed (as the autonomous sets them). */
+    private static final String[] DRIVE = ${names(motors.map(x=>x.name))};
+    private static final boolean[] DRIVE_REVERSED = {${motors.map(x=>String(x.mount<0)).join(', ')}};
+
+    @Override
+    public void runOpMode() {
+        DcMotorEx[] drive = new DcMotorEx[DRIVE.length];
+        String missing = "";
+        for (int i = 0; i < DRIVE.length; i++) {
+            drive[i] = hardwareMap.tryGet(DcMotorEx.class, DRIVE[i]);
+            if (drive[i] == null) { missing += " " + DRIVE[i]; continue; }
+            drive[i].setDirection(DRIVE_REVERSED[i] ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD);
+            drive[i].setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        }${m?`
+        ${mechType} mech = new ${mechType}();
+        String mechProblem = "";
+        try {
+            mech.init(hardwareMap);
+        } catch (IllegalArgumentException e) {
+            mechProblem = e.getMessage();
+            mech = null;
+        }`:''}
+        telemetry.addLine("Robot on blocks? Press START, then hold a button (see the list in the file).");
+        if (!missing.isEmpty()) telemetry.addLine("Not in the robot configuration:" + missing);${m?`
+        if (mech == null) telemetry.addLine("Mechanisms: " + mechProblem);`:''}
+        telemetry.update();
+        waitForStart();
+        ElapsedTime wheels = new ElapsedTime();${m?`
+        boolean intaking = false, spinning = false, feeding = false, measuring = false, back = false;
+        int turret = 0, servo = 0;
+        double top = 0;
+        ElapsedTime loop = new ElapsedTime();`:''}
+        while (opModeIsActive()) {${motors.length?`
+            // A: one drive wheel at a time, 1.5 s each.
+            int wheel = gamepad1.a ? (int) (wheels.seconds() / 1.5) % DRIVE.length : -1;
+            if (!gamepad1.a) wheels.reset();
+            for (int i = 0; i < DRIVE.length; i++) if (drive[i] != null) drive[i].setPower(i == wheel ? 0.3 : 0);
+            telemetry.addData("Drive", wheel < 0 ? "hold A" : DRIVE[wheel] + " should turn the robot FORWARD");`:''}${m?`
+            if (mech != null) {
+                // Each test starts and stops when its button changes, so the servo finder can move servos in between.
+                if (gamepad1.right_bumper != intaking) { intaking = gamepad1.right_bumper; mech.intake(intaking); }
+                telemetry.addData("Intake", intaking ? "running: pieces should go IN" : "hold right bumper");${m.shooters.length?`
+                boolean spin = gamepad1.left_trigger > 0.5;
+                if (spin != spinning && !measuring) { spinning = spin; mech.spin(spinning); }
+                double[] speeds = mech.flywheelSpeeds();
+                String measured = "";
+                for (int i = 0; i < speeds.length; i++) measured += String.format("%s %.0f  ", ${mechType}.FLYWHEEL_NAMES[i], speeds[i]);
+                telemetry.addData("Flywheels", spinning ? ${velocity?`String.format("target %.0f ticks/s, %s", ${mechType}.FLYWHEEL_TICKS_PER_SECOND, mech.ready() ? "at speed" : "spinning up")`:`String.format("power %.2f", ${mechType}.FLYWHEEL_POWER)`} : "hold left trigger");
+                telemetry.addData("Measured ticks/s", measured);
+                boolean feed = gamepad1.right_trigger > 0.5;
+                if (feed != feeding) { feeding = feed; mech.feed(feeding); }
+                telemetry.addData("Feeders", feeding ? "feeding" : "hold right trigger");${velocity?`
+                // Y: full power without velocity control; the highest speed seen is the top speed.
+                if (gamepad1.y && !measuring) {
+                    measuring = true;
+                    top = 0;
+                    for (DcMotorEx f : mech.flywheels()) { f.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); f.setPower(1); }
+                } else if (!gamepad1.y && measuring) {
+                    measuring = false;
+                    for (DcMotorEx f : mech.flywheels()) { f.setPower(0); f.setMode(DcMotor.RunMode.RUN_USING_ENCODER); }
+                    spinning = false;
+                }
+                if (measuring) for (double v : speeds) top = Math.max(top, Math.abs(v));
+                if (top > 0) {
+                    double f = 32767 / top, p = 0.1 * f, i = 0.1 * p;
+                    telemetry.addData("Top speed", "%.0f ticks/s (hold Y for 3 s on a full battery)", top);
+                    telemetry.addData("Velocity PIDF for Deck", "P %.3f  I %.4f  D 0  F %.3f", p, i, f);
+                }`:''}`:''}${turret?`
+                if (gamepad1.dpad_left && turret != 30) { turret = 30; mech.turnTurrets(30); }
+                if (gamepad1.dpad_right && turret != -30) { turret = -30; mech.turnTurrets(-30); }
+                if (gamepad1.dpad_up && turret != 0) { turret = 0; mech.turnTurrets(0); }
+                telemetry.addData("Turrets", "%d degrees (%s)", turret, mech.aimed() ? "there" : "turning");`:''}${servos?`
+                // Back picks the next servo; the left stick moves it 0.3 of its range per second.
+                Servo[] servos = mech.servos();
+                if (gamepad1.back && !back) servo = (servo + 1) % servos.length;
+                back = gamepad1.back;
+                double dt = loop.seconds();
+                if (Math.abs(gamepad1.left_stick_y) > 0.1) servos[servo].setPosition(Math.max(0, Math.min(1, servos[servo].getPosition() - gamepad1.left_stick_y * 0.3 * dt)));
+                telemetry.addData("Servo (back: next)", "%s at %.3f", ${mechType}.SERVO_NAMES[servo], servos[servo].getPosition());`:''}
+            }
+            loop.reset();`:''}
+            telemetry.update();
+        }
+        for (DcMotorEx motor : drive) if (motor != null) motor.setPower(0);${m?`
+        if (mech != null) mech.stop();`:''}
+    }
+}
+`;}
   // Every TeamCode file for the Control Hub, keyed by path under TeamCode/src/main/java. RobotActions
   // is listed in keep: it is written only when it does not exist yet.
   function files({route,layout,tuning,robot,localization,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',routeJava,mechanisms=null,target=null,exporter=globalThis.DeckSimExport||require('./sim-export.js')}){
@@ -622,7 +893,9 @@ public class Mechanisms {
     const core=(globalThis.DeckFollowerSource||(typeof require==='function'?require('./sim-follower-source.js'):''));if(!core)throw Error('The bundled Deck controller source is missing.');
     const out={[`${dir}/${className}.java`]:routeJava,[`${dir}/${opModeName}.java`]:opMode(options),[`${dir}/RouteActions.java`]:routeActions(options,list),[`${dir}/RobotActions.java`]:robotActions(options,list),[`${dir}/drive/Constants.java`]:constants(h,tuning,options),[`${dir}/drive/RobotDrive.java`]:robotDrive(h,options),['deck/pathing/DeckFollower.java']:core};
     if(mech)out[`${dir}/Mechanisms.java`]=mechanismsSource(options,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
-    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${opModeName}`,hardware:h,actions:list};
+    // The check TeleOp tests the drive motors and every mechanism device on the robot before the autonomous runs.
+    const checkName=className+'Check',check=`${dir}/${checkName}.java`;out[check]=checkOpMode({...options,checkName},h,mech);
+    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${opModeName}`,check:{path:check,opMode:`${packageName}.${checkName}`},hardware:h,actions:list};
   }
   // One SDK-only .java file for OnBot Java: controller, route, wiring and action slots
   // are nested in its OpMode. No external library upload or Android Studio project is needed.
@@ -630,6 +903,7 @@ public class Mechanisms {
     options={...options,packageName:options.packageName||'org.firstinspires.ftc.teamcode'};
     const out=files(options),packageName=options.packageName,name=out.opMode.split('.').at(-1),imports=new Set(),nested=[];let outer='';
     for(const [file,source]of Object.entries(out.files)){
+      if(file===out.check.path)continue;
       for(const m of source.matchAll(/^import\s+([^;]+);/gm))if(!m[1].startsWith('deck.pathing.')&&!m[1].startsWith(packageName+'.'))imports.add(m[1]);
       const declaration=/\bpublic\s+((?:(?:abstract|final)\s+)*)class\s+(\w+)([^\{]*)\{/.exec(source);if(!declaration)throw Error('Cannot combine '+file);
       const className=declaration[2],body=source.slice(declaration.index+declaration[0].length,source.lastIndexOf('}'));
@@ -638,19 +912,22 @@ public class Mechanisms {
       if(className===name){const annotation=source.slice(source.indexOf('@Autonomous'),declaration.index);outer=annotation+`public class ${name}${declaration[3]}{`+qualify(body);}
       else nested.push(`    public static ${declaration[1]}class ${className}${className==='DeckFollower'?declaration[3]:qualify(declaration[3])}{\n${className==='DeckFollower'?body:qualify(body)}\n    }`);
     }
-    const source=`package ${packageName};\n\n${[...imports].sort().map(i=>'import '+i+';').join('\n')}\n\n/** Upload this file to OnBot Java, match the robot hardware names and IMU mounting,\n * then Build Everything. Select this autonomous on the Driver Station and INIT/START.\n * All driving code is included. Fill in RobotActions for your intake/launcher/servos.\n * Calibrate wheel travel, pod offsets and control gains on the actual robot.\n */\n${outer}\n${nested.join('\n\n')}\n}\n`;
-    return {name:name+'.java',source,opMode:out.opMode,files:{[packageName.replace(/\./g,'/')+'/'+name+'.java']:source},hardware:out.hardware};
+    const source=`package ${packageName};\n\n${[...imports].sort().map(i=>'import '+i+';').join('\n')}\n\n/** Upload this file to OnBot Java, match the robot hardware names and IMU mounting,\n * then Build Everything. Select this autonomous on the Driver Station and INIT/START.\n * All driving code is included. The intake and shooter set up in Deck run in Mechanisms;\n * write anything else (or your own version of an action) in RobotActions.\n * Calibrate wheel travel, pod offsets and control gains on the actual robot.\n */\n${outer}\n${nested.join('\n\n')}\n}\n`;
+    // The check TeleOp is its own file (an OpMode cannot be nested) and uses this file's Mechanisms.
+    const dir=packageName.replace(/\./g,'/'),checkName=out.check.opMode.split('.').at(-1),mech=options.mechanisms?.enabled?options.mechanisms:null;
+    const check={name:checkName+'.java',source:checkOpMode({packageName,layoutName:options.layout.name,setupName:options.setupName,checkName},out.hardware,mech,name+'.Mechanisms'),opMode:out.check.opMode};
+    return {name:name+'.java',source,opMode:out.opMode,check,files:{[dir+'/'+name+'.java']:source,[dir+'/'+check.name]:check.source},hardware:out.hardware};
   }
   // What a Control Hub export proves and what the team still has to do (shown with the export).
   function checklist({mechanisms=null,actions=[]}={}){
     return [
       {status:'verified',label:'Compiles',detail:'Deck’s export check compiles OnBot Java and TeamCode output against FTC SDK 12.0.0 (tools/simulation/check-ftc-sdk.cjs).'},
       {status:'verified',label:'Runs in simulation',detail:'Run & review → Program → OnBot Java export runs this exact file on the virtual Control Hub with simulated motors, sensors and physics.'},
-      {status:'team',label:'Hardware names',detail:'Motor, IMU and sensor names, motor directions and IMU mounting must match your Control Hub configuration.'},
+      {status:'team',label:'Hardware names',detail:'Motor, IMU and sensor names, motor directions and IMU mounting must match your Control Hub configuration. Send to robot checks the names against it.'},
       {status:'calibration',label:'Calibration',detail:'Wheel travel, pod offsets and the generated gains are starting values. Check them on your robot.'},
-      {status:'team',label:'Actions',detail:actions.length?(mechanisms?'Mechanisms.java drives the intake/shooter set up in Deck; check device names and directions. Other actions need code in RobotActions.java.':'Write the code for each action in RobotActions.java; until then they finish at once.'):'No actions in this route.'},
+      {status:'team',label:'Actions',detail:actions.length?(mechanisms?'Mechanisms.java drives the intake and shooter set up in Deck. Run the check TeleOp first: it tests every device, its direction, servo positions and flywheel speed. Other actions need code in RobotActions.java.':'Write the code for each action in RobotActions.java; until then they finish at once.'):'No actions in this route.'},
       {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low power first. Simulation and compilation do not prove the robot will follow the path.'}
     ];
   }
-  return {checklist,hardware,hardwareIfSupported,files,onBotJava,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,SUPPORTED,MOTORS,TANK,ticksPerRev};
+  return {checklist,hardware,hardwareIfSupported,deviceSlots,robotNeeds,files,onBotJava,mechanismDevices,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,checkOpMode,SUPPORTED,MOTORS,TANK,ticksPerRev};
 });

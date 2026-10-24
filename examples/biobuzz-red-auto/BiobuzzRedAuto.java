@@ -24,7 +24,8 @@ import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
 
 /** Upload this file to OnBot Java, match the robot hardware names and IMU mounting,
  * then Build Everything. Select this autonomous on the Driver Station and INIT/START.
- * All driving code is included. Fill in RobotActions for your intake/launcher/servos.
+ * All driving code is included. The intake and shooter set up in Deck run in Mechanisms;
+ * write anything else (or your own version of an action) in RobotActions.
  * Calibrate wheel travel, pod offsets and control gains on the actual robot.
  */
 @Autonomous(name = "BIOBUZZ red auto (Deck)", group = "Deck Driver Station")
@@ -345,6 +346,14 @@ public class BiobuzzRedAuto extends LinearOpMode {
 
     public static class RobotActions extends RouteActions {
 
+    // Deck's Intake, Spin up, Aim and Shoot already run the mechanisms set up in Deck (Mechanisms.java, as
+    // mech). To do one of them your own way, override it here. For example, to shoot with your own code:
+    //     @Override
+    //     public boolean shoot(Step step) {
+    //         // Called every loop until it returns true. Never sleep() here: the robot stops following its path.
+    //         return mech.shoot(0, step); // Deck's version: start from it, or replace it
+    //     }
+
     // Example: private DcMotorEx intake;
 
     @Override
@@ -648,110 +657,158 @@ public class BiobuzzRedAuto extends LinearOpMode {
 
     public static class Mechanisms {
 
-    public static final String[] INTAKE_MOTORS = {"intake"};
-    public static final double[] INTAKE_POWERS = {1.0};
-    /** Kicker servos and their positions down (scooping) and up (carrying in); KICKER_UP_SECONDS to swing back up. */
-    public static final String[] KICKER_SERVOS = {};
-    public static final double[] KICKER_DOWN = {}, KICKER_UP = {};
-    public static final double KICKER_UP_SECONDS = 0.0;
-    /** Ramp servos and their positions down (picking up, rollers running) and up (folded in). */
-    public static final String[] RAMP_SERVOS = {};
-    public static final double[] RAMP_DOWN = {}, RAMP_UP = {};
-    public static final String[] FLYWHEEL_MOTORS = {"shooter"}, INDEXERS = {"indexer"};
-    /** Each shooter's turret motor, or null for a fixed shooter (or one on the first shooter's turret). */
-    public static final String[] TURRET_MOTORS = {"turret"};
-    /** Where each turret turns, inches forward and left of the robot's center: each aims from its own spot. */
-    public static final double[] TURRET_X = {0.0}, TURRET_Y = {0.0};
-    public static final double TRANSFER_SECONDS = 1.0, INDEX_SECONDS = 0.35, INDEXER_POWER = 1.0, FIRE_MARGIN_SECONDS = 0.15;
-    public static final double FLYWHEEL_TICKS_PER_SECOND = 1400.0, SPIN_UP_SECONDS = 0.8;
-    /** Pieces the robot can hold: 4 pollen. */
+    // ---- Intake 1: front sweeper roller.
+    /** Intake 1 roller: a DC motor that runs at its power while an Intake action runs. */
+    public static final String INTAKE_1 = "intake";
+    public static final boolean INTAKE_1_REVERSED = false;
+    public static final double INTAKE_1_POWER = 1.0;
+
+    // ---- Shooter 1: pollen.
+    /** Flywheel motor. */
+    public static final String FLYWHEEL_1 = "shooter";
+    public static final boolean FLYWHEEL_1_REVERSED = false;
+    /** Feeder: a motor that runs at FEEDER_POWER while shooting. */
+    public static final String FEEDER_1 = "indexer";
+    public static final boolean FEEDER_1_REVERSED = false;
+    /** Turret: a motor with an encoder. It aims from where it turns on the robot, inches forward and left of the center. */
+    public static final String TURRET_1 = "turret";
+    public static final boolean TURRET_1_REVERSED = false;
+    public static final double TURRET_1_X = 0.0, TURRET_1_Y = 0.0;
+
+    // ---- Flywheels (every shooter).
+    /** Shooting speed in encoder ticks per second: 3000 RPM x 28 ticks per revolution / 60. */
+    public static final double FLYWHEEL_TICKS_PER_SECOND = 1400.0;
+    /** A flywheel is at speed within this fraction of FLYWHEEL_TICKS_PER_SECOND. */
+    public static final double AT_SPEED_TOLERANCE = 0.05;
+    /** Seconds to reach speed. A flywheel still short of it SPIN_UP_SECONDS + 0.5 s after starting shoots anyway. */
+    public static final double SPIN_UP_SECONDS = 0.8;
+
+    // ---- Feeding (every shooter), timed: there is no piece sensor.
+    /** From a piece touching an intake to sitting in the shooter; how long a kicker takes to swing back up after an intake. */
+    public static final double TRANSFER_SECONDS = 1.0, KICKER_UP_SECONDS = 0.0;
+    /** For the next piece to move up into the shooter after a shot. */
+    public static final double INDEX_SECONDS = 0.35;
+    /** A volley of N shots feeds for (N - 1) x FEED_CYCLE_SECONDS + LAST_SHOT_SECONDS. */
+    public static final double FEED_CYCLE_SECONDS = 0.35, LAST_SHOT_SECONDS = 0.15;
+    public static final double FEEDER_POWER = 1.0;
+    /** Pieces the robot can hold: 4 pollen. "Shoot" with no number shoots this many. */
     public static final int STORAGE = 4;
     /** The field points shots aim at, in inches: the hive cell up at the start, and the other cell. */
     public static final double TARGET_X = 59.25, TARGET_Y = 58.5602, OTHER_TARGET_X = 59.25, OTHER_TARGET_Y = 85.4398;
-    public static final double TURRET_TICKS_PER_DEGREE = 4.6, TURRET_MIN_DEGREES = -170.0, TURRET_MAX_DEGREES = 170.0, TURRET_POWER = 1.0;
 
-    private final DcMotorEx[] intakes = new DcMotorEx[INTAKE_MOTORS.length];
-    private final Servo[] kickers = new Servo[KICKER_SERVOS.length];
-    private final Servo[] ramps = new Servo[RAMP_SERVOS.length];
-    private final DcMotorEx[] flywheels = new DcMotorEx[FLYWHEEL_MOTORS.length];
-    private final DcMotorSimple[] indexers = new DcMotorSimple[INDEXERS.length];
-    private final DcMotorEx[] turrets = new DcMotorEx[TURRET_MOTORS.length];
+    // ---- Turrets: 0 degrees faces the robot's front, positive turns counterclockwise (to the robot's left).
+    public static final double TURRET_MIN_DEGREES = -170.0, TURRET_MAX_DEGREES = 170.0;
+    /** Encoder ticks per turret degree and the motor power for RUN_TO_POSITION. Zero is where the turret is at INIT. */
+    public static final double TURRET_TICKS_PER_DEGREE = 4.6, TURRET_POWER = 1.0;
+
+    private DcMotorSimple intake1;
+    private DcMotorEx flywheel1;
+    private DcMotorSimple feeder1;
+    private DcMotorEx turret1;
     private final ElapsedTime clock = new ElapsedTime();
     private double feedStart = -1, spinStart = -1, lastIntake = -1e9;
     private boolean spinning, shot;
 
     public void init(HardwareMap map) {
-        for (int i = 0; i < intakes.length; i++) {
-            intakes[i] = map.get(DcMotorEx.class, INTAKE_MOTORS[i]);
-            intakes[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-        }
-        for (int i = 0; i < kickers.length; i++) {
-            kickers[i] = map.get(Servo.class, KICKER_SERVOS[i]);
-            kickers[i].setPosition(KICKER_UP[i]);
-        }
-        for (int i = 0; i < ramps.length; i++) {
-            ramps[i] = map.get(Servo.class, RAMP_SERVOS[i]);
-            ramps[i].setPosition(RAMP_UP[i]);
-        }
-        for (int i = 0; i < flywheels.length; i++) {
-            indexers[i] = map.get(DcMotorSimple.class, INDEXERS[i]);
-            flywheels[i] = map.get(DcMotorEx.class, FLYWHEEL_MOTORS[i]);
-            flywheels[i].setMode(DcMotor.RunMode.RUN_USING_ENCODER);
-            flywheels[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
-            if (TURRET_MOTORS[i] == null) continue;
-            turrets[i] = map.get(DcMotorEx.class, TURRET_MOTORS[i]);
-            turrets[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
-            turrets[i].setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
-            turrets[i].setTargetPosition(0);
-            turrets[i].setMode(DcMotor.RunMode.RUN_TO_POSITION);
-        }
+        intake1 = map.get(DcMotorSimple.class, INTAKE_1);
+        intake1.setDirection(direction(INTAKE_1_REVERSED));
+        if (intake1 instanceof DcMotor) ((DcMotor) intake1).setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        flywheel1 = flywheel(map, FLYWHEEL_1, FLYWHEEL_1_REVERSED);
+        feeder1 = map.get(DcMotorSimple.class, FEEDER_1);
+        feeder1.setDirection(direction(FEEDER_1_REVERSED));
+        turret1 = turretMotor(map, TURRET_1, TURRET_1_REVERSED);
     }
 
+    private static DcMotorSimple.Direction direction(boolean reversed) {
+        return reversed ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD;
+    }
+
+    private static DcMotorEx flywheel(HardwareMap map, String name, boolean reversed) {
+        DcMotorEx motor = map.get(DcMotorEx.class, name);
+        motor.setDirection(direction(reversed));
+        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        motor.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
+        // Velocity control uses the SDK's default PIDF. For a heavy flywheel, measure its top speed with the
+        // mechanism check (Y) and enter the PIDF it prints in Deck.
+        return motor;
+    }
+
+    private static DcMotorEx turretMotor(HardwareMap map, String name, boolean reversed) {
+        DcMotorEx motor = map.get(DcMotorEx.class, name);
+        motor.setDirection(direction(reversed));
+        motor.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        // Zero is wherever the turret is now: start the robot with the turret facing forward.
+        motor.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
+        motor.setTargetPosition(0);
+        motor.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        return motor;
+    }
+
+    /** Intake on or off: rollers run at their power; kickers and ramps go down, and back up when it stops. */
     public void intake(boolean on) {
-        if (on && (intakes.length > 0 || kickers.length > 0)) lastIntake = clock.seconds();
-        for (int i = 0; i < intakes.length; i++) intakes[i].setPower(on ? INTAKE_POWERS[i] : 0);
-        for (int i = 0; i < kickers.length; i++) kickers[i].setPosition(on ? KICKER_DOWN[i] : KICKER_UP[i]);
-        for (int i = 0; i < ramps.length; i++) ramps[i].setPosition(on ? RAMP_DOWN[i] : RAMP_UP[i]);
+        if (on) lastIntake = clock.seconds();
+        intake1.setPower(on ? INTAKE_1_POWER : 0);
     }
 
-    /** Flywheels on (to FLYWHEEL_TICKS_PER_SECOND) or off. */
+    /** Flywheels on (toward their speed) or off. */
     public void spin(boolean on) {
         if (on && !spinning) spinStart = clock.seconds();
         spinning = on;
-        for (DcMotorEx flywheel : flywheels) flywheel.setVelocity(on ? FLYWHEEL_TICKS_PER_SECOND : 0);
+        double speed = on ? FLYWHEEL_TICKS_PER_SECOND : 0;
+        flywheel1.setVelocity(speed);
     }
 
-    /** Every flywheel is within 5% of its speed (or has had SPIN_UP_SECONDS plus half a second). */
+    /** True once every flywheel is within AT_SPEED_TOLERANCE of its speed (or SPIN_UP_SECONDS + 0.5 s have passed). */
     public boolean ready() {
         if (!spinning) return false;
         if (clock.seconds() - spinStart > SPIN_UP_SECONDS + 0.5) return true;
-        for (DcMotorEx flywheel : flywheels) if (Math.abs(flywheel.getVelocity() - FLYWHEEL_TICKS_PER_SECOND) >= 0.05 * FLYWHEEL_TICKS_PER_SECOND) return false;
-        return true;
+        return atSpeed(flywheel1);
     }
 
-    /** Point every turret at a cell (0 TARGET, 1 OTHER_TARGET) from this pose. Fixed shooters are aimed by the route. */
+    private static boolean atSpeed(DcMotorEx flywheel) {
+        return Math.abs(flywheel.getVelocity() - FLYWHEEL_TICKS_PER_SECOND) < AT_SPEED_TOLERANCE * FLYWHEEL_TICKS_PER_SECOND;
+    }
+
+    /** Point every turret at a hive cell (0 TARGET, 1 OTHER_TARGET) from this pose. Fixed shooters are aimed by the route. */
     public void aim(DeckFollower.Pose pose, int cell) {
-        double x = cell == 1 ? OTHER_TARGET_X : TARGET_X, y = cell == 1 ? OTHER_TARGET_Y : TARGET_Y, c = Math.cos(pose.heading()), s = Math.sin(pose.heading());
-        for (int i = 0; i < turrets.length; i++) {
-            DcMotorEx turret = turrets[i];
-            if (turret == null) continue;
-            double tx = pose.x() + TURRET_X[i] * c - TURRET_Y[i] * s, ty = pose.y() + TURRET_X[i] * s + TURRET_Y[i] * c;
-            double degrees = Math.toDegrees(Math.atan2(y - ty, x - tx) - pose.heading());
-            degrees = ((degrees % 360) + 540) % 360 - 180;
-            degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
-            turret.setTargetPosition((int) Math.round(degrees * TURRET_TICKS_PER_DEGREE));
-            turret.setMode(DcMotor.RunMode.RUN_TO_POSITION);
-            turret.setPower(TURRET_POWER);
-        }
+        double x = cell == 1 ? OTHER_TARGET_X : TARGET_X, y = cell == 1 ? OTHER_TARGET_Y : TARGET_Y;
+        turnTurret1(bearing(pose, TURRET_1_X, TURRET_1_Y, x, y));
     }
 
+    /** Every turret to this angle, degrees from the robot's front (counterclockwise). The mechanism check uses it. */
+    public void turnTurrets(double degrees) {
+        turnTurret1(degrees);
+    }
+
+    /** Degrees from the robot's front (counterclockwise) to (x, y), from a turret at (dx, dy) on the robot. */
+    private static double bearing(DeckFollower.Pose pose, double dx, double dy, double x, double y) {
+        double c = Math.cos(pose.heading()), s = Math.sin(pose.heading());
+        double tx = pose.x() + dx * c - dy * s, ty = pose.y() + dx * s + dy * c;
+        double degrees = Math.toDegrees(Math.atan2(y - ty, x - tx) - pose.heading());
+        return ((degrees % 360) + 540) % 360 - 180;
+    }
+
+    /** Turret 1 to an angle (degrees from the robot's front, counterclockwise), within its range. */
+    private void turnTurret1(double degrees) {
+        degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
+        turret1.setTargetPosition((int) Math.round(degrees * TURRET_TICKS_PER_DEGREE));
+        turret1.setMode(DcMotor.RunMode.RUN_TO_POSITION);
+        turret1.setPower(TURRET_POWER);
+    }
+
+    /** True once every turret has reached its angle. */
     public boolean aimed() {
-        for (DcMotorEx turret : turrets) if (turret != null && turret.isBusy()) return false;
-        return true;
+        return !turret1.isBusy();
     }
 
-    private void feed(boolean on) {
-        for (DcMotorSimple indexer : indexers) indexer.setPower(on ? INDEXER_POWER : 0);
+    /** Feeders on or off, for the mechanism check: rollers run, gates open, pushers push. */
+    public void feed(boolean on) {
+        feeders(on, 0);
+    }
+
+    /** The feeders t seconds into a volley: rollers run and gates stay open while feeding. */
+    private void feeders(boolean feeding, double t) {
+        feeder1.setPower(feeding ? FEEDER_POWER : 0);
     }
 
     /** One call of "Shoot N" (count 0: every storage slot). Returns true once all N shots have had time. */
@@ -765,20 +822,39 @@ public class BiobuzzRedAuto extends LinearOpMode {
         // Start once spun up and on target, and pieces from the last intake have moved up.
         if (feedStart < 0 && ready() && aimed() && now - lastIntake >= TRANSFER_SECONDS + KICKER_UP_SECONDS) feedStart = now;
         // Shooting for a set time keeps feeding until the route's last call; otherwise long enough for N shots.
-        double window = step.duration > 0 ? Double.MAX_VALUE : (want - 1) * INDEX_SECONDS + FIRE_MARGIN_SECONDS;
+        double window = step.duration > 0 ? Double.MAX_VALUE : (want - 1) * FEED_CYCLE_SECONDS + LAST_SHOT_SECONDS;
         boolean feeding = feedStart >= 0 && now - feedStart < window;
-        feed(feeding && !step.last);
+        feeders(feeding && !step.last, feedStart >= 0 ? now - feedStart : 0);
         if (feedStart >= 0 && !feeding) shot = true;
         boolean done = shot || step.last;
-        if (done) { feed(false); spin(false); }
+        if (done) { feeders(false, 0); spin(false); }
         return done;
     }
 
+    /** Measured flywheel speeds in encoder ticks per second, in the order of flywheels(). */
+    public double[] flywheelSpeeds() {
+        return new double[] {flywheel1.getVelocity()};
+    }
+
+    /** The flywheel motors and their names, for the mechanism check. */
+    public DcMotorEx[] flywheels() {
+        return new DcMotorEx[] {flywheel1};
+    }
+
+    public static final String[] FLYWHEEL_NAMES = {FLYWHEEL_1};
+
+    /** Every servo (kickers, ramps, servo feeders, servo turrets) and its name, for finding positions with the mechanism check. */
+    public Servo[] servos() {
+        return new Servo[] {};
+    }
+
+    public static final String[] SERVO_NAMES = {};
+
     public void stop() {
         intake(false);
-        feed(false);
+        feeders(false, 0);
         spin(false);
-        for (DcMotorEx turret : turrets) if (turret != null) turret.setPower(0);
+        turret1.setPower(0);
     }
 
     }

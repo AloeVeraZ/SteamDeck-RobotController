@@ -84,6 +84,30 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
   - The same comparison runs from the terminal: `deck-sim compare <setup> <log>`.
   - Checked on the app's own AdvantageScope log.
 
+### Mechanism hardware and Send to robot (24 October, afternoon)
+
+The user asked how Intake, Spin up and Shoot reach real motors and servos, whether that works for different mechanisms, and for one-button setup on a Control Hub. The report is `docs/MECHANISM_ACTIONS.md`.
+
+- **Hardware settings** (Setup → Mechanisms → Robot hardware, `deck-sim mech` flags):
+  - rollers on a motor or a continuous servo, with an optional second roller;
+  - one or two flywheel motors, with velocity control (tolerance, optional PIDF) or a set power with no encoder;
+  - feeders: motor, continuous servo, servo pusher or servo gate;
+  - turrets on a motor or a servo;
+  - "turns the other way" for every device.
+
+  Stored only when not the default, so old saves load unchanged.
+- **Drive and sensor names** and drive motor directions (Setup → Robot controller → Device names on the robot, `deck-sim robot --names/--reversed`), in every Control Hub export.
+- **`Mechanisms.java` written device by device** from one list (`mechanismDevices`), which the virtual hub wiring, the check TeleOp and the robot check share. Rollers and roller feeders are `DcMotorSimple`, so a motor or a continuous servo both work. A servo turret is tracked to 2°. Before, it timed itself from the last change, and the pose noise kept pushing that time back, so it never fired.
+- **The check TeleOp** (`<Class>Check.java`, TeamCode, OnBot and Pedro). It turns the drive wheels one at a time and runs the intake, flywheels and feeders. Y measures top speed and shows REV's PIDF; a servo finder reads positions; the turret jogs.
+- **The virtual hub models mounting.** Each device is registered as its kind and mounted as set. Only a forward command intakes, feeds or spins, so code with a wrong direction fails in simulation as it would on the robot. The engine reads signed commands.
+- **MotionModule:** the same settings, with the power negated for a reversed device; the bridge applies mounts.
+- **Send to robot** (Run & review → Export):
+  - `src/robot-link.cjs` reads the active configuration over Robocol, then uploads and builds through OnBot Java (`/java/file/save`, `/java/build/*`), backing up files that were edited on the robot.
+  - `ui/ftc/robot-config.js` parses the configuration XML and checks every name the export uses: name suggestions (leftFront for front_left), fixes for a wrong kind, duplicates.
+  - The protocol was taken from the FTC SDK 12.0 classes (javap).
+  - `tools/ftc-sim.cjs` answers the configuration commands and `--onbot` serves OnBot Java.
+- **Exports:** OnBot Java is now the autonomous plus its check file (app save, deck-sim and Send to robot). The examples were regenerated.
+
 ### Bugs fixed
 
 - Run-folder collision between engines (compile errors in tests and in background test drives).

@@ -384,7 +384,9 @@ class SimEngine{
         // MotionModule zeroes every motor for a few milliseconds when a drive wheel reverses (dead time);
         // a spinning flywheel or indexer barely notices, so its outputs count as on for 0.12 s after.
         const d=this.mechDevices||{},now=this.world.time,latch=this.mechLatch||(this.mechLatch={}),on=(key,active)=>{if(active)latch[key]=now;return bridge.kind==='motionmodule'?now-(latch[key]??-Infinity)<=.12:active;};
-        this.mechCmd={intake:on('intake',Math.abs(d.intake||0)>.2),spin:on('spin',(d.flywheel||0)>.2),feed:on('feed',Math.abs(d.indexer||0)>.2),aim:finite(d.turretDeg)||Array.isArray(d.turretDegs),turretDeg:finite(d.turretDeg)?d.turretDeg:undefined,turretDegs:Array.isArray(d.turretDegs)?d.turretDegs:undefined,...(typeof d.ramp==='number'?{ramp:d.ramp>.5}:{})};this.mechBusy=false;}
+        // Commands are signed after each device's mounting: a roller or feeder running backwards spits pieces out, so only
+        // a forward command takes pieces in or feeds the shooter.
+        this.mechCmd={intake:on('intake',(d.intake||0)>.2),spin:on('spin',(d.flywheel||0)>.2),feed:on('feed',(d.indexer||0)>.2),aim:finite(d.turretDeg)||Array.isArray(d.turretDegs),turretDeg:finite(d.turretDeg)?d.turretDeg:undefined,turretDegs:Array.isArray(d.turretDegs)?d.turretDegs:undefined,...(typeof d.ramp==='number'?{ramp:d.ramp>.5}:{})};this.mechBusy=false;}
       else{this.mechCell=this.mechAct&&this.legCells?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']?'other':'start';const next=this.mechRunner.commands(this.mechAct&&{...this.mechAct,path:this.legPaths?.[this.mechAct.leg],seconds:this.legSeconds?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy;}
     }
     const reading=this.tick(this.command),seq=bridge.seq;bridge.ticks++;

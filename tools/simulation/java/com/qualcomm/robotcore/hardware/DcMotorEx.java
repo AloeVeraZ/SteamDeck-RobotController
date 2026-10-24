@@ -11,6 +11,7 @@ public interface DcMotorEx extends DcMotor {
     boolean isMotorEnabled();
     void setVelocity(double angularRate);
     void setVelocity(double angularRate, AngleUnit unit);
+    void setVelocityPIDFCoefficients(double p, double i, double d, double f);
     double getVelocity();
     double getVelocity(AngleUnit unit);
     double getCurrent(CurrentUnit unit);

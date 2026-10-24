@@ -403,6 +403,8 @@ public class ${o.opMode} extends LinearOpMode {
     const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,poseImport:'com.pedropathing.math.Pose'};
     const out={[`${dir}/${nm.paths}.java`]:pathsFile(o),[`${dir}/${nm.opMode}.java`]:opModeFile(o),[`${dir}/RouteActions.java`]:ftc.routeActions(shared,list),[`${dir}/RobotActions.java`]:ftc.robotActions(shared,list)};
     if(mech)out[`${dir}/Mechanisms.java`]=ftc.mechanismsSource(shared,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
+    // The check TeleOp tests the drive motors Deck knows (none for swerve) and every mechanism device on the robot.
+    out[`${dir}/${className}Check.java`]=ftc.checkOpMode({...shared,checkName:className+'Check'},hardware,mech);
     // Starting values for the team's pedro/Constants.java, next to it in the Quickstart's pedro package.
     let starter=null;if(hardware&&tuning&&constants===QUICKSTART_CONSTANTS){try{starter=starterConstants({hardware,tuning});}catch{}}
     if(starter)out['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java']=starter;

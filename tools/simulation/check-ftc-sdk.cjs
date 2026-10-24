@@ -83,9 +83,26 @@ async function main(){
         if(warnings.length)throw Error(`${c.name} export compiles with warnings:\n${warnings.join('\n')}`);
         console.log(`Control Hub export (${c.name}${route.turns?', turning':''}): ${files.length} files compile against the real SDK, no warnings.`);
         const single=F.onBotJava({route,layout,tuning:info.tuning,robot:info.robot,localization:c.localization,setupName:'SDK check',routeJava:X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
-        const singleDir=path.join(temp,'onbot',c.name.replace(/\W/g,'-'));fs.mkdirSync(singleDir,{recursive:true});const singlePath=path.join(singleDir,single.name);fs.writeFileSync(singlePath,single.source);
-        javac([singlePath],singleDir+'-classes',jars);console.log(`OnBot Java (${c.name}): one Java 8 file compiles against the real SDK.`);
+        // OnBot Java: the autonomous file and its check TeleOp, which uses the autonomous file's Mechanisms.
+        const singleDir=path.join(temp,'onbot',c.name.replace(/\W/g,'-'));
+        noWarnings(`OnBot Java (${c.name})`,javac(write(singleDir,single.files),singleDir+'-classes',jars));console.log(`OnBot Java (${c.name}): the autonomous and its check TeleOp compile against the real SDK.`);
         if(!c.nonholonomic)pedro(c.name,Pedro.files({route,layout,setupName:'SDK check',robot:info.robot,defaultPower:.8,hardware:F.hardware(info.robot,c.localization),tuning:info.tuning}));
+      }
+      // Mechanism hardware: rollers on continuous servos with a second roller, a two-motor flywheel with PIDF, reversed devices,
+      // a set-power flywheel with a servo pusher and a servo turret, a kicker with a servo gate, and two shooters (one fixed).
+      const Mech=require('../../ui/sim-mechanisms.js'),hardwareCases={
+        'continuous servo rollers, two-motor flywheel, PIDF':{intakes:[{kind:'siderollers',sides:['front'],device:'crservo',motor:'roller',motor2:'roller2',reversed2:true}],shooters:[{type:'turret',motor2:'shooter_b',reversed2:true,turretReversed:true,indexerReversed:true}],shooter:{pidf:{p:1.26,i:.126,d:0,f:12.6}}},
+        'set power, servo pusher, servo turret':{shooters:[{type:'turret',indexerKind:'pusher',feedPos:.7,restPos:.2}],shooter:{control:'power',power:.9},turret:{kind:'servo',servoCenter:.5,servoDegrees:300}},
+        'kicker and servo gate':{intakes:[{kind:'kicker',sides:['front'],servo:'kicker'}],shooters:[{type:'turret',indexerKind:'gate',indexer:'gate'}]},
+        'two shooters, one fixed':{intakes:[{sides:['front']},{sides:['back'],kind:'ramp'}],shooters:[{type:'turret'},{type:'fixed',pieces:'nectar',mount:'back',indexerKind:'crservo'}],capacity:{pollen:2,nectar:2}}};
+      for(const [name,extra] of Object.entries(hardwareCases)){
+        const robot={drivetrain:'mecanum',length:17,width:17,heightIn:12,driveRpm:312,intakeIn:0},start={x:9.83,y:27,heading:0},mechanisms=Mech.sanitize({enabled:true,...extra});
+        const route=P.plan({start,zones:[],pins:[{x:24,y:30,action:'Shoot',path:{kind:'action',action:'Spin up'}},{x:16,y:12.5,wait:.6,action:'Intake',path:{kind:'action',action:'Intake'}}],clearance:2},{front:8.5,rear:8.5,half:8.5});
+        const layout={name:'SDK check',start,zones:[]},routeJava=X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'}),common={route,layout,tuning:{},robot,localization:'fused',mechanisms,target:{x:59.25,y:58.56},setupName:'SDK check',routeJava};
+        const teamDir=path.join(temp,'hardware',name.replace(/\W/g,'-')),team=F.files(common);noWarnings(`Mechanisms (${name}) TeamCode`,javac(write(teamDir,team.files),teamDir+'-classes',jars));
+        const oneDir=teamDir+'-onbot',one=F.onBotJava(common);noWarnings(`Mechanisms (${name}) OnBot Java`,javac(write(oneDir,one.files),oneDir+'-classes',jars));
+        pedro('mechanisms '+name,Pedro.files({route,layout,setupName:'SDK check',robot,mechanisms,target:{x:59.25,y:58.56},defaultPower:.8,hardware:F.hardware(robot,'fused'),tuning:{}}));
+        console.log(`Mechanisms (${name}): TeamCode, OnBot Java and Pedro, with the check TeleOp, compile against the real SDK.`);
       }
       // The example setups, exported exactly as `deck-sim export` does (mechanisms included).
       for(const file of fs.readdirSync(path.join(root,'examples')).filter(f=>f.endsWith('.json')&&!f.endsWith('.pins.json'))){

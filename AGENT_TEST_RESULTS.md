@@ -11,7 +11,8 @@ All commands run on this Windows laptop with the repo's Electron as Node:
 | After the Pedro export | 270/271. Only the time budget failed (6.2 s against 5 s). |
 | Mid-session full run | 293/294. The one failure was a spin-limit test, fixed right after by raising the limit to 100 spins. |
 | Full run (24 October, morning) | **324/324.** The 24-barrier time-budget test takes about 1.2 s. |
-| Latest full run (after drag-to-pan, the field map and the two-view Paths panel) | **325/325.** `tests/simulation-ui.cjs` passes too. |
+| After drag-to-pan, the field map and the two-view Paths panel | **325/325.** `tests/simulation-ui.cjs` passes too. |
+| After mechanism hardware and Send to robot (24 October, afternoon) | **343/343** (one OnBot test updated for the check TeleOp beside the autonomous). New: `sim-mechanism-hardware` (7), `robot-link` (6). |
 
 New test files:
 - `sim-pedro`
@@ -41,6 +42,45 @@ The latest run passed with no warnings:
 - 40 compile steps in all, all without warnings (latest run, 24 October).
 - Examples with mechanisms: TeamCode, OnBot and Pedro.
 - Stand-ins: all 239 public members match the real SDK.
+
+Run again after mechanism hardware (24 October, afternoon). It passed with no warnings:
+- Every OnBot Java case now compiles with its check TeleOp.
+- Four mechanism hardware cases compile as TeamCode, OnBot Java and Pedro:
+  - continuous-servo rollers, a two-motor flywheel and PIDF;
+  - set power, a servo pusher and a servo turret;
+  - a kicker and a servo gate;
+  - two shooters, one fixed.
+- Stand-ins: 240 members match (`setVelocityPIDFCoefficients` added).
+
+## Mechanism hardware on the virtual Control Hub (`tests/sim-mechanism-hardware.test.cjs`)
+
+BIOBUZZ red, route with Spin up, Shoot, Intake. The OnBot export of each variant gives the same shots, pickups and points as the simulator's own run (6 shots, 2 picked up, 20 points):
+- continuous-servo side rollers with a reversed second roller, a two-motor flywheel (second reversed) with PIDF, a reversed feeder and turret;
+- a set-power flywheel, a servo pusher and a servo turret;
+- a kicker and a servo gate.
+
+Changing `INTAKE_1B_REVERSED` to false in the code picks up nothing.
+
+MotionModule (its runtime, Python 3.12): continuous-servo rollers, a second flywheel motor and a pusher pick up and shoot. With one roller's sign flipped it picks up nothing.
+
+## Send to robot (`tests/robot-link.test.cjs`, simulated Control Hub)
+
+- The configuration XML is parsed: hubs, ports, the kind of each device tag.
+- The check against an export:
+  - suggests Pedro-style drive names;
+  - matches `Intake` for `intake`;
+  - for a turret configured as a servo, names the setting to change;
+  - suggests each robot device once;
+  - catches duplicate names.
+- Robocol read of the active configuration, plus a robot with none, and one held by another Driver Station.
+- OnBot Java:
+  - uploads the export and builds it;
+  - backs up a file edited on the robot;
+  - respects kept files;
+  - reports compile errors with file and line;
+  - stops paths that leave `/src`;
+  - its form encoding survives the round trip.
+- In the app (Playwright probe): Check robot found 5 of 10 names to fix, Use these names applied them, Upload and build put both files on the simulated hub with the robot's names, and it built.
 
 ## Pedro Pathing 3.0.2's real Follower on the virtual Control Hub (`tests/sim-pedro-runtime.test.cjs`)
 

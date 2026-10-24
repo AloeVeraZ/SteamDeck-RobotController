@@ -480,18 +480,24 @@ def stop(module):
   // channels 1-4, so mechanisms take 5-8 (intakes, then each shooter's indexer and flywheel); turret
   // servos start at 0 and continuous-servo indexers at 6.
   const MM_MOTORS=[5,6,7,8];
+  // Each output the mechanisms use, and the channel it falls back to. mount -1: set in Deck to turn the other way, so
+  // the code drives it with its power negated (the simulator reads it back the same way).
   function mechanismHardware(m){
-    let motor=0,servo=0,crservo=6;const next=()=>MM_MOTORS[motor++]??null,out={};
-    const rollers=m.intakes.filter(i=>i.kind!=='kicker'),kickers=m.intakes.filter(i=>i.kind==='kicker');
-    if(rollers.length)out.intakes=rollers.map(next);
-    if(kickers.length)out.kickers=kickers.map(i=>({servo:servo++,down:i.downPos*180,up:i.upPos*180}));
+    let motor=0,servo=0,crservo=6;const next=()=>MM_MOTORS[motor++]??null,out={},mount=on=>on?-1:1;
+    // An intake roller on a motor takes the next free motor channel; on a continuous servo, a servo channel from 6.
+    const roller=(device,reversed,part)=>device==='crservo'?{channel:crservo++,servo:true,mount:mount(reversed),part}:{channel:next(),servo:false,mount:mount(reversed),part};
+    const rollers=m.intakes.flatMap((i,k)=>i.kind==='kicker'?[]:[roller(i.device,i.reversed,k),...(i.motor2?[roller(i.device,i.reversed2,k)]:[])]);if(rollers.length)out.intakes=rollers;
+    const kickers=m.intakes.filter(i=>i.kind==='kicker');if(kickers.length)out.kickers=kickers.map(i=>({servo:servo++,down:i.downPos*180,up:i.upPos*180}));
     const ramps=m.intakes.filter(i=>i.kind==='ramp');if(ramps.length)out.ramps=ramps.map(i=>({servo:servo++,down:i.downPos*180,up:i.upPos*180}));
-    if(m.shooters.length)out.shooters=m.shooters.map(s=>{const indexer=s.indexerKind==='crservo'?{channel:crservo++,servo:true}:{channel:next(),servo:false};
-      return {indexer,flywheel:next(),...(s.type==='turret'&&!s.sharesTurret?{turret:{servo:servo++,center:90,perDegree:1}}:{})};});
+    // MotionModule turrets are servos; with a servo turret set in Deck its center and range come from there.
+    const center=m.turret.kind==='servo'?m.turret.servoCenter*180:90,perDegree=m.turret.kind==='servo'?180/m.turret.servoDegrees:1;
+    if(m.shooters.length)out.shooters=m.shooters.map(s=>{
+      const kind=s.indexerKind,indexer=kind==='crservo'?{channel:crservo++,servo:true,mount:mount(s.indexerReversed)}:Mech.servoFeeder(kind)?{channel:servo++,positional:true,kind,feed:+(s.feedPos*180).toFixed(3),rest:+(s.restPos*180).toFixed(3)}:{channel:next(),servo:false,mount:mount(s.indexerReversed)};
+      return {indexer,flywheels:[{channel:next(),mount:mount(s.reversed)},...(s.motor2?[{channel:next(),mount:mount(s.reversed2)}]:[])],...(s.type==='turret'&&!s.sharesTurret?{turret:{servo:servo++,center,perDegree,mount:mount(s.turretReversed)}}:{})};});
     return out;
   }
   // How many mechanism motors do not fit MotionModule's free channels (5-8).
-  const motorsOver=m=>Math.max(0,m.intakes.filter(i=>i.kind!=='kicker').length+m.shooters.reduce((n,s)=>n+1+(s.indexerKind==='crservo'?0:1),0)-MM_MOTORS.length);
+  const motorsOver=m=>Math.max(0,m.intakes.reduce((n,i)=>n+(i.kind==='kicker'||i.device==='crservo'?0:i.motor2?2:1),0)+m.shooters.reduce((n,s)=>n+(s.motor2?2:1)+(s.indexerKind==='motor'?1:0),0)-MM_MOTORS.length);
   // Turret angle (degrees from the robot's front, counterclockwise) for each action step, from the
   // planned pose there: MotionModule has no X/Y sensing to aim from during the run.
   // Two turrets on their own motors each aim from their own spot: the angle is then a list, one per turret.
@@ -506,7 +512,9 @@ def stop(module):
   }
   function mechanismsPython(m){
     const hw=mechanismHardware(m),py=v=>v===null||v===undefined?'None':String(v),list=items=>items.length?`[\n${items.map(x=>`        ${x},`).join('\n')}\n    ]`:'[]';
-    const turret=m.shooters.some(s=>s.type==='turret');
+    const turret=m.shooters.some(s=>s.type==='turret'),pusher=m.shooters.some(s=>s.indexerKind==='pusher');
+    // Each roller's name in the order mechanismHardware gave it a channel.
+    const rollerNames=m.intakes.flatMap(i=>i.kind==='kicker'?[]:[[i.motor,i.power],...(i.motor2?[[i.motor2,i.power]]:[])]);
     return `
 
 class Mechanisms:
@@ -514,30 +522,36 @@ class Mechanisms:
 
     Outputs are found by their hardware.py names, or else on the channel next to each name. Motors
     here have no encoders, so a flywheel counts as up to speed SPIN_UP_SECONDS after it starts.
-    A turret is a positional servo: TURRET_SERVO_CENTER points it straight ahead, and each turret
-    degree (counterclockwise, to the robot's left) moves the servo TURRET_SERVO_PER_DEGREE degrees.
+    A device set in Deck to turn the other way runs with its power negated. A turret is a positional
+    servo: TURRET_SERVO_CENTER points it straight ahead, and each turret degree (counterclockwise,
+    to the robot's left) moves the servo TURRET_SERVO_PER_DEGREE degrees.
     Timing, with no piece sensor: a piece takes up to TRANSFER_SECONDS from touching an intake to
     sitting in the shooter, and INDEX_SECONDS to move up after the one ahead of it is shot; a piece in
     the shooter fires as soon as the flywheel is up to speed and the turret is on target. Shooters
     spin up, aim and feed together. "Shoot N" waits TRANSFER_SECONDS after the last intake, then runs
-    the indexers for N shots. "Shoot" with no number shoots once for every storage slot (STORAGE).${motorsOver(m)?`
+    the feeders for N shots, FEED_CYCLE_SECONDS each${pusher?' (a servo pusher pushes for PUSH_SECONDS at the start of each)':''}.
+    "Shoot" with no number shoots once for every storage slot (STORAGE).${motorsOver(m)?`
     MotionModule has four free motor channels (5-8) and these mechanisms need ${motorsOver(m)} more:
     name the extra outputs in hardware.py, or use continuous servos for the indexers.`:''}
     """
 
-    # (hardware.py name, fallback motor channel, power) for each intake: ${m.intakes.map(i=>i.sides.join(' + ')).join('; ')||'none'}
-    INTAKES = ${list(m.intakes.filter(i=>i.kind!=='kicker').map((i,k)=>`(${pyString(i.motor)}, ${py(hw.intakes[k])}, ${num(i.power)})`))}
+    # (hardware.py name, fallback channel, power, continuous servo?) for each intake roller: ${m.intakes.map(i=>i.sides.join(' + ')).join('; ')||'none'}. A negative power turns it the other way.
+    INTAKES = ${list((hw.intakes||[]).map((r,k)=>`(${pyString(rollerNames[k][0])}, ${py(r.channel)}, ${num(rollerNames[k][1]*r.mount)}, ${r.servo?'True':'False'})`))}
     # (hardware.py name, fallback servo channel, angle down, angle up) for each kicker: it swings down while an Intake runs.
     KICKERS = ${list(m.intakes.filter(i=>i.kind==='kicker').map((i,k)=>`(${pyString(i.servo)}, ${hw.kickers[k].servo}, ${num(i.downPos*180)}, ${num(i.upPos*180)})`))}
     KICKER_UP_SECONDS = ${num(Mech.liftSeconds(m))}
     # (hardware.py name, fallback servo channel, angle down, angle up) for each ramp: it folds down while an Intake runs (its rollers are in INTAKES).
     RAMPS = ${list(m.intakes.filter(i=>i.kind==='ramp').map((i,k)=>`(${pyString(i.servo)}, ${hw.ramps[k].servo}, ${num(i.downPos*180)}, ${num(i.upPos*180)})`))}
-    # Each shooter: flywheel (name, motor channel), indexer (name, channel, continuous servo?), turret servo (name, channel) or None when fixed (or on the first shooter's turret).
-    SHOOTERS = ${list(m.shooters.map((s,k)=>{const h=hw.shooters[k];return `((${pyString(s.motor)}, ${py(h.flywheel)}), (${pyString(s.indexer)}, ${py(h.indexer.channel)}, ${h.indexer.servo?'True':'False'}), ${h.turret?`(${pyString(s.turretMotor)}, ${h.turret.servo})`:'None'})`;}))}
-    INDEXER_POWER, SHOOTER_POWER = ${num(m.indexer.power)}, 1.0
+    # Each shooter: its flywheel motors [(name, channel, direction)], its feeder (name, channel, kind, direction,
+    # angle feeding, angle at rest) and its turret servo (name, channel, direction), or None when fixed (or on the first
+    # shooter's turret). Feeder kinds: motor, crservo (continuous servo), pusher (pushes each piece in) and gate (opens).
+    SHOOTERS = ${list(m.shooters.map((s,k)=>{const h=hw.shooters[k],x=h.indexer,names=[s.motor,s.motor2].filter(Boolean);
+      return `([${h.flywheels.map((f,i)=>`(${pyString(names[i])}, ${py(f.channel)}, ${f.mount})`).join(', ')}], (${pyString(s.indexer)}, ${py(x.channel)}, "${s.indexerKind}", ${x.mount??1}, ${x.positional?`${num(x.feed)}, ${num(x.rest)}`:'None, None'}), ${h.turret?`(${pyString(s.turretMotor)}, ${h.turret.servo}, ${h.turret.mount})`:'None'})`;}))}
+    INDEXER_POWER, SHOOTER_POWER = ${num(m.indexer.power)}, ${num(m.shooter.control==='power'?m.shooter.power:1)}
     TRANSFER_SECONDS, INDEX_SECONDS, FIRE_MARGIN_SECONDS = ${num(m.transfer.seconds)}, ${num(m.indexer.seconds)}, ${num(Mech.FIRE_MARGIN)}
+    FEED_CYCLE_SECONDS, LAST_SHOT_SECONDS, PUSH_SECONDS = ${num(pusher?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds)}, ${num(Mech.shootSeconds(m,1))}, ${num(m.indexer.pushSeconds)}
     SPIN_UP_SECONDS, STORAGE = ${num(m.shooter.spinUp)}, ${m.storage}
-    TURRET_SERVO_CENTER, TURRET_SERVO_PER_DEGREE = 90.0, 1.0
+    TURRET_SERVO_CENTER, TURRET_SERVO_PER_DEGREE = ${num(m.turret.kind==='servo'?m.turret.servoCenter*180:90)}, ${num(m.turret.kind==='servo'?180/m.turret.servoDegrees:1)}
     TURRET_MIN, TURRET_MAX, TURRET_SPEED = ${num(m.turret.min)}, ${num(m.turret.max)}, ${num(m.turret.speed)}
 
     def __init__(self, module):
@@ -546,19 +560,22 @@ class Mechanisms:
                 return getattr(module, kind)(name)
             except (ValueError, KeyError):
                 return getattr(module, kind)(channel)
-        self.intakes = [(output("motor", name, channel), power) for name, channel, power in self.INTAKES]
+        self.intakes = [(output("servo" if servo else "motor", name, channel), power, servo) for name, channel, power, servo in self.INTAKES]
         self.kickers = [(output("servo", name, channel), down, up) for name, channel, down, up in self.KICKERS]
         for servo, down, up in self.kickers:
             servo.set_angle(up)
         self.ramps = [(output("servo", name, channel), down, up) for name, channel, down, up in self.RAMPS]
         for servo, down, up in self.ramps:
             servo.set_angle(up)
-        self.flywheels, self.indexers, self.turrets = [], [], []
-        for flywheel, (name, channel, servo), turret in self.SHOOTERS:
-            self.flywheels.append(output("motor", *flywheel))
-            self.indexers.append((output("servo" if servo else "motor", name, channel), servo))
+        self.flywheels, self.feeders, self.turrets = [], [], []
+        for flywheels, (name, channel, kind, sign, feed, rest), turret in self.SHOOTERS:
+            self.flywheels += [(output("motor", n, c), s) for n, c, s in flywheels]
+            feeder = output("motor" if kind == "motor" else "servo", name, channel)
+            if kind in ("pusher", "gate"):
+                feeder.set_angle(rest)
+            self.feeders.append((feeder, kind, sign, feed, rest))
             if turret is not None:
-                self.turrets.append(output("servo", *turret))
+                self.turrets.append((output("servo", turret[0], turret[1]), turret[2]))
         self.spin_started = None
         self.feed_started, self.shot, self.last_intake = None, False, -1e9
         self.turret_angle, self.turret_ready_at = [0.0] * len(self.turrets), 0.0
@@ -585,25 +602,35 @@ class Mechanisms:
     def intake(self, on):
         if on and (self.intakes or self.kickers):
             self.last_intake = time.monotonic()
-        for motor, power in self.intakes:
-            motor.set(power if on else 0)
+        for roller, power, servo in self.intakes:
+            if servo:
+                roller.set_pulse_us(1500 + 500 * power if on else 1500)  # continuous servo: 1500 us stops it
+            else:
+                roller.set(power if on else 0)
         for servo, down, up in self.kickers + self.ramps:
             servo.set_angle(down if on else up)
 
-    def feed(self, on):
-        for indexer, servo in self.indexers:
-            if servo:
-                indexer.set_pulse_us(2000 if on else 1500)  # continuous servo: 1500 us stops it
+    def feed(self, on, t=0.0):
+        """The feeders t seconds into a volley: rollers run and gates stay open while feeding; a pusher
+        pushes for PUSH_SECONDS at the start of every FEED_CYCLE_SECONDS and is back at rest in between."""
+        push = on and self.FEED_CYCLE_SECONDS > 0 and t % self.FEED_CYCLE_SECONDS < self.PUSH_SECONDS
+        for feeder, kind, sign, feed, rest in self.feeders:
+            if kind == "pusher":
+                feeder.set_angle(feed if push else rest)
+            elif kind == "gate":
+                feeder.set_angle(feed if on else rest)
+            elif kind == "crservo":
+                feeder.set_pulse_us(1500 + 500 * sign if on else 1500)  # continuous servo: 1500 us stops it
             else:
-                indexer.set(self.INDEXER_POWER if on else 0)
+                feeder.set(self.INDEXER_POWER * sign if on else 0)
 
     def spin(self, on):
         if on and self.spin_started is None:
             self.spin_started = time.monotonic()
         if not on:
             self.spin_started = None
-        for flywheel in self.flywheels:
-            flywheel.set(self.SHOOTER_POWER if on else 0)
+        for flywheel, sign in self.flywheels:
+            flywheel.set(self.SHOOTER_POWER * sign if on else 0)
 
     def ready(self):
         return self.spin_started is not None and time.monotonic() - self.spin_started >= self.SPIN_UP_SECONDS
@@ -618,8 +645,8 @@ class Mechanisms:
             self.turret_ready_at = time.monotonic() + max(abs(a - b) for a, b in zip(angles, self.turret_angle)) / self.TURRET_SPEED
             self.turret_angle = angles
         # A servo reaches 0 to 180 degrees; gear the turret (TURRET_SERVO_PER_DEGREE) to cover its range.
-        for turret, angle in zip(self.turrets, angles):
-            turret.set_angle(max(0.0, min(180.0, self.TURRET_SERVO_CENTER + angle * self.TURRET_SERVO_PER_DEGREE)))
+        for (turret, sign), angle in zip(self.turrets, angles):
+            turret.set_angle(max(0.0, min(180.0, self.TURRET_SERVO_CENTER + sign * angle * self.TURRET_SERVO_PER_DEGREE)))
 
     def aimed(self):
         return time.monotonic() >= self.turret_ready_at
@@ -637,9 +664,9 @@ class Mechanisms:
         if self.feed_started is None and self.ready() and self.aimed() and now - self.last_intake >= self.TRANSFER_SECONDS + self.KICKER_UP_SECONDS:
             self.feed_started = now
         # Shooting for a set time keeps feeding until the last call; otherwise long enough for N shots.
-        window = float("inf") if step.duration > 0 else (want - 1) * self.INDEX_SECONDS + self.FIRE_MARGIN_SECONDS
+        window = float("inf") if step.duration > 0 else (want - 1) * self.FEED_CYCLE_SECONDS + self.LAST_SHOT_SECONDS
         feeding = self.feed_started is not None and now - self.feed_started < window
-        self.feed(feeding and not step.last)
+        self.feed(feeding and not step.last, now - self.feed_started if self.feed_started is not None else 0.0)
         if self.feed_started is not None and not feeding:
             self.shot = True
         done = self.shot or step.last

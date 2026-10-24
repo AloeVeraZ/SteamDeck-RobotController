@@ -30,6 +30,18 @@
   - CSV robot logs from spreadsheets.
   - Backslashes in names breaking the MotionModule Python.
 
+## One-button setup, phase 2 (see docs/MECHANISM_ACTIONS.md)
+
+- Try Send to robot on a real Control Hub (only the simulated one has been used).
+- Write a configuration for a robot that has none:
+  - generate the XML from the setup and a port list;
+  - get the hub layout from `CMD_SCAN`;
+  - save it as a new name with `CMD_SAVE_CONFIGURATION`, never over an existing one.
+- Ask "did the intake pull in?" during the check TeleOp and flip that direction in the setup.
+- Read the check TeleOp's measurements (top speed and PIDF, servo positions) from telemetry back into the setup.
+- Select the new autonomous on the Driver Station after a successful build.
+- Piece sensors (stop intaking when full, shoot until empty), and an adjustable hood servo.
+
 ## Robot code correctness and safety
 
 1. An optional Pedro export with Ivy commands. Checked on 24 October:

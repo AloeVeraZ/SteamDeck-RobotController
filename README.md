@@ -124,14 +124,20 @@ downloads: physics, the path follower and the Java runtime it needs ship inside 
   Switching the BIOBUZZ alliance moves the route to the other side. Drag the route preview to slide a
   robot outline along the plan before running physics.
 - Describe your **mechanisms** in plain settings (intake sides, storage, index time, turret or fixed
-  shooter, spin-up). Routes use Intake, Spin up, Aim and Shoot, and the physics picks up, launches
-  and scores real BIOBUZZ pieces.
+  shooter, spin-up) and the hardware they run on: motor or continuous-servo rollers, one- or two-motor
+  flywheels with or without an encoder, motor, servo pusher or servo gate feeders, motor or servo
+  turrets, and which way each device turns. Routes use Intake, Spin up, Aim and Shoot, and the physics
+  picks up, launches and scores real BIOBUZZ pieces. How these reach the robot is explained in
+  [mechanism actions](docs/MECHANISM_ACTIONS.md).
 - Run it through physics and replay it with a timeline and mechanism views, graph its speed, heading, sensor error, drive power and mechanisms, see a run analysis (pieces picked up, shot and scored), then export
   for your controller: Control Hub OnBot Java or TeamCode with working mechanism code, **Pedro Pathing
   3** TeamCode for a Pedro Quickstart project, or a MotionModule `autonomous.py`, plus a `.pp` path file
   or timed commands (a `.pp` from the Pedro Pathing visualizer can be imported too). Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
   Pathing 3.0.2) by the project's checks, and each export lists what still needs your robot: hardware
-  names, tuning and a real test. Open a log from your real robot to compare where it drove with the plan.
+  names, tuning and a real test. Control Hub exports come with a check TeleOp that tests every drive
+  motor and mechanism device on the robot. **Send to robot** checks the device names against the
+  Control Hub's own configuration (and can use its names), then uploads and builds the OnBot Java over
+  Wi-Fi. Open a log from your real robot to compare where it drove with the plan.
 - Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export, compare a robot log) and have the
   result open in the app on Run & review.
 

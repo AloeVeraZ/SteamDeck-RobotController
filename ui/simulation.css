@@ -37,7 +37,9 @@
 .sim-panel h2{font-size:16px;margin:18px 0 8px}.sim-panel [data-panel]>h2:first-child{margin-top:0}.sim-panel h3{font-size:14px;margin:16px 0 6px}
 .sim-panel label{display:block;margin:0 0 6px;font-size:12px}.sim-panel label.check{display:flex;justify-content:flex-start;gap:8px;align-items:center;margin:4px 0 8px}.sim-panel label.check input{width:auto;min-height:0;margin:0}
 .sim-panel input,.sim-panel select{width:100%;min-width:0;min-height:40px;margin:0 0 10px}
-.start-xy{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sim-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.start-xy{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sim-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.sim-grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+/* A "turns the other way" box beside a device name lines up with the name's field. */
+.driver-station .sim-setup-page .start-xy>label.check{align-self:end;margin:0 0 12px}
 .sim-row{display:flex;gap:6px;align-items:center}.sim-row select,.sim-row .sim-rename{flex:1;margin:0}.sim-row .icon-button{flex:none}
 .sim-panel form>.primary,#sim-run{width:100%}.sim-panel .button-row{margin:10px 0;flex-wrap:wrap}.sim-panel .button-row button{flex:1;white-space:nowrap;padding-inline:12px}
 .sim-panel .hint{font-size:12px}.sim-panel [role=status]{min-height:18px;margin:8px 0;color:var(--text);font-size:13px}
@@ -277,6 +279,13 @@
 .sim-checklist li[data-status=verified]::before{background:var(--connected);border-color:var(--connected)}
 .sim-checklist li[data-status=physical]::before,.sim-checklist li[data-status=calibration]::before{border-color:var(--warning)}
 .sim-checklist strong{color:var(--text);font-weight:600}
+/* Send to robot: the robot's answer for each device name, with the robot's own devices to pick from. */
+.sim-send{margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--line)}.sim-send h3{margin-top:0}
+.sim-send-devices{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px;font-size:12px;color:var(--muted)}
+.sim-send-devices li{padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius);line-height:1.45}
+.sim-send-devices li.problem{border-color:var(--warning);background:var(--warning-bg)}.sim-send-devices b{color:var(--text);font-weight:600}
+.sim-send-devices select{display:block;width:100%;margin-top:6px}
+.sim-send-confirm{margin:8px 0;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--well)}.sim-send-confirm p{margin:0 0 8px;font-size:13px}
 /* Custom curve handles (Pedro Pathing style): dashed guides from the path's ends to its control points. */
 .sim-control{fill:var(--bg);stroke:var(--accent);stroke-width:.7;cursor:grab}
 .sim-control:hover,.sim-control.active{fill:var(--accent);cursor:grabbing}

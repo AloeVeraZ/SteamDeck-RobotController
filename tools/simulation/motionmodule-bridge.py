@@ -210,19 +210,32 @@ def mechanism_outputs(state):
     if not mech or state["finished"]:
         return {}
     values, servos = module.motor_values, getattr(module, "_servos", None)
+    pulses, angles = getattr(servos, "pulses", {}), getattr(servos, "angles", {})
 
-    def strongest(items):
-        return max(items, key=abs, default=0.0)
+    def drive(device):
+        """A motor or continuous servo's command after its mounting: positive pulls pieces in or feeds forward."""
+        if not isinstance(device, dict):  # an older export: a motor channel, mounted forward
+            return values.get(device, 0.0)
+        if device.get("servo"):
+            pulse = pulses.get((0, device["channel"]))
+            value = 0.0 if pulse is None else (pulse - 1500.0) / 500.0
+        else:
+            value = values.get(device["channel"], 0.0)
+        return value * device.get("mount", 1)
 
     out = {}
-    intake = [values.get(channel, 0.0) for channel in mech.get("intakes") or []]
+    # Every roller of an intake has to pull in; any intake that does takes pieces in.
+    parts = {}
+    for k, roller in enumerate(mech.get("intakes") or []):
+        parts.setdefault(roller.get("part", k) if isinstance(roller, dict) else k, []).append(drive(roller))
+    intake = [min(part) for part in parts.values()]
     # A kicker sent nearer its down angle than its up angle counts as the intake running.
     for kicker in mech.get("kickers") or []:
-        angle = getattr(servos, "angles", {}).get((0, kicker["servo"]))
+        angle = angles.get((0, kicker["servo"]))
         if angle is not None and abs(angle - kicker["down"]) < abs(angle - kicker["up"]):
             intake.append(1.0)
     if mech.get("intakes") or mech.get("kickers"):
-        out["intake"] = strongest(intake)
+        out["intake"] = max([0.0] + intake)
     # A ramp sent nearer its down angle than its up angle folds down (its rollers are intake motors).
     if mech.get("ramps"):
         angles = getattr(servos, "angles", {})
@@ -230,25 +243,28 @@ def mechanism_outputs(state):
             angles.get((0, ramp["servo"])) is not None and abs(angles[(0, ramp["servo"])] - ramp["down"]) < abs(angles[(0, ramp["servo"])] - ramp["up"])
             for ramp in mech["ramps"]
         ) else 0.0
-    # The simulator runs shooters together: the strongest command of each kind, the first aimed turret, and
-    # each turret's own angle (None for a fixed shooter or one not yet positioned).
+    # The simulator runs shooters together: the strongest forward command of each kind (every motor of a flywheel has
+    # to spin it forward), the first aimed turret, and each turret's own angle (None for a fixed shooter or one not yet
+    # positioned). A servo pusher or gate feeds while it sits nearer its feed angle than its rest angle.
     shooters = mech.get("shooters") or []
     if shooters:
-        indexers = []
+        indexers, flywheels = [], []
         for shooter in shooters:
             indexer = shooter["indexer"]
-            if indexer.get("servo"):
-                pulse = getattr(servos, "pulses", {}).get((0, indexer["channel"]))
-                indexers.append(0.0 if pulse is None else (pulse - 1500.0) / 500.0)
+            if indexer.get("positional"):
+                angle = angles.get((0, indexer["channel"]))
+                indexers.append(1.0 if angle is not None and abs(angle - indexer["feed"]) < abs(angle - indexer["rest"]) else 0.0)
             else:
-                indexers.append(values.get(indexer["channel"], 0.0))
-        out["indexer"] = strongest(indexers)
-        out["flywheel"] = strongest([values.get(shooter["flywheel"], 0.0) for shooter in shooters])
+                indexers.append(drive(indexer))
+            motors = shooter.get("flywheels") or [shooter["flywheel"]]
+            flywheels.append(min(drive(motor) for motor in motors))
+        out["indexer"] = max([0.0] + indexers)
+        out["flywheel"] = max([0.0] + flywheels)
         degrees = []
         for shooter in shooters:
             turret = shooter.get("turret")
-            angle = turret and getattr(servos, "angles", {}).get((0, turret["servo"]))
-            degrees.append((angle - turret["center"]) / turret["perDegree"] if angle is not None and turret else None)
+            angle = turret and angles.get((0, turret["servo"]))
+            degrees.append(turret.get("mount", 1) * (angle - turret["center"]) / turret["perDegree"] if angle is not None and turret else None)
         aimed = [d for d in degrees if d is not None]
         if aimed:
             out["turretDeg"] = aimed[0]

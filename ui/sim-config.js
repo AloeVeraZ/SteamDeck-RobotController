@@ -42,9 +42,16 @@
   // along different axes; an impossible pair keeps the logo and picks a USB direction across it.
   const HUB=['up','down','forward','backward','left','right'],hubAxis=d=>Math.floor(HUB.indexOf(d)/2);
   function hubMounting(raw={}){const hubLogo=HUB.includes(raw.hubLogo)?raw.hubLogo:'up';let hubUsb=HUB.includes(raw.hubUsb)?raw.hubUsb:'forward';if(hubAxis(hubUsb)===hubAxis(hubLogo))hubUsb=hubAxis(hubLogo)===1?'up':'forward';return {hubLogo,hubUsb};}
-  function robot(raw={},controller){return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
+  // The robot's own names for the drive motors and sensors in its Control Hub configuration (Deck's names otherwise),
+  // and drive motors set to turn the other way. Only what differs from Deck's defaults is kept.
+  const DEVICE_KEYS=['frontLeft','frontRight','backLeft','backRight','left','right','imu','pinpoint','otos','par','perp','par_left','par_right'],DRIVE_KEYS=DEVICE_KEYS.slice(0,6);
+  const deviceName=v=>typeof v==='string'&&/^[A-Za-z][\w .-]{0,39}$/.test(v.trim())?v.trim():null;
+  function devices(raw){const out={};if(!raw||typeof raw!=='object')return out;
+    for(const key of DEVICE_KEYS){const v=raw[key];if(!v||typeof v!=='object')continue;const name=deviceName(v.name),entry={...(name?{name}:{}),...(DRIVE_KEYS.includes(key)&&typeof v.reversed==='boolean'?{reversed:v.reversed}:{})};if(Object.keys(entry).length)out[key]=entry;}
+    return out;}
+  function robot(raw={},controller){const own=devices(raw.devices);return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
     length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),wheelDiameterMm:positive(raw.wheelDiameterMm,104),driveAmps:current(raw.driveAmps,controller),driveStyle:raw.driveStyle==='field'?'field':'robot',...hubMounting(raw),
-    appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer'};}
+    appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer',...(Object.keys(own).length?{devices:own}:{})};}
   // A robot imported from CAD (appearance custom) collides as its chassis only: length × width.
   const chassisHitbox=r=>r?.appearance==='custom';
   function footprint(raw){const r=robot(raw);return {front:r.length/2+(chassisHitbox(r)?0:r.intakeIn),rear:r.length/2,half:r.width/2};}
@@ -52,5 +59,5 @@
     return {x0:0,y0:0,x1:positive(layout.width,144),y1:positive(layout.height,144)};}
   const sensorChoices=controller=>controller==='motionmodule'?['gyro','odometry','odometry3','optical']:['encoders','odometry','odometry3','fused','optical','gyro'];
   const localization=(controller,mode)=>sensorChoices(controller).includes(mode)?mode:controller==='motionmodule'?'gyro':'encoders';
-  return {HUB,hubMounting,drives,sensors,sensorChoices,localization,electrical,current,robot,intake,chassisHitbox,footprint,bounds,finite};
+  return {HUB,hubMounting,DEVICE_KEYS,devices,deviceName,drives,sensors,sensorChoices,localization,electrical,current,robot,intake,chassisHitbox,footprint,bounds,finite};
 });

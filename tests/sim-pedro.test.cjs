@@ -10,7 +10,7 @@ const source=(o,name)=>Object.entries(o.files).find(([k])=>k.endsWith('/'+name))
 test('Pedro export: Paths, OpMode and action files for the Quickstart, in the chosen package',()=>{
   const start={x:20,y:24,heading:0},layout=layoutOf(start),route=P.plan({start,zones:[],pins:[{x:60,y:24,wait:.5,action:'Score'},{x:100,y:60}],style:'spline',clearance:2,defaultPower:.8},fp);
   const o=out(route,layout,{packageName:'org.firstinspires.ftc.teamcode.auto',className:'RedAuto'});
-  assert.deepEqual(Object.keys(o.files).sort(),['RedAutoPaths.java','RedAutoPedro.java','RobotActions.java','RouteActions.java'].map(f=>'org/firstinspires/ftc/teamcode/auto/'+f));
+  assert.deepEqual(Object.keys(o.files).sort(),['RedAutoCheck.java','RedAutoPaths.java','RedAutoPedro.java','RobotActions.java','RouteActions.java'].map(f=>'org/firstinspires/ftc/teamcode/auto/'+f));
   assert.deepEqual(o.keep,['org/firstinspires/ftc/teamcode/auto/RobotActions.java']);assert.equal(o.opMode,'org.firstinspires.ftc.teamcode.auto.RedAutoPedro');
   const paths=source(o,'RedAutoPaths.java'),op=source(o,'RedAutoPedro.java'),actions=source(o,'RouteActions.java');
   assert.match(paths,/^package org\.firstinspires\.ftc\.teamcode\.auto;/);assert.match(paths,/import com\.pedropathing\.api\.Paths;/);

@@ -14,6 +14,14 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  * you removed.
  */
 public class RobotActions extends RouteActions {
+    // Deck's Intake, Spin up, Aim and Shoot already run the mechanisms set up in Deck (Mechanisms.java, as
+    // mech). To do one of them your own way, override it here. For example, to shoot with your own code:
+    //     @Override
+    //     public boolean shoot(Step step) {
+    //         // Called every loop until it returns true. Never sleep() here: the robot stops following its path.
+    //         return mech.shoot(0, step); // Deck's version: start from it, or replace it
+    //     }
+
     // Example: private DcMotorEx intake;
 
     @Override
