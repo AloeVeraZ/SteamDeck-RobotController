@@ -30,7 +30,6 @@
 ## Path planning UX
 
 3. Snap the curve handles to a 0.5 in grid while Shift is held.
-4. Show the route preview's position as a marker on the path list (which path is playing).
 
 ## Reliability and performance
 

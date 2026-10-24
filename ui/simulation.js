@@ -594,6 +594,8 @@ public class MyAuto implements DeckAutonomous {
   function previewPose(){const c=previewPath();if(!c)return null;const p=c.poses,last=p.at(-1),s=previewAt/1000*last.s;let lo=0,hi=p.length-1;while(lo<hi){const m=(lo+hi)>>1;if(p[m].s<s)lo=m+1;else hi=m;}
     const b=p[lo],a=p[Math.max(0,lo-1)],t=b.s>a.s?(s-a.s)/(b.s-a.s):1,mix=k=>a[k]+(b[k]-a[k])*t;return {x:mix('x'),y:mix('y'),heading:mix('heading'),d:mix('d'),total:last.d,path:b.path,turning:!!b.turning,fp:c.fp};}
   function drawPreview(){const q=tab==='plan'&&previewAt>0&&previewPose();$('#sim-preview-note').textContent=q?`Path ${q.path+1}${q.turning?' · turning':''} · ${field.round(q.d)} of ${field.round(q.total)} in`:'';
+    // The path card being previewed is marked in the list.
+    for(const li of $$('#sim-pin-list .sim-path-row'))li.classList.toggle('previewing',!!q&&li.dataset.path===String(q.path));
     if(!q)return $('#sim-preview-ghost').replaceChildren();const r=q.heading*Math.PI/180;
     $('#sim-preview-ghost').replaceChildren(svg('polygon',{class:'sim-preview-robot',points:pts(planner.body(q,q.fp))}),svg('path',{class:'sim-preview-heading',d:`M${q.x.toFixed(2)} ${q.y.toFixed(2)}L${(q.x+Math.cos(r)*q.fp.front).toFixed(2)} ${(q.y+Math.sin(r)*q.fp.front).toFixed(2)}`}));}
   function previewStop(){cancelAnimationFrame(previewTimer);previewTimer=0;$('#sim-preview-play').textContent='▶ Preview';}

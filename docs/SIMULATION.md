@@ -89,7 +89,7 @@ One field remains visible beside Starting pose, Field obstacles and Paths. Field
 
 While a path is open, faint robot outlines every 8 in along it show where the whole footprint goes, at the heading it has there (like the Pedro visualizer's onion layers).
 
-**Preview.** Under the path list, drag the scrubber (or press **▶ Preview**) to move a robot outline along the whole planned route, turning on the spot where the plan turns. It shows the shape only, at about 30 in per second, with no physics; Run & review drives the route with physics and timing. The note beside it names the path and the inches driven so far.
+**Preview.** Under the path list, drag the scrubber (or press **▶ Preview**) to move a robot outline along the whole planned route, turning on the spot where the plan turns. It shows the shape only, at about 30 in per second, with no physics; Run & review drives the route with physics and timing. The note beside it names the path and the inches driven so far, and that path's card is marked in the list.
 
 Mouse robot dragging locks the pointer and constrains the footprint against barriers, with sliding and no hidden pointer travel buildup. Touch follows the finger. Start at edge finds a clear boundary pose. Box, circle, triangle and custom-shape tools create physical barriers. Custom outlines are normalized; disconnected pieces remain separate.
 

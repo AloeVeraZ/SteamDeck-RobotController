@@ -305,3 +305,5 @@
 /* A selected step or sub-tab keeps its filled look under the pointer (the generic button hover would wash it out). */
 .driver-station .sim-planning-steps [aria-selected=true]:hover:not(:disabled),.driver-station .sim-setup-steps [aria-selected=true]:hover:not(:disabled){background:var(--accent);color:var(--bg)}
 .driver-station .sim-settings-tabs [aria-selected=true]:hover:not(:disabled){background:var(--accent);color:var(--on-accent,var(--bg))}
+/* The path card the route preview is on. */
+.sim-path-row.previewing{box-shadow:inset 3px 0 0 var(--accent)}
