@@ -66,3 +66,14 @@ test('deck-sim pins keeps custom curves, tangent headings, targets, spins and ac
   assert.match(await cli('pin',setup,'add','30','80','--tangent','--curve','40,100,30,95'),/Pin 5/);const last=JSON.parse(fs.readFileSync(setup,'utf8')).layouts[0].pins.at(-1);
   assert.deepEqual([last.path.rotate,last.path.controls],['tangent',[{x:40,y:100},{x:30,y:95}]]);await assert.rejects(cli('pin',setup,'add','30','80','--curve','1,2,3'),/1 to 3 control points/);
 });
+
+test('deck-sim compare: a robot log against the planned route',async()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-compare-')),file=path.join(dir,'r.json'),log=path.join(dir,'robot.csv');
+  await cli('new',file,'--field','empty','--length','16','--width','16');await cli('start',file,'24','24','0');await cli('pin',file,'add','100','24');
+  fs.writeFileSync(log,'time,x,y,heading\n0,24,24,0\n1,60,27,0\n2,100,25,0\n');
+  const text=await cli('compare',file,log);assert.match(text,/robot\.csv · x, y, heading/);assert.match(text,/average 1\.33 in, worst 3 in at \(60, 27\)/);assert.match(text,/Stopped 1 in from the last end point/);
+  const json=JSON.parse(await cli('compare',file,log,'--json'));assert.deepEqual([json.poses,json.maxError,json.endError],[3,3,1]);
+  // FTC centre frame: (0, 0) is the field centre.
+  fs.writeFileSync(log,'x,y\n-48,-48\n28,-48\n');assert.match(await cli('compare',file,log,'--origin','center'),/Stopped 0 in/);
+  await assert.rejects(cli('compare',file),/Use: compare/);
+});

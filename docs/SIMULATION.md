@@ -163,11 +163,12 @@ deck-sim test red.json                     # same physics and follower as Run
 deck-sim test red.json --code onbot        # runs the exported OnBot Java on the virtual Control Hub
 deck-sim test mm.json --code motionmodule  # runs the exported autonomous.py on MotionModule's runtime
 deck-sim optimize red.json                 # fastest safe spline/straight shape per path
+deck-sim compare red.json robot.wpilog     # a real robot's log against the plan (CSV too; --origin center for FTC frame)
 deck-sim export red.json --format onbot --out TeamCode/
 deck-sim show red.json --run               # opens it in the app on Run & review and starts it
 ```
 
-`show`, and `--show` on any command that changes a setup, launches the installed app, or hands the setup to the window that is already open. The setup opens as a new saved setup, the route is planned and the requested tab (`--tab run`, `plan` or `setup`) is shown. A robot CAD file named with `robot --cad` is imported as the robot model. Opening Simulation closes any live robot connection, as it does from the Simulate tab. `--dev` uses this checkout's Electron runtime instead of the installed app. Add `--json` to `field`, `plan`, `test` and `info` for machine-readable output.
+`show`, and `--show` on any command that changes a setup, launches the installed app, or hands the setup to the window that is already open. The setup opens as a new saved setup, the route is planned and the requested tab (`--tab run`, `plan` or `setup`) is shown. A robot CAD file named with `robot --cad` is imported as the robot model. Opening Simulation closes any live robot connection, as it does from the Simulate tab. `--dev` uses this checkout's Electron runtime instead of the installed app. Add `--json` to `field`, `plan`, `test`, `compare` and `info` for machine-readable output.
 
 [`examples/biobuzz-red-auto.json`](../examples/biobuzz-red-auto.json) is a red-alliance BIOBUZZ autonomous made this way, with a turret shooter and a front sweeper: it spins up while leaving the wall and shoots its 4 preloaded pollen from a pin, sweeps the red GARDEN, spins up on the way back and shoots again, then parks in the red LOADING ZONE. Every path runs at full power; it takes about 13.3 s, shoots 6 pieces and tips the red hive (20 points). Its OnBot Java, with the mechanism code, is in [`examples/biobuzz-red-auto/`](../examples/biobuzz-red-auto/).
 

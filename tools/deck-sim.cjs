@@ -8,7 +8,7 @@
 // audience, headings in degrees counter-clockwise from +X.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spawn}=require('node:child_process');
 const root=path.join(__dirname,'..');
-const Mech=require('../ui/sim-mechanisms.js'),Wpilog=require('../ui/sim-wpilog.js'),P=require('../ui/sim-planner.js'),C=require('../ui/sim-config.js'),X=require('../ui/sim-export.js'),F=require('../ui/sim-ftc.js'),M=require('../ui/sim-motionmodule.js'),Timed=require('../ui/sim-timed.js'),Pedro=require('../ui/sim-pedro.js');
+const RobotLog=require('../ui/sim-robot-log.js'),Mech=require('../ui/sim-mechanisms.js'),Wpilog=require('../ui/sim-wpilog.js'),P=require('../ui/sim-planner.js'),C=require('../ui/sim-config.js'),X=require('../ui/sim-export.js'),F=require('../ui/sim-ftc.js'),M=require('../ui/sim-motionmodule.js'),Timed=require('../ui/sim-timed.js'),Pedro=require('../ui/sim-pedro.js');
 const GAMES={empty:'Empty field',biobuzz:'BIOBUZZ'},AXES=['+x','-x','+y','-y','+z','-z'];
 const finite=n=>typeof n==='number'&&Number.isFinite(n),round=(n,d=2)=>Math.round(n*10**d)/10**d;
 
@@ -272,6 +272,10 @@ Route
                                            Test-drive the route in the simulator physics (or run its exported code);
                                            --log saves the run as a WPILOG file
   optimize <setup.json>                    Test-drive spline/straight shapes per path; keep the fastest safe one
+  compare <setup.json> <log.wpilog|log.csv> [--origin center] [--json]
+                                           Compare a real robot's log with the planned route: average and worst
+                                           distance from the plan, and from the last end point. CSV coordinates
+                                           are from the bottom-left corner unless --origin center (FTC frame)
 
 Code and app
   export <setup.json> --format onbot|teamcode|pedro|java|pp|timed|motionmodule --out <file-or-folder>
@@ -387,6 +391,12 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
         const folder=names.length>1||format==='teamcode'||format==='pedro'||/[\\/]$/.test(out)||!path.extname(out)||fs.existsSync(out)&&fs.statSync(out).isDirectory();
         for(const [rel,text] of Object.entries(files)){const target=folder?path.resolve(out,rel):path.resolve(out);if(folder&&!target.startsWith(path.resolve(out)+path.sep))throw Error('Invalid export path.');fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
         say(`Wrote ${names.length} file${names.length>1?'s':''} to ${path.resolve(out)}${note?`. ${note}`:''}`);if(flags.show)say(show(file,setup,flags));return;}finally{e.dispose();}}
+    case'compare':{const log=rest[0];if(!log)throw Error('Use: compare <setup.json> <log.wpilog|log.csv> [--origin center].');
+      const setup=readSetup(file),{e,info,l}=await load(setup);
+      try{const route=planRoute(setup,l,info),data=RobotLog.parse({name:path.basename(log),bytes:new Uint8Array(fs.readFileSync(log))},{origin:flags.origin==='center'?'center':'corner'}),r=RobotLog.compare(data,route),f=v=>+v.toFixed(2);
+        return say(json?{log:data.key,poses:r.samples,seconds:f(r.duration),meanError:f(r.meanError),maxError:f(r.maxError),worst:{x:f(r.worst.x),y:f(r.worst.y)},endError:f(r.endError)}
+          :`${path.basename(log)} · ${data.key}: ${r.samples} poses over ${f(r.duration)} s.\nFrom the plan: average ${f(r.meanError)} in, worst ${f(r.maxError)} in at (${f(r.worst.x)}, ${f(r.worst.y)}).\nStopped ${f(r.endError)} in from the last end point.`);}
+      finally{e.dispose();}}
     case'show':return say(show(file,readSetup(file),flags));
     default:throw Error(`Unknown command "${command}". Run: deck-sim help`);
   }
