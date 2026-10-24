@@ -129,6 +129,13 @@ On the example setups:
 - Now nothing leaks: no NaN, Infinity or undefined.
 - MotionModule Python with backslashes in names is parsed by Python 3.12 with warnings as errors.
 
+## Planner fuzzing on the BIOBUZZ field
+
+600 random routes with the real field structures: 1 to 5 pins, every heading modifier, curves, action paths, powers, pauses and turns.
+- No JavaScript errors.
+- Every failure was one of the planner's own explanations (for example "no room to turn while driving" or "the custom curve takes the robot into a wall").
+- The 77 routes that planned all passed the planner's own analysis with no blocking issue.
+
 ## Planning time (`deck-sim` setups, planner only)
 
 After the reduced visibility graph, the original planner and the new one were run side by side.
