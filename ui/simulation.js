@@ -247,7 +247,7 @@ public class MyAuto implements DeckAutonomous {
         <div id="sim-zone-editor" class="sim-editor" hidden></div>
         <div class="sim-path-bar"><button id="sim-add-path" class="primary" type="button" title="Add a path from the last point">+ Add path</button></div>
         <ol id="sim-pin-list" class="sim-list sim-path-list"></ol>
-        <div id="sim-preview-row" class="sim-preview-row" hidden><button id="sim-preview-play" class="secondary" type="button">▶ Preview</button><input id="sim-preview" type="range" min="0" max="1000" step="1" value="0" aria-label="Robot position along the route" title="Moves a robot outline along the planned route. Shape only: Run & review drives it with physics and timing."><output id="sim-preview-note" class="hint" for="sim-preview"></output></div>
+        <div id="sim-preview-row" class="sim-preview-row" hidden><button id="sim-preview-play" class="secondary" type="button"><span aria-hidden="true">▶</span> Preview</button><input id="sim-preview" type="range" min="0" max="1000" step="1" value="0" aria-label="Robot position along the route" title="Moves a robot outline along the planned route. Shape only: Run & review drives it with physics and timing."><output id="sim-preview-note" class="hint" for="sim-preview"></output></div>
         <label>Route shape</label>${segmented('style',STYLES,'Route shape')}
         <label>Turning</label>${segmented('rotate',{auto:'Turn to fit',off:'Keep heading'},'Turning')}<p id="sim-rotate-note" class="hint"></p>
         <div class="start-xy"><div><label for="sim-clearance">Space around obstacles · in</label><input id="sim-clearance" type="number" min="0.05" data-slider-max="6" step="any" data-slider-step="0.05"></div><div><label>&nbsp;</label><button id="sim-optimize" class="secondary" type="button">Optimize</button></div></div>
@@ -598,7 +598,7 @@ public class MyAuto implements DeckAutonomous {
     for(const li of $$('#sim-pin-list .sim-path-row'))li.classList.toggle('previewing',!!q&&li.dataset.path===String(q.path));
     if(!q)return $('#sim-preview-ghost').replaceChildren();const r=q.heading*Math.PI/180;
     $('#sim-preview-ghost').replaceChildren(svg('polygon',{class:'sim-preview-robot',points:pts(planner.body(q,q.fp))}),svg('path',{class:'sim-preview-heading',d:`M${q.x.toFixed(2)} ${q.y.toFixed(2)}L${(q.x+Math.cos(r)*q.fp.front).toFixed(2)} ${(q.y+Math.sin(r)*q.fp.front).toFixed(2)}`}));}
-  function previewStop(){cancelAnimationFrame(previewTimer);previewTimer=0;$('#sim-preview-play').textContent='▶ Preview';}
+  function previewStop(){cancelAnimationFrame(previewTimer);previewTimer=0;$('#sim-preview-play').replaceChildren(Object.assign(document.createElement('span'),{ariaHidden:'true',textContent:'▶'}),' Preview');}
   function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(tab!=='plan'||!c?.length)return [];const a=pathStart(i),out=[];
     out.push(svg('polyline',{class:'sim-control-guide',points:pts([a,c[0]])}),svg('polyline',{class:'sim-control-guide',points:pts([c.at(-1),q])}));if(c.length>2)out.push(svg('polyline',{class:'sim-control-guide',points:pts(c)}));
     if(!L().route||planError)out.push(svg('polyline',{class:'sim-path draft'+(diagnostics.some(d=>d.pin===i)?' blocked':''),points:pts(Array.from({length:33},(_,j)=>bez([a,...c,q],j/32)))}));
