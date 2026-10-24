@@ -18,6 +18,15 @@
 - `output/` (PDF reports and an AdvantageScope `.wpilog` from 21–23 October) predates this session and is untracked. It was left alone.
   - Its `.wpilog` is a handy real file: `deck-sim compare examples/biobuzz-red-auto.json output/advantagescope/biobuzz-red-auto.wpilog`.
 
+## Coordinates (worth knowing before touching .pp or Pedro code)
+
+- **Deck's game fields** are a 144 in square with the perimeter wall inside it: BIOBUZZ's playing area runs from 1.326 to 142.674 (`info.bounds`).
+  - This matches Pedro's documented frame (FTC field-centre frame plus 72), so the Pedro Java export uses Deck coordinates as they are.
+- **The Pedro Visualizer** draws a 141.5 in field starting at the inner wall.
+  - `.pp` files for game fields are therefore shifted by the wall and record it as `deckOrigin`.
+  - `fromPP` adds it back. A Visualizer file without `deckOrigin` gets the wall offset on game fields.
+- **The Visualizer's own code is the oracle for `.pp` behaviour.** Its `.ts` modules (cloned at commit f953ee0) ran under the Electron Node with type stripping. Re-clone it and copy `utils/normalize.ts`, `pathTraversal.ts`, `headingInterpolation.ts`, `animation.ts` and their imports, with `.ts` added to the import specifiers.
+
 ## The user's request: optimize "lunala red auto"
 
 Done and committed (`examples/lunala-red-auto.json` plus exports in `examples/lunala-red-auto/`).
