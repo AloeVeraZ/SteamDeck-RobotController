@@ -77,6 +77,15 @@ Only logged positions are used. A log without poses is refused, and nothing is f
 
 Run & review → **Export** → **Save run log (.wpilog)…** saves the last run as a WPILOG (AdvantageKit key layout: robot pose at `/RealOutputs/Odometry/Robot` plus the estimate, BIOBUZZ pieces as Pollen and Nectar positions, drive and mechanism values, and the DriverStation enabled/autonomous/alliance state), for sharing or for comparing with logs from the real robot in a log viewer. From the terminal: `deck-sim test --log run.wpilog`.
 
+### Run videos
+
+Save a run as a video of the field (2D or 3D, as shown), with a bar above it for the period, the match clock, the field name and the points. Videos are MP4 (H.264), or WebM where the system has no H.264 recorder.
+
+- **Live:** press **Record** under Run & review's Run button, then **Run**. The run is filmed while it plays (including teleop you drive yourself), and when it ends the app asks where to save it. Pressing Record again while it films stops early and saves; pressing it before the run starts cancels. The video plays at the speed you ran (2× runs give 2× videos).
+- **After the run:** Run & review → **Export** → **Run video**. Choose the part (**Autonomous**, **Teleop** or **Whole run**) and **Save video of the last run…**. The run replays on the field at real speed while it is filmed, so a 30 s autonomous takes 30 s; the button turns into **Cancel video** meanwhile. A full match gives separate autonomous and teleop videos, without the transition.
+
+The app films only its own window, never the screen or other apps, and crops to the field. Keep the window open and on screen while it films. Videos are up to 1280 pixels wide.
+
 ## Shared field editing
 
 One field remains visible beside Starting pose, Field obstacles and Paths. Field obstacles is a step only on an empty field: BIOBUZZ brings its own structures, so a game field goes from Starting pose straight to Paths. Drag existing obstacles, points or the robot from any submenu. Select is the default obstacle tool.

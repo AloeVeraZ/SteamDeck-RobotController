@@ -102,6 +102,12 @@ class SimulationHost{
       const base=String(data.name||'deck-run').replace(/[^\w -]+/g,'').trim().slice(0,60)||'deck-run';
       const r=await dialog.showSaveDialog(win,{title:'Save run log',defaultPath:`${base}.wpilog`,filters:[{name:'WPILOG',extensions:['wpilog']}]});if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,Buffer.from(data.bytes));return {name:path.basename(r.filePath),message:`Saved ${path.basename(r.filePath)}.`};
     }
+    // A run video (MP4 or WebM, filmed in the window), saved where the team chooses.
+    if(action==='video-save'){
+      if(!data||!(data.bytes instanceof Uint8Array)||!data.bytes.length||data.bytes.length>2*1024*1024*1024||!['mp4','webm'].includes(data.ext))throw Error('Invalid run video.');
+      const base=String(data.name||'Deck run').replace(/[^\w -]+/g,'').trim().slice(0,80)||'Deck run';
+      const r=await dialog.showSaveDialog(win,{title:'Save run video',defaultPath:`${base}.${data.ext}`,filters:[{name:data.ext==='mp4'?'MP4 video':'WebM video',extensions:[data.ext]}]});if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,Buffer.from(data.bytes.buffer,data.bytes.byteOffset,data.bytes.length));return {name:path.basename(r.filePath),message:`Saved ${path.basename(r.filePath)}.`};
+    }
     if(action==='teamcode-save'){
       const files=data?.files;if(!files||typeof files!=='object')throw Error('Invalid TeamCode export.');
       const entries=Object.entries(files);if(!entries.length||entries.length>12||entries.some(([rel,text])=>typeof text!=='string'||!/^[A-Za-z0-9_]+(\/[A-Za-z0-9_]+)*\.java$/.test(rel))||entries.reduce((s,[,text])=>s+text.length,0)>EXPORT_LIMIT)throw Error('Invalid TeamCode export.');

@@ -78,6 +78,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 ### Run & review
 
 - **Compare with a robot log.** WPILOG Pose2d or CSV, drawn beside the plan, with average and worst deviation and the stop error.
+- **Run videos.** Record (under Run) films a run live and asks where to save it when the run ends. Export → Run video replays the last run's autonomous, teleop or whole run on the field at real speed and saves that. MP4 with a period/clock/points bar, cropped from the app's own window (Electron tab capture of its own frame only). Checked in the app: live and replayed 6 s autonomous videos decode at full length and show the route.
   - CSV files exported from spreadsheets work: byte-order mark, quoted cells, decimal commas, and `pose_x` or `Robot X (in)` column names.
   - The worst point is named by its path ("on path 6").
   - The same comparison runs from the terminal: `deck-sim compare <setup> <log>`.

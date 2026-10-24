@@ -1772,14 +1772,16 @@ public class MyAuto implements DeckAutonomous {
     if(!native)return videoSay('Saving videos needs the installed app.');
     if(runState==='starting'||frame?.playing||video.armed)return videoSay('Stop the run (and Record) first, then save its video.');
     try{await videoRec.open();}catch(e){return videoSay(e.message||'Recording could not start.');}
-    const list=frames.slice(range[0],range[1]+1),t0=list[0].time,span=list.at(-1).time-t0,saved={frame,trail};console.log('VIDEO-DEBUG',JSON.stringify({n:frames.length,range,span,first:frames[0].time,last:frames.at(-1).time,phases:frames.filter((f,i)=>i%10==0).map(f=>(f.practice?.phase||'-')[0]+f.time.toFixed(1)).join(' ')}));
+    const list=frames.slice(range[0],range[1]+1),t0=list[0].time,span=list.at(-1).time-t0,saved={frame,trail};
     videoReplay={cancel:false};video.start=t0;videoButtons();trail=[];frame=list[0];trailPoint(frame);showFrame();
     let finished=false,failed=false;
     try{
       // Let the first picture of the replay reach the window before filming starts.
       await new Promise(r=>setTimeout(r,250));videoRec.begin();const began=performance.now();let i=0;
       await new Promise(resolve=>{const tick=()=>{if(videoReplay.cancel)return resolve();const t=(performance.now()-began)/1000;
-        while(i<list.length-1&&list[i+1].time-t0<=t){i++;trailPoint(list[i]);}frame=list[i];showFrame();videoSay(`Filming the ${Video.SECTIONS[section].toLowerCase()}… ${Math.min(t,span).toFixed(0)} of ${span.toFixed(0)} s`);
+        // The field is redrawn only when the replay reaches the next recorded frame, which keeps the window light while it films.
+        const was=i;while(i<list.length-1&&list[i+1].time-t0<=t){i++;trailPoint(list[i]);}if(i!==was){frame=list[i];showFrame();}
+        const shown=`Filming the ${Video.SECTIONS[section].toLowerCase()}… ${Math.min(t,span).toFixed(0)} of ${span.toFixed(0)} s`;if(videoStatus.textContent!==shown)videoSay(shown);
         if(t>=span+.6){finished=true;return resolve();}requestAnimationFrame(tick);};tick();});
     }catch(e){failed=true;videoSay(e.message);}
     const blob=await videoRec.stop();videoRec.close();frame=saved.frame;trail=saved.trail;videoReplay=null;video.start=null;videoButtons();showFrame();
