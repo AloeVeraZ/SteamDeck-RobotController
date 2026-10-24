@@ -5,7 +5,7 @@
 // published SHA-1, then:
 //   1. compiles single-file OnBot Java and multi-file Control Hub exports for every supported localizer, a turning route, a route with
 //      action paths, spins and pin turns, and tank-style robots;
-//   2. compiles the Pedro Pathing 3 export for every holonomic case, with the Quickstart's own
+//   2. compiles the Pedro Pathing 3 export for every holonomic case and a swerve robot, with the Quickstart's own
 //      pedro/Constants.java beside it;
 //   3. compiles every export of the example setups in examples/ (BIOBUZZ routes with intakes, shooters,
 //      turrets and servos), so the generated mechanism code is checked too;
@@ -97,6 +97,10 @@ async function main(){
             noWarnings(name,javac(sources,dir+'-classes',jars));console.log(`Example ${file} (${format}${info.mechanisms?.enabled?', mechanisms':''}): ${sources.length} file${sources.length>1?'s compile':' compiles'} against the real SDK.`);}
         }finally{ex.dispose();}
       }
+      // A swerve robot: Pedro only (Pedro's revhub has Swerve; Deck's own Control Hub exports are mecanum and tank).
+      {const robot={drivetrain:'swerve',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start={x:24,y:24,heading:0},info=await e.load({field:'empty',start,robot,zones:[],sensors:{localization:'fused'}});
+        const route=P.plan({start,zones:[],pins:[{x:100,y:40,path:{rotate:'tangent'}},{x:100,y:100,wait:.5,action:'Score'}],clearance:2,style:'spline'},info.footprint,[],info.bounds),layout={name:'SDK check',field:'empty',width:144,height:144,start,zones:[]};
+        pedro('swerve',Pedro.files({route,layout,setupName:'SDK check',robot:info.robot,defaultPower:.8,hardware:F.hardwareIfSupported(info.robot,'fused'),tuning:info.tuning}));}
     }finally{e.dispose();}
     // Signatures: nothing a stand-in declares may be missing from the real SDK.
     const members=(cp,type)=>new Set(execFileSync(tool('javap'),['-public','-cp',cp,type],{encoding:'utf8'}).split('\n').filter(l=>/^\s+public/.test(l))

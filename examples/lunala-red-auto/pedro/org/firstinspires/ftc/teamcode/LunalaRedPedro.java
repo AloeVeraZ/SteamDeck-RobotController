@@ -19,9 +19,9 @@ import org.firstinspires.ftc.teamcode.pedro.Constants;
  *
  * Robot readiness:
  *  [x] Compiles: Deck's export check compiles this generator's output against FTC SDK 12.0.0 and Pedro Pathing 3.0.2 (tools/simulation/check-ftc-sdk.cjs).
- *  [x] Runs with Pedro’s Follower: Deck’s development tests run this generator’s output with Pedro Pathing 3.0.2’s own Follower, Mecanum drivetrain and Pinpoint/OTOS localizer on the virtual Control Hub (tests/sim-pedro-runtime.test.cjs).
+ *  [x] Runs with Pedro’s Follower: Deck’s development tests run this generator’s output with Pedro Pathing 3.0.2’s own Follower, Mecanum drivetrain and Pinpoint, OTOS and odometry-pod localizers on the virtual Control Hub (tests/sim-pedro-runtime.test.cjs).
  *  [x] Path geometry: Coordinates, curves and headings are the ones the planner checked for clearance; unit tests compare them.
- *  [ ] Pedro setup: pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets. DeckStarterConstants.java (written beside it for mecanum robots with a Pinpoint or OTOS) holds estimated starting values: return DeckStarterConstants.create(h) from Constants.create while you tune.
+ *  [ ] Pedro setup: pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets. DeckStarterConstants.java (written beside it for mecanum robots with odometry pods, a Pinpoint or an OTOS) holds estimated starting values: return DeckStarterConstants.create(h) from Constants.create while you tune.
  *  [ ] Tuning: Run the Quickstart tuners (localizer, drivetrain, Foresight) on your robot. Deck cannot tune a real robot.
  *  [ ] Starting pose: Place the robot exactly at START before INIT; the localizer is set to it at START.
  *  [ ] Actions: Mechanisms.java drives the intake/shooter set up in Deck; check device names and directions. Other actions need code in RobotActions.java.

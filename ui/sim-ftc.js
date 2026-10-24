@@ -27,6 +27,9 @@
     return {localization,imu:'imu',hub:{logo:mount.hubLogo.toUpperCase(),usb:mount.hubUsb.toUpperCase()},drive:{kind:tank?'tank':'mecanum',ticksPerInch:ticksPerRev(rpm)/inches,ticksPerRev:ticksPerRev(rpm),halfLength:robot.length/2,halfWidth:robot.width/2,motors:drivetrain==='tank2'?DIFF:MOTORS},
       pods:(PODS[localization]||[]).map(p=>({...p,ticksPerInch:POD_TICKS_PER_INCH})),...(localization==='fused'?{pinpoint:'pinpoint'}:{}),...(localization==='optical'?{otos:'sensor_otos'}:{})};
   }
+  // The hardware description for drivetrains the Control Hub exports support, or null (a swerve robot's Pedro export
+  // then comes without starter constants).
+  function hardwareIfSupported(robot,localization){try{return hardware(robot,localization);}catch{return null;}}
   // Java double literals: Java numeric literals retain a decimal point for generated calibration constants.
   const n=v=>{const s=String(Number(Number(v).toPrecision(6)));return /[.eE]/.test(s)?s:s+'.0';};
   const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/\\(?=u)/g,'\\ ').replace(/[\r\n]+/g,' ').trim();
@@ -649,5 +652,5 @@ public class Mechanisms {
       {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low power first. Simulation and compilation do not prove the robot will follow the path.'}
     ];
   }
-  return {checklist,hardware,files,onBotJava,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,SUPPORTED,MOTORS,TANK,ticksPerRev};
+  return {checklist,hardware,hardwareIfSupported,files,onBotJava,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,SUPPORTED,MOTORS,TANK,ticksPerRev};
 });

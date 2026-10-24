@@ -121,3 +121,12 @@ test('names with Java unicode escapes or comment ends stay inside comments and s
     assert.equal((code.match(/\/\*/g)||[]).length,(code.match(/\*\//g)||[]).length,'every comment that opens is closed once');
   }
 });
+
+test('Pedro export for a swerve robot: no starter constants, and no claim that the Follower run was checked',()=>{
+  const F=require('../ui/sim-ftc.js'),start={x:24,y:24,heading:0},layout=layoutOf(start),route=P.plan({start,zones:[],pins:[{x:90,y:40,path:{rotate:'tangent'}}],style:'sharp',clearance:2},fp);
+  const robot={drivetrain:'swerve',length:17,width:17,driveRpm:500};assert.equal(F.hardwareIfSupported(robot,'fused'),null);assert.ok(F.hardwareIfSupported({...robot,drivetrain:'mecanum'},'fused'));
+  const o=out(route,layout,{robot,hardware:F.hardwareIfSupported(robot,'fused'),tuning:{maxForward:80}});
+  assert.ok(!Object.keys(o.files).some(k=>k.endsWith('DeckStarterConstants.java')));assert.match(source(o,'PlannedRoutePaths.java'),/\.tangent\(\)/);
+  assert.equal(o.checklist.find(c=>/Follower/.test(c.label)).status,'physical');assert.equal(o.checklist.filter(c=>c.status==='verified').length,2);
+  assert.match(source(o,'PlannedRoutePedro.java'),/\[ \] Runs with Pedro’s Follower: Deck’s tests run this output with Pedro’s Follower on mecanum robots only, not with swerve/);
+});

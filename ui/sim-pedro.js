@@ -380,12 +380,13 @@ public class ${o.opMode} extends LinearOpMode {
 `;
   }
   // What an export can and cannot promise. "verified" items are checked by Deck's own pipeline.
-  function checklist({mechanisms,actions}){
+  function checklist({mechanisms,actions,drivetrain='mecanum'}){
     return [
       {status:'verified',label:'Compiles',detail:`Deck's export check compiles this generator's output against FTC SDK ${SDK_VERSION} and Pedro Pathing ${PEDRO_VERSION} (tools/simulation/check-ftc-sdk.cjs).`},
-      {status:'verified',label:'Runs with Pedro’s Follower',detail:`Deck’s development tests run this generator’s output with Pedro Pathing ${PEDRO_VERSION}’s own Follower, Mecanum drivetrain and Pinpoint/OTOS localizer on the virtual Control Hub (tests/sim-pedro-runtime.test.cjs).`},
+      drivetrain==='mecanum'?{status:'verified',label:'Runs with Pedro’s Follower',detail:`Deck’s development tests run this generator’s output with Pedro Pathing ${PEDRO_VERSION}’s own Follower, Mecanum drivetrain and Pinpoint, OTOS and odometry-pod localizers on the virtual Control Hub (tests/sim-pedro-runtime.test.cjs).`}
+        :{status:'physical',label:'Runs with Pedro’s Follower',detail:`Deck’s tests run this output with Pedro’s Follower on mecanum robots only, not with ${drivetrain}. Check the first runs on your robot at low speed.`},
       {status:'verified',label:'Path geometry',detail:'Coordinates, curves and headings are the ones the planner checked for clearance; unit tests compare them.'},
-      {status:'team',label:'Pedro setup',detail:'pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets. DeckStarterConstants.java (written beside it for mecanum robots with a Pinpoint or OTOS) holds estimated starting values: return DeckStarterConstants.create(h) from Constants.create while you tune.'},
+      {status:'team',label:'Pedro setup',detail:'pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets. DeckStarterConstants.java (written beside it for mecanum robots with odometry pods, a Pinpoint or an OTOS) holds estimated starting values: return DeckStarterConstants.create(h) from Constants.create while you tune.'},
       {status:'calibration',label:'Tuning',detail:'Run the Quickstart tuners (localizer, drivetrain, Foresight) on your robot. Deck cannot tune a real robot.'},
       {status:'team',label:'Starting pose',detail:'Place the robot exactly at START before INIT; the localizer is set to it at START.'},
       {status:'team',label:'Actions',detail:actions.length?(mechanisms?'Mechanisms.java drives the intake/shooter set up in Deck; check device names and directions. Other actions need code in RobotActions.java.':'Write the code for each action in RobotActions.java; until then they finish at once.'):'No actions in this route.'},
@@ -397,7 +398,7 @@ public class ${o.opMode} extends LinearOpMode {
     if(route.nonholonomic)throw Error('Pedro Pathing 3 drives mecanum and swerve robots. Use the OnBot Java or TeamCode export for this drivetrain.');
     if(!layout?.start)throw Error('Set a starting pose first.');
     const nm=names(className,packageName),mech=mechanisms?.enabled?mechanisms:null,legs=legsOf(route,exporter),list=exporter.actions(route),dir=packageName.replace(/\./g,'/');
-    const startH=finite(layout.start.heading)?layout.start.heading:route.heading||0,through=throughs(legs,startH),check=checklist({mechanisms:mech,actions:list});
+    const startH=finite(layout.start.heading)?layout.start.heading:route.heading||0,through=throughs(legs,startH),check=checklist({mechanisms:mech,actions:list,drivetrain:robot?.drivetrain||'mecanum'});
     const o={route,layout,legs,through,exporter,packageName,className,paths:nm.paths,opMode:nm.opMode,mechanisms:mech,constants,checklist:check,defaultPower};
     const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,poseImport:'com.pedropathing.math.Pose'};
     const out={[`${dir}/${nm.paths}.java`]:pathsFile(o),[`${dir}/${nm.opMode}.java`]:opModeFile(o),[`${dir}/RouteActions.java`]:ftc.routeActions(shared,list),[`${dir}/RobotActions.java`]:ftc.robotActions(shared,list)};

@@ -33,6 +33,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - Exports without a route default power or tuning wrote `NaN.0` into `MOTOR_POWER`, which does not compile. They now fall back to 0.8, like the Deck route Java.
 - **MotionModule names.** A setup or action name with a backslash (for example a Windows path) made `autonomous.py` and `robot_actions.py` invalid Python. This was checked with Python's own parser.
 - **No NaN in exports.** Control Hub exports without measured tuning fall back to the Deck controller's defaults instead of writing `NaN.0`. A random-route fuzz test guards every generator.
+- **Pedro export for swerve robots.** The docs promised it but the app hid the button. Swerve robots now get the Pedro files without starter constants. The checklist no longer claims a Follower run that only covered mecanum. The real-SDK check compiles a swerve case.
 - The example exports in `examples/` were regenerated. The BIOBUZZ ones were already out of date before this session.
 
 ### Path planning
