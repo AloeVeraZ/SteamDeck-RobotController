@@ -167,16 +167,32 @@
       const {ClipperLib}=libs();if(!ClipperLib)throw Error('Planning libraries are unavailable.');
       const union=[];
       if(polys.length){const clip=new ClipperLib.Clipper();clip.AddPaths(polys.map(p=>p.map(v=>({X:Math.round(v.x*SCALE),Y:Math.round(v.y*SCALE)}))),ClipperLib.PolyType.ptSubject,true);clip.Execute(ClipperLib.ClipType.ctUnion,union,ClipperLib.PolyFillType.pftNonZero,ClipperLib.PolyFillType.pftNonZero);}
-      const candidates=union.flatMap(p=>p.map(v=>({x:v.X/SCALE,y:v.Y/SCALE}))).filter(within);
+      // Each outline corner keeps its neighbours, walked with the obstacle on the left. A shortest path only bends at a
+      // convex obstacle corner and leaves it along a tangent (the reduced visibility graph), so concave corners (where
+      // grown obstacles overlap) are dropped and pairs that cut into an obstacle at either end are never tested.
+      const sine=(o,a,b)=>{const ax=a.x-o.x,ay=a.y-o.y,bx=b.x-o.x,by=b.y-o.y,l=Math.hypot(ax,ay)*Math.hypot(bx,by);return l>1e-12?(ax*by-ay*bx)/l:0;};
+      const candidates=[];
+      for(const ring of union){let pts=ring.map(v=>({x:v.X/SCALE,y:v.Y/SCALE}));
+        if(pts.length>=3){let k=0;for(let i=1;i<pts.length;i++)if(dist(pts[i],pts[(i+1)%pts.length])>dist(pts[k],pts[(k+1)%pts.length]))k=i;
+          const a=pts[k],b=pts[(k+1)%pts.length],len=dist(a,b),step=Math.min(.01,len/4),probe={x:(a.x+b.x)/2-(b.y-a.y)/len*step,y:(a.y+b.y)/2+(b.x-a.x)/len*step};
+          if(!polys.some(poly=>rayInside(probe,poly)))pts=pts.reverse();
+          pts.forEach((v,i)=>{const prev=pts[(i+pts.length-1)%pts.length],next=pts[(i+1)%pts.length];candidates.push({x:v.x,y:v.y,prev,next,bend:-sine(v,prev,next)*Math.min(dist(v,prev),dist(v,next))>-TOL});});}
+        else candidates.push(...pts);}
       // Where a grown obstacle meets the reachable box (an obstacle against a wall).
       for(const poly of polys)for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length];
         for(const x of [bounds.x0,bounds.x1])if(Math.abs(b.x-a.x)>1e-12){const t=(x-a.x)/(b.x-a.x);if(t>=0&&t<=1){const p={x,y:a.y+t*(b.y-a.y)};if(within(p))candidates.push(p);}}
         for(const y of [bounds.y0,bounds.y1])if(Math.abs(b.y-a.y)>1e-12){const t=(y-a.y)/(b.y-a.y);if(t>=0&&t<=1){const p={x:a.x+t*(b.x-a.x),y};if(within(p))candidates.push(p);}}}
       candidates.push({x:bounds.x0,y:bounds.y0},{x:bounds.x1,y:bounds.y0},{x:bounds.x1,y:bounds.y1},{x:bounds.x0,y:bounds.y1});
-      const vertices=candidates.filter(p=>!polys.some(poly=>inside(p,poly))).filter((p,i,a)=>a.findIndex(q=>dist(p,q)<.002)===i);
+      // A corner that coincides with a wall point or another outline's corner is kept without the tangent filter.
+      const kept=[];for(const p of candidates.filter(p=>within(p)&&!polys.some(poly=>inside(p,poly)))){const same=kept.find(q=>dist(p,q)<.002);if(!same)kept.push({...p});else if(!p.prev||!same.prev||p.prev!==same.prev){same.prev=same.next=null;same.bend=true;}}
+      // Concave corners stay in the list (same numbering, so ties between equal routes resolve as before); the tangent
+      // test below leaves them almost no edges.
+      const vertices=kept;
+      // prev and next on the same side of the line (or on it, within rounding): the segment leaves along a tangent.
+      const off=(v,w,p)=>sine(v,w,p)*dist(v,p),tangent=(v,w)=>{if(!v.prev)return true;const a=off(v,w,v.prev),b=off(v,w,v.next);return Math.abs(a)<TOL||Math.abs(b)<TOL||a*b>0;};
       // One visibility graph between obstacle vertices; each leg only adds its two endpoints.
       const graph={};for(let i=0;i<vertices.length;i++)graph['v'+i]={};
-      for(let i=0;i<vertices.length;i++)for(let j=i+1;j<vertices.length;j++){const length=dist(vertices[i],vertices[j]);if(length>1e-9&&segmentClear(vertices[i],vertices[j],polys)){graph['v'+i]['v'+j]=length;graph['v'+j]['v'+i]=length;}}
+      for(let i=0;i<vertices.length;i++)for(let j=i+1;j<vertices.length;j++){const length=dist(vertices[i],vertices[j]);if(length>1e-9&&tangent(vertices[i],vertices[j])&&tangent(vertices[j],vertices[i])&&segmentClear(vertices[i],vertices[j],polys)){graph['v'+i]['v'+j]=length;graph['v'+j]['v'+i]=length;}}
       return built={vertices,graph};};
     return s;
   }

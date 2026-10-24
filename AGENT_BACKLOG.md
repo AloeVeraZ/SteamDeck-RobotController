@@ -36,7 +36,6 @@
 
 ## Reliability and performance
 
-3. The planner's turning search takes about 2.5 s on a 24-barrier stress field. Real setups plan in 3–210 ms, so this is low priority. Possible fixes: lazy hub-to-hub edges, or cached segment checks per heading.
 4. A rare renderer crash ("Target crashed") was seen once during Optimize in the E2E. It has not happened in the two E2E runs since that went through Optimize. Watch for it.
 
 ## UI polish

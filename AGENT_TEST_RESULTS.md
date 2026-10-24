@@ -115,6 +115,17 @@ The Visualizer's normalizer, path flattening and animation heading code (`segmen
 
 ## Planning time (`deck-sim` setups, planner only)
 
+After the reduced visibility graph, the original planner and the new one were run side by side.
+- The six example and fixture setups give identical routes: lunala 102 → 73 ms, BIOBUZZ blue 18 pins 181 → 145 ms.
+- 450 random fields with up to 25 obstacles of every shape, three footprints and three clearances: 133 planned.
+  - 130 routes are identical.
+  - 3 are equal-length ties (one sharp, two spline routes 0.008–0.024 in shorter).
+  - 317 failed identically in both (pins inside obstacles).
+  - Total time 181 s → 72 s.
+- The 24-barrier unit test case: 2.45 s → 0.72 s.
+
+Before that change:
+
 - 2 to 6 pins: 3–127 ms.
 - 18-pin BIOBUZZ blue auto: about 190 ms.
 

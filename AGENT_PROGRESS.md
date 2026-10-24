@@ -81,6 +81,9 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 ### Performance
 
 - About 40% faster planning: a cached bounding-box check before point-in-polygon tests.
+- Then about 3.4× faster on a 24-barrier field (2.45 s to 0.72 s): the visibility graph only tests corner pairs whose line leaves both corners along a tangent (a reduced visibility graph).
+  - Real setups plan identically and 20–35% faster.
+  - On 133 random fields that planned, 130 routes are identical. The other 3 are ties between equal-length routes: one with the same length, two spline routes 0.008–0.024 in shorter.
 
 ### lunala red auto (the user's request)
 
