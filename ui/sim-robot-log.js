@@ -62,10 +62,11 @@
   // plan, and the stop against the last end point. Only measured positions are used.
   function compare(log,route){
     if(!log?.poses?.length)throw Error('The log has no poses.');if(!route?.segments?.length)throw Error('Plan a route first.');
-    const plan=route.segments.flatMap(s=>Array.from({length:41},(_,j)=>bez(s.points,j/40)));
-    const near=p=>{let best=Infinity;for(let i=1;i<plan.length;i++){const a=plan[i-1],b=plan[i],dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1)));best=Math.min(best,Math.hypot(p.x-a.x-dx*t,p.y-a.y-dy*t));}return best;};
-    const errors=log.poses.map(near),worstAt=errors.indexOf(Math.max(...errors)),last=log.poses.at(-1),goal=route.segments.at(-1).points.at(-1);
-    return {samples:log.poses.length,duration:log.poses.at(-1).t-log.poses[0].t,meanError:errors.reduce((a,b)=>a+b,0)/errors.length,maxError:errors[worstAt],worst:log.poses[worstAt],endError:Math.hypot(last.x-goal.x,last.y-goal.y),end:last,goal};
+    // Each plan sample remembers its segment, so the worst point can be pinned to a path (segment.to is its pin).
+    const plan=route.segments.flatMap((s,k)=>Array.from({length:41},(_,j)=>({...bez(s.points,j/40),k})));
+    const near=p=>{let best=Infinity,k=0;for(let i=1;i<plan.length;i++){const a=plan[i-1],b=plan[i],dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),d=Math.hypot(p.x-a.x-dx*t,p.y-a.y-dy*t);if(d<best){best=d;k=b.k;}}return {d:best,k};};
+    const hits=log.poses.map(near),errors=hits.map(h=>h.d),worstAt=errors.indexOf(Math.max(...errors)),last=log.poses.at(-1),goal=route.segments.at(-1).points.at(-1),to=route.segments[hits[worstAt].k]?.to;
+    return {samples:log.poses.length,duration:log.poses.at(-1).t-log.poses[0].t,meanError:errors.reduce((a,b)=>a+b,0)/errors.length,maxError:errors[worstAt],worst:log.poses[worstAt],worstPath:Number.isInteger(to)?to:null,endError:Math.hypot(last.x-goal.x,last.y-goal.y),end:last,goal};
   }
   return {parse,wpilog,csv,compare};
 });

@@ -403,8 +403,8 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
     case'compare':{const log=rest[0];if(!log)throw Error('Use: compare <setup.json> <log.wpilog|log.csv> [--origin center].');
       const setup=readSetup(file),{e,info,l}=await load(setup);
       try{const route=planRoute(setup,l,info),data=RobotLog.parse({name:path.basename(log),bytes:new Uint8Array(fs.readFileSync(log))},{origin:flags.origin==='center'?'center':'corner'}),r=RobotLog.compare(data,route),f=v=>+v.toFixed(2);
-        return say(json?{log:data.key,poses:r.samples,seconds:f(r.duration),meanError:f(r.meanError),maxError:f(r.maxError),worst:{x:f(r.worst.x),y:f(r.worst.y)},endError:f(r.endError)}
-          :`${path.basename(log)} · ${data.key}: ${r.samples} poses over ${f(r.duration)} s.\nFrom the plan: average ${f(r.meanError)} in, worst ${f(r.maxError)} in at (${f(r.worst.x)}, ${f(r.worst.y)}).\nStopped ${f(r.endError)} in from the last end point.`);}
+        return say(json?{log:data.key,poses:r.samples,seconds:f(r.duration),meanError:f(r.meanError),maxError:f(r.maxError),worst:{x:f(r.worst.x),y:f(r.worst.y)},worstPath:r.worstPath===null?null:r.worstPath+1,endError:f(r.endError)}
+          :`${path.basename(log)} · ${data.key}: ${r.samples} poses over ${f(r.duration)} s.\nFrom the plan: average ${f(r.meanError)} in, worst ${f(r.maxError)} in at (${f(r.worst.x)}, ${f(r.worst.y)})${r.worstPath!==null?` on path ${r.worstPath+1}`:''}.\nStopped ${f(r.endError)} in from the last end point.`);}
       finally{e.dispose();}}
     case'show':return say(show(file,readSetup(file),flags));
     default:throw Error(`Unknown command "${command}". Run: deck-sim help`);

@@ -39,3 +39,9 @@ test('CSV from spreadsheets: byte-order mark, quotes, decimal commas and pose_x 
   // An exact x column wins over one that only ends in x.
   const exact=Log.parse({name:'f.csv',text:'max_x,x,y\n100,10,20\n'});assert.equal(exact.poses[0].x,10);
 });
+
+test('the comparison names the path where the robot strayed furthest',()=>{
+  const fp={front:8,rear:8,half:8},route=P.plan({start:{x:24,y:24,heading:0},zones:[],pins:[{x:100,y:24},{x:100,y:110}],style:'sharp',clearance:1},fp);
+  const log={poses:[{t:0,x:24,y:24},{t:1,x:60,y:25},{t:2,x:100,y:24},{t:3,x:104,y:70},{t:4,x:100,y:110}]};
+  const r=Log.compare(log,route);assert.equal(r.worstPath,1);assert.deepEqual([r.worst.x,r.worst.y],[104,70]);
+});
