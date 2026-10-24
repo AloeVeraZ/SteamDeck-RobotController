@@ -114,6 +114,18 @@ For mecanum and swerve robots with position sensing, **Pedro Pathing 3…** writ
 - The OpMode runs the legs once, in order: turn in place if the next leg starts at a new heading (done when within 1.5° for 0.15 s, at most 5 s; Pedro's own hold timeout is too short for this), follow the leg while running its action-path action, settle, turn after if asked, pause, then run the end-of-leg action. Legs that only split for a power or action-path change are driven straight through. Every loop checks `opModeIsActive()`, Stop during INIT moves nothing, and the drive (`follower.stop()` plus `drivetrain.stop()`) and mechanisms stop in `finally`.
 - The export panel lists what is checked (compilation, path geometry) and what is the team's (Pedro setup and tuning, starting pose, action code, a real test on the field).
 
+For a mecanum robot with goBILDA Pinpoint or SparkFun OTOS sensing, the export also writes `pedro/DeckStarterConstants.java` beside the Quickstart's `Constants.java`. It builds the Follower from Pedro's own REV hub `Mecanum` drivetrain and `PinpointLocalizer`/`OTOSLocalizer`, with the motor names and directions from Deck and a Foresight config filled from the simulated robot. That config uses the same quantities Pedro's Foresight tuner measures: top speeds, natural deceleration, braking coefficients, and heading and translational gains. They are estimates of the robot you described, not measurements of your robot. To use them while you tune, return `DeckStarterConstants.create(h)` from `Constants.create`, then replace the numbers with what the Quickstart tuners measure. The pod offsets are left at 0 for you to measure.
+
+**Run with Pedro's real Follower.** `node tools/simulation/fetch-pedro.cjs` downloads Pedro Pathing core and revhub 3.0.2 from Maven Central into `.cache/pedro/3.0.2`, checking their SHA-1. After that, `deck-sim test <setup> --code pedro` runs the Pedro export on the virtual Control Hub with Pedro's own Follower, built by `DeckStarterConstants`, against the simulator's FTC SDK stand-ins and physics. `tests/sim-pedro-runtime.test.cjs` does the same for these cases:
+
+- a pause and a turning path;
+- OTOS sensing;
+- Stop part-way along a path;
+- a zero-power path;
+- the BIOBUZZ example with its mechanisms.
+
+The packaged app does not include Pedro. This is a development check.
+
 Tank-style robots are not offered: Pedro 3's REV hub module has mecanum and swerve drivetrains. `deck-sim export <setup> --format pedro --out TeamCode/src/main/java/` writes the same files.
 
 Control Hub TeamCode exports the same implementation as separate package files and preserves existing RobotActions.java. Route Java exports geometry for the bundled Deck API and is not a standalone FTC program. Deck path JSON carries geometry/modifiers for other consumers. MotionModule has its own timed Python exporter and virtual runtime check. Unsupported hardware adapters and IMU-only FTC setups do not claim a complete positional FTC export.

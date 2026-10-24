@@ -166,12 +166,18 @@ function teamCode(setup,l,route,info,onbot){
   const lay=layoutFor(l),names=javaNames(setup);
   return F[onbot?'onBotJava':'files']({route,layout:lay,mechanisms:info.mechanisms,target:info.target,tuning:info.tuning,robot:info.robot,localization:setup.sensors?.localization,setupName:setup.setupName,...names,routeJava:X.java(route,lay,{...names,polygon:P.polygon})});
 }
+// The Pedro export plus a pedro/Constants.java that builds the Follower from DeckStarterConstants, as a team would.
+function pedroForSim(setup,l,route,info){
+  const names=javaNames(setup),out=Pedro.files({route,layout:layoutFor(l),mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardware(info.robot,setup.sensors?.localization),tuning:info.tuning});
+  if(!out.files['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java'])throw Error('Pedro starter constants need a mecanum robot with goBILDA Pinpoint or SparkFun OTOS sensing.');
+  return {...out,files:{...out.files,'org/firstinspires/ftc/teamcode/pedro/Constants.java':Pedro.QUICKSTART_USING_STARTER}};
+}
 function exported(setup,l,route,info,format){
   const lay=layoutFor(l),names=javaNames(setup),routeJava=()=>X.java(route,lay,{...names,polygon:P.polygon}),team=onbot=>teamCode(setup,l,route,info,onbot);
   const timing={...info.timing,power:power(setup)};
   if(format==='onbot'){const out=team(true);return {files:{[out.name]:out.source}};}
   if(format==='teamcode'){const out=team(false);return {files:out.files,note:`OpMode ${out.opMode}. Mechanism code goes in RobotActions.java.`};}
-  if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
+  if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardware(info.robot,setup.sensors?.localization),tuning:info.tuning});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
   if(format==='java')return {files:{[`${names.className}.java`]:routeJava()}};
   if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon})}};
   if(format==='timed')return {files:{'timed-route.json':JSON.stringify({format:'deck-timed-drive-v1',controller:setup.controller,units:'inches',feedback:'IMU heading only; no X/Y feedback',start:l.start,field:l.field,...Timed.compile(route,timing)},null,2)}};
@@ -255,7 +261,7 @@ Route
       --track X,Y         keep aiming at a point while driving   --heading DEG   turn to a heading while driving
   pin <setup.json> clear                   Remove every pin
   plan <setup.json> [--json]               Plan the route; report length, pauses and any blocked pin
-  test <setup.json> [--json] [--code onbot|teamcode|motionmodule] [--log run.wpilog]
+  test <setup.json> [--json] [--code onbot|teamcode|pedro|motionmodule] [--log run.wpilog]
                                            Test-drive the route in the simulator physics (or run its exported code);
                                            --log saves the run as a WPILOG file
   optimize <setup.json>                    Test-drive spline/straight shapes per path; keep the fastest safe one
@@ -341,7 +347,11 @@ From the CAD assembly names: ${cadFound.join('; ')}.`:''}`);}
           const timing={...info.timing,power:power(setup)},started=await e.run({kind:'motionmodule',source:M.autonomous(route,timing,{name:l.name,mechanisms:info.mechanisms,target:info.target}),actions:M.actionsFile(route,{name:l.name,mechanisms:info.mechanisms}),python,motionModule,deps:flags.deps||process.env.DECK_MOTIONMODULE_DEPS||path.join(root,'.cache/motionmodule-test-deps')});
           if(!started.ok)throw Error(started.error||e.lastError||'The exported autonomous.py could not start.');
           for(let guard=0;guard<4200&&e.mode==='program';guard++)await e.programTick();if(!e.result)throw Error(e.lastError||'The exported autonomous.py did not finish within 70 s.');r=e.result;}
-        else if(code){if(!['onbot','teamcode'].includes(code))throw Error('--code is onbot, teamcode or motionmodule.');const out=teamCode(setup,l,route,info,code==='onbot'),started=await e.run({kind:'opmode',files:out.files,opMode:out.opMode});if(!started.ok)throw Error(started.error||e.lastError||'The exported code could not start.');
+        else if(code){if(!['onbot','teamcode','pedro'].includes(code))throw Error('--code is onbot, teamcode, pedro or motionmodule.');
+          // --code pedro: the Pedro Pathing export with Pedro's real Follower (jars from tools/simulation/fetch-pedro.cjs),
+          // built by DeckStarterConstants from this simulated robot.
+          const jars=code==='pedro'?require('./simulation/fetch-pedro.cjs').cached():null;if(code==='pedro'&&!jars)throw Error('Run node tools/simulation/fetch-pedro.cjs first: it downloads Pedro Pathing 3.0.2 for local tests.');
+          const out=code==='pedro'?pedroForSim(setup,l,route,info):teamCode(setup,l,route,info,code==='onbot'),started=await e.run({kind:'opmode',files:out.files,opMode:out.opMode,...(jars?{classpath:jars}:{})});if(!started.ok)throw Error(started.error||e.lastError||'The exported code could not start.');
           for(let guard=0;guard<3600&&e.mode==='program'&&e.telemetry?.Phase!=='Done';guard++)await e.programTick();if(e.telemetry?.Phase!=='Done')throw Error(e.lastError||'The exported code did not finish within 60 s.');
           r={time:e.world.time,violations:[...e.violations],truth:e.truth(),mechanisms:e.mechanismState()};}
         else r=await drive(e,route);

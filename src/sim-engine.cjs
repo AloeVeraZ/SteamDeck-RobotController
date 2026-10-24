@@ -322,6 +322,10 @@ class SimEngine{
     // needs Python and the MotionModule source, see tools/simulation/motionmodule-bridge.py).
     const kind=['source','opmode','motionmodule'].includes(program.kind)?program.kind:'route';
     if(kind==='motionmodule'&&(typeof program.source!=='string'||!program.source.trim()||!program.python||!program.motionModule))throw Error('The virtual MotionModule needs autonomous.py, Python and the MotionModule source.');
+    // Extra libraries for exported team code (Pedro Pathing, from tools/simulation/fetch-pedro.cjs): only
+    // jars this checkout downloaded into its own .cache folder.
+    const cache=path.resolve(__dirname,'../.cache')+path.sep,extra=kind==='opmode'&&Array.isArray(program.classpath)?program.classpath.map(f=>path.resolve(String(f))):[];
+    if(extra.some(f=>!f.startsWith(cache)||!f.endsWith('.jar')||!fs.existsSync(f)))throw Error('Extra libraries must be jars in this checkout’s .cache folder.');
     let hub=null;
     if(kind==='opmode'){
       if(!program.files||typeof program.files!=='object'||typeof program.opMode!=='string')throw Error('Export the Control Hub files first.');
@@ -341,7 +345,7 @@ class SimEngine{
     const bin=process.platform==='win32'?'java.exe':'java',seq=++this.runSeq,java=[path.join(this.runtimeDir,'java/bin',bin),path.join(this.runtimeDir,'../../runtime/java/bin',bin),path.join(this.runtimeDir,'../../runtime-java/bin',bin)].find(f=>fs.existsSync(f))||path.join(this.runtimeDir,'java/bin',bin);
     if(kind!=='motionmodule'&&!fs.existsSync(java))throw Error('The simulator Java runtime is missing. Rebuild with tools/simulation/build.cjs.');
     const dir=path.join(this.workDir,`run-${process.pid}-${++runFolders}`);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
-    const cp=[path.join(this.runtimeDir,'driver/classes'),path.join(this.runtimeDir,'driver/gson.jar')].join(path.delimiter);
+    const cp=[path.join(this.runtimeDir,'driver/classes'),path.join(this.runtimeDir,'driver/gson.jar'),...extra].join(path.delimiter);
     const child=kind==='motionmodule'?spawn(program.python,['-I','-u',path.join(__dirname,'../tools/simulation/motionmodule-bridge.py')],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true})
       :spawn(java,['-Xmx256m','-Xss4m','-XX:+UseSerialGC','-XX:TieredStopAtLevel=1','-Dfile.encoding=UTF-8','-cp',cp,'deck.sim.RunBridge'],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true});
     const bridge={child,seq,dir,buffer:'',stderr:'',waiters:[],exited:false,started:this.now(),kind,ticks:0};this.child=bridge;

@@ -82,7 +82,7 @@ async function main(){
         const single=F.onBotJava({route,layout,tuning:info.tuning,robot:info.robot,localization:c.localization,setupName:'SDK check',routeJava:X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
         const singleDir=path.join(temp,'onbot',c.name.replace(/\W/g,'-'));fs.mkdirSync(singleDir,{recursive:true});const singlePath=path.join(singleDir,single.name);fs.writeFileSync(singlePath,single.source);
         javac([singlePath],singleDir+'-classes',jars);console.log(`OnBot Java (${c.name}): one Java 8 file compiles against the real SDK.`);
-        if(!c.nonholonomic)pedro(c.name,Pedro.files({route,layout,setupName:'SDK check',robot:info.robot,defaultPower:.8}));
+        if(!c.nonholonomic)pedro(c.name,Pedro.files({route,layout,setupName:'SDK check',robot:info.robot,defaultPower:.8,hardware:F.hardware(info.robot,c.localization),tuning:info.tuning}));
       }
       // The example setups, exported exactly as `deck-sim export` does (mechanisms included).
       for(const file of fs.readdirSync(path.join(root,'examples')).filter(f=>f.endsWith('.json')&&!f.endsWith('.pins.json'))){

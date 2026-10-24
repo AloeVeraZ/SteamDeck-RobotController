@@ -376,15 +376,16 @@ public class ${o.opMode} extends LinearOpMode {
   function checklist({mechanisms,actions}){
     return [
       {status:'verified',label:'Compiles',detail:`Deck's export check compiles this generator's output against FTC SDK ${SDK_VERSION} and Pedro Pathing ${PEDRO_VERSION} (tools/simulation/check-ftc-sdk.cjs).`},
+      {status:'verified',label:'Runs with Pedro’s Follower',detail:`Deck’s development tests run this generator’s output with Pedro Pathing ${PEDRO_VERSION}’s own Follower, Mecanum drivetrain and Pinpoint/OTOS localizer on the virtual Control Hub (tests/sim-pedro-runtime.test.cjs).`},
       {status:'verified',label:'Path geometry',detail:'Coordinates, curves and headings are the ones the planner checked for clearance; unit tests compare them.'},
-      {status:'team',label:'Pedro setup',detail:'pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets.'},
+      {status:'team',label:'Pedro setup',detail:'pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets. DeckStarterConstants.java (written beside it for mecanum robots with a Pinpoint or OTOS) holds estimated starting values: return DeckStarterConstants.create(h) from Constants.create while you tune.'},
       {status:'calibration',label:'Tuning',detail:'Run the Quickstart tuners (localizer, drivetrain, Foresight) on your robot. Deck cannot tune a real robot.'},
       {status:'team',label:'Starting pose',detail:'Place the robot exactly at START before INIT; the localizer is set to it at START.'},
       {status:'team',label:'Actions',detail:actions.length?(mechanisms?'Mechanisms.java drives the intake/shooter set up in Deck; check device names and directions. Other actions need code in RobotActions.java.':'Write the code for each action in RobotActions.java; until then they finish at once.'):'No actions in this route.'},
       {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low speed first. Simulation and compilation do not prove the robot will follow the path.'}
     ];
   }
-  function files({route,layout,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',mechanisms=null,target=null,robot={},defaultPower,constants=QUICKSTART_CONSTANTS,exporter=globalThis.DeckSimExport||require('./sim-export.js'),ftc=globalThis.DeckSimFtc||require('./sim-ftc.js')}){
+  function files({route,layout,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',mechanisms=null,target=null,robot={},defaultPower,constants=QUICKSTART_CONSTANTS,hardware=null,tuning=null,exporter=globalThis.DeckSimExport||require('./sim-export.js'),ftc=globalThis.DeckSimFtc||require('./sim-ftc.js')}){
     if(!route?.segments?.length)throw Error('Plan a route first.');
     if(route.nonholonomic)throw Error('Pedro Pathing 3 drives mecanum and swerve robots. Use the OnBot Java or TeamCode export for this drivetrain.');
     if(!layout?.start)throw Error('Set a starting pose first.');
@@ -394,7 +395,111 @@ public class ${o.opMode} extends LinearOpMode {
     const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,poseImport:'com.pedropathing.math.Pose'};
     const out={[`${dir}/${nm.paths}.java`]:pathsFile(o),[`${dir}/${nm.opMode}.java`]:opModeFile(o),[`${dir}/RouteActions.java`]:ftc.routeActions(shared,list),[`${dir}/RobotActions.java`]:ftc.robotActions(shared,list)};
     if(mech)out[`${dir}/Mechanisms.java`]=ftc.mechanismsSource(shared,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
-    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${nm.opMode}`,checklist:check,legs:legs.length,actions:list};
+    // Starting values for the team's pedro/Constants.java, next to it in the Quickstart's pedro package.
+    let starter=null;if(hardware&&tuning&&constants===QUICKSTART_CONSTANTS){try{starter=starterConstants({hardware,tuning});}catch{}}
+    if(starter)out['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java']=starter;
+    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${nm.opMode}`,checklist:check,legs:legs.length,actions:list,starter:!!starter};
   }
-  return {files,checklist,PEDRO_VERSION,SDK_VERSION,QUICKSTART_CONSTANTS};
+  // A Pedro Pathing Follower for the robot set up in Deck: Pedro's own REV hub Mecanum drivetrain and
+  // Pinpoint or OTOS localizer, and a Foresight config filled from the simulated robot's measured
+  // speeds, decelerations, braking distances and gains (the same quantities the Quickstart's Foresight
+  // tuner measures on a real robot). The simulator runs Pedro exports with it; teams can start from it,
+  // but every number is an estimate until the Quickstart tuners have been run on the real robot.
+  const STARTER_LOCALIZERS={fused:'goBILDA Pinpoint',optical:'SparkFun OTOS'};
+  function starterConstants({hardware,tuning,packageName='org.firstinspires.ftc.teamcode.pedro',className='DeckStarterConstants'}){
+    if(!STARTER_LOCALIZERS[hardware?.localization])throw Error(`Pedro starter constants support ${Object.values(STARTER_LOCALIZERS).join(' and ')} localization.`);
+    if(hardware.drive?.kind!=='mecanum')throw Error('Pedro starter constants support mecanum drivetrains.');
+    for(const k of ['maxForward','maxStrafe','forwardDeceleration','strafeDeceleration','linearBrakeForward','linearBrakeStrafe','quadraticBrakeForward','quadraticBrakeStrafe','headingBrakeLinear','headingBrakeQuadratic','headingP','translationalP','translationalSmall'])if(!(finite(tuning?.[k])&&tuning[k]>=0))throw Error(`The simulated robot has no ${k}; load the simulation first.`);
+    const m=hardware.drive.motors,dir=x=>`DcMotorSimple.Direction.${x.mount<0?'REVERSE':'FORWARD'}`,pinpoint=hardware.localization==='fused',t=tuning;
+    const localizer=pinpoint?`    /** ${STARTER_LOCALIZERS.fused} "${comment(hardware.pinpoint)}". MEASURE the pod offsets and check both pod directions. */
+    public static PinpointConfig localizer() {
+        return new PinpointConfig(c -> {
+            c.name.set(${javaString(hardware.pinpoint)});
+            c.xPodOffset.set(0.0);
+            c.yPodOffset.set(0.0);
+            c.xPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
+            c.yPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
+        });
+    }`:`    /** ${STARTER_LOCALIZERS.optical} "${comment(hardware.otos)}". MEASURE its offset from the robot's centre and calibrate the linear and angular scalars. */
+    public static OTOSConfig localizer() {
+        return new OTOSConfig(c -> {
+            c.name.set(${javaString(hardware.otos)});
+            c.offset.set(new Pose(0, 0, 0));
+        });
+    }`;
+    return `package ${packageName};
+
+import com.pedropathing.algorithm.Foresight;
+import com.pedropathing.algorithm.ForesightConfig;
+import com.pedropathing.controllers.Controller;
+import com.pedropathing.follower.Follower;
+import com.pedropathing.math.Matrix;
+${pinpoint?'':'import com.pedropathing.math.Pose;\n'}import com.pedropathing.math.Vector2D;
+import com.pedropathing.revhub.drivetrains.Mecanum;
+import com.pedropathing.revhub.drivetrains.MecanumConfig;
+${pinpoint?'import com.pedropathing.revhub.localizers.PinpointConfig;\nimport com.pedropathing.revhub.localizers.PinpointLocalizer;\nimport com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;':'import com.pedropathing.revhub.localizers.OTOSConfig;\nimport com.pedropathing.revhub.localizers.OTOSLocalizer;'}
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+
+/**
+ * STARTING VALUES for Pedro Pathing ${PEDRO_VERSION}, estimated by Deck Driver Station from the robot set up in its
+ * simulator (mecanum, ${STARTER_LOCALIZERS[hardware.localization]}). They are not measurements of your robot.
+ * Before driving fast: check the motor names and directions, measure the localizer offsets, then run
+ * the Pedro Quickstart tuners and replace the Foresight numbers with what they measure.
+ * To use it: in pedro/Constants.java, return ${className}.create(h);
+ */
+public class ${className} {
+    /** Drive motors as configured in Deck. Left motors are reversed for a standard mecanum chassis. */
+    public static MecanumConfig drivetrain() {
+        return new MecanumConfig(c -> {
+            c.frontLeftName.set(${javaString(m.frontLeft.name)});
+            c.frontRightName.set(${javaString(m.frontRight.name)});
+            c.backLeftName.set(${javaString(m.backLeft.name)});
+            c.backRightName.set(${javaString(m.backRight.name)});
+            c.frontLeftDirection.set(${dir(m.frontLeft)});
+            c.frontRightDirection.set(${dir(m.frontRight)});
+            c.backLeftDirection.set(${dir(m.backLeft)});
+            c.backRightDirection.set(${dir(m.backRight)});
+        });
+    }
+
+${localizer}
+
+    /** Foresight from the simulated robot: speeds in in/s, decelerations in in/s², gains in power per inch or radian. */
+    public static ForesightConfig foresight() {
+        return new ForesightConfig(c -> {
+            c.forwardTranslational.set(Controller.piecewise(Controller.proportional(${n(t.translationalSmall)})).put(2.5, Controller.proportional(${n(t.translationalP)})));
+            c.strafeTranslational.set(Controller.piecewise(Controller.proportional(${n(t.translationalSmall)})).put(2.5, Controller.proportional(${n(t.translationalP)})));
+            c.coast.set(Controller.proportionalFeedforward(${(1/t.maxForward).toPrecision(4)}));
+            c.brake.set(Controller.proportionalFeedforward(${(.85/t.maxForward).toPrecision(4)}));
+            c.headingFeedback.set(Controller.proportional(${n(t.headingP)}));
+            c.headingBrakeCoefficients.set(Vector2D.cartesian(${t.headingBrakeLinear.toPrecision(4)}, ${t.headingBrakeQuadratic.toPrecision(4)}));
+            c.linearBrakeCoefficients.set(Matrix.diag(${t.linearBrakeForward.toPrecision(4)}, ${t.linearBrakeStrafe.toPrecision(4)}));
+            c.quadraticBrakeCoefficients.set(Matrix.diag(${t.quadraticBrakeForward.toPrecision(4)}, ${t.quadraticBrakeStrafe.toPrecision(4)}));
+            c.maxAchievableForwardVelocity.set(${n(t.maxForward)});
+            c.maxAchievableStrafeVelocity.set(${n(t.maxStrafe)});
+            c.naturalForwardDeceleration.set(${n(t.forwardDeceleration)});
+            c.naturalStrafeDeceleration.set(${n(t.strafeDeceleration)});
+        });
+    }
+
+    public static Follower create(HardwareMap h) {
+        return new Follower(new ${pinpoint?'Pinpoint':'OTOS'}Localizer(h, localizer()), new Mecanum(h, drivetrain()), new Foresight(foresight()));
+    }
+}
+`;
+  }
+  // A Quickstart pedro/Constants.java that uses DeckStarterConstants (the simulator runs exports with it).
+  const QUICKSTART_USING_STARTER=`package org.firstinspires.ftc.teamcode.pedro;
+
+import com.pedropathing.follower.Follower;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+
+public class Constants {
+    public static Follower create(HardwareMap h) {
+        return DeckStarterConstants.create(h);
+    }
+}
+`;
+  return {files,checklist,starterConstants,STARTER_LOCALIZERS,PEDRO_VERSION,SDK_VERSION,QUICKSTART_CONSTANTS,QUICKSTART_USING_STARTER};
 });

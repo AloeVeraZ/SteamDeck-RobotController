@@ -61,7 +61,7 @@ test('Pedro export: safe stopping, single pass through the legs and no drive aft
   assert.match(op,/follower\.drivetrain\.stop\(\);/);assert.equal((op.match(/for \(int i = 0; i < legs\.length/g)||[]).length,1);
   // Speed limits use Foresight's maxPathSpeed for one path only.
   assert.match(op,/path\.with\(\(\(Foresight\) follower\.algorithm\(\)\)\.config\.maxPathSpeed\.at\(speed\)\)/);
-  assert.equal(o.checklist.filter(c=>c.status==='verified').length,2);assert.ok(o.checklist.some(c=>c.status==='physical'));
+  assert.equal(o.checklist.filter(c=>c.status==='verified').length,3);assert.ok(o.checklist.some(c=>c.status==='physical'));
 });
 
 test('Pedro export: refuses what it cannot represent, with an explanation',()=>{
@@ -77,4 +77,20 @@ test('Pedro export: mechanisms from Deck come along with Pedro poses',()=>{
   const start={x:20,y:24,heading:0},layout=layoutOf(start),route=P.plan({start,zones:[],pins:[{x:60,y:24,action:'Shoot'}],style:'sharp',clearance:2},fp);
   const o=out(route,layout,{mechanisms:mech,target:{x:72,y:120},robot:{length:17,width:17}}),m=source(o,'Mechanisms.java');
   assert.match(m,/import com\.pedropathing\.math\.Pose;/);assert.match(source(o,'RouteActions.java'),/return mech\.shoot\(/);
+});
+
+test('Pedro starter constants: Pedro\'s Mecanum and Pinpoint/OTOS with Foresight from the simulated robot',()=>{
+  const F=require('../ui/sim-ftc.js'),robot={drivetrain:'mecanum',length:17,width:17,driveRpm:500};
+  const tuning={maxForward:86.6,maxStrafe:69.3,forwardDeceleration:83.8,strafeDeceleration:68.9,linearBrakeForward:.0941,linearBrakeStrafe:.0403,quadraticBrakeForward:.00176,quadraticBrakeStrafe:.00237,headingBrakeLinear:.0601,headingBrakeQuadratic:.00486,headingP:3.95,translationalP:.304,translationalSmall:.101};
+  const pinpoint=Pedro.starterConstants({hardware:F.hardware(robot,'fused'),tuning});
+  assert.match(pinpoint,/^package org\.firstinspires\.ftc\.teamcode\.pedro;/);assert.match(pinpoint,/public class DeckStarterConstants/);
+  assert.match(pinpoint,/return new Follower\(new PinpointLocalizer\(h, localizer\(\)\), new Mecanum\(h, drivetrain\(\)\), new Foresight\(foresight\(\)\)\);/);
+  assert.match(pinpoint,/c\.frontLeftName\.set\("front_left"\);/);assert.match(pinpoint,/c\.frontLeftDirection\.set\(DcMotorSimple\.Direction\.REVERSE\);/);assert.match(pinpoint,/c\.frontRightDirection\.set\(DcMotorSimple\.Direction\.FORWARD\);/);
+  assert.match(pinpoint,/c\.maxAchievableForwardVelocity\.set\(86\.6\);/);assert.match(pinpoint,/c\.quadraticBrakeCoefficients\.set\(Matrix\.diag\(0\.001760, 0\.002370\)\);/);assert.match(pinpoint,/STARTING VALUES/);
+  const otos=Pedro.starterConstants({hardware:F.hardware(robot,'optical'),tuning});assert.match(otos,/new OTOSLocalizer\(h, localizer\(\)\)/);assert.match(otos,/c\.name\.set\("sensor_otos"\);/);
+  assert.throws(()=>Pedro.starterConstants({hardware:F.hardware(robot,'encoders'),tuning}),/Pinpoint and SparkFun OTOS/);
+  assert.throws(()=>Pedro.starterConstants({hardware:F.hardware(robot,'fused'),tuning:{}}),/load the simulation/);
+  // The export writes it beside the Quickstart's Constants.java when it can describe the robot.
+  const start={x:20,y:24,heading:0},route=P.plan({start,zones:[],pins:[{x:60,y:24}],style:'sharp',clearance:2},fp),o=out(route,layoutOf(start),{hardware:F.hardware(robot,'fused'),tuning});
+  assert.ok(o.starter);assert.ok(o.files['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java']);assert.equal(out(route,layoutOf(start)).starter,false);
 });
