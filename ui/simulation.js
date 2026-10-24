@@ -156,12 +156,12 @@ public class MyAuto implements DeckAutonomous {
     <div class="simulation-layout"><section class="field-area" aria-label="Simulation field">
       <div class="sim-toolbar">
         ${segmented('tool',{select:'Select',rect:'Box',circle:'Circle',triangle:'Triangle',shape:'Shape',pin:'Click to add',draw:'Draw path'},'Field tool')}
-        <div class="sim-transport"><button type="button" id="sim-play" class="secondary">Play</button><button type="button" id="sim-stop" class="secondary">Stop</button><button type="button" id="sim-reset" class="secondary">Reset</button><button type="button" id="sim-hitboxes" class="secondary" aria-pressed="false" hidden>Hitboxes</button>${segmented('view',{'2d':'2D','3d':'3D'},'View')}</div>
+        <div class="sim-transport"><button type="button" id="sim-play" class="secondary">Play</button><button type="button" id="sim-stop" class="secondary">Stop</button><button type="button" id="sim-reset" class="secondary">Reset</button><button type="button" id="sim-hitboxes" class="secondary" aria-pressed="false" hidden>Hitboxes</button><div class="segmented sim-seg sim-zoom" role="group" aria-label="Field zoom"><button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">−</button><button type="button" data-zoom="fit" aria-label="Fit the whole field" title="Fit the whole field (0)">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (+). Scroll to zoom where you point; middle-drag or Space+drag to pan.">+</button></div>${segmented('view',{'2d':'2D','3d':'3D'},'View')}</div>
       </div>
       <div class="sim-stage" id="sim-stage">
       <svg id="simulation-field" viewBox="-16 -9 168 172" role="group" tabindex="0" aria-label="Simulation field, inches from the bottom-left corner" aria-describedby="field-help field-coordinates">
         <rect class="field-floor" x="0" y="0" width="144" height="144"/><g class="field-grid"></g><g class="field-labels"></g>
-        <g id="sim-overlay" transform="matrix(1 0 0 -1 0 144)"><rect id="sim-walls" class="sim-walls" x="0" y="0" width="144" height="144"/><g id="sim-obstacles"></g><g id="sim-elements"></g><g id="sim-zones"></g><g id="sim-route"></g><g id="sim-trail"></g><g id="sim-pins"></g><polygon id="sim-start" class="sim-start" points=""/><polygon id="sim-estimate" class="sim-estimate" points=""/><circle id="sim-target" class="sim-target" r="1.2" cx="-99" cy="-99"/><g id="sim-draft"></g></g>
+        <g id="sim-overlay" transform="matrix(1 0 0 -1 0 144)"><rect id="sim-walls" class="sim-walls" x="0" y="0" width="144" height="144"/><g id="sim-obstacles"></g><g id="sim-elements"></g><g id="sim-zones"></g><g id="sim-route"></g><g id="sim-trail"></g><g id="sim-log-path"></g><g id="sim-pins"></g><polygon id="sim-start" class="sim-start" points=""/><polygon id="sim-estimate" class="sim-estimate" points=""/><circle id="sim-target" class="sim-target" r="1.2" cx="-99" cy="-99"/><g id="sim-draft"></g></g>
         <g id="field-robot"><image id="sim-robot-image" href="" x="0" y="0" width="0" height="0" preserveAspectRatio="none"/><rect x="-9" y="-9" width="18" height="18" rx="1.5"/><path d="M-3 0H5M2-3L5 0 2 3"/></g>
       </svg><div id="sim-3d" class="sim-3d" hidden></div><div id="sim-effects" class="sim-popover" role="dialog" aria-label="Pin and path settings" hidden></div><datalist id="sim-action-list"></datalist></div>
       <output id="field-coordinates"></output><p id="field-help" class="hint"></p>
@@ -269,8 +269,20 @@ public class MyAuto implements DeckAutonomous {
   const graph=$('#simulation-field'),robotGlyph=$('#field-robot');
   function svg(tag,attributes,text){const node=document.createElementNS(ns,tag);for(const [key,value] of Object.entries(attributes))node.setAttribute(key,value);if(text!==undefined)node.textContent=text;return node;}
   let fieldArtKey='';
+  // ---------------------------------------------------------------- zoom and pan
+  // The viewBox is in SVG units (y down); pointer maths elsewhere goes through getScreenCTM, so editing
+  // works the same at any zoom.
+  let fitBox={x:-16,y:-9,w:168,h:172},zoom={z:1,cx:68,cy:77},panning=null,spaceHeld=false,zoomDraw=false;
+  // Pins and handles shrink as the field zooms in (by the square root), so they stay easy to grab without hiding what is near them.
+  const marker=()=>1/Math.sqrt(zoom.z);
+  function applyZoom(){const w=fitBox.w/zoom.z,h=fitBox.h/zoom.z;zoom.cx=Math.max(fitBox.x+w/2,Math.min(fitBox.x+fitBox.w-w/2,zoom.cx));zoom.cy=Math.max(fitBox.y+h/2,Math.min(fitBox.y+fitBox.h-h/2,zoom.cy));
+    graph.setAttribute('viewBox',`${zoom.cx-w/2} ${zoom.cy-h/2} ${w} ${h}`);graph.dataset.zoomed=String(zoom.z>1.001);
+    for(const t of $$('.field-labels text')){t.dataset.size??=t.getAttribute('font-size');t.setAttribute('font-size',t.dataset.size/zoom.z);}if(!zoomDraw){zoomDraw=true;requestAnimationFrame(()=>{zoomDraw=false;draw();});}for(const b of $$('[data-zoom]'))b.disabled=b.dataset.zoom==='in'?zoom.z>=8:zoom.z<=1.001;}
+  // Zoom by a factor, keeping the SVG point under (clientX, clientY) where it is.
+  function zoomBy(factor,clientX,clientY){const m=graph.getScreenCTM(),z=Math.max(1,Math.min(8,zoom.z*factor));if(!m||z===zoom.z)return;const r=graph.getBoundingClientRect(),x=clientX??r.left+r.width/2,y=clientY??r.top+r.height/2,p=new DOMPoint(x,y).matrixTransform(m.inverse());
+    zoom.cx=p.x+(zoom.cx-p.x)*zoom.z/z;zoom.cy=p.y+(zoom.cy-p.y)*zoom.z/z;zoom.z=z;applyZoom();}
   function fieldDrawing(){const b=geometry().bounds,w=L().field==='empty'?L().width:144,h=fieldHeight(),key=JSON.stringify([b,L().field,!!window.DeckThree?.drawDsimField,info?.fieldZones]);if(key===fieldArtKey)return;fieldArtKey=key;
-    const margin=Math.max(w,h)*.075;graph.setAttribute('viewBox',`${-margin*1.5} ${-margin*.5} ${w+margin*2} ${h+margin*2}`);$('#sim-overlay').setAttribute('transform',`matrix(1 0 0 -1 0 ${h})`);
+    const margin=Math.max(w,h)*.075;fitBox={x:-margin*1.5,y:-margin*.5,w:w+margin*2,h:h+margin*2};zoom={z:1,cx:fitBox.x+fitBox.w/2,cy:fitBox.y+fitBox.h/2};applyZoom();$('#sim-overlay').setAttribute('transform',`matrix(1 0 0 -1 0 ${h})`);
     const floor=$('.field-floor');floor.setAttribute('width',w);floor.setAttribute('height',h);$('.field-grid').replaceChildren();$('.field-labels').replaceChildren();
     const step=Math.max(12,Math.ceil(Math.max(w,h)/288)*24),font=Math.max(w,h)/48;
     for(let v=0;v<=w;v+=step){if(v>0&&v<w)$('.field-grid').append(svg('path',{d:`M${v} 0V${h}`}));$('.field-labels').append(svg('text',{x:v,y:h+font*2,'text-anchor':'middle','font-size':font},v));}
@@ -372,9 +384,9 @@ public class MyAuto implements DeckAutonomous {
     if(pic){image.setAttribute('href',pic.url);image.setAttribute('x',pic.x0);image.setAttribute('y',-pic.y1);image.setAttribute('width',pic.x1-pic.x0);image.setAttribute('height',pic.y1-pic.y0);}else image.setAttribute('width',0);
     for(const [k,v] of Object.entries({x:b.x0,y:b.y0,width:b.x1-b.x0,height:b.y1-b.y0}))$('#sim-walls').setAttribute(k,v);
     const sel=selected?.kind==='zone'&&zoneById(selected.id);
-    $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4})):[]));
-    $('#sim-route').replaceChildren(...(l.route?routeShapes(l.route):[]),...controlShapes());
-    $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':''),transform:`translate(${p.x} ${p.y})`,'data-pin':i});
+    $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4*marker()})):[]));
+    $('#sim-route').replaceChildren(...onionShapes(),...(l.route?routeShapes(l.route):[]),...controlShapes());
+    $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':''),transform:`translate(${p.x} ${p.y}) scale(${marker()})`,'data-pin':i});
       // A pin that turns the robot shows the heading it turns to.
     if(finite(p.turn)){const h=l.route?.stops[i]?.turn??p.turn;n.append(svg('path',{class:'sim-pin-turn',d:`M0 0L${(5.2*Math.cos(h*Math.PI/180)).toFixed(2)} ${(5.2*Math.sin(h*Math.PI/180)).toFixed(2)}`}));}
       n.append(svg('circle',{r:2.8}),svg('text',{y:1.1,transform:'scale(1 -1)','text-anchor':'middle'},i+1));return n;}));
@@ -521,8 +533,8 @@ public class MyAuto implements DeckAutonomous {
   }
   function hit(p){
     const c=controlHit(p);if(c)return c;
-    const l=L();for(let i=l.pins.length-1;i>=0;i--)if(Math.hypot(l.pins[i].x-p.x,l.pins[i].y-p.y)<=3.2)return {kind:'pin',index:i};
-    const z0=selected?.kind==='zone'&&zoneById(selected.id);if(z0){const i=handles(z0).findIndex(h=>Math.hypot(h.x-p.x,h.y-p.y)<=2.2);if(i>=0)return {kind:'handle',id:z0.id,index:i};}
+    const l=L();for(let i=l.pins.length-1;i>=0;i--)if(Math.hypot(l.pins[i].x-p.x,l.pins[i].y-p.y)<=3.2*marker())return {kind:'pin',index:i};
+    const z0=selected?.kind==='zone'&&zoneById(selected.id);if(z0){const i=handles(z0).findIndex(h=>Math.hypot(h.x-p.x,h.y-p.y)<=2.2*marker());if(i>=0)return {kind:'handle',id:z0.id,index:i};}
     const near=(q,a,b)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((q.x-a.x)*dx+(q.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(q.x-a.x-dx*t,q.y-a.y-dy*t);};
     for(let i=l.zones.length-1;i>=0;i--){const z=l.zones[i],poly=planner.polygon(z);if(poly.length===2?near(p,poly[0],poly[1])<=1.5:planner.contains(p,poly))return {kind:'zone',id:z.id};}
     return null;
@@ -569,11 +581,16 @@ public class MyAuto implements DeckAutonomous {
   // Custom curves (Pedro Pathing style): the open path's Bezier control points are drawn as handles with
   // guide lines from the path's ends, and can be dragged. The planner drives the curve exactly as drawn.
   const pathStart=i=>i>0?L().pins[i-1]:start;
-  function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(!c?.length)return [];const a=pathStart(i),out=[];
+  // The robot's outline every few inches along the open path, at the heading it has there.
+  function onionShapes(){const i=openPath(),route=L().route,fp=route?.footprint;if(tab!=='plan'||i<0||!route||!fp)return [];const to=exporter.pathIndex(route),parts=route.segments.filter((_,k)=>to[k]===i),out=[];let since=Infinity,prev=null;
+    for(const s of parts)for(let j=0;j<=40;j++){const t=j/40,p=bez(s.points,t);if(prev)since+=Math.hypot(p.x-prev.x,p.y-prev.y);prev=p;if(since<8&&!(s===parts.at(-1)&&j===40))continue;since=0;
+      out.push(svg('polygon',{class:'sim-onion',points:pts(planner.body({...p,heading:planner.headingAt(s,t)},fp))}));}
+    return out.slice(0,60);}
+  function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(tab!=='plan'||!c?.length)return [];const a=pathStart(i),out=[];
     out.push(svg('polyline',{class:'sim-control-guide',points:pts([a,c[0]])}),svg('polyline',{class:'sim-control-guide',points:pts([c.at(-1),q])}));if(c.length>2)out.push(svg('polyline',{class:'sim-control-guide',points:pts(c)}));
     if(!L().route||planError)out.push(svg('polyline',{class:'sim-path draft'+(diagnostics.some(d=>d.pin===i)?' blocked':''),points:pts(Array.from({length:33},(_,j)=>bez([a,...c,q],j/32)))}));
-    c.forEach((h,j)=>out.push(svg('circle',{class:'sim-control'+(drag?.kind==='control'&&drag.control===j?' active':''),cx:h.x,cy:h.y,r:1.8,'data-control':j,role:'button','aria-label':`Path ${i+1} curve handle ${j+1}: drag to shape the curve`})));return out;}
-  function controlHit(p){const i=openPath(),c=L().pins[i]?.path?.controls;if(!c)return null;const m=graph.getScreenCTM(),reach=Math.max(2.4,9/(m?Math.hypot(m.a,m.b):1));
+    c.forEach((h,j)=>out.push(svg('circle',{class:'sim-control'+(drag?.kind==='control'&&drag.control===j?' active':''),cx:h.x,cy:h.y,r:1.8*marker(),'data-control':j,role:'button','aria-label':`Path ${i+1} curve handle ${j+1}: drag to shape the curve`})));return out;}
+  function controlHit(p){const i=openPath(),c=L().pins[i]?.path?.controls;if(tab!=='plan'||!c)return null;const m=graph.getScreenCTM(),reach=Math.max(2.4,9/(m?Math.hypot(m.a,m.b):1));
     for(let j=c.length-1;j>=0;j--)if(Math.hypot(c[j].x-p.x,c[j].y-p.y)<=reach)return {kind:'control',index:i,control:j};return null;}
   // Handles for a new custom curve keep the shape the robot drives now: the planned curve's own control
   // points when the path is one cubic, otherwise points a third and two thirds along the straight line.
@@ -608,7 +625,7 @@ public class MyAuto implements DeckAutonomous {
         <label class="check"><input id="eff-power-inherit" type="checkbox"> Use setup motor power</label>
         <label for="eff-path-power">Motor power · 0–1</label><input id="eff-path-power" type="number" min="0" max="1" step="any">
         <p class="hint">Applies to this entire path. 0 stops here; 0.5 caps motor power at 50%.</p>
-        <label for="eff-path-shape">Path shape</label><select id="eff-path-shape"><option value="">Use route default</option><option value="sharp">Straight segments</option><option value="spline">Smooth spline</option></select>
+        <label for="eff-path-shape">Path shape</label><select id="eff-path-shape"><option value="">Use route default</option><option value="sharp">Straight segments</option><option value="spline">Smooth spline</option><option value="custom">Custom curve (drag handles)</option></select>
         <h4 class="sim-pop-label">While driving this path</h4>${actionPicker('path')}`:`
         <ol class="sim-pop-steps"><li>Arrive (and turn, if set)</li><li>Pause</li><li>Do the action</li><li>Drive on</li></ol>
         <label for="eff-wait">Pause first · s</label><input id="eff-wait" type="number" min="0" step="any">
@@ -616,7 +633,7 @@ public class MyAuto implements DeckAutonomous {
         <p class="hint">Power, shape, heading and the action while driving are in Path options.</p>`}</section>
       <section class="sim-pop-sec" data-sec="heading" hidden>
         <label for="eff-heading-mode">${isPath?'While driving this path':'Turn in place at this pin'}</label>
-        <select id="eff-heading-mode"><option value="keep">${isPath?'Hold inherited heading':'No turn'}</option><option value="relative">Turn by… (relative)</option><option value="${isPath?'turn':'absolute'}">Face field heading…</option><option value="start">Return to starting heading</option><option value="track">${isPath?'Track a field target':'Aim at a field target'}</option>${isPath?'<option value="spin">Full spins</option>':''}</select>
+        <select id="eff-heading-mode"><option value="keep">${isPath?'Hold inherited heading':'No turn'}</option><option value="relative">Turn by… (relative)</option><option value="${isPath?'turn':'absolute'}">Face field heading…</option><option value="start">Return to starting heading</option><option value="track">${isPath?'Track a field target':'Aim at a field target'}</option>${isPath?'<option value="spin">Full spins</option><option value="tangent">Face along the path (tangent)</option><option value="reverse">Face backwards along the path</option>':''}</select>
         <div data-angle><label for="eff-angle">Turn by · ° (+ left, − right)</label><input id="eff-angle" type="number" step="any"></div>
         <div data-absolute><label for="eff-absolute">Field heading · °</label><input id="eff-absolute" type="number" step="any"></div>
         <div data-spins><label for="eff-spins">Full spins (+ left, − right)</label><input id="eff-spins" type="number" step="1"></div>
@@ -641,7 +658,7 @@ public class MyAuto implements DeckAutonomous {
     readNumber('#eff-spins',v=>{path.spins=Math.round(v)||1;q('#eff-spins').value=path.spins;});
     for(const axis of ['x','y'])readNumber('#eff-target-'+axis,v=>{subject.target={x:Number(q('#eff-target-x').value),y:Number(q('#eff-target-y').value),[axis]:v};});
     q('#eff-note').onchange=e=>{subject.note=e.target.value.slice(0,160);commit();};
-    if(isPath){q('#eff-path-shape').value=path.style||'';q('#eff-path-shape').onchange=e=>{path.style=e.target.value||null;path.shapeAuto=false;commit();};
+    if(isPath){q('#eff-path-shape').value=path.controls?'custom':path.style||'';q('#eff-path-shape').onchange=e=>{const v=e.target.value;if(v==='custom'){path.controls=path.controls||startControls(k);path.style=null;}else{path.controls=null;path.style=v||null;}path.shapeAuto=false;commit();};
       wireActionPicker(q,'path',path,commit);
       q('#eff-power-inherit').onchange=e=>{path.power=e.target.checked?null:project.tuning.maxPathSpeed??.8;commit();};readNumber('#eff-path-power',v=>path.power=v,0,1);
     }else{q('#eff-wait').value=p.wait||0;readNumber('#eff-wait',v=>p.wait=v,0);wireActionPicker(q,'pin',p,commit);}
@@ -746,7 +763,7 @@ public class MyAuto implements DeckAutonomous {
     if(tool==='shape'&&sketch){cursor=p;showDraft(null);}
     if(tool==='draw'&&stroke&&pointer===event.pointerId){if(dist2(stroke.at(-1),p)>=1)stroke.push({x:p.x,y:p.y});$('#sim-draft').replaceChildren(svg('polyline',{class:'sim-draw-stroke',points:pts(stroke)}));return;}
     if(drag?.kind==='control'){const q=L().pins[drag.index],b=geometry().bounds;if(!q?.path?.controls?.[drag.control])return;if(!drag.moved&&Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<3)return;
-      q.path.controls[drag.control]={x:field.round(Math.max(b.x0,Math.min(b.x1,p.x))),y:field.round(Math.max(b.y0,Math.min(b.y1,p.y)))};drag.moved=true;liveEdit();return;}
+      q.path.controls[drag.control]={x:field.round(Math.max(b.x0,Math.min(b.x1,p.x))),y:field.round(Math.max(b.y0,Math.min(b.y1,p.y)))};drag.moved=true;liveEdit();syncPaths();return;}
     if(drag?.kind==='pin'){const q=L().pins[drag.index];if(!drag.moved&&Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<4)return;clearTimeout(hold?.timer);hold=null;const at=drag.from?{x:drag.pin.x+p.x-drag.from.x,y:drag.pin.y+p.y-drag.from.y}:p;Object.assign(q,nearestPin(at,12)||q);drag.moved=true;liveEdit();return;}
     $('#field-coordinates').textContent=`X ${field.round(p.x)} in · Y ${field.round(p.y)} in`;
   });
@@ -787,6 +804,15 @@ public class MyAuto implements DeckAutonomous {
   // Leave pointer lock with the system cursor on the robot's centre (where the drawn cursor was).
   function releaseCursor(){if(document.pointerLockElement!==graph)return;const m=graph.getScreenCTM(),x=m?m.a*preview.x+m.e:0,y=m?m.d*(fieldHeight()-preview.y)+m.f:0;
     if(m)document.addEventListener('pointerlockchange',()=>void api.cursor?.(x,y).catch(()=>{}),{once:true});document.exitPointerLock();}
+  graph.addEventListener('wheel',e=>{if(!active||project.view==='3d')return;e.preventDefault();zoomBy(Math.exp(-e.deltaY*(e.deltaMode===1?.05:.0015)),e.clientX,e.clientY);},{passive:false});
+  // Middle-drag, or Space+drag, pans a zoomed field; it runs before (and instead of) the editing handlers.
+  graph.addEventListener('pointerdown',e=>{if(!active||project.view==='3d'||!(e.button===1||spaceHeld&&e.button===0)||zoom.z<=1.001)return;e.preventDefault();e.stopImmediatePropagation();panning={x:e.clientX,y:e.clientY,cx:zoom.cx,cy:zoom.cy,id:e.pointerId};graph.setPointerCapture(e.pointerId);graph.dataset.panning='true';},true);
+  graph.addEventListener('pointermove',e=>{if(!panning||e.pointerId!==panning.id)return;e.stopImmediatePropagation();const m=graph.getScreenCTM();if(!m)return;zoom.cx=panning.cx-(e.clientX-panning.x)/m.a;zoom.cy=panning.cy-(e.clientY-panning.y)/m.d;applyZoom();},true);
+  for(const type of ['pointerup','pointercancel'])graph.addEventListener(type,e=>{if(!panning||e.pointerId!==panning.id)return;e.stopImmediatePropagation();panning=null;delete graph.dataset.panning;},true);
+  graph.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
+  graph.addEventListener('keydown',e=>{if(!active||effects.session||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key===' '){spaceHeld=true;if(zoom.z>1.001)e.preventDefault();return;}const k={'+':'in','=':'in','-':'out','_':'out','0':'fit'}[e.key];if(!k||project.view==='3d')return;e.preventDefault();k==='fit'?(zoom.z=1,applyZoom()):zoomBy(k==='in'?1.4:1/1.4);});
+  graph.addEventListener('keyup',e=>{if(e.key===' ')spaceHeld=false;});addEventListener('blur',()=>{spaceHeld=false;});
+  for(const b of $$('[data-zoom]'))b.onclick=()=>{if(b.dataset.zoom==='fit'){zoom.z=1;applyZoom();}else zoomBy(b.dataset.zoom==='in'?1.4:1/1.4);};
   graph.addEventListener('pointercancel',()=>{releaseCursor();delete graph.dataset.dragging;$('#sim-grab-cursor')?.remove();clearTimeout(hold?.timer);hold=null;pendingPin=null;pointer=null;drag=null;stroke=null;showDraft(null);preview={...start};draw();});
   graph.addEventListener('keydown',event=>{
     if(effects.session||!active||tab!=='plan'||event.ctrlKey||event.metaKey||event.altKey)return;
@@ -852,7 +878,7 @@ public class MyAuto implements DeckAutonomous {
     const list=$('#sim-pin-list'),l=L(),open=openPath(),holonomic=C.drives[project.robot.drivetrain].holonomic,p=l.pins[open];
     $('#sim-add-path').disabled=l.pins.length>=32;
     // Rebuild only when the rows or the open card's fields change, so typing and Tab keep their place.
-    const shape=JSON.stringify([l.id,l.pins.length,open,holonomic,project.tuning.maxPathSpeed,gameActions(),p&&[p.path?.rotate,p.action,p.path?.action]]);
+    const shape=JSON.stringify([l.id,l.pins.length,open,holonomic,project.tuning.maxPathSpeed,gameActions(),p&&[p.path?.rotate,p.action,p.path?.action,p.path?.controls?.length||0]]);
     if(list.dataset.shape===shape)return syncPaths();
     const focus=list.contains(document.activeElement)?document.activeElement.id:'';list.dataset.shape=shape;
     const first=document.createElement('li');first.className='sim-path-start';
@@ -876,6 +902,7 @@ public class MyAuto implements DeckAutonomous {
       ${path.rotate==='track'?'<div class="sim-grid2"><div><label for="path-target-x">Target X · in</label><input id="path-target-x" type="number" step="any"></div><div><label for="path-target-y">Target Y · in</label><input id="path-target-y" type="number" step="any"></div></div>':''}
       ${holonomic?'':'<p class="hint">Tank drivetrains turn in place between straight paths.</p>'}
       <div class="sim-grid2"><div><label for="path-shape">Shape</label><select id="path-shape"><option value="">Route default</option><option value="sharp">Straight</option><option value="spline"${holonomic?'':' disabled'}>Curve</option><option value="custom"${holonomic?'':' disabled'}>Custom curve (drag handles)</option></select></div><div><label for="path-power">Motor power · 0–1</label><input id="path-power" type="number" min="0" max="1" step="any" placeholder="Setup ${project.tuning.maxPathSpeed??.8}"></div></div>
+      ${path.controls?path.controls.map((_,j)=>`<div class="sim-grid2"><div><label for="path-c${j}x">Handle ${j+1} X · in</label><input id="path-c${j}x" type="number" step="any"></div><div><label for="path-c${j}y">Handle ${j+1} Y · in</label><input id="path-c${j}y" type="number" step="any"></div></div>`).join(''):''}
       <label for="path-drive-action">While driving</label><select id="path-drive-action"></select>
       <div class="sim-grid2"><div><label for="path-wait">Wait at end · s</label><input id="path-wait" type="number" min="0" step="any"></div><div><label for="path-end-action">Then do</label><select id="path-end-action"></select></div></div>
       <div class="sim-path-more"><button type="button" class="text-button" data-more="path">Path options…</button><button type="button" class="text-button" data-more="pin">End point options…</button></div>`;
@@ -892,6 +919,7 @@ public class MyAuto implements DeckAutonomous {
     if(q('#path-heading-value')){const [key]=HEADING_VALUE[path.rotate];number(q('#path-heading-value'),v=>path[key]=key==='heading'?field.heading(v):key==='spins'?Math.round(v)||1:v);}
     if(q('#path-target-x'))for(const axis of ['x','y'])number(q('#path-target-'+axis),v=>path.target={...path.target,[axis]:v});
     q('#path-shape').onchange=e=>{const v=e.target.value;if(v==='custom'){path.controls=startControls(i);path.style=null;}else{path.controls=null;path.style=v||null;}path.shapeAuto=false;p.path=planner.pathEffects(path);changed('plan');if(v==='custom')status('#sim-plan-status',`${name} is a custom curve: drag its two handles on the field to shape it.`);};
+    if(path.controls){const b=geometry().bounds;path.controls.forEach((_,j)=>{number(q(`#path-c${j}x`),v=>path.controls[j]={...path.controls[j],x:v},b.x0,b.x1);number(q(`#path-c${j}y`),v=>path.controls[j]={...path.controls[j],y:v},b.y0,b.y1);});}
     number(q('#path-power'),v=>path.power=v,0,1,true);number(q('#path-wait'),v=>p.wait=v,0);
     actionOptions(q('#path-drive-action'),path.action,'Just drive');actionOptions(q('#path-end-action'),p.action,'Nothing');
     q('#path-drive-action').onchange=e=>{if(e.target.value==='__other'){e.target.value=path.action||'';return openEffects({kind:'path',index:i},at(e));}
@@ -909,6 +937,7 @@ public class MyAuto implements DeckAutonomous {
       row.querySelector('[data-at]').textContent=`→ ${xy(p)}`;row.querySelector('.sim-path-swatch').style.background=planner.pathAppearance(p.path,power).color;row.querySelector('.sim-pin-summary').textContent=effectSummary(p);
       if(!row.classList.contains('selected'))continue;const path=planner.pathEffects(p.path),q=s=>row.querySelector(s);
       set(q('#path-x'),field.round(p.x));set(q('#path-y'),field.round(p.y));set(q('#path-heading'),path.rotate);set(q('#path-shape'),path.controls?'custom':path.style||'');set(q('#path-power'),path.power??'');set(q('#path-wait'),p.wait||0);
+      (path.controls||[]).forEach((c,j)=>{set(q(`#path-c${j}x`),field.round(c.x));set(q(`#path-c${j}y`),field.round(c.y));});
       if(HEADING_VALUE[path.rotate])set(q('#path-heading-value'),path[HEADING_VALUE[path.rotate][0]]);if(path.target){set(q('#path-target-x'),path.target.x);set(q('#path-target-y'),path.target.y);}}
   }
 
@@ -1600,9 +1629,23 @@ public class MyAuto implements DeckAutonomous {
   const logButton=document.createElement('button'),logStatus=document.createElement('p');logButton.type='button';logButton.className='secondary';logButton.textContent='Save run log (.wpilog)…';logStatus.className='hint';logStatus.setAttribute('role','status');
   logButton.onclick=async()=>{const frames=runData.frames();if(!frames.length){logStatus.textContent='Run the route first; the run is recorded while it plays.';return;}if(!native){logStatus.textContent='Saving run logs needs the installed app.';return;}
     try{const bytes=window.DeckWpilog.fromFrames(frames,{alliance:L().alliance,mechanisms:project.mechanisms,robot:project.robot,name:L().name});logStatus.textContent=(await api.simFile('log-save',{name:L().name,bytes}))?.message||'';}catch(e){logStatus.textContent=e.message;}};
+  // A real robot's log on the field beside the plan: where it actually drove and how far it strayed.
+  const robotLog={data:null,name:''},compareBox=document.createElement('div');compareBox.className='sim-log-compare';
+  compareBox.innerHTML=`<h3>Compare with a robot log</h3><p class="hint">Open a log from your real robot to draw where it drove (orange) next to the plan and see how far it strayed. WPILOG: a Pose2d entry such as /RealOutputs/Odometry/Robot (FTC field frame, like Deck’s own run logs). CSV: x, y and heading columns.</p>
+    <label for="sim-log-origin">CSV coordinates</label><select id="sim-log-origin"><option value="corner">Inches from the bottom-left corner (Deck, Pedro Pathing)</option><option value="center">Inches from the field centre (FTC SDK)</option></select>
+    <div class="button-row"><button type="button" class="secondary" id="sim-log-open">Open robot log…</button><button type="button" class="text-button" id="sim-log-clear" hidden>Hide</button></div><dl id="sim-log-result" class="sim-telemetry"></dl><p id="sim-log-status" class="hint" role="status"></p>`;
+  const drawRobotLog=()=>{const g=$('#sim-log-path');if(!robotLog.data){g.replaceChildren();return;}g.replaceChildren(svg('polyline',{class:'sim-log-path',points:pts(robotLog.data.poses)}));
+    const r=L().route?(()=>{try{return window.DeckRobotLog.compare(robotLog.data,L().route);}catch{return null;}})():null,box=$('#sim-log-result'),row=(k,v)=>box.append(Object.assign(document.createElement('dt'),{textContent:k}),Object.assign(document.createElement('dd'),{textContent:v}));box.replaceChildren();
+    row('Log',`${robotLog.name} · ${robotLog.data.key}`);row('Poses',`${robotLog.data.poses.length} over ${(robotLog.data.poses.at(-1).t-robotLog.data.poses[0].t).toFixed(2)} s`);
+    if(r){row('From the plan',`average ${r.meanError.toFixed(2)} in · worst ${r.maxError.toFixed(2)} in at (${field.round(r.worst.x)}, ${field.round(r.worst.y)})`);row('Stopped',`${r.endError.toFixed(2)} in from the last end point`);if(r.worst)g.append(svg('circle',{class:'sim-log-worst',cx:r.worst.x,cy:r.worst.y,r:1.6}));}
+    else row('From the plan','Plan a route to compare');$('#sim-log-clear').hidden=false;};
+  compareBox.querySelector('#sim-log-open').onclick=async()=>{const status=compareBox.querySelector('#sim-log-status');if(!native){status.textContent='Opening robot logs needs the installed app.';return;}
+    try{const file=await api.simFile('robot-log-open');if(!file)return;robotLog.data=window.DeckRobotLog.parse(file,{origin:$('#sim-log-origin').value});robotLog.name=file.name;drawRobotLog();status.textContent=robotLog.data.others.length?`Also in this log: ${robotLog.data.others.slice(0,4).join(', ')}.`:'';}catch(e){status.textContent=e.message;}};
+  compareBox.querySelector('#sim-log-clear').onclick=()=>{robotLog.data=null;drawRobotLog();$('#sim-log-result').replaceChildren();$('#sim-log-clear').hidden=true;};
+  compareBox.querySelector('#sim-log-origin').onchange=()=>{if(robotLog.data?.format==='csv')compareBox.querySelector('#sim-log-status').textContent='Open the CSV again to use these coordinates.';};
   const logNodes=[Object.assign(document.createElement('h3'),{textContent:'Run log'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'The last run with every value, in the WPILOG format FTC and FRC log viewers read.'}),logButton,logStatus];
   // The run's data first; the output, code and checks are for after the run.
-  settingsViews(runPanel,[['Data',[$('#sim-run-analysis'),dataBox]],['Output',outputNodes],['Program',programNodes],['Export',[...exportNodes,...logNodes]],['Diagnostics',[diagnosticBox('sim-run-diagnostics')]]]);
+  settingsViews(runPanel,[['Data',[$('#sim-run-analysis'),dataBox,compareBox]],['Output',outputNodes],['Program',programNodes],['Export',[...exportNodes,...logNodes]],['Diagnostics',[diagnosticBox('sim-run-diagnostics')]]]);
   const obstacleStep=$('#sim-obstacle-step');$('#sim-zone-editor').hidden=true;const obstacleHelp=document.createElement('p');obstacleHelp.className='hint';obstacleHelp.textContent='Drag an existing obstacle to move it. Double-click it to edit its dimensions and corners, then press Done to save.';obstacleStep.append(obstacleHelp);
   // Paginate settings blocks when a short viewport cannot fit a whole settings view.
   // No fields are discarded, and the field itself stays in the same viewport.

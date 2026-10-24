@@ -113,19 +113,24 @@ See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY
 ## Offline autonomous simulator
 
 The **Simulate** tab plans and test-drives FTC autonomous routes offline, with no extra
-downloads: physics, Pedro Pathing and the Java runtime it needs ship inside the app.
+downloads: physics, the path follower and the Java runtime it needs ship inside the app.
 
 - Set up your robot (drivetrain, size, motor RPM, sensors) and a field: BIOBUZZ (this season), or a
   custom field with your own obstacles for any season.
-- Place pins or draw the route; the planner keeps the whole robot clear of obstacles and can turn
-  it to fit. Right-click a pin or a path for pauses, turns, spins and **action paths** (run an
-  intake or shooter while driving).
+- Click to add paths or draw the route; the planner keeps the whole robot clear of obstacles and can
+  turn it to fit. Like the Pedro Pathing visualizer, a path can be a **custom curve** with draggable
+  handles, and the robot can hold a heading, turn, face a target or **face along the path**. Right-click
+  a pin or a path for pauses, turns, spins and **action paths** (run an intake or shooter while driving).
+  Switching the BIOBUZZ alliance moves the route to the other side.
 - Describe your **mechanisms** in plain settings (intake sides, storage, index time, turret or fixed
   shooter, spin-up). Routes use Intake, Spin up, Aim and Shoot, and the physics picks up, launches
   and scores real BIOBUZZ pieces.
 - Run it through physics and replay it with a timeline and mechanism views, graph its speed, heading, sensor error, drive power and mechanisms, see a run analysis (pieces picked up, shot and scored), then export
-  for your controller: Control Hub OnBot Java or TeamCode with working mechanism code, or a
-  MotionModule `autonomous.py`, plus a `.pp` path file or timed commands.
+  for your controller: Control Hub OnBot Java or TeamCode with working mechanism code, **Pedro Pathing
+  3** TeamCode for a Pedro Quickstart project, or a MotionModule `autonomous.py`, plus a `.pp` path file
+  or timed commands. Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
+  Pathing 3.0.2) by the project's checks, and each export lists what still needs your robot: hardware
+  names, tuning and a real test. Open a log from your real robot to compare where it drove with the plan.
 - Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export) and have the
   result open in the app on Run & review.
 

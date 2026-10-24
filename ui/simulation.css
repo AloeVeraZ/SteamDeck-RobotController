@@ -283,3 +283,14 @@
 .sim-control-guide{fill:none;stroke:var(--accent);stroke-width:.35;stroke-dasharray:1.2 1;opacity:.85;pointer-events:none}
 .sim-path.draft{stroke-dasharray:2 1.4;opacity:.7;pointer-events:none}
 .sim-path.draft.blocked{stroke:var(--danger);opacity:.9}
+/* Field zoom: − Fit + beside 2D/3D; a zoomed field pans with the middle button or Space+drag. */
+.sim-zoom button{min-width:34px}
+#simulation-field[data-zoomed=true]{cursor:default}
+#simulation-field[data-panning=true]{cursor:grabbing}
+#simulation-view[data-tab=setup] .sim-zoom{display:none}
+/* Robot outlines along the open path. */
+.sim-onion{fill:none;stroke:var(--accent);stroke-width:.25;opacity:.22;pointer-events:none}
+/* A real robot's logged path beside the plan. */
+.sim-log-path{fill:none;stroke:#f08c2e;stroke-width:.7;stroke-linejoin:round;opacity:.9;pointer-events:none}
+.sim-log-worst{fill:none;stroke:#f08c2e;stroke-width:.5;pointer-events:none}
+.sim-log-compare{margin-top:14px}

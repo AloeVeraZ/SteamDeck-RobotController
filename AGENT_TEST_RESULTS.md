@@ -32,6 +32,26 @@ The run on 24 October 2026 passed:
   - A handle dragged into the hive gives "1 route issue · Path 4" and a dashed red curve.
   - A gentle curve ran in physics: "Finished in 10.33 s. Ended 0.11 in from the last path’s end point. No zones touched."
 
+## Pedro runtime (`tests/sim-pedro-runtime.test.cjs`, needs `tools/simulation/fetch-pedro.cjs`)
+
+4/4 pass. Pedro Pathing 3.0.2's real Follower (`Mecanum`, `PinpointLocalizer`/`OTOSLocalizer`, `Foresight`) runs the exported OpMode on the virtual Control Hub:
+- A pause and a turning path, ending within 1.5 in and 3°.
+- OTOS localization.
+- Stop mid-path zeroes the drive.
+- A zero-power path stays stopped.
+- The BIOBUZZ example with mechanisms parks within 2 in.
+
+`deck-sim test examples/lunala-red-auto.json --code pedro` finished in 10.25 s with 40 points.
+
+## Tangent headings, alliance switching, custom curves
+
+- `tests/sim-tangent.test.cjs` 5/5 pass. In physics, the robot's heading stays within 12° of the tangent along a curve.
+- `tests/sim-alliance.test.cjs` 3/3 pass. The blue copy of the BIOBUZZ example tips the hive as often as red.
+- `tests/sim-custom-curve.test.cjs` 5/5 pass. The robot stays within 3 in of a drawn curve.
+- The real-SDK check also compiles a tangent + custom-curve route in all three exports.
+- An OnBot export with tangent and reverse paths runs on the virtual hub and ends at (110, 100.15), facing −90° as expected.
+- `deck-sim alliance` on a copy of lunala, then `deck-sim test`: 9.98 s, 40 points, the same as red.
+
 ## Not verified
 
 - The Pedro export has not been run against Pedro's real Follower. It is compiled only.

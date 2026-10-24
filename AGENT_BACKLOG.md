@@ -1,19 +1,35 @@
 # Agent backlog (prioritized)
 
-## Robot code correctness and safety
-1. Run the Pedro export at runtime on the virtual Control Hub, with Pedro's real Follower driving the simulated robot. Today it is compiled but not executed.
-2. Repair the Electron E2E suite `tests/simulation-ui.cjs`. It was broken by earlier Setup layout changes (hidden `#sim-appearance`, touch-keyboard default).
-3. `.pp` export: write the current Pedro Visualizer schema (`kind: atomic`, `heading` object, `sequence`, `headingDeg`). Today a "face a target" heading loads in the official Visualizer as tangential.
+## Done this session
 
-## Path planning
-4. Tangential and reverse-tangential headings (Pedro `.tangent()` / `.reverseTangent()`) for holonomic robots.
-5. Zoom, pan and fit on the 2D field.
-6. Exact X/Y entry for custom-curve handles, and an optional snap to a 1 in grid while dragging.
-7. Duplicate a path, and a keyboard shortcut help overlay. Delete should remove the open path.
-8. Robot footprint "onion" preview along the selected path.
+- Pedro 3 export, now compiled and run with Pedro's real Follower.
+- Mechanism code compile check.
+- Custom curves, tangent headings and alliance switching.
+- Zoom and pan, onion outlines and handle coordinate boxes.
+- Robot-log comparison.
+- Planner made about 40% faster.
+- Lunala optimized.
+- Start-pose typing bug and run-folder collision bug fixed.
+
+## Robot code correctness and safety
+
+1. Finish repairing the Electron E2E suite `tests/simulation-ui.cjs`. 9+ of its sections pass. The remaining steps were written for older editors and layouts.
+2. `.pp` export: write the current Pedro Visualizer schema (`kind: atomic`, `heading` object, `sequence`, `headingDeg`). Today, target tracking loads in the official Visualizer as tangential.
+3. Pedro starter constants for two- and three-pod odometry (TwoWheel/ThreeWheel configs need the `Encoder` and `CustomIMU` stand-ins checked).
+4. An optional Pedro export with Ivy commands, if `com.pedropathing:ivy` is published and stable.
+
+## Path planning UX
+
+5. Duplicate a path. A keyboard shortcut help overlay. Delete should remove the open path.
+6. Snap the curve handles to a 0.5 in grid while Shift is held.
+7. A geometric preview (scrub along the planned path without physics) for an instant look before running.
 
 ## Reliability and performance
-9. The planner time-budget test `24 barriers and many pins plan quickly` runs 5.4–6.2 s against a 5 s budget under concurrent load.
 
-## Final task requested by the user
-10. Optimize the **lunala red auto** setup (`examples/lunala-red-auto.json`). Keep its scoring intent, minimize simulated time, and verify in physics and with the exports.
+8. The planner's turning search still takes about 2.5 s for 24 barriers. Possible fixes: lazy hub-to-hub edges, or cached segment checks per heading.
+9. A rare renderer crash ("Target crashed") was seen once during Optimize in the E2E. It did not reproduce. Watch for it.
+
+## UI polish
+
+10. Path strokes thicken when zoomed (they are in SVG units). Consider `vector-effect` with tuned widths.
+11. A pass over the Setup wizard and the Run & review layout for beginners.

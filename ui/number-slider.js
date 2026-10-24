@@ -37,7 +37,12 @@ window.DeckNumberSliders=(()=>{
   // Explicit commit works with a physical keyboard as well as the optional touch keyboard.
   const done=document.createElement('button');done.type='button';done.className='number-entry-done primary';done.textContent='Done';done.hidden=true;document.body.append(done);
   let editing=null;
-  root.addEventListener('focusin',event=>{if(event.target.matches('input[type=number]')&&!event.target.closest('#sim-effects')){editing=event.target;done.hidden=false;}});
+  // Beside the field being edited (left of its panel, level with it) so it never covers the panel's own
+  // buttons; in the corner when there is no room beside the panel.
+  const place=input=>{const panel=input.closest('.sim-panel,.panel,form,section')||input,r=input.getBoundingClientRect(),p=panel.getBoundingClientRect(),w=done.offsetWidth||80,h=done.offsetHeight||38;
+    if(p.left-w-12>=8){done.style.left=`${p.left-w-10}px`;done.style.top=`${Math.max(8,Math.min(innerHeight-h-8,r.top+(r.height-h)/2))}px`;done.style.right=done.style.bottom='auto';}
+    else{done.style.left=done.style.top='';done.style.right=done.style.bottom='';}};
+  root.addEventListener('focusin',event=>{if(event.target.matches('input[type=number]')&&!event.target.closest('#sim-effects')){editing=event.target;done.hidden=false;place(editing);}});
   root.addEventListener('focusout',()=>queueMicrotask(()=>{if(document.activeElement!==done){done.hidden=true;editing=null;}}));
   done.addEventListener('pointerdown',event=>event.preventDefault());
   done.addEventListener('click',()=>{const target=editing;target?.blur();if(target?.dataset.sliderSubmit!==undefined)target.form?.requestSubmit();done.hidden=true;});
