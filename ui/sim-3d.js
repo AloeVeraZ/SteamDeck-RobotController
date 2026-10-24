@@ -1,22 +1,26 @@
 /* Local DSIM/CAD field view with the app's own controls. Field frame: inches, bottom-left
    origin, +X right, +Y up (z up). Empty and DECODE fields use planar physics even in 3D. */
-window.DeckSim3D={create(host){
+window.DeckSim3D={create(host,options){
   'use strict';
   const L=window.DeckThree,THREE=L.THREE,DEG=Math.PI/180;
+  // `video: true` makes a run-video camera: a fixed-size picture with its own copy of the field, drawn only when
+  // shoot() asks, either straight down at the whole field (2D, 'top') or following the robot (3D, 'chase').
+  options=options||{};const video=!!options.video,W=options.width||1280,H=options.height||720;
   host.innerHTML='<div class="sim-3d-canvas"></div><div class="sim-field-cube view-cube" aria-label="Field view cube"></div><p class="sim-3d-note hint" id="sim-3d-note"></p>';
   const box=host.querySelector('.sim-3d-canvas'),note=host.querySelector('#sim-3d-note');
-  let renderer;try{renderer=new THREE.WebGLRenderer({antialias:true});}catch{note.textContent='3D needs WebGL, which this device did not provide.';return {setField(){},setModel(){},update(){},resize(){},dispose(){}};}
-  renderer.setPixelRatio(Math.min(2,devicePixelRatio||1));box.append(renderer.domElement);
+  let renderer;try{renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:!!video});}catch{if(video)throw Error('Run videos need WebGL, which this device did not provide.');note.textContent='3D needs WebGL, which this device did not provide.';return {setField(){},setModel(){},update(){},resize(){},dispose(){}};}
+  renderer.setPixelRatio(video?1:Math.min(2,devicePixelRatio||1));box.append(renderer.domElement);if(video)renderer.setSize(W,H,false);
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1,1,3000);camera.up.set(0,0,1);camera.position.set(72,-95,150);
-  const controls=new L.OrbitControls(camera,renderer.domElement);controls.target.set(72,72,0);controls.minPolarAngle=.001;controls.maxPolarAngle=Math.PI-.001;controls.enablePan=false;controls.update();
-  const navigator=window.DeckRobotModel.viewCube(host.querySelector('.sim-field-cube'),direction=>{const d=[...direction];if(!d[0]&&!d[1])d[0]=-.0001;const distance=Math.min(controls.maxDistance,Math.max(controls.minDistance,camera.position.distanceTo(controls.target)));camera.position.copy(new THREE.Vector3(...d).normalize().multiplyScalar(distance)).add(controls.target);controls.update();schedule();},{controls,orbit:(dx,dy)=>{window.DeckRobotModel.orbitCamera(camera,controls,dx,dy);schedule();}});
+  const top=new THREE.OrthographicCamera(-1,1,1,-1,1,3000);top.up.set(0,1,0);if(video){camera.fov=50;camera.aspect=W/H;camera.updateProjectionMatrix();}
+  const controls=video?null:new L.OrbitControls(camera,renderer.domElement);if(controls){controls.target.set(72,72,0);controls.minPolarAngle=.001;controls.maxPolarAngle=Math.PI-.001;controls.enablePan=false;controls.update();}
+  const navigator=video?null:window.DeckRobotModel.viewCube(host.querySelector('.sim-field-cube'),direction=>{const d=[...direction];if(!d[0]&&!d[1])d[0]=-.0001;const distance=Math.min(controls.maxDistance,Math.max(controls.minDistance,camera.position.distanceTo(controls.target)));camera.position.copy(new THREE.Vector3(...d).normalize().multiplyScalar(distance)).add(controls.target);controls.update();schedule();},{controls,orbit:(dx,dy)=>{window.DeckRobotModel.orbitCamera(camera,controls,dx,dy);schedule();}});
   scene.add(new THREE.HemisphereLight(0xffffff,0x8b96a5,2.8),new THREE.AmbientLight(0xffffff,.5));const sun=new THREE.DirectionalLight(0xffffff,1.8);sun.position.set(130,-40,220);scene.add(sun);
   sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-180;sun.shadow.camera.right=180;sun.shadow.camera.top=180;sun.shadow.camera.bottom=-180;sun.shadow.bias=-.0005;
   const fieldGroup=new THREE.Group(),overlay=new THREE.Group(),robotGroup=new THREE.Group(),ghost=new THREE.Group();scene.add(fieldGroup,overlay,robotGroup,ghost);
   let info=null,frame=null,state=null,body=null,raf=0,lastOverlay='',fieldKey='',fieldSequence=0,visual=null,markers=null,disposed=false;
   const markersHost=new THREE.Group(),ballsHost=new THREE.Group(),elementMarkers=new THREE.Group();scene.add(markersHost,ballsHost,elementMarkers);const ballMeshes=new Map(),ballWires=new Map();
-  const css=name=>getComputedStyle(host).getPropertyValue(name).trim()||'#888',color=name=>new THREE.Color(css(name));
+  const css=name=>getComputedStyle(options.style||host).getPropertyValue(name).trim()||'#888',color=name=>new THREE.Color(css(name));
   function dispose(object){object.traverse(o=>{o.geometry?.dispose?.();for(const m of [].concat(o.material||[]))m.dispose?.();});}
   // The robot model's geometry belongs to the model module; only drop our own objects.
   function clear(group){for(const c of [...group.children]){group.remove(c);if(c.userData.keep!==true)dispose(c);}}
@@ -24,13 +28,13 @@ window.DeckSim3D={create(host){
   function prism(points,height,material,z=0){const m=new THREE.Mesh(new THREE.ExtrudeGeometry(new THREE.Shape(points.map(p=>new THREE.Vector2(p.x,p.y))),{depth:height,bevelEnabled:false}),material);m.position.z=z;return m;}
   function line(points,material,z){const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points.map(p=>v3(p,z))),material);if(material.isLineDashedMaterial)l.computeLineDistances();return l;}
   async function setField(nextInfo){
-    info=nextInfo;scene.background=color('--bg');if(!info)return;const key=JSON.stringify([info.field,info.bounds]);
+    info=nextInfo;scene.background=video?new THREE.Color(0x15181c):color('--bg');if(!info)return;const key=JSON.stringify([info.field,info.bounds]);
     const b=info?.bounds||{x0:0,y0:0,x1:144,y1:144},w=b.x1-b.x0,h=b.y1-b.y0;
-    const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2,span=Math.max(w,h);controls.minDistance=span*.25;controls.maxDistance=span*2.15;camera.near=Math.max(.25,span/200);camera.far=Math.max(3000,span*5);camera.updateProjectionMatrix();
+    const cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2,span=Math.max(w,h);if(controls){controls.minDistance=span*.25;controls.maxDistance=span*2.15;}camera.near=Math.max(.25,span/200);camera.far=Math.max(3000,span*5);camera.updateProjectionMatrix();
     clear(markersHost);markers=window.DeckFieldArt.hitboxes(info,THREE,L);markersHost.add(markers.group);
     if(key!==fieldKey){fieldKey=key;const sequence=++fieldSequence,temporary=new THREE.Group();clear(fieldGroup);visual=null;clear(ballsHost);ballMeshes.clear();clear(elementMarkers);ballWires.clear();host.dataset.fieldReady='';host.setAttribute('aria-busy','true');
-      controls.target.set(cx,cy,4);camera.position.set(cx,cy-span*1.1,span*1.05);sun.target.position.set(cx,cy,0);scene.add(sun.target);controls.update();
-      try{const next=await window.DeckFieldArt.build3d(temporary,info,THREE,L,{surface:color('--surface').lerp(color('--muted'),.18),line:color('--line-strong')});if(disposed||sequence!==fieldSequence)return;fieldGroup.add(...temporary.children);visual=next;host.dataset.fieldReady=info.field;host.setAttribute('aria-busy','false');}
+      controls?.target.set(cx,cy,4);camera.position.set(cx,cy-span*1.1,span*1.05);sun.target.position.set(cx,cy,0);scene.add(sun.target);controls?.update();
+      try{const next=await window.DeckFieldArt.build3d(temporary,info,THREE,L,{surface:color('--surface').lerp(color('--muted'),.18),line:color('--line-strong')},{own:!!video});if(disposed||sequence!==fieldSequence)return;fieldGroup.add(...temporary.children);visual=next;host.dataset.fieldReady=info.field;host.setAttribute('aria-busy','false');}
       catch(e){if(sequence===fieldSequence){fieldKey='';note.textContent='Field model could not load: '+e.message;host.setAttribute('aria-busy','false');}return;}}
     note.textContent=!info?'':info.physics==='3d'?'3D physics':'Flat (2D) physics, shown in 3D';
     lastOverlay='';robotModel();schedule();
@@ -60,9 +64,14 @@ window.DeckSim3D={create(host){
     if(s.start&&info){const c=window.DeckPlanner.body(s.start,info.footprint);overlay.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c.map(p=>v3(p,.3))),new THREE.LineBasicMaterial({color:color('--muted')})));}
   }
   function update(nextFrame,nextState){frame=nextFrame;state=nextState||state;schedule();}
-  function schedule(){if(!raf)raf=requestAnimationFrame(render);}
+  function schedule(){if(!raf&&!video)raf=requestAnimationFrame(render);}
   function render(){
-    raf=0;if(!host.isConnected||host.hidden)return;resize();overlays();
+    raf=0;if(video||!host.isConnected||host.hidden)return;resize();prepare();
+    controls.update();navigator.update(camera);renderer.render(scene,camera);
+  }
+  // Puts the robot, pieces and overlays where the frame shown now has them.
+  function prepare(){
+    overlays();
     const t=frame?.truth,p=t||state?.start;if(!robotGroup.children.length)robotModel();
     if(p){robotGroup.position.set(p.x,p.y,t?.z||0);robotGroup.rotation.set(0,0,p.heading*DEG);window.DeckRobotModel?.animate(robotGroup,frame);if(markers){markers.robot.position.copy(robotGroup.position);markers.robot.rotation.copy(robotGroup.rotation);}}
     markersHost.visible=!!state?.hitboxes;
@@ -71,10 +80,63 @@ window.DeckSim3D={create(host){
     if(world&&visual?.handles){L.updateBiobuzzField(visual.handles,world);L.updateBiobuzzElements(visual.elements,world);for(const a of ['red','blue'])if(markers?.trays[a])markers.trays[a].rotation.x=L.hiveTiltAngle(world,a)-info.trays[a].reference;}
     if(world&&info?.field==='decode'){const seen=new Set();for(const ball of world.balls){if(['held','stock','scored'].includes(ball.state?.kind))continue;seen.add(ball.id);let mesh=ballMeshes.get(ball.id);if(!mesh){mesh=new THREE.Mesh(new THREE.SphereGeometry(2.5,16,12),new THREE.MeshStandardMaterial({color:ball.color==='purple'?0x9d68cb:0x64bc70,roughness:.7}));mesh.castShadow=true;mesh.receiveShadow=true;ballMeshes.set(ball.id,mesh);ballsHost.add(mesh);}mesh.position.set(ball.pos.x+72,ball.pos.y+72,Math.max(0,ball.z||0)+2.5);}for(const [id,mesh]of ballMeshes)if(!seen.has(id)){ballsHost.remove(mesh);dispose(mesh);ballMeshes.delete(id);}}
     clear(ghost);const e=frame?.estimate;if(e&&info){const c=window.DeckPlanner.body(e,info.footprint);ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c.map(q=>v3(q,7))),new THREE.LineDashedMaterial({color:color('--warning'),dashSize:1.5,gapSize:1})).computeLineDistances());}
-    controls.update();navigator.update(camera);renderer.render(scene,camera);
+    beams();
+  }
+  // ---------------------------------------------------------------- run video cameras
+  const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a)),follow={ready:false,yaw:0,shot:0,hold:0,goal:null,still:0,wide:0,pos:new THREE.Vector3(),look:new THREE.Vector3()};
+  // Where each shooter points while the robot spins up, aims or shoots: from its spot on the robot along its
+  // turret (or fixed facing) to the goal it points at, if one is within 25° of that line.
+  function aims(){
+    const a=state?.aim,m=frame?.mechanisms,t=frame?.truth,c=m?.command||{};if(!a||!m||!t||!(c.feed||c.spin||c.aim||m.flywheel>.05))return [];
+    const M=window.DeckMechanisms,h=t.heading*DEG;
+    return a.shooters.map((s,n)=>{const [ox,oy]=M.mountOffset(s.mount,a.dims),x=t.x+ox*Math.cos(h)-oy*Math.sin(h),y=t.y+ox*Math.sin(h)+oy*Math.cos(h);
+      const dir=h+(s.type==='turret'?(m.turrets?.[n]??m.turret??0):M.FACING[s.facing]||0)*DEG;let len=48,goal=null;
+      for(const g of a.targets){const d=Math.hypot(g.x-x,g.y-y);if(Math.abs(wrap(Math.atan2(g.y-y,g.x-x)-dir))<25*DEG&&(!goal||d<len)){len=d;goal=g;}}
+      return {x,y,dir,len,goal,on:!!(m.ready&&m.aligned)};});
+  }
+  // A beam along each shooter's aim: amber while it spins up or turns, green once it is ready and on target.
+  const beamGroup=new THREE.Group(),beamParts=[];scene.add(beamGroup);
+  function beams(){
+    const list=aims();beamGroup.visible=list.length>0;
+    list.forEach((b,n)=>{let p=beamParts[n];if(!p){const bar=new THREE.BoxGeometry(1,.7,.7);bar.translate(.5,0,0);p={bar:new THREE.Mesh(bar,new THREE.MeshBasicMaterial({transparent:true,opacity:.75,depthWrite:false})),end:new THREE.Mesh(new THREE.SphereGeometry(1.6,16,10),new THREE.MeshBasicMaterial({transparent:true,opacity:.85,depthWrite:false}))};p.bar.renderOrder=p.end.renderOrder=11;beamGroup.add(p.bar,p.end);beamParts[n]=p;}
+      const hex=b.on?0x49cbb3:0xf2bc62;p.bar.material.color.setHex(hex);p.end.material.color.setHex(hex);p.bar.visible=p.end.visible=true;
+      p.bar.position.set(b.x,b.y,13);p.bar.rotation.set(0,0,b.dir);p.bar.scale.set(b.len,1,1);p.end.position.set(b.x+Math.cos(b.dir)*b.len,b.y+Math.sin(b.dir)*b.len,13);});
+    for(const p of beamParts.slice(list.length)){p.bar.visible=p.end.visible=false;}
+  }
+  // The orthographic camera straight above the field, fitted to a picture of the given shape.
+  function fitTop(aspect,margin){const b=info?.bounds||{x0:0,y0:0,x1:144,y1:144},cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2,hh=Math.max((b.y1-b.y0)/2,(b.x1-b.x0)/2/aspect)*margin;
+    Object.assign(top,{left:-hh*aspect,right:hh*aspect,top:hh,bottom:-hh});top.position.set(cx,cy,1000);top.lookAt(cx,cy,0);top.updateProjectionMatrix();}
+  // The follow camera: behind the robot and above it, turning with it (smoothly, so turning on the spot does not
+  // whip the picture round). While the robot spins up, aims or shoots, and for 2 s after, the camera swings
+  // behind the robot towards the goal and pulls up, so the robot, its aim and where the pieces land are all in view.
+  // A robot that has stood still for 1.5 s (parked, or waiting) is seen from further back and higher up.
+  function chase(dt){
+    const t=frame?.truth||state?.start;if(!t)return;if(!dt)follow.ready=false;
+    const k=tau=>follow.ready?1-Math.exp(-Math.max(0,dt)/tau):1,f=info?.footprint||{front:9,rear:9},size=Math.max(14,f.front+f.rear),h=t.heading*DEG;
+    follow.yaw+=wrap(h-follow.yaw)*k(.7);
+    const goal=aims().find(b=>b.goal)?.goal;if(goal){follow.goal=goal;follow.hold=2;}else follow.hold=Math.max(0,follow.hold-dt);
+    follow.shot+=((follow.hold>0&&follow.goal?1:0)-follow.shot)*k(.6);
+    follow.still=Math.hypot(t.vx||0,t.vy||0)>2||Math.abs(t.omega||0)>10?0:follow.still+Math.max(0,dt);follow.wide+=((follow.still>1.5?1:0)-follow.wide)*k(1.2);
+    const r=new THREE.Vector3(t.x,t.y,0),dir=new THREE.Vector3(Math.cos(follow.yaw),Math.sin(follow.yaw),0);
+    const far=1+.7*follow.wide,pos=r.clone().addScaledVector(dir,-size*2.4*far).setZ(size*2.3*(1+.9*follow.wide)),look=r.clone().addScaledVector(dir,size*1.8).setZ(0);
+    if(follow.shot>.001&&follow.goal){const g=new THREE.Vector3(follow.goal.x,follow.goal.y,0),to=g.clone().sub(r),d=to.length()>1?to.clone().normalize():dir;
+      pos.lerp(r.clone().addScaledVector(d,-size*2.4).setZ(size*2.6),follow.shot);look.lerp(r.clone().addScaledVector(to,.4).setZ(16),follow.shot);}
+    // Not far outside the field, where the camera would look through the perimeter.
+    const b=info?.bounds;if(b){pos.x=Math.max(b.x0-18,Math.min(b.x1+18,pos.x));pos.y=Math.max(b.y0-18,Math.min(b.y1+18,pos.y));}
+    follow.pos.lerp(pos,k(.3));follow.look.lerp(look,k(.3));if(!follow.ready){follow.pos.copy(pos);follow.look.copy(look);}follow.ready=true;
+    camera.position.copy(follow.pos);camera.lookAt(follow.look);
+  }
+  // Draws the next picture of a run video `dt` seconds after the last, from above ('top') or following the robot
+  // ('chase'). The follow camera has the whole field from above in its corner; `inset` says where, to frame it.
+  function shoot(nextFrame,nextState,dt,view='chase'){
+    frame=nextFrame;state=nextState||state;prepare();renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
+    if(view==='top'){fitTop(W/H,1.06);renderer.render(scene,top);return {canvas:renderer.domElement,inset:null};}
+    chase(dt);renderer.render(scene,camera);
+    const s=Math.round(H*.3),pad=Math.round(H*.03);fitTop(1,1.04);renderer.setScissorTest(true);renderer.setScissor(W-s-pad,pad,s,s);renderer.setViewport(W-s-pad,pad,s,s);renderer.render(scene,top);renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
+    return {canvas:renderer.domElement,inset:{x:W-s-pad,y:H-s-pad,size:s}};
   }
   function resize(){const w=Math.max(1,box.clientWidth),h=Math.max(1,box.clientHeight),size=renderer.getSize(new THREE.Vector2());if(size.x!==w||size.y!==h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
-  controls.addEventListener('change',schedule);
+  controls?.addEventListener('change',schedule);
   const themeObserver=new MutationObserver(()=>{if(info)setField(info);});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});const scheme=matchMedia('(prefers-color-scheme: dark)'),themeChanged=()=>{if(info)setField(info);};scheme.addEventListener('change',themeChanged);
-  return {setField,setModel,update,resize:()=>{resize();schedule();},dispose(){disposed=true;fieldSequence++;cancelAnimationFrame(raf);themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);navigator.dispose();controls.dispose();clear(scene);renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
+  return {setField,setModel,update,shoot,resize:()=>{resize();schedule();},dispose(){disposed=true;fieldSequence++;cancelAnimationFrame(raf);themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);navigator?.dispose();controls?.dispose();clear(scene);renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
 }};

@@ -54,7 +54,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - **Zoom and pan.** Markers shrink as you zoom so they stay grabbable.
   - Drag empty floor to move around a zoomed field (anywhere in Run & review). A press that does not move is still a click, so Click to add still adds a path.
   - Two fingers pinch to zoom on the Steam Deck touchscreen; one finger drags.
-  - While zoomed, a small map of the whole field in the corner outlines the view. Click or drag it to jump elsewhere without zooming out.
+  - While zoomed, a small map of the whole field in the corner outlines the view. Click or drag it to jump elsewhere without zooming out. It fades 2 s after the last zoom or pan, and stays while the left button is held or the pointer is on it.
   - Path labels (such as "90°") shrink with zoom like the pins.
 - **Simpler Paths panel.** Two views, Paths and Route options, instead of Paths / Route / Diagnostics / Help.
   - Clicking the route status line opens the route checks under it, in any planning step.
@@ -78,7 +78,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 ### Run & review
 
 - **Compare with a robot log.** WPILOG Pose2d or CSV, drawn beside the plan, with average and worst deviation and the stop error.
-- **Run videos.** Record (under Run) films a run live and asks where to save it when the run ends. Export → Run video replays the last run's autonomous, teleop or whole run on the field at real speed and saves that. MP4 with a period/clock/points bar, cropped from the app's own window (Electron tab capture of its own frame only). Checked in the app: live and replayed 6 s autonomous videos decode at full length and show the route.
+- **Run videos.** Record (under Run) asks 2D or 3D, then films the next run and asks where to save it when the run ends. Export → Run video replays the last run's autonomous, teleop or whole run in 2D or 3D at real speed and saves that. A run-video camera of its own (`DeckSim3D.create(host,{video:true})`, with an unshared field copy) renders each picture: 2D is an orthographic top-down view; 3D is a follow camera that swings towards the goal while shooting, with aim beams and a top-down inset. 1280×720 MP4 with the period/clock/points and a speed/pieces/shooter line drawn over it. No window capture any more (the display-media handler was removed). Checked in the app on lunala red auto: a live 3D and a replayed 2D 30 s autonomous both saved and decode at full length.
   - CSV files exported from spreadsheets work: byte-order mark, quoted cells, decimal commas, and `pose_x` or `Robot X (in)` column names.
   - The worst point is named by its path ("on path 6").
   - The same comparison runs from the terminal: `deck-sim compare <setup> <log>`.

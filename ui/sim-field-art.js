@@ -43,14 +43,16 @@ window.DeckFieldArt=(()=>{
       const mesh=new T.Mesh(new T.ExtrudeGeometry(shape,{depth:height,bevelEnabled:false}),solid);mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);}
     group.userData.keep=true;return {group};
   }
-  async function build3d(group,info,T,L,palette){
+  // `own` builds a copy of its own (for a second camera, such as a run video): a scene object has one parent,
+  // so the shared copy would leave the field view it was in.
+  async function build3d(group,info,T,L,palette,{own=false}={}){
     const game=info?.field||'empty';
     if(game==='empty'){
       const b=info?.bounds||{x0:0,y0:0,x1:144,y1:144},w=b.x1-b.x0,h=b.y1-b.y0,mat=new T.MeshStandardMaterial({color:palette.surface,roughness:.9}),floor=new T.Mesh(new T.BoxGeometry(w,h,.6),mat);floor.position.set((b.x0+b.x1)/2,(b.y0+b.y1)/2,-.3);floor.receiveShadow=true;group.add(floor);
       const lines=[],pitch=Math.max(24,Math.ceil(Math.max(w,h)/1536)*24);for(let x=b.x0;x<=b.x1;x+=pitch)lines.push(x,b.y0,.02,x,b.y1,.02);for(let y=b.y0;y<=b.y1;y+=pitch)lines.push(b.x0,y,.02,b.x1,y,.02);const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(lines,3));group.add(new T.LineSegments(g,new T.LineBasicMaterial({color:palette.line,transparent:true,opacity:.45})));
       const wallMat=new T.MeshStandardMaterial({color:0x89939f,transparent:true,opacity:.18,depthWrite:false});for(const [x,y,sx,sy] of [[b.x0-.5,(b.y0+b.y1)/2,1,h+2],[b.x1+.5,(b.y0+b.y1)/2,1,h+2],[(b.x0+b.x1)/2,b.y0-.5,w+2,1],[(b.x0+b.x1)/2,b.y1+.5,w+2,1]]){const wall=new T.Mesh(new T.BoxGeometry(sx,sy,12),wallMat);wall.position.set(x,y,6);group.add(wall);}return {group};
     }
-    if(!cache.has(game))cache.set(game,(async()=>{
+    const make=async()=>{
       // DSIM falls back to its constants-built BIOBUZZ field when the CAD file is absent.
       if(game==='biobuzz'){const handles=await L.buildBiobuzzField('high'),elements=L.buildBiobuzzElements(available.biobuzz?'cad':'sphere');handles.group.add(elements.group);handles.group.position.set(72,72,0);handles.group.userData.keep=true;return {group:handles.group,handles,elements};}
       if(!available.decode)return schematic(info,T,palette,game);
@@ -58,7 +60,9 @@ window.DeckFieldArt=(()=>{
       model.scale.set(72/70.1913149,72/70.1913149,1);model.position.set(72,72,0);model.userData.keep=true;
       model.traverse(o=>{if(!o.isMesh)return;o.castShadow=true;o.receiveShadow=true;for(const m of [].concat(o.material||[])){if(m.name==='tile'){m.color.set(0x41464c);m.roughness=.95;o.castShadow=false;}if(m.name==='tape'){o.castShadow=false;m.polygonOffset=true;m.polygonOffsetFactor=-2;m.polygonOffsetUnits=-2;}if(m.name==='glass'){m.opacity=.08;m.transparent=true;m.depthWrite=false;}}});
       return {group:model};
-    })().catch(e=>{cache.delete(game);throw e;}));
+    };
+    if(own){const visual=await make();group.add(visual.group);return visual;}
+    if(!cache.has(game))cache.set(game,make().catch(e=>{cache.delete(game);throw e;}));
     const visual=await cache.get(game);group.add(visual.group);return visual;
   }
   function hitboxes(info,T,L){

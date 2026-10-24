@@ -1,5 +1,5 @@
 'use strict';
-// Run videos (Run & review → Record, and Export → Run video): the parts of a run, the bar above the field and the crop.
+// Run videos (Run & review → Record, and Export → Run video): the parts of a run, the writing over the picture and the file names.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const V=require('../ui/sim-video.js');
 
@@ -30,18 +30,19 @@ test('the bar shows the period clock, the name and the points',()=>{
   assert.equal(V.caption(null).phase,'Run');
 });
 
-test('file names are safe and say which part of the run they are',()=>{
-  assert.equal(V.title('Red: auto / cycles','auto'),'Red auto cycles - Autonomous');
-  assert.equal(V.title('','teleop'),'Deck run - Teleop');
-  assert.equal(V.title('../..\\x','all'),'x - Whole run');
+test('the bottom line says how fast the robot goes and what its shooter does',()=>{
+  const f=(m,extra={})=>({time:1,truth:{x:0,y:0,heading:0,vx:30,vy:40},mechanisms:m,...extra});
+  assert.equal(V.detail(f(undefined)),'50 in/s');
+  assert.equal(V.detail(f({held:2,flywheel:.5,command:{spin:true}})),'50 in/s  ·  2 held  ·  spinning up');
+  assert.equal(V.detail(f({held:2,flywheel:1,ready:true,aligned:true,command:{aim:true}})),'50 in/s  ·  2 held  ·  on target');
+  assert.equal(V.detail(f({held:1,flywheel:1,ready:true,aligned:true,command:{feed:true}},{acting:'Shoot'})),'50 in/s  ·  1 held  ·  shooting  ·  Shoot');
+  assert.equal(V.detail(f({held:0,flywheel:0,command:{intake:true}})),'50 in/s  ·  0 held  ·  intaking');
+  assert.equal(V.detail(null),'');
 });
 
-test('the field is cropped from a scaled window picture, inside the picture, at even sizes',()=>{
-  const c=V.crop({left:100,top:50,width:400,height:300},{width:1000,height:800},{width:2000,height:1600});
-  assert.deepEqual(c,{x:200,y:100,width:800,height:600});
-  const edge=V.crop({left:-10,top:700,width:400,height:300},{width:1000,height:800},{width:1000,height:800});
-  assert.equal(edge.x,0);assert.equal(edge.y+edge.height,800);
-  assert.deepEqual(V.outputSize(801,601),{width:802,height:602});assert.deepEqual(V.outputSize(1200,1000),{width:1200,height:1000});
-  // Wider pictures are scaled to 1280, which the encoder keeps up with in real time.
-  const big=V.outputSize(3000,2000);assert.equal(big.width,1280);assert.equal(big.height%2,0);
+test('file names are safe and say which part of the run and which camera they are',()=>{
+  assert.equal(V.title('Red: auto / cycles','auto','3d'),'Red auto cycles - Autonomous - 3D');
+  assert.equal(V.title('','teleop','2d'),'Deck run - Teleop - 2D');
+  assert.equal(V.title('../..\\x','all'),'x - Whole run');
+  assert.deepEqual(Object.keys(V.VIEWS),['2d','3d']);
 });

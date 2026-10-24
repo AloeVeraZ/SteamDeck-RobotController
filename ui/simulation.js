@@ -280,7 +280,16 @@ public class MyAuto implements DeckAutonomous {
   // While zoomed in, a small copy of the whole field shows the part in view; click or drag it to look somewhere else.
   const minimap=svg('svg',{id:'sim-minimap',class:'sim-minimap',role:'group','aria-label':'Whole field. Click or drag to move the zoomed view.'}),miniFloor=svg('rect',{class:'field-floor',x:0,y:0}),miniUses=['#sim-overlay','#field-robot'].map(ref=>svg('use',{'data-ref':ref})),miniView=svg('rect',{class:'sim-minimap-view'});
   minimap.append(miniFloor,...miniUses,miniView);minimap.setAttribute('hidden','');graph.after(minimap);
+  // The map shows while the view zooms or moves and fades 2 s after it stops, so it does not cover the route.
+  // It stays while the left button is held on the field or the map, or the pointer is on the map; the 2 s start after.
+  const mapWake={timer:0,held:false,over:false,view:''};
+  function mapAwake(){minimap.classList.remove('asleep');clearTimeout(mapWake.timer);if(!mapWake.held&&!mapWake.over)mapWake.timer=setTimeout(()=>minimap.classList.add('asleep'),2000);}
+  for(const target of [graph,minimap])target.addEventListener('pointerdown',e=>{if(e.button===0){mapWake.held=true;if(!minimap.classList.contains('asleep'))mapAwake();}},true);
+  for(const type of ['pointerup','pointercancel'])addEventListener(type,e=>{if(e.button<=0&&mapWake.held){mapWake.held=false;if(!minimap.classList.contains('asleep'))mapAwake();}},true);
+  minimap.addEventListener('pointerenter',()=>{mapWake.over=true;mapAwake();});minimap.addEventListener('pointerleave',()=>{mapWake.over=false;mapAwake();});
   function minimapView(w,h){const show=zoom.z>1.001&&project.view!=='3d';minimap.toggleAttribute('hidden',!show);
+    // A zoom or pan wakes the map; redrawing the same view does not.
+    const at=show?`${zoom.z} ${zoom.cx} ${zoom.cy}`:'';if(at!==mapWake.view){mapWake.view=at;if(show)mapAwake();}
     // The copies follow the field only while shown, so a fitted field does not pay for them.
     for(const u of miniUses){const ref=show?u.dataset.ref:null;if(u.getAttribute('href')!==ref)ref?u.setAttribute('href',ref):u.removeAttribute('href');}if(!show)return;
     const pad=Math.max(floorSize.w,floorSize.h)*.03;minimap.setAttribute('viewBox',`${-pad} ${-pad} ${floorSize.w+pad*2} ${floorSize.h+pad*2}`);miniFloor.setAttribute('width',floorSize.w);miniFloor.setAttribute('height',floorSize.h);
@@ -337,7 +346,7 @@ public class MyAuto implements DeckAutonomous {
   async function call(method,...args){await ready();return api.sim(method,...args);}
   if(native)api.onSim(message=>{
     if(!active)return;
-    if(message.type==='frame'){liveFrame=message;runData?.record(message);if(videoReplay||runData&&!runData.live())return;frame=message;trailPoint(message);paint();telemetry();return;}
+    if(message.type==='frame'){liveFrame=message;runData?.record(message);if(runData&&!runData.live())return;frame=message;trailPoint(message);paint();telemetry();return;}
     if(message.type==='run')runEvent(message);
     else if(message.type==='practice')practicePanel(message);
     else if(message.type==='optimize'&&optimizing&&optimize.layoutId===L().id)status('#sim-plan-status',`Test-driving route ${message.index+1} of ${message.total}…`);
@@ -345,7 +354,9 @@ public class MyAuto implements DeckAutonomous {
     else if(message.type==='cad-progress')importProgress=message;
     else if(message.type==='host-exit'){info=null;frame=null;runState='idle';if(message.error)status('#sim-run-status',message.error);transport();}
   });
-  function trailPoint(f){let last=trail.at(-1);const t=f.truth;if(last&&Math.hypot(last.x-t.x,last.y-t.y)>12){trail=[];last=null;}if(!last||Math.hypot(last.x-t.x,last.y-t.y)>.4||(f.estimate&&!last.e))trail.push({x:t.x,y:t.y,e:f.estimate?{x:f.estimate.x,y:f.estimate.y}:null});if(trail.length>3000)trail.splice(0,1000);}
+  // Adds a frame's position to a trail, which starts again after a jump (a reset); returns the trail.
+  function trailAdd(list,f){let last=list.at(-1);const t=f.truth;if(last&&Math.hypot(last.x-t.x,last.y-t.y)>12){list=[];last=null;}if(!last||Math.hypot(last.x-t.x,last.y-t.y)>.4||(f.estimate&&!last.e))list.push({x:t.x,y:t.y,e:f.estimate?{x:f.estimate.x,y:f.estimate.y}:null});if(list.length>3000)list.splice(0,1000);return list;}
+  function trailPoint(f){trail=trailAdd(trail,f);}
   function appendRunLog(line){logLines.push(line);logLines=logLines.slice(-200);$('#sim-log').textContent=logLines.join('\n');}
   function runEvent(m){
     if(m.state==='starting'){if(videoReplay)videoReplay.cancel=true;runData?.reset();logLines=[];appendRunLog('Starting '+(m.kind||'autonomous')+'…');}
@@ -1730,65 +1741,88 @@ public class MyAuto implements DeckAutonomous {
   compareBox.querySelector('#sim-log-clear').onclick=()=>{robotLog.data=null;drawRobotLog();$('#sim-log-result').replaceChildren();$('#sim-log-clear').hidden=true;};
   compareBox.querySelector('#sim-log-origin').onchange=()=>{if(robotLog.data?.format==='csv')compareBox.querySelector('#sim-log-status').textContent='Open the CSV again to use these coordinates.';};
   const logNodes=[Object.assign(document.createElement('h3'),{textContent:'Run log'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'The last run with every value, in the WPILOG format FTC and FRC log viewers read.'}),logButton,logStatus];
-  // Run videos, filmed from this window and cropped to the field (2D or 3D, as shown). Record beside Run films
-  // the next run, or the one playing, and asks where to save it when the run ends. Export → Run video films one
-  // period of the last run again by replaying it on the field at real speed.
-  const Video=window.DeckSimVideo,video={armed:false,live:false,ending:false,start:null};
-  const videoRec=Video.create({element:$('#sim-stage'),frame:()=>frame,name:()=>L().name,start:()=>video.start??runData.frames()[0]?.time??0});
+  // Run videos, filmed by a camera of their own rather than from the window: 2D looks straight down at the whole
+  // field; 3D follows the robot and turns to the goal while it shoots, with the whole field in a corner. Record
+  // beside Run asks which, then films the next run (or the one playing) and asks where to save it when the run
+  // ends. Export → Run video films one period of the last run again by replaying it at real speed.
+  const Video=window.DeckSimVideo,video={armed:false,live:false,ending:false,picking:false,preparing:false,view:'3d',exportView:'3d'};
+  // What the video films: the run frame and trail now, the view, and when its clock starts.
+  let videoShow=null,videoCam=null;
+  async function videoCamera(){
+    await three();await script('sim-3d.js');const key=JSON.stringify([info?.field,info?.bounds]);
+    if(videoCam?.key!==key){videoCam?.cam.dispose();videoCam={key,cam:window.DeckSim3D.create(document.createElement('div'),{video:true,style:$('#sim-stage')})};}
+    await videoCam.cam.setField(info,L());videoCam.cam.setModel(model?.holder||null);return videoCam.cam;
+  }
+  // Where each shooter is and the goals it can aim at, so the video can draw its aim.
+  function videoAim(){const m=MECH.sanitize(project.mechanisms);if(L().field!=='biobuzz'||!m.enabled||!m.shooters.length)return null;
+    return {shooters:m.shooters,dims:{length:project.robot.length,width:project.robot.width},targets:['start','other'].map(cell=>MECH.target(m,L().field,L().alliance,cell))};}
+  const videoRec=Video.create({frame:()=>videoShow?.frame(),name:()=>L().name,start:()=>videoShow?.start??runData.frames()[0]?.time??0,
+    shoot:dt=>videoCam.cam.shoot(videoShow.frame(),{...state3d(),trail:videoShow.trail(),aim:videoShow.aim},dt,videoShow.view==='2d'?'top':'chase')});
   const recordButton=$('#sim-record'),recordStatus=Object.assign(document.createElement('p'),{id:'sim-record-status',className:'hint'}),videoSection=document.createElement('select'),videoButton=document.createElement('button'),videoStatus=document.createElement('p');
-  recordStatus.setAttribute('role','status');recordStatus.hidden=true;recordButton.parentElement.after(recordStatus);
+  const recordPick=Object.assign(document.createElement('div'),{id:'sim-record-pick',className:'sim-record-pick',hidden:true,innerHTML:`<p class="hint">Record the next run in</p>${segmented('recordview',Video.VIEWS,'Record the next run in')}`});
+  const videoView=Object.assign(document.createElement('div'),{innerHTML:segmented('videoview',Video.VIEWS,'Video camera')}).firstElementChild;videoView.id='sim-video-view';
+  recordStatus.setAttribute('role','status');recordStatus.hidden=true;recordButton.parentElement.after(recordPick,recordStatus);recordButton.setAttribute('aria-controls','sim-record-pick');
   videoSection.id='sim-video-section';videoSection.innerHTML=options(Video.SECTIONS,'auto');videoButton.type='button';videoButton.className='secondary';videoButton.id='sim-video-save';videoStatus.className='hint';videoStatus.setAttribute('role','status');
   const videoSay=text=>{videoStatus.textContent=recordStatus.textContent=text;recordStatus.hidden=!text;};
-  const videoButtons=()=>{recordButton.setAttribute('aria-pressed',String(video.armed));recordButton.classList.toggle('recording',video.live);recordButton.textContent=video.live?'Stop recording':video.armed?'Recording next run':'Record';recordButton.disabled=!native||!!videoReplay||video.ending;videoButton.textContent=videoReplay?'Cancel video':'Save video of the last run…';};
+  const videoButtons=()=>{recordButton.setAttribute('aria-pressed',String(video.armed));recordButton.setAttribute('aria-expanded',String(video.picking));recordButton.classList.toggle('recording',video.live);
+    recordButton.textContent=video.live?'Stop recording':video.armed?`Recording next run · ${video.view.toUpperCase()}`:video.preparing?'Getting the camera ready…':'Record';recordButton.disabled=!native||!!videoReplay||video.ending||video.preparing;
+    recordPick.hidden=!video.picking;pressedIn(recordPick,'recordview',video.view);pressedIn(videoView,'videoview',video.exportView);videoButton.textContent=videoReplay?'Cancel video':'Save video of the last run…';};
   const videoSections=()=>{const s=Video.sections(runData.frames());for(const o of videoSection.options)o.disabled=!s[o.value];return s;};
-  const showFrame=()=>{if(project.view==='3d')paint();else draw();};
-  async function saveVideo(blob,section){
-    if(!blob?.size){videoSay('Nothing was filmed. Keep this window open and on screen while it records.');return;}
+  async function saveVideo(blob,section,view){
+    if(!blob?.size){videoSay('Nothing was filmed.');return;}
     videoSay('Choose where to save the video…');
-    try{const r=await api.simFile('video-save',{name:Video.title(L().name,section),ext:videoRec.ext(),bytes:new Uint8Array(await blob.arrayBuffer())});videoSay(r?.message||'The video was not saved.');}catch(e){videoSay(e.message);}
+    try{const r=await api.simFile('video-save',{name:Video.title(L().name,section,view),ext:videoRec.ext(),bytes:new Uint8Array(await blob.arrayBuffer())});videoSay(r?.message||'The video was not saved.');}catch(e){videoSay(e.message);}
   }
   async function endLive(wait){
     video.ending=true;videoButtons();if(wait)await new Promise(r=>setTimeout(r,wait));
-    const blob=await videoRec.stop();videoRec.close();Object.assign(video,{armed:false,live:false,ending:false,start:null});videoButtons();
-    await saveVideo(blob,{autonomous:'auto',teleop:'teleop'}[project.practice.mode]||'all');
+    const blob=await videoRec.stop(),view=videoShow?.view||video.view;videoRec.close();videoShow=null;Object.assign(video,{armed:false,live:false,ending:false});videoButtons();
+    await saveVideo(blob,{autonomous:'auto',teleop:'teleop'}[project.practice.mode]||'all',view);
   }
   // Called with every transport update: filming starts when the run does and ends shortly after it stops.
   videoCheck=()=>{
-    if(video.armed&&!video.live&&!video.ending&&runState==='running'){try{videoRec.begin();video.live=true;videoSay('Recording the run. It is saved when the run ends.');}catch(e){videoRec.close();video.armed=false;videoSay(e.message);}videoButtons();}
+    if(video.armed&&!video.live&&!video.ending&&runState==='running'){
+      videoShow={view:video.view,aim:videoAim(),start:null,frame:()=>frame,trail:()=>trail};
+      try{videoRec.begin();video.live=true;videoSay(`Recording the run in ${video.view.toUpperCase()}. It is saved when the run ends.`);}catch(e){videoRec.close();videoShow=null;video.armed=false;videoSay(e.message);}videoButtons();}
     else if(video.live&&!video.ending&&runState==='idle')void endLive(700);
   };
-  recordButton.onclick=async()=>{
+  recordButton.onclick=()=>{
     if(video.live){void endLive(0);return;}
-    if(video.armed){videoRec.close();video.armed=false;videoSay('');videoButtons();return;}
-    try{await videoRec.open();}catch(e){videoSay(e.message||'Recording could not start.');return;}
-    video.armed=true;videoSay(runState==='running'?'':'Recording the next run: press Run.');videoButtons();videoCheck();
+    if(video.armed){video.armed=false;videoSay('');videoButtons();return;}
+    video.picking=!video.picking;videoButtons();
   };
+  // Choosing 2D or 3D readies that camera (the field model loads once) and waits for the run.
+  for(const b of recordPick.querySelectorAll('[data-recordview]'))b.onclick=async()=>{
+    Object.assign(video,{view:b.dataset.recordview,picking:false,preparing:true});videoButtons();
+    try{await videoCamera();}catch(e){video.preparing=false;videoSay(e.message||'Recording could not start.');videoButtons();return;}
+    Object.assign(video,{preparing:false,armed:true});videoSay(runState==='running'?'':`Recording the next run in ${video.view.toUpperCase()}: press Run.`);videoButtons();videoCheck();
+  };
+  for(const b of videoView.querySelectorAll('[data-videoview]'))b.onclick=()=>{video.exportView=b.dataset.videoview;videoButtons();};
   videoSection.onfocus=videoSections;
   videoButton.onclick=async()=>{
     if(videoReplay){videoReplay.cancel=true;return;}
-    const frames=runData.frames().slice(),section=videoSection.value,range=videoSections()[section];
+    const frames=runData.frames().slice(),section=videoSection.value,range=videoSections()[section],view=video.exportView;
     if(!frames.length)return videoSay('Run the robot first; every run is recorded while it plays.');
     if(!range)return videoSay(`The last run has no ${Video.SECTIONS[section].toLowerCase()} period. Choose another part.`);
     if(!native)return videoSay('Saving videos needs the installed app.');
-    if(runState==='starting'||frame?.playing||video.armed)return videoSay('Stop the run (and Record) first, then save its video.');
-    try{await videoRec.open();}catch(e){return videoSay(e.message||'Recording could not start.');}
-    const list=frames.slice(range[0],range[1]+1),t0=list[0].time,span=list.at(-1).time-t0,saved={frame,trail};
-    videoReplay={cancel:false};video.start=t0;videoButtons();trail=[];frame=list[0];trailPoint(frame);showFrame();
+    if(runState==='starting'||frame?.playing||video.armed||video.preparing)return videoSay('Stop the run (and Record) first, then save its video.');
+    // The replay plays on the video's camera only; the field in the window is left as it is.
+    const list=frames.slice(range[0],range[1]+1),t0=list[0].time,span=list.at(-1).time-t0,replay={cancel:false,i:0,began:0,trail:trailAdd([],list[0])};
+    videoReplay=replay;videoButtons();videoSay(`Getting the ${view.toUpperCase()} camera ready…`);
+    const elapsed=()=>replay.began?(performance.now()-replay.began)/1000:0;
     let finished=false,failed=false;
     try{
-      // Let the first picture of the replay reach the window before filming starts.
-      await new Promise(r=>setTimeout(r,250));videoRec.begin();const began=performance.now();let i=0;
-      await new Promise(resolve=>{const tick=()=>{if(videoReplay.cancel)return resolve();const t=(performance.now()-began)/1000;
-        // The field is redrawn only when the replay reaches the next recorded frame, which keeps the window light while it films.
-        const was=i;while(i<list.length-1&&list[i+1].time-t0<=t){i++;trailPoint(list[i]);}if(i!==was){frame=list[i];showFrame();}
-        const shown=`Filming the ${Video.SECTIONS[section].toLowerCase()}… ${Math.min(t,span).toFixed(0)} of ${span.toFixed(0)} s`;if(videoStatus.textContent!==shown)videoSay(shown);
-        if(t>=span+.6){finished=true;return resolve();}requestAnimationFrame(tick);};tick();});
-    }catch(e){failed=true;videoSay(e.message);}
-    const blob=await videoRec.stop();videoRec.close();frame=saved.frame;trail=saved.trail;videoReplay=null;video.start=null;videoButtons();showFrame();
-    if(finished)await saveVideo(blob,section);else if(!failed)videoSay('Video cancelled.');
+      await videoCamera();if(replay.cancel)throw null;
+      videoShow={view,aim:videoAim(),start:t0,trail:()=>replay.trail,frame:()=>{const t=elapsed();while(replay.i<list.length-1&&list[replay.i+1].time-t0<=t){replay.i++;replay.trail=trailAdd(replay.trail,list[replay.i]);}return list[replay.i];}};
+      replay.began=performance.now();videoRec.begin();
+      await new Promise(resolve=>{const timer=setInterval(()=>{const t=elapsed();if(replay.cancel){clearInterval(timer);return resolve();}
+        const shown=`Filming the ${Video.SECTIONS[section].toLowerCase()} in ${view.toUpperCase()}… ${Math.min(t,span).toFixed(0)} of ${span.toFixed(0)} s`;if(videoStatus.textContent!==shown)videoSay(shown);
+        if(t>=span+.6){finished=true;clearInterval(timer);resolve();}},100);});
+    }catch(e){if(e){failed=true;videoSay(e.message);}}
+    const blob=await videoRec.stop();videoRec.close();videoShow=null;videoReplay=null;videoButtons();
+    if(finished)await saveVideo(blob,section,view);else if(!failed)videoSay('Video cancelled.');
   };
-  const videoNodes=[Object.assign(document.createElement('h3'),{textContent:'Run video'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'Save the last run as a video of the field (2D or 3D, as shown), with the period, clock and points above it. It replays at real speed, so a 30 s autonomous takes 30 s; keep this window open on screen. To film a run while you drive it, press Record beside Run instead.'}),
-    Object.assign(document.createElement('label'),{htmlFor:'sim-video-section',textContent:'Part of the run'}),videoSection,videoButton,videoStatus];
+  const videoNodes=[Object.assign(document.createElement('h3'),{textContent:'Run video'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'Save the last run as a video. 2D looks straight down at the whole field; 3D follows the robot and turns to the goal while it shoots, with the whole field in the corner. The period, clock, points and what the robot is doing are shown on it. It replays at real speed, so a 30 s autonomous takes 30 s. To film a run while you drive it, press Record beside Run instead.'}),
+    Object.assign(document.createElement('label'),{textContent:'Camera'}),videoView,Object.assign(document.createElement('label'),{htmlFor:'sim-video-section',textContent:'Part of the run'}),videoSection,videoButton,videoStatus];
   videoButtons();
   // The run's data first; the output, code and checks are for after the run.
   settingsViews(runPanel,[['Data',[$('#sim-run-analysis'),dataBox,compareBox]],['Output',outputNodes],['Program',programNodes],['Export',[...exportNodes,...logNodes,...videoNodes]],['Diagnostics',[diagnosticBox('sim-run-diagnostics')]]]);

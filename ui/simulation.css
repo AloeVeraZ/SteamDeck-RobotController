@@ -291,6 +291,9 @@
 /* The whole field in a corner while zoomed, with the part in view outlined. */
 .sim-minimap{position:absolute;right:8px;top:8px;width:min(22%,120px);z-index:2;background:var(--bg);border:1px solid var(--line-strong);border-radius:4px;box-shadow:0 2px 8px rgb(0 0 0 / .35);cursor:pointer;touch-action:none;--line-scale:1.6}
 .sim-minimap[hidden]{display:none}
+.sim-minimap.asleep{transition:opacity .35s ease}
+.sim-minimap.asleep{opacity:0;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.sim-minimap.asleep{transition:none}}
 .sim-minimap use{pointer-events:none}
 .sim-minimap-view{fill:var(--accent);fill-opacity:.12;stroke:var(--accent);stroke-width:1.5;vector-effect:non-scaling-stroke;pointer-events:none}
 #simulation-view[data-tab=setup] .sim-zoom{display:none}
@@ -321,3 +324,6 @@
 @keyframes sim-record-blink{to{visibility:hidden}}
 @media (prefers-reduced-motion:reduce){.sim-run-row .sim-record.recording::before{animation:none}}
 #sim-video-section{margin-bottom:8px}
+#sim-video-view{margin-bottom:8px}
+.sim-record-pick{display:grid;gap:6px;margin:4px 0 8px}
+.sim-record-pick .hint{margin:0}
