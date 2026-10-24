@@ -12,7 +12,7 @@ All commands run on this Windows laptop with the repo's Electron as Node:
 | Mid-session full run | 293/294. The one failure was a spin-limit test, fixed right after by raising the limit to 100 spins. |
 | Full run (24 October, morning) | **324/324.** The 24-barrier time-budget test takes about 1.2 s. |
 | After drag-to-pan, the field map and the two-view Paths panel | **325/325.** `tests/simulation-ui.cjs` passes too. |
-| After mechanism hardware and Send to robot (24 October, afternoon) | **343/343** (one OnBot test updated for the check TeleOp beside the autonomous). New: `sim-mechanism-hardware` (7), `robot-link` (6). |
+| After mechanism hardware and Send to robot (24 October, afternoon) | **343/343** (one OnBot test updated for the check TeleOp beside the autonomous). New: `sim-mechanism-hardware` (7), `robot-link` (6). `tests/simulation-ui.cjs` passes all 16 sections. |
 
 New test files:
 - `sim-pedro`
