@@ -1,16 +1,34 @@
 'use strict';
 // Developer check: the virtual Control Hub's FTC SDK stand-ins and the Control Hub exports against the
-// REAL FTC SDK. Downloads RobotCore and Hardware 12.0.0 from Maven Central into a temporary folder,
-// verifies their published SHA-1, then:
+// REAL FTC SDK and Pedro Pathing. Downloads RobotCore and Hardware 12.0.0 and Pedro Pathing core and revhub
+// 3.0.2 (what the Pedro Quickstart pins) from Maven Central into a temporary folder, verifies their
+// published SHA-1, then:
 //   1. compiles single-file OnBot Java and multi-file Control Hub exports for every supported localizer, a turning route, a route with
 //      action paths, spins and pin turns, and tank-style robots;
-//   2. checks every public member a stand-in declares exists in the real SDK (fields and methods the
+//   2. compiles the Pedro Pathing 3 export for every holonomic case, with the Quickstart's own
+//      pedro/Constants.java beside it;
+//   3. compiles every export of the example setups in examples/ (BIOBUZZ routes with intakes, shooters,
+//      turrets and servos), so the generated mechanism code is checked too;
+//   4. checks every public member a stand-in declares exists in the real SDK (fields and methods the
 //      real SDK inherits from OpModeInternal are listed separately).
-// The SDK is only a reference: the temporary folder is deleted afterwards, and nothing is bundled.
+// The libraries are only a reference: the temporary folder is deleted afterwards, and nothing is bundled.
 // Needs a built simulator (node tools/simulation/build.cjs) and network access.
 // Usage: node tools/simulation/check-ftc-sdk.cjs
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),https=require('node:https'),crypto=require('node:crypto'),{execFileSync}=require('node:child_process');
-const root=path.join(__dirname,'../..'),VERSION='12.0.0',ARTIFACTS=['RobotCore','Hardware'];
+const root=path.join(__dirname,'../..'),VERSION='12.0.0',ARTIFACTS=['RobotCore','Hardware'],PEDRO='3.0.2';
+// The Pedro Quickstart's TeamCode/src/main/java/org/firstinspires/ftc/teamcode/pedro/Constants.java as it ships.
+const QUICKSTART_CONSTANTS=`package org.firstinspires.ftc.teamcode.pedro;
+
+import com.pedropathing.follower.Follower;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+
+public class Constants {
+    public static Follower create(HardwareMap h) {
+        // return new Follower(Drivetrain, Localizer, Foresight);
+        return null;
+    }
+}
+`;
 const jdk=fs.readdirSync(path.join(root,'.cache/simulation-runtime/jdk')).map(d=>path.join(root,'.cache/simulation-runtime/jdk',d))[0];
 const tool=name=>path.join(jdk,'bin',process.platform==='win32'?name+'.exe':name);
 const get=url=>new Promise((resolve,reject)=>https.get(url,res=>{if(res.statusCode!==200){res.resume();return reject(Error(`${url}: HTTP ${res.statusCode}`));}const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve(Buffer.concat(chunks)));}).on('error',reject));
@@ -28,10 +46,24 @@ async function main(){
       const dir=path.join(temp,name);fs.mkdirSync(dir);fs.writeFileSync(path.join(dir,'lib.aar'),aar);execFileSync(tool('jar'),['xf','lib.aar','classes.jar'],{cwd:dir});jars.push(path.join(dir,'classes.jar'));
       console.log(`Downloaded ${name} ${VERSION} (${(aar.length/1048576).toFixed(1)} MB), SHA-1 verified.`);
     }
+    const pedroJars=[];
+    for(const [name,ext] of [['core','jar'],['revhub','aar']]){
+      const base=`https://repo1.maven.org/maven2/com/pedropathing/${name}/${PEDRO}/${name}-${PEDRO}.${ext}`,bytes=await get(base),expected=(await get(base+'.sha1')).toString().trim().slice(0,40);
+      const actual=crypto.createHash('sha1').update(bytes).digest('hex');if(actual!==expected)throw Error(`Pedro ${name} SHA-1 ${actual} does not match Maven Central's ${expected}.`);
+      const dir=path.join(temp,'pedro-'+name);fs.mkdirSync(dir);
+      if(ext==='jar'){const jar=path.join(dir,name+'.jar');fs.writeFileSync(jar,bytes);pedroJars.push(jar);}
+      else{fs.writeFileSync(path.join(dir,'lib.aar'),bytes);execFileSync(tool('jar'),['xf','lib.aar','classes.jar'],{cwd:dir});pedroJars.push(path.join(dir,'classes.jar'));}
+      console.log(`Downloaded Pedro Pathing ${name} ${PEDRO} (${(bytes.length/1048576).toFixed(2)} MB), SHA-1 verified.`);
+    }
     const classes=path.join(root,'sim-runtime/driver/classes');
     const javac=(sources,out,cp)=>{fs.mkdirSync(out,{recursive:true});return execFileSync(tool('javac'),['--release','8','-encoding','UTF-8','-proc:none','-Xlint:all,-classfile','-cp',cp.join(path.delimiter),'-d',out,...sources],{encoding:'utf8',stdio:['ignore','pipe','pipe']});};
     // Every Control Hub export, generated exactly as the app does.
-    const P=require('../../ui/sim-planner.js'),X=require('../../ui/sim-export.js'),F=require('../../ui/sim-ftc.js'),{SimEngine}=require('../../src/sim-engine.cjs');
+    const P=require('../../ui/sim-planner.js'),X=require('../../ui/sim-export.js'),F=require('../../ui/sim-ftc.js'),Pedro=require('../../ui/sim-pedro.js'),Cli=require('../deck-sim.cjs'),{SimEngine}=require('../../src/sim-engine.cjs');
+    const write=(dir,files)=>Object.entries(files).map(([rel,text])=>{const f=path.join(dir,rel);fs.mkdirSync(path.dirname(f),{recursive:true});fs.writeFileSync(f,text);return f;});
+    const noWarnings=(name,output)=>{const warnings=output.split('\n').filter(l=>/warning:/.test(l));if(warnings.length)throw Error(`${name} compiles with warnings:\n${warnings.join('\n')}`);};
+    // The Pedro export beside the Quickstart's Constants.java, against the SDK and Pedro 3.
+    const pedro=(name,out)=>{const dir=path.join(temp,'pedro',name.replace(/\W/g,'-')),files=write(dir,{...out.files,'org/firstinspires/ftc/teamcode/pedro/Constants.java':QUICKSTART_CONSTANTS});
+      noWarnings(`Pedro export (${name})`,javac(files,dir+'-classes',[...jars,...pedroJars]));console.log(`Pedro Pathing ${PEDRO} export (${name}): ${files.length-1} files compile against the real SDK and Pedro, no warnings.`);};
     const e=new SimEngine({workDir:fs.mkdtempSync(path.join(temp,'engine-')),now:()=>0});
     const cases=[...Object.keys(F.SUPPORTED).map(localization=>({name:localization,localization,robot:{drivetrain:'mecanum',length:17,width:17,heightIn:5,driveRpm:500,intakeIn:0},start:{x:20,y:30,heading:0},zones:[{id:'a',type:'rect',x:70,y:60,width:16,height:40}],pins:[{x:110,y:40,wait:.5,action:'Score'},{x:120,y:120}],clearance:2})),
       {name:'turning route',localization:'odometry',robot:{drivetrain:'mecanum',length:24,width:12,heightIn:5,driveRpm:500,intakeIn:0},start:{x:72,y:30,heading:0},zones:[{id:'l',type:'rect',x:31.5,y:72,width:63,height:4},{id:'r',type:'rect',x:112.5,y:72,width:63,height:4}],pins:[{x:72,y:110},{x:30,y:120}],clearance:1},
@@ -50,6 +82,17 @@ async function main(){
         const single=F.onBotJava({route,layout,tuning:info.tuning,robot:info.robot,localization:c.localization,setupName:'SDK check',routeJava:X.java(route,layout,{polygon:P.polygon,className:'PlannedRoute',packageName:'org.firstinspires.ftc.teamcode'})});
         const singleDir=path.join(temp,'onbot',c.name.replace(/\W/g,'-'));fs.mkdirSync(singleDir,{recursive:true});const singlePath=path.join(singleDir,single.name);fs.writeFileSync(singlePath,single.source);
         javac([singlePath],singleDir+'-classes',jars);console.log(`OnBot Java (${c.name}): one Java 8 file compiles against the real SDK.`);
+        if(!c.nonholonomic)pedro(c.name,Pedro.files({route,layout,setupName:'SDK check',robot:info.robot,defaultPower:.8}));
+      }
+      // The example setups, exported exactly as `deck-sim export` does (mechanisms included).
+      for(const file of fs.readdirSync(path.join(root,'examples')).filter(f=>f.endsWith('.json')&&!f.endsWith('.pins.json'))){
+        const setup=Cli.readSetup(path.join(root,'examples',file)),{e:ex,info,l}=await Cli.load(setup);
+        try{const route=Cli.planRoute(setup,l,info);
+          for(const format of ['teamcode','onbot',...(route.nonholonomic?[]:['pedro'])]){const {files}=Cli.exported(setup,l,route,info,format),name=`${file} ${format}`;
+            if(format==='pedro'){pedro(file,{files});continue;}
+            const dir=path.join(temp,'examples',name.replace(/\W/g,'-')),sources=write(dir,files);
+            noWarnings(name,javac(sources,dir+'-classes',jars));console.log(`Example ${file} (${format}${info.mechanisms?.enabled?', mechanisms':''}): ${sources.length} file${sources.length>1?'s compile':' compiles'} against the real SDK.`);}
+        }finally{ex.dispose();}
       }
     }finally{e.dispose();}
     // Signatures: nothing a stand-in declares may be missing from the real SDK.

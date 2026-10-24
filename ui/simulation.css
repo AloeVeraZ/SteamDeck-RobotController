@@ -270,3 +270,10 @@
 .sim-part-pick{border:1px solid #ffb224;border-radius:8px;padding:8px;margin:6px 0}.sim-part-pick p{margin:0 0 6px}.sim-part-pick .chips{display:flex;flex-wrap:wrap;gap:6px}.sim-part-pick .chip[aria-pressed="true"]{outline:2px solid #ffb224;outline-offset:1px}
 .sim-part-nav{display:flex;justify-content:space-between;margin-top:6px}
 .sim-needs-you{border-left:3px solid #ffb224;padding:4px 8px;font-size:13px}.sim-needs-input input{outline:2px solid #ffb224;outline-offset:1px}
+/* Export readiness: what Deck checked versus what the team still has to do on the robot. */
+.sim-checklist{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px;font-size:12px;color:var(--muted)}
+.sim-checklist li{padding-left:18px;position:relative;line-height:1.4}
+.sim-checklist li::before{content:'';position:absolute;left:2px;top:.45em;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--quiet)}
+.sim-checklist li[data-status=verified]::before{background:var(--connected);border-color:var(--connected)}
+.sim-checklist li[data-status=physical]::before,.sim-checklist li[data-status=calibration]::before{border-color:var(--warning)}
+.sim-checklist strong{color:var(--text);font-weight:600}

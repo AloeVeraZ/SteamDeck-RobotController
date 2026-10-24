@@ -1,0 +1,400 @@
+(function(root,factory){const model=factory();if(typeof module==='object'&&module.exports)module.exports=model;else root.DeckSimPedro=model;})(typeof globalThis==='object'?globalThis:this,()=>{
+  'use strict';
+  // Pedro Pathing 3 export: the planned route as Android Studio TeamCode for a project built from the
+  // Pedro Pathing Quickstart (com.pedropathing:revhub 3.0.2 on FTC SDK 12.0.0). The team's own
+  // pedro/Constants.java builds the Follower (drivetrain, localizer and tuned Foresight gains); these
+  // files only add the route, the autonomous OpMode and the action slots.
+  //
+  // Coordinates need no conversion: Pedro and the planner share one frame (inches, origin at the
+  // bottom-left field corner, +X right, +Y up, heading counterclockwise from +X).
+  //
+  // Only Pedro 3.0 API that exists in that release is used: com.pedropathing.api.Paths line/curve/path,
+  // Path.constant/linear/facingPoint/heading/with, Interpolator.geometric, Vector2D.cartesian, Pose,
+  // Follower.follow/hold/update/stop/setPose/pose/velocity/following/algorithm, Foresight.config.maxPathSpeed.at.
+  const PEDRO_VERSION='3.0.2',SDK_VERSION='12.0.0',QUICKSTART_CONSTANTS='org.firstinspires.ftc.teamcode.pedro.Constants';
+  const n=v=>{if(!Number.isFinite(Number(v)))throw Error('The route has a coordinate or heading that is not a number. Re-plan it before exporting.');return Number(v).toFixed(3).replace(/\.?0+$/,'').replace(/^-0$/,'0')||'0';};
+  const finite=Number.isFinite,norm=d=>((d%360)+540)%360-180,rad=d=>`Math.toRadians(${n(d)})`;
+  const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
+  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/[\r\n]+/g,' ').trim();
+  const endOf=s=>finite(s.endHeading)?s.endHeading:s.heading;
+  const JAVA_WORDS=new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null var record yield'.split(' '));
+  // Type names the generated files import or declare.
+  const TAKEN=new Set(['Follower','Pose','Path','Paths','Vector2D','Interpolator','Foresight','Constants','Angle','RouteActions','RobotActions','Mechanisms','LinearOpMode','ElapsedTime','Autonomous','HardwareMap','Telemetry']);
+  function names(className,packageName){
+    if(!/^[A-Z][A-Za-z0-9_]{0,55}$/.test(className))throw Error('Class name must start with a capital letter and use letters, digits or _.');
+    if(TAKEN.has(className)||TAKEN.has(className+'Paths')||TAKEN.has(className+'Pedro'))throw Error('Class name conflicts with a Pedro Pathing or generated type. Choose a route name such as PlannedRoute.');
+    if(!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/.test(packageName))throw Error('Package must look like org.firstinspires.ftc.teamcode.');
+    if(packageName.split('.').some(p=>JAVA_WORDS.has(p)))throw Error('Package names cannot contain Java reserved words.');
+    return {paths:className+'Paths',opMode:className+'Pedro'};
+  }
+  const len=s=>{let total=0,prev=null;for(let j=0;j<=32;j++){const p=bez(s.points,j/32);if(prev)total+=Math.hypot(p.x-prev.x,p.y-prev.y);prev=p;}return total;};
+  function bez(points,t){let p=points.map(q=>({x:q.x,y:q.y}));while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];}
+  // Direction of travel at the start or end of a segment (first/last distinct control point).
+  function tangent(s,atEnd){const p=s.points,a=atEnd?[...p].reverse():p,q=a.find(r=>Math.hypot(r.x-a[0].x,r.y-a[0].y)>1e-6);if(!q)return null;const dx=atEnd?a[0].x-q.x:q.x-a[0].x,dy=atEnd?a[0].y-q.y:q.y-a[0].y,l=Math.hypot(dx,dy);return {x:dx/l,y:dy/l};}
+  const bearing=(p,t)=>Math.atan2(t.y-p.y,t.x-p.x)*180/Math.PI;
+  const startHeading=(s,fallback)=>s.target?bearing(s.points[0],s.target):finite(s.heading)?s.heading:fallback;
+  const finalHeading=(s,fallback)=>s.target?bearing(s.points.at(-1),s.target):finite(endOf(s))?endOf(s):fallback;
+  // One planner segment as a Pedro path expression with its heading interpolation.
+  function segment(s,fallback){
+    for(const p of s.points)if(!finite(p.x)||!finite(p.y))throw Error('The route has a point that is not a number. Re-plan it before exporting.');
+    const v=p=>`v(${n(p.x)}, ${n(p.y)})`,line=s.type==='line'||s.points.length===2;
+    const geometry=line?`Paths.line(${v(s.points[0])}, ${v(s.points.at(-1))})`:`Paths.curve(${s.points.map(v).join(', ')})`;
+    if(s.target)return `${geometry}.facingPoint(${v(s.target)})`;
+    const h0=finite(s.heading)?s.heading:fallback,h1=finite(s.endHeading)?s.endHeading:h0;
+    if(Math.abs(h1-h0)<1e-6)return `${geometry}.constant(${rad(h0)})`;
+    // Pedro's linear() takes the short way round and spreads the turn by distance travelled. On a
+    // straight line under half a turn that is exactly the planned turn; otherwise the planned turn
+    // (by curve parameter, possibly whole spins) is kept with a geometric interpolator.
+    if(line&&Math.abs(h1-h0)<179.9)return `${geometry}.linear(${rad(h0)}, ${rad(h0+norm(h1-h0))})`;
+    return `${geometry}.heading(turn(${n(h0)}, ${n(h1)}))`;
+  }
+  function legsOf(route,exporter){
+    for(const s of route.segments)for(const p of [...s.points,...(s.target?[s.target]:[])])if(!finite(p?.x)||!finite(p?.y))throw Error('The route has a point that is not a number. Re-plan it before exporting.');
+    const all=exporter.legs(route);
+    for(const l of all){l.segments=l.segments.filter(s=>len(s)>1e-4);if(!l.segments.length)throw Error(`Leg to pin ${l.pin||'?'} has no length. Move that pin away from the point before it.`);}
+    return all;
+  }
+  // Legs the robot drives straight through: nothing happens at the junction, and both the direction
+  // of travel and the heading carry on (only a motor power or action-path boundary splits them).
+  function throughs(legs,startH){
+    let heading=startH;
+    return legs.map((l,i)=>{const end=finalHeading(l.segments.at(-1),heading);heading=end;const next=legs[i+1];if(!next||l.wait>0||l.action||l.turn!==null)return false;
+      const a=tangent(l.segments.at(-1),true),b=tangent(next.segments[0],false);if(!a||!b||a.x*b.x+a.y*b.y<.95)return false;
+      return Math.abs(norm(end-startHeading(next.segments[0],end)))<.6;});
+  }
+  function pathsFile(o){
+    const {route,layout,legs,P,through}=o,start=layout.start,startH=finite(start.heading)?start.heading:route.heading||0;
+    let heading=startH;
+    const legHeadings=legs.map(l=>{const h=startHeading(l.segments[0],heading);l.segments.forEach(s=>{heading=finalHeading(s,heading);});if(l.turn!==null)heading=l.turn;return h;});
+    heading=startH;
+    const methods=legs.map((l,i)=>{const exprs=l.segments.map(s=>{const e=segment(s,heading);heading=finalHeading(s,heading);return e;});if(l.turn!==null)heading=l.turn;
+      const body=exprs.length===1?exprs[0]:`Paths.path(\n                ${exprs.join(',\n                ')})`;
+      return `    /** ${comment(o.exporter.describe(l,i))} */\n    public static Path leg${i+1}() {\n        return ${body};\n    }`;}).join('\n\n');
+    const speeds=legs.map(l=>n(Math.max(0,Math.min(1,l.power??route.defaultPower??o.defaultPower??.8))));
+    return `package ${o.packageName};
+
+import com.pedropathing.api.Paths;
+import com.pedropathing.math.Pose;
+import com.pedropathing.math.Vector2D;
+import com.pedropathing.paths.Path;
+import com.pedropathing.paths.interpolator.Interpolator;
+
+/**
+ * Route "${comment(layout.name||'route')}" (${comment(layout.fieldName||layout.field||'field')}), planned in Deck Driver Station, as
+ * Pedro Pathing ${PEDRO_VERSION} paths. Generated file: change the route in Deck and export again.
+ *
+ * Field frame (the same as Pedro's): inches, origin at the bottom-left field corner, +X right, +Y up,
+ * heading counterclockwise from +X. Headings below are written in degrees and converted to radians.
+ * Robot footprint used for clearance: ${n(route.footprint.front)} in front, ${n(route.footprint.rear)} in rear, ${n(route.footprint.half)} in each side; clearance ${n(route.clearance)} in.
+ *
+ * The route is split into legs: the robot stops after a leg when a pause, action or turn follows,
+ * and a new leg starts where the motor power changes or an action path starts or ends.
+ * For each leg i: turn in place to START_HEADING[i] if needed, follow leg(i) (running MOVING_ACTIONS[i]
+ * while it drives), settle, turn to TURN_AFTER[i] (unless NaN), pause WAIT_SECONDS[i], then run
+ * ACTIONS[i] for ACTION_SECONDS[i]. ${o.opMode}.java does this.
+ */
+public final class ${o.paths} {
+    private ${o.paths}() {}
+
+    /** Place the robot here, facing this way, before INIT. */
+    public static final Pose START = new Pose(${n(start.x)}, ${n(start.y)}, ${rad(startH)});
+
+    public static final int LEGS = ${legs.length};
+
+    /** Heading each leg starts with, radians. The robot turns in place first when it is not facing it. */
+    public static final double[] START_HEADING = {${legHeadings.map(rad).join(', ')}};
+
+    /** Heading to turn to in place after each leg, radians (NaN: no turn). */
+    public static final double[] TURN_AFTER = {${legs.map(l=>l.turn===null?'Double.NaN':rad(l.turn)).join(', ')}};
+
+    /** Pause at the end of each leg, before its action, in seconds. */
+    public static final double[] WAIT_SECONDS = {${legs.map(l=>n(l.wait)).join(', ')}};
+
+    /** Action run at the end of each leg ("" for none), as named in Deck. See RouteActions.java. */
+    public static final String[] ACTIONS = {${legs.map(l=>javaString(l.action)).join(', ')}};
+
+    /** How long each end-of-leg action runs, seconds (0: until it reports done). */
+    public static final double[] ACTION_SECONDS = {${legs.map(l=>n(l.actionSeconds||0)).join(', ')}};
+
+    /** Hive cell each end-of-leg action aims at: 0 the cell up at the start, 1 the other cell. */
+    public static final int[] ACTION_CELL = {${legs.map(l=>l.cell||0).join(', ')}};
+
+    /** Action run WHILE driving each leg (action paths; "" for none). */
+    public static final String[] MOVING_ACTIONS = {${legs.map(l=>javaString(l.moving?.action||'')).join(', ')}};
+
+    /** How long each action path's action runs from the start of its path, seconds (0: the whole path). */
+    public static final double[] MOVING_SECONDS = {${legs.map(l=>n(l.moving?.seconds||0)).join(', ')}};
+
+    /** Hive cell each action path's action aims at. */
+    public static final int[] MOVING_CELL = {${legs.map(l=>l.moving?.cell||0).join(', ')}};
+
+    /** Which Deck path each leg belongs to (1 = the path from the start to the first end point). */
+    public static final int[] PATH = {${legs.map(l=>l.path).join(', ')}};
+
+    /** The end point each leg finishes at (0: a turn point inside a path). */
+    public static final int[] PIN = {${legs.map(l=>l.pin).join(', ')}};
+
+    /**
+     * Speed limit per leg as a fraction of the robot's top speed (Pedro's Foresight maxPathSpeed),
+     * from Deck's motor power setting. 1 means no extra limit; 0 means the robot stays stopped.
+     */
+    public static final double[] MAX_PATH_SPEED = {${speeds.join(', ')}};
+
+    /** Legs the robot drives straight through into the next one without stopping. */
+    public static final boolean[] THROUGH = {${through.join(', ')}};
+
+${methods}
+
+    /** Every leg in driving order. */
+    public static Path[] legs() {
+        return new Path[] {${legs.map((_,i)=>`leg${i+1}()`).join(', ')}};
+    }
+
+    private static Vector2D v(double x, double y) {
+        return Vector2D.cartesian(x, y);
+    }
+
+    /** Turns steadily from one heading to another along the curve (degrees; may be more than half a turn). */
+    private static Interpolator turn(double fromDegrees, double toDegrees) {
+        final double from = Math.toRadians(fromDegrees), by = Math.toRadians(toDegrees - fromDegrees);
+        return Interpolator.geometric((curve, t) -> from + by * t);
+    }
+}
+`;
+  }
+  function opModeFile(o){
+    const R=o.paths,checklist=o.checklist.map(c=>` *  [${c.status==='verified'?'x':' '}] ${c.label}: ${comment(c.detail)}`).join('\n');
+    return `package ${o.packageName};
+
+import com.pedropathing.algorithm.Foresight;
+import com.pedropathing.follower.Follower;
+import com.pedropathing.math.Pose;
+import com.pedropathing.paths.Path;
+import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
+import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
+import com.qualcomm.robotcore.util.ElapsedTime;
+import ${o.constants};
+
+/**
+ * Autonomous for "${comment(o.layout.name||'route')}", generated by Deck Driver Station for Pedro Pathing ${PEDRO_VERSION}
+ * (com.pedropathing:revhub:${PEDRO_VERSION}, FTC SDK ${SDK_VERSION}). Needs a TeamCode built from the Pedro Pathing
+ * Quickstart: its pedro/Constants.java must return your tuned Follower from Constants.create(hardwareMap).
+ *
+ * Files: ${R}.java (the paths), this OpMode, RouteActions.java (action slots, regenerated)${o.mechanisms?', Mechanisms.java (your intake/shooter from Deck)':''}
+ * and RobotActions.java (YOUR action code; created once, keep your edits).
+ *
+ * Robot readiness:
+${checklist}
+ */
+@Autonomous(name = ${javaString(`${o.layout.name||'Planned route'} (Pedro)`)}, group = "Deck Driver Station")
+public class ${o.opMode} extends LinearOpMode {
+    private Follower follower;
+    private RouteActions actions;
+    private final RouteActions.Step step = new RouteActions.Step();
+
+    @Override
+    public void runOpMode() throws InterruptedException {
+        follower = Constants.create(hardwareMap);
+        if (follower == null) {
+            // The Quickstart's Constants.create returns null until Pedro Pathing is set up and tuned.
+            telemetry.addLine("Pedro Pathing is not set up: Constants.create(hardwareMap) returned null.");
+            telemetry.addLine("Fill in pedro/Constants.java (drivetrain, localizer, Foresight) and tune it first.");
+            telemetry.update();
+            waitForStart();
+            return;
+        }
+        actions = new RobotActions();
+        actions.init(hardwareMap, telemetry);
+        Path[] legs = ${R}.legs();
+        follower.setPose(${R}.START);
+        while (opModeInInit()) {
+            follower.update();
+            Pose p = follower.pose();
+            telemetry.addData("Route", legs.length + " legs");
+            telemetry.addData("Place robot at", "x %.1f  y %.1f  heading %.0f", ${R}.START.x(), ${R}.START.y(), Math.toDegrees(${R}.START.heading()));
+            telemetry.addData("Localizer", "x %.1f  y %.1f  heading %.0f", p.x(), p.y(), Math.toDegrees(p.heading()));
+            if (!(follower.algorithm() instanceof Foresight)) telemetry.addLine("Speed limits per path need the Foresight algorithm; driving at full path speed.");
+            telemetry.update();
+        }
+        if (isStopRequested()) {
+            actions.stop();
+            return;
+        }
+        // The robot sits at the starting pose at START: forget any drift picked up during INIT.
+        follower.setPose(${R}.START);
+        try {
+            ElapsedTime timer = new ElapsedTime(), movingTimer = new ElapsedTime();
+            double plannedHeading = ${R}.START.heading();
+            int movingPath = 0;
+            boolean movingDone = true, movingFirst = false;
+            for (int i = 0; i < legs.length && opModeIsActive(); i++) {
+                if (${R}.MAX_PATH_SPEED[i] <= 0) {
+                    // Zero motor power in Deck: stay stopped until the end of autonomous.
+                    stopDriving();
+                    while (opModeIsActive()) { report(i, legs.length, "Zero motor power: stopped"); idle(); }
+                    break;
+                }
+                // Turn only where the plan changes heading, not to chase small drift.
+                if (Math.abs(angle(${R}.START_HEADING[i] - plannedHeading)) > Math.toRadians(0.5)) turnTo(${R}.START_HEADING[i], i, legs.length);
+                // An action path's action starts with the path and may span several legs of it.
+                String moving = ${R}.MOVING_ACTIONS[i];
+                if (!moving.isEmpty() && ${R}.PATH[i] != movingPath) {
+                    movingPath = ${R}.PATH[i];
+                    movingDone = false;
+                    movingFirst = true;
+                    movingTimer.reset();
+                }
+                Pose end = legs[i].endPose();
+                follower.follow(limited(legs[i], ${R}.MAX_PATH_SPEED[i]));
+                step.wait = 0;
+                while (opModeIsActive() && follower.following()) {
+                    follower.update();
+                    if (!moving.isEmpty() && !movingDone) {
+                        // A set time runs the action from the start of its path; the last call stops it.
+                        double t = movingTimer.seconds();
+                        boolean over = ${R}.MOVING_SECONDS[i] > 0 && t >= ${R}.MOVING_SECONDS[i];
+                        step.duration = ${R}.MOVING_SECONDS[i];
+                        step.cell = ${R}.MOVING_CELL[i];
+                        movingDone = act(moving, t, movingFirst, over, true, ${R}.PIN[i]) || over;
+                        movingFirst = false;
+                    }
+                    report(i, legs.length, moving.isEmpty() ? "Driving" : "Action path");
+                    if (${R}.THROUGH[i] && near(end, 1.5) && follower.completion() > 0.9) break;
+                }
+                boolean pathEnds = i == legs.length - 1 || ${R}.PATH[i + 1] != movingPath || ${R}.MOVING_ACTIONS[i + 1].isEmpty();
+                if (!moving.isEmpty() && pathEnds) {
+                    // The path is over: one last call so the action can stop its mechanisms.
+                    if (!movingDone) { step.duration = ${R}.MOVING_SECONDS[i]; act(moving, movingTimer.seconds(), movingFirst, true, true, ${R}.PIN[i]); }
+                    movingDone = true;
+                    movingPath = 0;
+                }
+                plannedHeading = end.heading();
+                if (${R}.THROUGH[i]) continue;
+                // Pedro holds the end pose once the path is done; wait (at most 3 s) for the robot to settle on it.
+                timer.reset();
+                while (opModeIsActive() && timer.seconds() < 3 && !(near(end, 0.75) && follower.velocity().linSpeed() < 0.5)) {
+                    follower.update();
+                    report(i, legs.length, "Settling");
+                }
+                if (!Double.isNaN(${R}.TURN_AFTER[i])) {
+                    turnTo(${R}.TURN_AFTER[i], i, legs.length);
+                    plannedHeading = ${R}.TURN_AFTER[i];
+                }
+                // At the end point: pause, then run the action for its set time (or until it reports done), then drive on.
+                timer.reset();
+                while (opModeIsActive() && timer.seconds() < ${R}.WAIT_SECONDS[i]) {
+                    follower.update();
+                    report(i, legs.length, "Pause");
+                }
+                String action = ${R}.ACTIONS[i];
+                step.wait = ${R}.WAIT_SECONDS[i];
+                step.duration = ${R}.ACTION_SECONDS[i];
+                step.cell = ${R}.ACTION_CELL[i];
+                boolean done = action.isEmpty(), first = true;
+                timer.reset();
+                while (opModeIsActive() && !done) {
+                    follower.update();
+                    double t = timer.seconds();
+                    boolean over = ${R}.ACTION_SECONDS[i] > 0 && t >= ${R}.ACTION_SECONDS[i];
+                    done = act(action, t, first, over, false, ${R}.PIN[i]) || over;
+                    first = false;
+                    report(i, legs.length, "Action");
+                }
+            }
+            // Route finished: hold the last pose until the autonomous period ends. Never restarts a leg.
+            while (opModeIsActive()) {
+                follower.update();
+                report(legs.length - 1, legs.length, "Done");
+            }
+        } finally {
+            actions.stop();
+            stopDriving();
+        }
+    }
+
+    /** Applies the leg's speed limit through Foresight's maxPathSpeed, for this path only. */
+    private Path limited(Path path, double speed) {
+        if (speed >= 1 || !(follower.algorithm() instanceof Foresight)) return path;
+        return path.with(((Foresight) follower.algorithm()).config.maxPathSpeed.at(speed));
+    }
+
+    /** Turn in place: done when the heading has stayed within 1.5 degrees for 0.15 s (at most 5 s). */
+    private void turnTo(double heading, int leg, int legs) {
+        Pose here = follower.pose();
+        follower.hold(new Pose(here.x(), here.y(), heading));
+        ElapsedTime timer = new ElapsedTime();
+        double settledSince = -1;
+        while (opModeIsActive() && timer.seconds() < 5) {
+            follower.update();
+            report(leg, legs, "Turning");
+            boolean on = Math.abs(angle(heading - follower.pose().heading())) < Math.toRadians(1.5);
+            if (!on) settledSince = -1;
+            else if (settledSince < 0) settledSince = timer.seconds();
+            else if (timer.seconds() - settledSince > 0.15) break;
+        }
+    }
+
+    /** Stops the drive at once (Follower.stop alone zeroes the motors on its next update). */
+    private void stopDriving() {
+        follower.stop();
+        follower.drivetrain.stop();
+    }
+
+    private boolean act(String name, double elapsed, boolean first, boolean last, boolean moving, int pin) {
+        step.elapsed = elapsed;
+        step.first = first;
+        step.last = last;
+        step.moving = moving;
+        step.pin = pin;
+        step.pose = follower.pose();
+        telemetry.addData("Action", name);
+        return actions.run(name, step);
+    }
+
+    private boolean near(Pose target, double inches) {
+        Pose p = follower.pose();
+        return Math.hypot(p.x() - target.x(), p.y() - target.y()) < inches;
+    }
+
+    private static double angle(double radians) {
+        return Math.atan2(Math.sin(radians), Math.cos(radians));
+    }
+
+    private void report(int leg, int legs, String phase) {
+        Pose p = follower.pose();
+        telemetry.addData("Leg", (leg + 1) + " of " + legs);
+        telemetry.addData("Phase", phase);
+        telemetry.addData("x", "%.1f", p.x());
+        telemetry.addData("y", "%.1f", p.y());
+        telemetry.addData("heading", "%.1f", Math.toDegrees(p.heading()));
+        telemetry.update();
+    }
+}
+`;
+  }
+  // What an export can and cannot promise. "verified" items are checked by Deck's own pipeline.
+  function checklist({mechanisms,actions}){
+    return [
+      {status:'verified',label:'Compiles',detail:`Deck's export check compiles this generator's output against FTC SDK ${SDK_VERSION} and Pedro Pathing ${PEDRO_VERSION} (tools/simulation/check-ftc-sdk.cjs).`},
+      {status:'verified',label:'Path geometry',detail:'Coordinates, curves and headings are the ones the planner checked for clearance; unit tests compare them.'},
+      {status:'team',label:'Pedro setup',detail:'pedro/Constants.java must build your Follower: drive motor names and directions, localizer and its offsets.'},
+      {status:'calibration',label:'Tuning',detail:'Run the Quickstart tuners (localizer, drivetrain, Foresight) on your robot. Deck cannot tune a real robot.'},
+      {status:'team',label:'Starting pose',detail:'Place the robot exactly at START before INIT; the localizer is set to it at START.'},
+      {status:'team',label:'Actions',detail:actions.length?(mechanisms?'Mechanisms.java drives the intake/shooter set up in Deck; check device names and directions. Other actions need code in RobotActions.java.':'Write the code for each action in RobotActions.java; until then they finish at once.'):'No actions in this route.'},
+      {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low speed first. Simulation and compilation do not prove the robot will follow the path.'}
+    ];
+  }
+  function files({route,layout,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',mechanisms=null,target=null,robot={},defaultPower,constants=QUICKSTART_CONSTANTS,exporter=globalThis.DeckSimExport||require('./sim-export.js'),ftc=globalThis.DeckSimFtc||require('./sim-ftc.js')}){
+    if(!route?.segments?.length)throw Error('Plan a route first.');
+    if(route.nonholonomic)throw Error('Pedro Pathing 3 drives mecanum and swerve robots. Use the OnBot Java or TeamCode export for this drivetrain.');
+    if(!layout?.start)throw Error('Set a starting pose first.');
+    const nm=names(className,packageName),mech=mechanisms?.enabled?mechanisms:null,legs=legsOf(route,exporter),list=exporter.actions(route),dir=packageName.replace(/\./g,'/');
+    const startH=finite(layout.start.heading)?layout.start.heading:route.heading||0,through=throughs(legs,startH),check=checklist({mechanisms:mech,actions:list});
+    const o={route,layout,legs,through,exporter,packageName,className,paths:nm.paths,opMode:nm.opMode,mechanisms:mech,constants,checklist:check,defaultPower};
+    const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,poseImport:'com.pedropathing.math.Pose'};
+    const out={[`${dir}/${nm.paths}.java`]:pathsFile(o),[`${dir}/${nm.opMode}.java`]:opModeFile(o),[`${dir}/RouteActions.java`]:ftc.routeActions(shared,list),[`${dir}/RobotActions.java`]:ftc.robotActions(shared,list)};
+    if(mech)out[`${dir}/Mechanisms.java`]=ftc.mechanismsSource(shared,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
+    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${nm.opMode}`,checklist:check,legs:legs.length,actions:list};
+  }
+  return {files,checklist,PEDRO_VERSION,SDK_VERSION,QUICKSTART_CONSTANTS};
+});

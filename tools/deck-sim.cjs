@@ -8,7 +8,7 @@
 // audience, headings in degrees counter-clockwise from +X.
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{spawn}=require('node:child_process');
 const root=path.join(__dirname,'..');
-const Mech=require('../ui/sim-mechanisms.js'),Wpilog=require('../ui/sim-wpilog.js'),P=require('../ui/sim-planner.js'),C=require('../ui/sim-config.js'),X=require('../ui/sim-export.js'),F=require('../ui/sim-ftc.js'),M=require('../ui/sim-motionmodule.js'),Timed=require('../ui/sim-timed.js');
+const Mech=require('../ui/sim-mechanisms.js'),Wpilog=require('../ui/sim-wpilog.js'),P=require('../ui/sim-planner.js'),C=require('../ui/sim-config.js'),X=require('../ui/sim-export.js'),F=require('../ui/sim-ftc.js'),M=require('../ui/sim-motionmodule.js'),Timed=require('../ui/sim-timed.js'),Pedro=require('../ui/sim-pedro.js');
 const GAMES={empty:'Empty field',biobuzz:'BIOBUZZ'},AXES=['+x','-x','+y','-y','+z','-z'];
 const finite=n=>typeof n==='number'&&Number.isFinite(n),round=(n,d=2)=>Math.round(n*10**d)/10**d;
 
@@ -135,7 +135,7 @@ function clean(raw){
   if(!raw||!finite(raw.x)||!finite(raw.y))throw Error('Each pin needs numeric x and y.');
   const e=P.pinEffects(raw),pin={x:raw.x,y:raw.y,wait:e.wait,action:e.action};if(e.actionSeconds!==null)pin.actionSeconds=e.actionSeconds;if(e.cell==='other')pin.cell='other';
   if(e.note)pin.note=e.note;if(e.turn!==null){pin.turn=e.turn;pin.turnMode=e.turnMode;}if(e.target)pin.target=e.target;
-  const p=e.path,path={};if(p.kind==='action'){path.kind='action';path.action=p.action;if(p.actionSeconds!==null)path.actionSeconds=p.actionSeconds;if(p.cell==='other')path.cell='other';}if(p.style)path.style=p.style;if(p.power!==null)path.power=p.power;if(p.note)path.note=p.note;
+  const p=e.path,path={};if(p.kind==='action'){path.kind='action';path.action=p.action;if(p.actionSeconds!==null)path.actionSeconds=p.actionSeconds;if(p.cell==='other')path.cell='other';}if(p.style)path.style=p.style;if(p.controls)path.controls=p.controls;if(p.power!==null)path.power=p.power;if(p.note)path.note=p.note;
   if(p.rotate!=='keep'){path.rotate=p.rotate;if(p.rotate==='turn')path.heading=p.heading;if(p.rotate==='relative')path.angle=p.angle;if(p.rotate==='spin')path.spins=p.spins;if(p.rotate==='track')path.target=p.target;}
   if(Object.keys(path).length)pin.path=path;return pin;
 }
@@ -171,11 +171,12 @@ function exported(setup,l,route,info,format){
   const timing={...info.timing,power:power(setup)};
   if(format==='onbot'){const out=team(true);return {files:{[out.name]:out.source}};}
   if(format==='teamcode'){const out=team(false);return {files:out.files,note:`OpMode ${out.opMode}. Mechanism code goes in RobotActions.java.`};}
+  if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
   if(format==='java')return {files:{[`${names.className}.java`]:routeJava()}};
   if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon})}};
   if(format==='timed')return {files:{'timed-route.json':JSON.stringify({format:'deck-timed-drive-v1',controller:setup.controller,units:'inches',feedback:'IMU heading only; no X/Y feedback',start:l.start,field:l.field,...Timed.compile(route,timing)},null,2)}};
   if(format==='motionmodule')return {files:{'autonomous.py':M.autonomous(route,timing,{name:l.name,mechanisms:info.mechanisms,target:info.target}),'robot_actions.py':M.actionsFile(route,{name:l.name,mechanisms:info.mechanisms})}};
-  throw Error('Formats: onbot, teamcode, java, pp, timed, motionmodule.');
+  throw Error('Formats: onbot, teamcode, pedro, java, pp, timed, motionmodule.');
 }
 
 // ------------------------------------------------------------------ the app
@@ -260,7 +261,7 @@ Route
   optimize <setup.json>                    Test-drive spline/straight shapes per path; keep the fastest safe one
 
 Code and app
-  export <setup.json> --format onbot|teamcode|java|pp|timed|motionmodule --out <file-or-folder>
+  export <setup.json> --format onbot|teamcode|pedro|java|pp|timed|motionmodule --out <file-or-folder>
   show <setup.json> [--tab run|plan|setup] [--run] [--dev]
                                            Open it in the app (launches the app or reuses the open one)
   Any command that changes a setup also accepts --show to open the result in the app right away.`;
@@ -363,7 +364,7 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
     case'export':{const setup=readSetup(file),format=flags.format||'onbot',out=flags.out;if(!out||out===true)throw Error('Give --out <file or folder>.');const {e,info,l}=await load(setup);
       try{const route=planRoute(setup,l,info),{files,note}=exported(setup,l,route,info,format),names=Object.keys(files);
         // A path ending in a slash, without an extension, or already a folder receives the files by name.
-        const folder=names.length>1||format==='teamcode'||/[\\/]$/.test(out)||!path.extname(out)||fs.existsSync(out)&&fs.statSync(out).isDirectory();
+        const folder=names.length>1||format==='teamcode'||format==='pedro'||/[\\/]$/.test(out)||!path.extname(out)||fs.existsSync(out)&&fs.statSync(out).isDirectory();
         for(const [rel,text] of Object.entries(files)){const target=folder?path.resolve(out,rel):path.resolve(out);if(folder&&!target.startsWith(path.resolve(out)+path.sep))throw Error('Invalid export path.');fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
         say(`Wrote ${names.length} file${names.length>1?'s':''} to ${path.resolve(out)}${note?`. ${note}`:''}`);if(flags.show)say(show(file,setup,flags));return;}finally{e.dispose();}}
     case'show':return say(show(file,readSetup(file),flags));
@@ -374,4 +375,4 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
 }
 
 if(require.main===module)main(process.argv.slice(2)).then(()=>process.exit(0),e=>{console.error(e.message);process.exit(1);});
-module.exports={main,parse,pinFrom,clean,cadBox,fieldFacts,newSetup};
+module.exports={main,parse,pinFrom,clean,cadBox,fieldFacts,newSetup,readSetup,layoutOf,load,request,planRoute,exported,layoutFor,javaNames};

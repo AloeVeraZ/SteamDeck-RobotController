@@ -53,6 +53,9 @@ class Sensors{
 function robotConfig(raw={}){
   return config.robot(raw);
 }
+// Run folders are numbered per process, not per engine: a stopped engine deletes its folder a moment
+// later, which must never be the folder another engine (a test drive, Optimize) is compiling in.
+let runFolders=0;
 
 class SimEngine{
   constructor({runtimeDir=path.join(__dirname,'../sim-runtime'),workDir,emit=()=>{},now=()=>performance.now()}={}){
@@ -337,7 +340,7 @@ class SimEngine{
     // Java ships beside the app in releases (runtime-java, per platform) and inside sim-runtime in local builds.
     const bin=process.platform==='win32'?'java.exe':'java',seq=++this.runSeq,java=[path.join(this.runtimeDir,'java/bin',bin),path.join(this.runtimeDir,'../../runtime/java/bin',bin),path.join(this.runtimeDir,'../../runtime-java/bin',bin)].find(f=>fs.existsSync(f))||path.join(this.runtimeDir,'java/bin',bin);
     if(kind!=='motionmodule'&&!fs.existsSync(java))throw Error('The simulator Java runtime is missing. Rebuild with tools/simulation/build.cjs.');
-    const dir=path.join(this.workDir,`run-${process.pid}-${seq}`);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
+    const dir=path.join(this.workDir,`run-${process.pid}-${++runFolders}`);fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
     const cp=[path.join(this.runtimeDir,'driver/classes'),path.join(this.runtimeDir,'driver/gson.jar')].join(path.delimiter);
     const child=kind==='motionmodule'?spawn(program.python,['-I','-u',path.join(__dirname,'../tools/simulation/motionmodule-bridge.py')],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true})
       :spawn(java,['-Xmx256m','-Xss4m','-XX:+UseSerialGC','-XX:TieredStopAtLevel=1','-Dfile.encoding=UTF-8','-cp',cp,'deck.sim.RunBridge'],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true});
