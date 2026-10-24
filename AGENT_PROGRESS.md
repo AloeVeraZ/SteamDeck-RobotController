@@ -1,68 +1,87 @@
 # Agent progress (overnight session, 24 October 2026)
 
-Branch `testing`, local commits only. Nothing was pushed.
+Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was pushed.
 
 ## Baseline found
 
-- Electron desktop app (Deck Driver Station). The simulator lives in `ui/simulation.js` with `ui/sim-*.js` modules, and the physics and Java follower run in `src/sim-engine.cjs` plus `sim-runtime/`.
-- Paths are planned by `ui/sim-planner.js`, which auto-routes around obstacles with a footprint clearance check. The app's own follower is `tools/simulation/java/deck/pathing/DeckFollower.java`.
-- Exports: OnBot Java (single file), TeamCode folder, Deck route Java, `.pp`, timed JSON and MotionModule Python.
-- Unit tests: 263 of 265 passed.
-  - `24 barriers and many pins plan quickly` fails on a time budget under load. This was already failing before this session.
-  - `native and exported FTC enforce each path motor ceiling…` was a real bug (see below).
-- `tools/simulation/check-ftc-sdk.cjs` compiled 22 export cases against the real FTC SDK 12.0.0. All passed.
+- Electron desktop app (Deck Driver Station). The offline simulator lives in `ui/simulation.js` with `ui/sim-*.js`.
+- Physics and the Java follower run in `src/sim-engine.cjs` and `sim-runtime/`.
+- The planner (`ui/sim-planner.js`) auto-routes around obstacles with a footprint clearance check. The app's own follower is `DeckFollower.java`.
+- Unit tests: 263/265.
+  - The planner time-budget test failed, and was already failing before this session.
+  - One failure was a real run-folder bug (fixed, see below).
+- The E2E suite `tests/simulation-ui.cjs` was broken at its first check.
 
-## Done
+## What changed
 
-1. **Checkpoint commit** of the earlier uncommitted work (`3941555`).
-2. **Bug fix: run-folder collision.** Every `SimEngine` numbered its temporary run folders from 1. A disposed engine's delayed cleanup, 2 s later, could delete the folder another engine was compiling in, which showed up as "error reading PlannedRoute.java". This affects the background test drive and Optimize. Run folders are now numbered per process (`src/sim-engine.cjs`).
-3. **Pedro Pathing 3.0.2 export** (`ui/sim-pedro.js`, Export tab button, `deck-sim export --format pedro`).
-   - Generates `<Class>Paths.java`, `<Class>Pedro.java` (`@Autonomous` LinearOpMode), `RouteActions.java`, `RobotActions.java` and, when mechanisms are set up, `Mechanisms.java`.
-   - Uses the Quickstart's `pedro/Constants.create(hardwareMap)` and handles the `null` it returns before you fill it in.
-   - Headings use constant, linear, `facingPoint`, or `Interpolator.geometric` where Pedro's short-way, distance-based `linear` would differ from the plan that was checked.
-   - Per-path power becomes `maxPathSpeed.at(...)` on Foresight.
-   - The OpMode runs its legs once, every loop checks `opModeIsActive()`, and `finally` stops the drive (`follower.stop()` + `drivetrain.stop()`) and the mechanisms.
-4. **Real compile verification extended.** `check-ftc-sdk.cjs` now also downloads Pedro core and revhub 3.0.2 (SHA-1 verified) and compiles:
-   - the Pedro export for every holonomic case;
-   - every export of every `examples/*.json` setup.
+### Robot code (release-blocking)
 
-   This is the first time the generated mechanism code has been compiled against the real SDK. All pass with no warnings.
-5. **Robot-readiness checklist** in the Export tab, for both the Deck exports and the Pedro export. It separates what Deck verified from team setup, calibration and physical testing.
-6. **Custom Bezier curves (Pedro-visualizer style).**
-   - Set a path's Shape to "Custom curve" and drag its two handles. The handles start on the current shape.
-   - The planner drives the curve exactly as drawn and reports a blocked curve as an issue instead of re-routing it.
-   - A physics test confirms the simulated robot stays within 3 in of the drawn curve.
-   - Undo now keeps the open path selected.
+- **Pedro Pathing 3.0.2 export.** Paths, an `@Autonomous` OpMode, action slots and Mechanisms, for the Pedro Quickstart.
+  - Headings use constant, linear, facingPoint, tangent/reverseTangent, or a geometric turn where Pedro's linear would differ from the checked plan.
+  - Per-path power becomes Foresight `maxPathSpeed`.
+  - The OpMode runs its legs once, checks `opModeIsActive()` in every loop, and stops in `finally`.
+- **Compiled against the real libraries.** `tools/simulation/check-ftc-sdk.cjs` downloads FTC SDK 12.0.0 and Pedro core/revhub 3.0.2 (SHA-1 verified) and compiles every export. That includes the examples' mechanism code, which had never been compiled against the real SDK before.
+- **Run with Pedro's real Follower.** `deck-sim test --code pedro` and `tests/sim-pedro-runtime.test.cjs` (8 tests) cover Pinpoint, OTOS, two pods, three pods, Stop, zero power, tangent, speed limits and the BIOBUZZ example with mechanisms.
+- **`DeckStarterConstants.java`.** Pedro's Mecanum plus Pinpoint, OTOS, TwoWheel or ThreeWheelIMU, with Foresight filled from the simulated robot. Clearly labelled as estimates.
+- **Readiness checklist** in the Export tab: verified items versus team setup, calibration and physical testing.
+- **`.pp` files** now use the current Pedro Visualizer schema.
+- **Generated OpModes stop the drive first** when they end: an error in a mechanism's stop code can no longer leave the wheels turning. This applies to OnBot, TeamCode and Pedro.
+- **Names cannot break the Java.** A setup or action name containing a Java unicode escape for `*/` (a backslash, `u002a`, then `/`) used to end a generated comment early, because javac decodes unicode escapes before comments.
+- The example exports in `examples/` were regenerated. The BIOBUZZ ones were already out of date before this session.
 
-7. **The Pedro export now runs with Pedro's real Follower.**
-   - `tools/simulation/fetch-pedro.cjs` caches Pedro core and revhub 3.0.2 from Maven Central, SHA-1 verified.
-   - The engine accepts those jars, and only those, on the virtual Control Hub's classpath.
-   - `DeckSimPedro.starterConstants` builds a real Pedro `Follower` from Pedro's own `Mecanum` drivetrain, its `PinpointLocalizer` or `OTOSLocalizer`, and `Foresight`. Foresight is configured from the simulated robot's measured values, the same ones Pedro's Foresight tuner produces.
-   - The Pedro export writes this as `pedro/DeckStarterConstants.java`, clearly marked as estimates.
-   - `deck-sim test --code pedro` and `tests/sim-pedro-runtime.test.cjs` run the export end to end. The four runtime tests pass: pause and turn, OTOS, Stop mid-path, zero-power path, and the BIOBUZZ example with mechanisms.
-   - lunala red auto takes 10.25 s under Pedro, against 9.98 s with the Deck follower and 10.22 s for the OnBot export. All three score 40 points.
-8. **E2E suite repair (in progress)** (`tests/simulation-ui.cjs`).
-   - Updated it for intentional UI changes:
-     - the keyboard toggle moved to the menu;
-     - the robot model and localization selects are now hidden model fields;
-     - intake reach moved to Mechanisms;
-     - BIOBUZZ is now the default field;
-     - obstacles can be dragged from any tab;
-     - Route, Export and pager sub-views;
-     - new status wording.
-   - **Real bug found and fixed:** typing the start heading overwrote the X and Y the user had just typed, and the submit treated typed X/Y as a heading-only turn. Typed coordinates now win.
+### Path planning
 
-9. **Tangent headings**: "Face along the path" and "Face backwards along the path" (Pedro's `.tangent()` and `.reverseTangent()`).
-   - Supported across the planner (with a turning-footprint check), the simulator's follower, and the Deck/OnBot, Pedro and `.pp` exports.
-   - Available in the UI and from `deck-sim pin --tangent|--reverse`.
-10. **Alliance switching moves the route.** BIOBUZZ is point-symmetric, so the start, pins, handles, targets and obstacles are turned 180° about the field centre. Empty fields are mirrored instead.
-    - Works in the app and in `deck-sim alliance` (`--keep` leaves the route where it is).
-    - Physics check: blue lunala gives an identical result.
-11. **`deck-sim pin --curve x1,y1,x2,y2`** sets custom curves from the terminal.
-12. **Robot log comparison** (`ui/sim-robot-log.js`, tested).
-    - Reads WPILOG Pose2d (FTC frame, the same as Deck's own logs) or CSV.
-    - Reports average and worst deviation from the plan, plus the stop error.
-    - UI wiring is pending.
+- **Custom Bezier curves.**
+  - Draggable handles and exact X/Y boxes.
+  - The robot drives the curve as drawn. A blocked curve is reported as an issue, never re-routed.
+- **Tangent and reverse-tangent headings.** Includes a turning-footprint check and works in every runtime.
+- **Alliance switching** moves the route: a 180° turn about the field centre for BIOBUZZ, a mirror for empty fields.
+- **Zoom and pan.** Markers shrink as you zoom so they stay grabbable.
+- **Editing aids.**
+  - Onion robot outlines along the open path.
+  - Duplicate path.
+  - Delete removes the open path.
+  - **Route preview:** a scrubber and a Preview button move a robot outline along the whole planned route, with no physics.
+  - Lines stay thin when zoomed in.
+  - A Keys line in Help.
+  - The right-click editor matches the path card.
+- **`deck-sim pin --tangent/--reverse/--curve`** from the terminal.
+
+### Run & review
+
+- **Compare with a robot log.** WPILOG Pose2d or CSV, drawn beside the plan, with average and worst deviation and the stop error.
+
+### Bugs fixed
+
+- Run-folder collision between engines (compile errors in tests and in background test drives).
+- Typing the start heading overwrote the X/Y just typed.
+- A huge spin count hung the planner.
+- NaN onion outlines on simple routes.
+- Undo closed the open path.
+- At 390 px, the header menu overflowed and the Run button was crushed.
+- The touch Done button covered the Next button.
+- The selected sub-tab looked unselected.
+- The README claimed Pedro ships in the app.
+- "Plan a route first." was shown even when a route existed but had an issue.
+- The selected planning or setup step became unreadable under the mouse (light text on a light hover background).
+- The E2E suite expected a timed-driving Calibrate button that no longer exists. That is now worked out automatically.
+
+### Performance
+
+- About 40% faster planning: a cached bounding-box check before point-in-polygon tests.
+
+### lunala red auto (the user's request)
+
+- One custom curve replaces the back-off pin.
+- Same 40 points.
+
+| Runtime | Before | After |
+|---|---|---|
+| Simulator follower | 9.98 s | 9.77 s |
+| OnBot Java | 10.22 s | 9.83 s |
+| Pedro export | 10.25 s | 10.0 s |
+
+- The exported code is in `examples/lunala-red-auto/`.
 
 ## Verified results
 

@@ -17,7 +17,7 @@
   const dbl=v=>{const t=n(v);return /[.eE]/.test(t)?t:t+'.0';};
   const finite=Number.isFinite,norm=d=>((d%360)+540)%360-180,rad=d=>`Math.toRadians(${n(d)})`;
   const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
-  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/[\r\n]+/g,' ').trim();
+  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/\\(?=u)/g,'\\ ').replace(/[\r\n]+/g,' ').trim();
   const endOf=s=>finite(s.endHeading)?s.endHeading:s.heading;
   const JAVA_WORDS=new Set('abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null var record yield'.split(' '));
   // Type names the generated files import or declare.
@@ -310,8 +310,12 @@ public class ${o.opMode} extends LinearOpMode {
                 report(legs.length - 1, legs.length, "Done");
             }
         } finally {
-            actions.stop();
-            stopDriving();
+            // Stop the drive first: an error in a mechanism's stop code must not leave the wheels turning.
+            try {
+                stopDriving();
+            } finally {
+                actions.stop();
+            }
         }
     }
 

@@ -10,6 +10,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -70,7 +71,12 @@ public class BiobuzzRedAuto extends LinearOpMode {
                 while (opModeIsActive() && follower.following()) {
                     follower.update();
                     if (!moving.isEmpty() && !movingDone) {
-                        movingDone = act(moving, movingTimer.seconds(), movingFirst, false, true, BiobuzzRed.PIN[i]);
+                        // A set time runs the action from the start of its path; the last call stops it.
+                        double t = movingTimer.seconds();
+                        boolean over = BiobuzzRed.MOVING_SECONDS[i] > 0 && t >= BiobuzzRed.MOVING_SECONDS[i];
+                        step.duration = BiobuzzRed.MOVING_SECONDS[i];
+                        step.cell = BiobuzzRed.MOVING_CELL[i];
+                        movingDone = act(moving, t, movingFirst, over, true, BiobuzzRed.PIN[i]) || over;
                         movingFirst = false;
                     }
                     report(i, legs.length, moving.isEmpty() ? "Driving" : "Action path");
@@ -79,7 +85,7 @@ public class BiobuzzRedAuto extends LinearOpMode {
                 boolean pathEnds = i == legs.length - 1 || BiobuzzRed.PATH[i + 1] != movingPath || BiobuzzRed.MOVING_ACTIONS[i + 1].isEmpty();
                 if (!moving.isEmpty() && pathEnds) {
                     // The path is over: one last call so the action can stop its mechanisms.
-                    if (!movingDone) act(moving, movingTimer.seconds(), movingFirst, true, true, BiobuzzRed.PIN[i]);
+                    if (!movingDone) { step.duration = BiobuzzRed.MOVING_SECONDS[i]; act(moving, movingTimer.seconds(), movingFirst, true, true, BiobuzzRed.PIN[i]); }
                     movingDone = true;
                     movingPath = 0;
                 }
@@ -95,18 +101,25 @@ public class BiobuzzRedAuto extends LinearOpMode {
                     turnTo(BiobuzzRed.TURN_AFTER[i], i, legs.length);
                     plannedHeading = BiobuzzRed.TURN_AFTER[i];
                 }
-                // The pin's action runs until it reports done; the robot leaves once the pause is also over.
+                // At the pin: pause, then run the action for its set time (or until it reports done), then drive on.
+                timer.reset();
+                while (opModeIsActive() && timer.seconds() < BiobuzzRed.WAIT_SECONDS[i]) {
+                    follower.update();
+                    report(i, legs.length, "Pause");
+                }
                 String action = BiobuzzRed.ACTIONS[i];
                 step.wait = BiobuzzRed.WAIT_SECONDS[i];
+                step.duration = BiobuzzRed.ACTION_SECONDS[i];
+                step.cell = BiobuzzRed.ACTION_CELL[i];
                 boolean done = action.isEmpty(), first = true;
                 timer.reset();
-                while (opModeIsActive() && (timer.seconds() < BiobuzzRed.WAIT_SECONDS[i] || !done)) {
+                while (opModeIsActive() && !done) {
                     follower.update();
-                    if (!done) {
-                        done = act(action, timer.seconds(), first, false, false, BiobuzzRed.PIN[i]);
-                        first = false;
-                    }
-                    report(i, legs.length, done ? "Waiting" : "Action");
+                    double t = timer.seconds();
+                    boolean over = BiobuzzRed.ACTION_SECONDS[i] > 0 && t >= BiobuzzRed.ACTION_SECONDS[i];
+                    done = act(action, t, first, over, false, BiobuzzRed.PIN[i]) || over;
+                    first = false;
+                    report(i, legs.length, "Action");
                 }
             }
             while (opModeIsActive()) {
@@ -114,8 +127,12 @@ public class BiobuzzRedAuto extends LinearOpMode {
                 report(legs.length - 1, legs.length, "Done");
             }
         } finally {
-            actions.stop();
-            follower.stop();
+            // Stop the drive first: an error in a mechanism's stop code must not leave the wheels turning.
+            try {
+                follower.stop();
+            } finally {
+                actions.stop();
+            }
         }
     }
 
@@ -176,8 +193,8 @@ public class BiobuzzRedAuto extends LinearOpMode {
     public static final double FIELD_WIDTH = 144;
     public static final double FIELD_HEIGHT = 144;
 
-    /** Pause after each leg, in seconds. */
-    public static final double[] WAIT_SECONDS = {0, 0, 0.6, 0, 0, 0};
+    /** Pause at the pin after each leg, before its action, in seconds. */
+    public static final double[] WAIT_SECONDS = {0, 0, 0, 0, 0, 0};
 
     /** Motor power ceiling per leg, including setup defaults (0 disables that leg). */
     public static final double[] MOTOR_POWER = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
@@ -185,8 +202,20 @@ public class BiobuzzRedAuto extends LinearOpMode {
     /** The action run at the pin after each leg, as named in the simulator ("" for none). */
     public static final String[] ACTIONS = {"Shoot", "", "Intake", "", "Shoot", ""};
 
+    /** Which hive cell each pin action aims at: 0 the cell up at the start, 1 the other cell. */
+    public static final int[] ACTION_CELL = {0, 0, 0, 0, 0, 0};
+
+    /** How long each pin action runs, in seconds (0: until it reports done). */
+    public static final double[] ACTION_SECONDS = {0, 0, 0.6, 0, 0, 0};
+
     /** The action run WHILE driving each leg: action paths ("" for regular paths). */
     public static final String[] MOVING_ACTIONS = {"Spin up", "", "Intake", "", "Spin up", ""};
+
+    /** Which hive cell each action path's action aims at (0 start cell, 1 the other cell). */
+    public static final int[] MOVING_CELL = {0, 0, 0, 0, 0, 0};
+
+    /** How long each action path's action runs from the start of its path, in seconds (0: the whole path). */
+    public static final double[] MOVING_SECONDS = {0, 0, 0, 0, 0, 0};
 
     /** Which pin's path each leg drives (1 = the path from the start to pin 1). */
     public static final int[] PATH = {1, 2, 3, 4, 5, 6};
@@ -224,6 +253,11 @@ public class BiobuzzRedAuto extends LinearOpMode {
         return (curve, t) -> { DeckFollower.Point p = curve.get(t); return Math.atan2(y - p.y(), x - p.x()); };
     }
 
+    /** Face along the path (backwards: reverse), from the curve's direction at each point. */
+    private static DeckFollower.Interpolator tangent(boolean reverse) {
+        return (curve, t) -> { DeckFollower.Point a = curve.get(Math.max(0, t - 1e-4)), b = curve.get(Math.min(1, t + 1e-4)); return Math.atan2(b.y() - a.y(), b.x() - a.x()) + (reverse ? Math.PI : 0); };
+    }
+
     /** Heading that turns steadily from one angle to another (degrees; may span whole spins) along a path. */
     private static DeckFollower.Interpolator turn(double fromDegrees, double toDegrees) {
         double from = Math.toRadians(fromDegrees), by = Math.toRadians(toDegrees - fromDegrees), full = 2 * Math.PI;
@@ -248,8 +282,13 @@ public class BiobuzzRedAuto extends LinearOpMode {
         public int pin;
         /** Estimated field pose, in inches and radians counterclockwise from +X. */
         public DeckFollower.Pose pose;
-        /** At a pin: its pause in seconds (0 on an action path). */
+        /** At a pin: its pause in seconds, already over when the action starts (0 on an action path). */
         public double wait;
+        /** How long this action runs, in seconds: the route calls it with last = true when the time is up.
+         *  0 at a pin: run until you return true. 0 on an action path: the whole path. */
+        public double duration;
+        /** The hive cell to aim at: 0 the cell up at the start, 1 the other cell (up after the first tip). */
+        public int cell;
     }
 
     protected HardwareMap hardwareMap;
@@ -275,9 +314,9 @@ public class BiobuzzRedAuto extends LinearOpMode {
         return mech.shoot(0, step);
     }
 
-    /** "Intake": while driving the path to pin 3; stopped at pin 3, pause 0.6 s. Return true when finished. */
+    /** "Intake": while driving the path to pin 3; stopped at pin 3. Return true when finished. */
     public boolean intake(Step step) {
-        boolean done = step.moving ? step.last : step.elapsed >= step.wait;
+        boolean done = step.last || (!step.moving && step.duration <= 0);
         mech.intake(!done);
         return done;
     }
@@ -516,6 +555,7 @@ public class BiobuzzRedAuto extends LinearOpMode {
     private final Config config;
     private final LongSupplier clock;
     private final List<Sample> samples=new ArrayList<>();
+    private double[] limits=new double[0];
     private Mode mode=Mode.IDLE;
     private Pose target=Pose.zero();
     private double progress, total, reference, speed, lastTime=-1, settled;
@@ -536,6 +576,14 @@ public class BiobuzzRedAuto extends LinearOpMode {
         samples.clear();List<Path> parts=new ArrayList<>();path.flatten(parts);double arc=0;Point previous=null;
         for(int k=0;k<parts.size();k++){Path p=parts.get(k);double polygon=0;for(int i=1;i<p.points.length;i++)polygon+=Math.hypot(p.points[i].x-p.points[i-1].x,p.points[i].y-p.points[i-1].y);
             int count=Math.max(32,(int)Math.ceil(polygon*4));for(int i=0;i<=count;i++){double t=(double)i/count;Point q=p.get(t);if(previous!=null)arc+=Math.hypot(q.x-previous.x,q.y-previous.y);samples.add(new Sample(arc,new Pose(q.x,q.y,p.heading.interpolate(p,t)),k));previous=q;}}
+        // Where the path bends (a curve, or a sharp corner at a pin it drives through) the robot cannot
+        // change direction at full speed: it slows to sqrt(acceleration/2 * radius) there, and brakes in
+        // time for each bend ahead, so it drives through the bend instead of sweeping wide of it.
+        int n=samples.size();limits=new double[n];Arrays.fill(limits,Double.POSITIVE_INFINITY);double inX=0,inY=0,inLength=0;
+        for(int i=1;i<n;i++){Pose a=samples.get(i-1).pose,b=samples.get(i).pose;double dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);if(length<1e-9)continue;
+            if(inLength>0){double bend=Math.abs(angle(Math.atan2(dy,dx)-Math.atan2(inY,inX)));if(bend>1e-4)limits[i-1]=Math.max(3,Math.sqrt(.5*config.acceleration*(length+inLength)/2/bend));}
+            inX=dx;inY=dy;inLength=length;}
+        for(int i=n-2;i>=0;i--)limits[i]=Math.min(limits[i],Math.sqrt(limits[i+1]*limits[i+1]+2*.7*config.acceleration*(samples.get(i+1).s-samples.get(i).s)));
         target=path.endPose();total=arc;progress=reference=settled=0;speed=velocity().linSpeed();nearest=0;lastTime=-1;mode=Mode.FOLLOWING;
     }
     public void hold(Pose p) { target=p;mode=Mode.HOLDING;speed=0;settled=0; }
@@ -558,6 +606,8 @@ public class BiobuzzRedAuto extends LinearOpMode {
             Pose here=sample(reference),look=sample(Math.min(total,reference+.5));
             double angularPerInch=Math.abs(angle(look.heading-here.heading))/Math.max(.001,Math.min(.5,total-reference));
             if(angularPerInch>1e-6)wanted=Math.min(wanted,config.maxTurn*config.maxPathSpeed*.65/angularPerInch);
+            // The slowest bend between the robot and its reference point (the robot may trail it).
+            for(int j=nearest;j<samples.size()&&samples.get(j).s<=Math.max(progress,reference)+.5;j++)wanted=Math.min(wanted,limits[j]);
             speed+=clamp(wanted-speed,-config.acceleration*dt,config.acceleration*dt);
             reference=Math.min(total,Math.min(reference+speed*dt,progress+Math.max(2,speed*.12)));
             aim=sample(reference);Pose ahead=sample(Math.min(total,reference+.25));double dx=ahead.x-aim.x,dy=ahead.y-aim.y,len=Math.hypot(dx,dy);
@@ -565,18 +615,32 @@ public class BiobuzzRedAuto extends LinearOpMode {
             if(total-progress<.6&&p.distance(target)<.8){settled+=dt;if(settled>.1){mode=Mode.HOLDING;aim=target;vx=vy=omega=0;}}else settled=0;
         }
         double ex=aim.x-p.x,ey=aim.y-p.y,c=Math.cos(p.heading),s=Math.sin(p.heading);
-        double forward=(vx*c+vy*s)/config.maxForward+config.positionP*(ex*c+ey*s)-config.positionD*((v.x-vx)*c+(v.y-vy)*s);
-        double strafe=(-vx*s+vy*c)/config.maxStrafe+config.positionP*(-ex*s+ey*c)-config.positionD*(-(v.x-vx)*s+(v.y-vy)*c);
+        // Position error becomes a correction speed: proportional near the path, square-root beyond
+        // it, so a large error is closed as fast as the robot can still brake for it instead of
+        // saturating the motors and overshooting. Continuous where the two meet.
+        double error=Math.hypot(ex,ey),k=config.positionP*config.maxForward,a=Math.max(1,config.acceleration),knee=a/Math.max(1e-6,k*k);
+        double correction=error<=knee?k*error:Math.sqrt(2*a*(error-knee/2)),cx=error>1e-9?ex/error*correction:0,cy=error>1e-9?ey/error*correction:0;
+        double ffForward=(vx*c+vy*s)/config.maxForward,ffStrafe=(-vx*s+vy*c)/config.maxStrafe,ffTurn=omega/config.maxTurn;
+        double forward=(cx*c+cy*s)/config.maxForward-config.positionD*((v.x-vx)*c+(v.y-vy)*s);
+        double strafe=(-cx*s+cy*c)/config.maxStrafe-config.positionD*(-(v.x-vx)*s+(v.y-vy)*c);
         double desiredHeading=aim.heading;
-        if(config.tank&&following()&&Math.abs(forward)>.02)desiredHeading+=Math.signum(forward)*clamp(Math.atan2(-ex*s+ey*c,4),-.35,.35);
+        if(config.tank&&following()&&Math.abs(forward+ffForward)>.02)desiredHeading+=Math.signum(forward+ffForward)*clamp(Math.atan2(-ex*s+ey*c,4),-.35,.35);
         double headingError=angle(desiredHeading-p.heading);
-        double turn=config.headingP*headingError-config.headingD*(v.heading-omega)+omega/config.maxTurn;
+        double turn=config.headingP*headingError-config.headingD*(v.heading-omega);
         // Overcome the motor deadband at a nearly stationary heading error. Without this,
         // a light/fast drivetrain can stop just outside the turn-settling tolerance.
-        if(Math.abs(headingError)>.015&&Math.abs(v.heading)<.1&&Math.abs(turn)<.045)turn=Math.copySign(.045,headingError);
-        if(config.tank)strafe=0;
-        double limit=config.maxPathSpeed,scale=Math.max(1,(Math.abs(forward)+Math.abs(strafe)+Math.abs(turn))/Math.max(.000001,limit));
-        drive.drive(new DrivePowers(forward/scale,strafe/scale,turn/scale),true);
+        if(Math.abs(headingError)>.015&&Math.abs(v.heading)<.1&&Math.abs(turn+ffTurn)<.045)turn=Math.copySign(.045,headingError)-ffTurn;
+        if(config.tank){strafe=0;ffStrafe=0;}
+        // Correction has priority over path speed: when the wheels saturate, the robot slows down
+        // along the path rather than drifting off it. Feedback alone is capped at the power limit.
+        double limit=Math.max(.000001,config.maxPathSpeed),feedback=Math.abs(forward)+Math.abs(strafe)+Math.abs(turn);
+        if(feedback>limit){forward*=limit/feedback;strafe*=limit/feedback;turn*=limit/feedback;}
+        double keep=1;
+        if(Math.abs(forward+ffForward)+Math.abs(strafe+ffStrafe)+Math.abs(turn+ffTurn)>limit){
+            // The mixed total is convex in the feedforward share; bisect for the largest share that fits.
+            double lo=0,hi=1;for(int i=0;i<20;i++){double m=(lo+hi)/2;if(Math.abs(forward+m*ffForward)+Math.abs(strafe+m*ffStrafe)+Math.abs(turn+m*ffTurn)>limit)hi=m;else lo=m;}keep=lo;
+        }
+        drive.drive(new DrivePowers(forward+keep*ffForward,strafe+keep*ffStrafe,turn+keep*ffTurn),true);
     }
 
     }
@@ -585,30 +649,48 @@ public class BiobuzzRedAuto extends LinearOpMode {
 
     public static final String[] INTAKE_MOTORS = {"intake"};
     public static final double[] INTAKE_POWERS = {1.0};
+    /** Kicker servos and their positions down (scooping) and up (carrying in); KICKER_UP_SECONDS to swing back up. */
+    public static final String[] KICKER_SERVOS = {};
+    public static final double[] KICKER_DOWN = {}, KICKER_UP = {};
+    public static final double KICKER_UP_SECONDS = 0.0;
+    /** Ramp servos and their positions down (picking up, rollers running) and up (folded in). */
+    public static final String[] RAMP_SERVOS = {};
+    public static final double[] RAMP_DOWN = {}, RAMP_UP = {};
     public static final String[] FLYWHEEL_MOTORS = {"shooter"}, INDEXERS = {"indexer"};
-    /** Each shooter's turret motor, or null for a fixed shooter. */
+    /** Each shooter's turret motor, or null for a fixed shooter (or one on the first shooter's turret). */
     public static final String[] TURRET_MOTORS = {"turret"};
-    public static final double INDEX_SECONDS = 0.35, INDEXER_POWER = 1.0;
-    public static final double FLYWHEEL_TICKS_PER_SECOND = 1400.0, SPIN_UP_SECONDS = 0.8, SHOT_GAP_SECONDS = 0.3;
+    /** Where each turret turns, inches forward and left of the robot's center: each aims from its own spot. */
+    public static final double[] TURRET_X = {0.0}, TURRET_Y = {0.0};
+    public static final double TRANSFER_SECONDS = 1.0, INDEX_SECONDS = 0.35, INDEXER_POWER = 1.0, FIRE_MARGIN_SECONDS = 0.15;
+    public static final double FLYWHEEL_TICKS_PER_SECOND = 1400.0, SPIN_UP_SECONDS = 0.8;
     /** Pieces the robot can hold: 4 pollen. */
     public static final int STORAGE = 4;
-    /** The field point shots aim at, in inches. */
-    public static final double TARGET_X = 59.25, TARGET_Y = 58.5602;
+    /** The field points shots aim at, in inches: the hive cell up at the start, and the other cell. */
+    public static final double TARGET_X = 59.25, TARGET_Y = 58.5602, OTHER_TARGET_X = 59.25, OTHER_TARGET_Y = 85.4398;
     public static final double TURRET_TICKS_PER_DEGREE = 4.6, TURRET_MIN_DEGREES = -170.0, TURRET_MAX_DEGREES = 170.0, TURRET_POWER = 1.0;
 
     private final DcMotorEx[] intakes = new DcMotorEx[INTAKE_MOTORS.length];
+    private final Servo[] kickers = new Servo[KICKER_SERVOS.length];
+    private final Servo[] ramps = new Servo[RAMP_SERVOS.length];
     private final DcMotorEx[] flywheels = new DcMotorEx[FLYWHEEL_MOTORS.length];
     private final DcMotorSimple[] indexers = new DcMotorSimple[INDEXERS.length];
     private final DcMotorEx[] turrets = new DcMotorEx[TURRET_MOTORS.length];
     private final ElapsedTime clock = new ElapsedTime();
-    private int fed;
-    private double feedStart = -1, lastShot = -1e9, spinStart = -1;
-    private boolean spinning;
+    private double feedStart = -1, spinStart = -1, lastIntake = -1e9;
+    private boolean spinning, shot;
 
     public void init(HardwareMap map) {
         for (int i = 0; i < intakes.length; i++) {
             intakes[i] = map.get(DcMotorEx.class, INTAKE_MOTORS[i]);
             intakes[i].setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
+        }
+        for (int i = 0; i < kickers.length; i++) {
+            kickers[i] = map.get(Servo.class, KICKER_SERVOS[i]);
+            kickers[i].setPosition(KICKER_UP[i]);
+        }
+        for (int i = 0; i < ramps.length; i++) {
+            ramps[i] = map.get(Servo.class, RAMP_SERVOS[i]);
+            ramps[i].setPosition(RAMP_UP[i]);
         }
         for (int i = 0; i < flywheels.length; i++) {
             indexers[i] = map.get(DcMotorSimple.class, INDEXERS[i]);
@@ -625,7 +707,10 @@ public class BiobuzzRedAuto extends LinearOpMode {
     }
 
     public void intake(boolean on) {
+        if (on && (intakes.length > 0 || kickers.length > 0)) lastIntake = clock.seconds();
         for (int i = 0; i < intakes.length; i++) intakes[i].setPower(on ? INTAKE_POWERS[i] : 0);
+        for (int i = 0; i < kickers.length; i++) kickers[i].setPosition(on ? KICKER_DOWN[i] : KICKER_UP[i]);
+        for (int i = 0; i < ramps.length; i++) ramps[i].setPosition(on ? RAMP_DOWN[i] : RAMP_UP[i]);
     }
 
     /** Flywheels on (to FLYWHEEL_TICKS_PER_SECOND) or off. */
@@ -643,13 +728,16 @@ public class BiobuzzRedAuto extends LinearOpMode {
         return true;
     }
 
-    /** Point every turret at TARGET from this pose. Fixed shooters are aimed by the route. */
-    public void aim(DeckFollower.Pose pose) {
-        double degrees = Math.toDegrees(Math.atan2(TARGET_Y - pose.y(), TARGET_X - pose.x()) - pose.heading());
-        degrees = ((degrees % 360) + 540) % 360 - 180;
-        degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
-        for (DcMotorEx turret : turrets) {
+    /** Point every turret at a cell (0 TARGET, 1 OTHER_TARGET) from this pose. Fixed shooters are aimed by the route. */
+    public void aim(DeckFollower.Pose pose, int cell) {
+        double x = cell == 1 ? OTHER_TARGET_X : TARGET_X, y = cell == 1 ? OTHER_TARGET_Y : TARGET_Y, c = Math.cos(pose.heading()), s = Math.sin(pose.heading());
+        for (int i = 0; i < turrets.length; i++) {
+            DcMotorEx turret = turrets[i];
             if (turret == null) continue;
+            double tx = pose.x() + TURRET_X[i] * c - TURRET_Y[i] * s, ty = pose.y() + TURRET_X[i] * s + TURRET_Y[i] * c;
+            double degrees = Math.toDegrees(Math.atan2(y - ty, x - tx) - pose.heading());
+            degrees = ((degrees % 360) + 540) % 360 - 180;
+            degrees = Math.max(TURRET_MIN_DEGREES, Math.min(TURRET_MAX_DEGREES, degrees));
             turret.setTargetPosition((int) Math.round(degrees * TURRET_TICKS_PER_DEGREE));
             turret.setMode(DcMotor.RunMode.RUN_TO_POSITION);
             turret.setPower(TURRET_POWER);
@@ -665,23 +753,22 @@ public class BiobuzzRedAuto extends LinearOpMode {
         for (DcMotorSimple indexer : indexers) indexer.setPower(on ? INDEXER_POWER : 0);
     }
 
-    /** One call of "Shoot N" (count 0: every storage slot). Returns true once all feeds are done. */
+    /** One call of "Shoot N" (count 0: every storage slot). Returns true once all N shots have had time. */
     public boolean shoot(int count, RouteActions.Step step) {
         int want = count > 0 ? count : STORAGE;
-        if (step.first) { fed = 0; feedStart = -1; lastShot = -1e9; }
+        if (step.first) { feedStart = -1; shot = false; }
+        if (shot) return true;
         spin(true);
-        aim(step.pose);
+        aim(step.pose, step.cell);
         double now = clock.seconds();
-        if (fed < want && !step.last && ready() && aimed() && now - lastShot >= SHOT_GAP_SECONDS) {
-            if (feedStart < 0) feedStart = now;
-            boolean feeding = now - feedStart < INDEX_SECONDS;
-            feed(feeding);
-            if (!feeding) { fed++; lastShot = now; feedStart = -1; }
-        } else {
-            feed(false);
-            feedStart = -1;
-        }
-        boolean done = fed >= want || step.last;
+        // Start once spun up and on target, and pieces from the last intake have moved up.
+        if (feedStart < 0 && ready() && aimed() && now - lastIntake >= TRANSFER_SECONDS + KICKER_UP_SECONDS) feedStart = now;
+        // Shooting for a set time keeps feeding until the route's last call; otherwise long enough for N shots.
+        double window = step.duration > 0 ? Double.MAX_VALUE : (want - 1) * INDEX_SECONDS + FIRE_MARGIN_SECONDS;
+        boolean feeding = feedStart >= 0 && now - feedStart < window;
+        feed(feeding && !step.last);
+        if (feedStart >= 0 && !feeding) shot = true;
+        boolean done = shot || step.last;
         if (done) { feed(false); spin(false); }
         return done;
     }

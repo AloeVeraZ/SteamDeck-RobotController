@@ -5,7 +5,7 @@
   const n=v=>Number(v).toFixed(3).replace(/\.?0+$/,'')||'0';
   const finite=Number.isFinite,norm=d=>((d%360)+540)%360-180;
   const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
-  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/[\r\n]+/g,' ').trim();
+  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/\\(?=u)/g,'\\ ').replace(/[\r\n]+/g,' ').trim();
   const endOf=s=>finite(s.endHeading)?s.endHeading:s.heading;
   // Which pin's path each segment belongs to (0-based): the planner marks it, older routes are matched.
   function pathIndex(route){const stops=route.stops||[];let k=0;return route.segments.map((s,i)=>{if(Number.isInteger(s.to))return s.to;while(k<stops.length-1&&stops[k].segment<i)k++;return k;});}

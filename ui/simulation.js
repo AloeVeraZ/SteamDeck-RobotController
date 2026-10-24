@@ -161,7 +161,7 @@ public class MyAuto implements DeckAutonomous {
       <div class="sim-stage" id="sim-stage">
       <svg id="simulation-field" viewBox="-16 -9 168 172" role="group" tabindex="0" aria-label="Simulation field, inches from the bottom-left corner" aria-describedby="field-help field-coordinates">
         <rect class="field-floor" x="0" y="0" width="144" height="144"/><g class="field-grid"></g><g class="field-labels"></g>
-        <g id="sim-overlay" transform="matrix(1 0 0 -1 0 144)"><rect id="sim-walls" class="sim-walls" x="0" y="0" width="144" height="144"/><g id="sim-obstacles"></g><g id="sim-elements"></g><g id="sim-zones"></g><g id="sim-route"></g><g id="sim-trail"></g><g id="sim-log-path"></g><g id="sim-pins"></g><polygon id="sim-start" class="sim-start" points=""/><polygon id="sim-estimate" class="sim-estimate" points=""/><circle id="sim-target" class="sim-target" r="1.2" cx="-99" cy="-99"/><g id="sim-draft"></g></g>
+        <g id="sim-overlay" transform="matrix(1 0 0 -1 0 144)"><rect id="sim-walls" class="sim-walls" x="0" y="0" width="144" height="144"/><g id="sim-obstacles"></g><g id="sim-elements"></g><g id="sim-zones"></g><g id="sim-route"></g><g id="sim-preview-ghost"></g><g id="sim-trail"></g><g id="sim-log-path"></g><g id="sim-pins"></g><polygon id="sim-start" class="sim-start" points=""/><polygon id="sim-estimate" class="sim-estimate" points=""/><circle id="sim-target" class="sim-target" r="1.2" cx="-99" cy="-99"/><g id="sim-draft"></g></g>
         <g id="field-robot"><image id="sim-robot-image" href="" x="0" y="0" width="0" height="0" preserveAspectRatio="none"/><rect x="-9" y="-9" width="18" height="18" rx="1.5"/><path d="M-3 0H5M2-3L5 0 2 3"/></g>
       </svg><div id="sim-3d" class="sim-3d" hidden></div><div id="sim-effects" class="sim-popover" role="dialog" aria-label="Pin and path settings" hidden></div><datalist id="sim-action-list"></datalist></div>
       <output id="field-coordinates"></output><p id="field-help" class="hint"></p>
@@ -243,10 +243,11 @@ public class MyAuto implements DeckAutonomous {
         <div id="sim-route-step" hidden><h2>Paths</h2>
         <p class="hint sim-legend"><span class="key-hold">● Hold</span><span class="key-power">● Power</span><span class="key-rotation">● Rotation</span><span class="key-track">● Target</span><span class="key-action">● Action</span><span>Dashed = action · Hover for all modifiers</span></p>
         <p class="hint">Each path drives from the previous point to its end point. Click the field (or + Add path) to add one, drag a point to move it, and click a path or its line to edit it in the list. Points in a red area move to the nearest clear spot. Draw path turns a dragged stroke into paths. Give a path an action to run it while driving, such as intaking or shooting while moving; each action you name gets its own labeled slot in the exported code. Ctrl+Z undoes a change and Ctrl+Shift+Z redoes it.</p>
-        <p class="hint sim-shortcuts"><strong>Keys</strong> (click the field first): arrows nudge the selected end point or obstacle 1 in (Shift: 0.1 in) · Delete removes it · Enter edits it · [ ] turn an obstacle · Escape cancels · Ctrl+Z / Ctrl+Shift+Z undo and redo · scroll, + − and 0 zoom · middle-drag or Space+drag pans.</p>
+        <p class="hint sim-shortcuts"><strong>Keys</strong> (click the field first): arrows nudge the selected end point or obstacle 1 in (Shift: 0.1 in) · Delete removes it (or the open path) · Enter edits it · Shift while dragging a curve handle snaps it to 0.5 in · [ ] turn an obstacle · Escape cancels · Ctrl+Z / Ctrl+Shift+Z undo and redo · scroll, + − and 0 zoom · middle-drag or Space+drag pans.</p>
         <div id="sim-zone-editor" class="sim-editor" hidden></div>
         <div class="sim-path-bar"><button id="sim-add-path" class="primary" type="button" title="Add a path from the last point">+ Add path</button></div>
         <ol id="sim-pin-list" class="sim-list sim-path-list"></ol>
+        <div id="sim-preview-row" class="sim-preview-row" hidden><button id="sim-preview-play" class="secondary" type="button">▶ Preview</button><input id="sim-preview" type="range" min="0" max="1000" step="1" value="0" aria-label="Robot position along the route" title="Moves a robot outline along the planned route. Shape only: Run & review drives it with physics and timing."><output id="sim-preview-note" class="hint" for="sim-preview"></output></div>
         <label>Route shape</label>${segmented('style',STYLES,'Route shape')}
         <label>Turning</label>${segmented('rotate',{auto:'Turn to fit',off:'Keep heading'},'Turning')}<p id="sim-rotate-note" class="hint"></p>
         <div class="start-xy"><div><label for="sim-clearance">Space around obstacles · in</label><input id="sim-clearance" type="number" min="0.05" data-slider-max="6" step="any" data-slider-step="0.05"></div><div><label>&nbsp;</label><button id="sim-optimize" class="secondary" type="button">Optimize</button></div></div>
@@ -277,7 +278,7 @@ public class MyAuto implements DeckAutonomous {
   // Pins and handles shrink as the field zooms in (by the square root), so they stay easy to grab without hiding what is near them.
   const marker=()=>1/Math.sqrt(zoom.z);
   function applyZoom(){const w=fitBox.w/zoom.z,h=fitBox.h/zoom.z;zoom.cx=Math.max(fitBox.x+w/2,Math.min(fitBox.x+fitBox.w-w/2,zoom.cx));zoom.cy=Math.max(fitBox.y+h/2,Math.min(fitBox.y+fitBox.h-h/2,zoom.cy));
-    graph.setAttribute('viewBox',`${zoom.cx-w/2} ${zoom.cy-h/2} ${w} ${h}`);graph.dataset.zoomed=String(zoom.z>1.001);
+    graph.setAttribute('viewBox',`${zoom.cx-w/2} ${zoom.cy-h/2} ${w} ${h}`);graph.dataset.zoomed=String(zoom.z>1.001);graph.style.setProperty('--line-scale',String(marker()));
     for(const t of $$('.field-labels text')){t.dataset.size??=t.getAttribute('font-size');t.setAttribute('font-size',t.dataset.size/zoom.z);}if(!zoomDraw){zoomDraw=true;requestAnimationFrame(()=>{zoomDraw=false;draw();});}for(const b of $$('[data-zoom]'))b.disabled=b.dataset.zoom==='in'?zoom.z>=8:zoom.z<=1.001;}
   // Zoom by a factor, keeping the SVG point under (clientX, clientY) where it is.
   function zoomBy(factor,clientX,clientY){const m=graph.getScreenCTM(),z=Math.max(1,Math.min(8,zoom.z*factor));if(!m||z===zoom.z)return;const r=graph.getBoundingClientRect(),x=clientX??r.left+r.width/2,y=clientY??r.top+r.height/2,p=new DOMPoint(x,y).matrixTransform(m.inverse());
@@ -386,7 +387,7 @@ public class MyAuto implements DeckAutonomous {
     for(const [k,v] of Object.entries({x:b.x0,y:b.y0,width:b.x1-b.x0,height:b.y1-b.y0}))$('#sim-walls').setAttribute(k,v);
     const sel=selected?.kind==='zone'&&zoneById(selected.id);
     $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4*marker()})):[]));
-    $('#sim-route').replaceChildren(...onionShapes(),...(l.route?routeShapes(l.route):[]),...controlShapes());
+    $('#sim-route').replaceChildren(...onionShapes(),...(l.route?routeShapes(l.route):[]),...controlShapes());$('#sim-preview-row').hidden=!l.route;drawPreview();
     $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':''),transform:`translate(${p.x} ${p.y}) scale(${marker()})`,'data-pin':i});
       // A pin that turns the robot shows the heading it turns to.
     if(finite(p.turn)){const h=l.route?.stops[i]?.turn??p.turn;n.append(svg('path',{class:'sim-pin-turn',d:`M0 0L${(5.2*Math.cos(h*Math.PI/180)).toFixed(2)} ${(5.2*Math.sin(h*Math.PI/180)).toFixed(2)}`}));}
@@ -587,6 +588,15 @@ public class MyAuto implements DeckAutonomous {
     for(const s of parts)for(let j=0;j<=40;j++){const t=j/40,p=bez(s.points,t);if(prev)since+=Math.hypot(p.x-prev.x,p.y-prev.y);prev=p;if(since<8&&!(s===parts.at(-1)&&j===40))continue;since=0;
       const h=planner.headingAt(s,t);out.push(svg('polygon',{class:'sim-onion',points:pts(planner.body({...p,heading:finite(h)?h:finite(route.heading)?route.heading:start.heading},fp))}));}
     return out.slice(0,60);}
+  // Route preview (Paths step): the scrubber moves a robot outline along the planned route, without physics.
+  let previewAt=0,previewCache=null,previewTimer=0;
+  function previewPath(){const route=L().route;if(!route)return null;if(previewCache?.route!==route){const fp=route.footprint||geometry().footprint;previewCache={route,fp,poses:planner.previewPoses(route,fp,start)};}return previewCache.poses.length?previewCache:null;}
+  function previewPose(){const c=previewPath();if(!c)return null;const p=c.poses,last=p.at(-1),s=previewAt/1000*last.s;let lo=0,hi=p.length-1;while(lo<hi){const m=(lo+hi)>>1;if(p[m].s<s)lo=m+1;else hi=m;}
+    const b=p[lo],a=p[Math.max(0,lo-1)],t=b.s>a.s?(s-a.s)/(b.s-a.s):1,mix=k=>a[k]+(b[k]-a[k])*t;return {x:mix('x'),y:mix('y'),heading:mix('heading'),d:mix('d'),total:last.d,path:b.path,turning:!!b.turning,fp:c.fp};}
+  function drawPreview(){const q=tab==='plan'&&previewAt>0&&previewPose();$('#sim-preview-note').textContent=q?`Path ${q.path+1}${q.turning?' · turning':''} · ${field.round(q.d)} of ${field.round(q.total)} in`:'';
+    if(!q)return $('#sim-preview-ghost').replaceChildren();const r=q.heading*Math.PI/180;
+    $('#sim-preview-ghost').replaceChildren(svg('polygon',{class:'sim-preview-robot',points:pts(planner.body(q,q.fp))}),svg('path',{class:'sim-preview-heading',d:`M${q.x.toFixed(2)} ${q.y.toFixed(2)}L${(q.x+Math.cos(r)*q.fp.front).toFixed(2)} ${(q.y+Math.sin(r)*q.fp.front).toFixed(2)}`}));}
+  function previewStop(){cancelAnimationFrame(previewTimer);previewTimer=0;$('#sim-preview-play').textContent='▶ Preview';}
   function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(tab!=='plan'||!c?.length)return [];const a=pathStart(i),out=[];
     out.push(svg('polyline',{class:'sim-control-guide',points:pts([a,c[0]])}),svg('polyline',{class:'sim-control-guide',points:pts([c.at(-1),q])}));if(c.length>2)out.push(svg('polyline',{class:'sim-control-guide',points:pts(c)}));
     if(!L().route||planError)out.push(svg('polyline',{class:'sim-path draft'+(diagnostics.some(d=>d.pin===i)?' blocked':''),points:pts(Array.from({length:33},(_,j)=>bez([a,...c,q],j/32)))}));
@@ -764,7 +774,9 @@ public class MyAuto implements DeckAutonomous {
     if(tool==='shape'&&sketch){cursor=p;showDraft(null);}
     if(tool==='draw'&&stroke&&pointer===event.pointerId){if(dist2(stroke.at(-1),p)>=1)stroke.push({x:p.x,y:p.y});$('#sim-draft').replaceChildren(svg('polyline',{class:'sim-draw-stroke',points:pts(stroke)}));return;}
     if(drag?.kind==='control'){const q=L().pins[drag.index],b=geometry().bounds;if(!q?.path?.controls?.[drag.control])return;if(!drag.moved&&Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<3)return;
-      q.path.controls[drag.control]={x:field.round(Math.max(b.x0,Math.min(b.x1,p.x))),y:field.round(Math.max(b.y0,Math.min(b.y1,p.y)))};drag.moved=true;liveEdit();syncPaths();return;}
+      // Shift snaps the handle to a 0.5 in grid.
+      const snap=v=>event.shiftKey?Math.round(v*2)/2:v;
+      q.path.controls[drag.control]={x:field.round(Math.max(b.x0,Math.min(b.x1,snap(p.x)))),y:field.round(Math.max(b.y0,Math.min(b.y1,snap(p.y))))};drag.moved=true;liveEdit();syncPaths();return;}
     if(drag?.kind==='pin'){const q=L().pins[drag.index];if(!drag.moved&&Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<4)return;clearTimeout(hold?.timer);hold=null;const at=drag.from?{x:drag.pin.x+p.x-drag.from.x,y:drag.pin.y+p.y-drag.from.y}:p;Object.assign(q,nearestPin(at,12)||q);drag.moved=true;liveEdit();return;}
     $('#field-coordinates').textContent=`X ${field.round(p.x)} in · Y ${field.round(p.y)} in`;
   });
@@ -813,6 +825,10 @@ public class MyAuto implements DeckAutonomous {
   graph.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
   graph.addEventListener('keydown',e=>{if(!active||effects.session||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key===' '){spaceHeld=true;if(zoom.z>1.001)e.preventDefault();return;}const k={'+':'in','=':'in','-':'out','_':'out','0':'fit'}[e.key];if(!k||project.view==='3d')return;e.preventDefault();k==='fit'?(zoom.z=1,applyZoom()):zoomBy(k==='in'?1.4:1/1.4);});
   graph.addEventListener('keyup',e=>{if(e.key===' ')spaceHeld=false;});addEventListener('blur',()=>{spaceHeld=false;});
+  $('#sim-preview').oninput=e=>{previewStop();previewAt=Number(e.target.value);drawPreview();};
+  // About 30 inches of route per second, between 2 and 20 seconds; stops if the route changes or the tab is left.
+  $('#sim-preview-play').onclick=()=>{if(previewTimer)return previewStop();const c=previewPath();if(!c)return;if(previewAt>=1000)previewAt=0;const seconds=Math.max(2,Math.min(20,c.poses.at(-1).s/30));let last=performance.now();
+    $('#sim-preview-play').textContent='Pause';const tick=now=>{previewAt=Math.min(1000,previewAt+(now-last)/seconds);last=now;$('#sim-preview').value=String(Math.round(previewAt));drawPreview();if(previewAt<1000&&tab==='plan'&&L().route===c.route)previewTimer=requestAnimationFrame(tick);else previewStop();};previewTimer=requestAnimationFrame(tick);};
   for(const b of $$('[data-zoom]'))b.onclick=()=>{if(b.dataset.zoom==='fit'){zoom.z=1;applyZoom();}else zoomBy(b.dataset.zoom==='in'?1.4:1/1.4);};
   graph.addEventListener('pointercancel',()=>{releaseCursor();delete graph.dataset.dragging;$('#sim-grab-cursor')?.remove();clearTimeout(hold?.timer);hold=null;pendingPin=null;pointer=null;drag=null;stroke=null;showDraft(null);preview={...start};draw();});
   graph.addEventListener('keydown',event=>{
@@ -839,7 +855,7 @@ public class MyAuto implements DeckAutonomous {
     L().pins.push({x:q.x,y:q.y,wait:0,action:''});selected={kind:'pin',index:L().pins.length-1};selectTab('plan');changed('pins');if(Math.hypot(q.x-p.x,q.y-p.y)>.75)status('#sim-plan-status',`Pin ${L().pins.length} moved to the nearest clear spot outside the red area.`);
   }
   function removeSelected(){
-    const l=L();if(selected?.kind==='zone')l.zones=l.zones.filter(z=>z.id!==selected.id);else if(selected?.kind==='pin')l.pins.splice(selected.index,1);else return;
+    const l=L();if(selected?.kind==='zone')l.zones=l.zones.filter(z=>z.id!==selected.id);else if(['pin','path'].includes(selected?.kind))l.pins.splice(selected.index,1);else return;
     const kind=selected.kind;selected=null;changed(kind==='zone'?'zones':'pins');
   }
   function setTool(next){if(!['select','rect','circle','triangle','shape','pin','draw','start'].includes(next))return;if(sketch&&next!=='shape')finishShape();tool=next;if(next==='start')preview={...start};draw();graph.focus({preventScroll:true});}

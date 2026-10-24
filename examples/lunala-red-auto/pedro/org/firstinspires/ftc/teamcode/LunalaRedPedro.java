@@ -148,8 +148,12 @@ public class LunalaRedPedro extends LinearOpMode {
                 report(legs.length - 1, legs.length, "Done");
             }
         } finally {
-            actions.stop();
-            stopDriving();
+            // Stop the drive first: an error in a mechanism's stop code must not leave the wheels turning.
+            try {
+                stopDriving();
+            } finally {
+                actions.stop();
+            }
         }
     }
 

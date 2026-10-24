@@ -28,7 +28,7 @@
   }
   // Java double literals: Java numeric literals retain a decimal point for generated calibration constants.
   const n=v=>{const s=String(Number(Number(v).toPrecision(6)));return /[.eE]/.test(s)?s:s+'.0';};
-  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/[\r\n]+/g,' ').trim();
+  const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/\\(?=u)/g,'\\ ').replace(/[\r\n]+/g,' ').trim();
   const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
   const names=list=>`new String[] {${list.map(javaString).join(', ')}}`;
   // The same application-owned controller is exported to the robot. Only this adapter
@@ -240,8 +240,12 @@ public class ${options.opModeName} extends LinearOpMode {
                 report(legs.length - 1, legs.length, "Done");
             }
         } finally {
-            actions.stop();
-            follower.stop();
+            // Stop the drive first: an error in a mechanism's stop code must not leave the wheels turning.
+            try {
+                follower.stop();
+            } finally {
+                actions.stop();
+            }
         }
     }
 

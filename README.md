@@ -121,7 +121,8 @@ downloads: physics, the path follower and the Java runtime it needs ship inside 
   turn it to fit. Like the Pedro Pathing visualizer, a path can be a **custom curve** with draggable
   handles, and the robot can hold a heading, turn, face a target or **face along the path**. Right-click
   a pin or a path for pauses, turns, spins and **action paths** (run an intake or shooter while driving).
-  Switching the BIOBUZZ alliance moves the route to the other side.
+  Switching the BIOBUZZ alliance moves the route to the other side. Drag the route preview to slide a
+  robot outline along the plan before running physics.
 - Describe your **mechanisms** in plain settings (intake sides, storage, index time, turret or fixed
   shooter, spin-up). Routes use Intake, Spin up, Aim and Shoot, and the physics picks up, launches
   and scores real BIOBUZZ pieces.
