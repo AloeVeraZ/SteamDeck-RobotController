@@ -55,3 +55,11 @@ test('the BIOBUZZ example runs as a Pedro export with its mechanisms and parks',
     assert.ok(done,`finished within the 30 s autonomous (${JSON.stringify(e.telemetry)})`);const end=l.pins.at(-1),t=e.truth();assert.ok(Math.hypot(t.x-end.x,t.y-end.y)<2,`parked at (${t.x.toFixed(1)}, ${t.y.toFixed(1)}) for (${end.x}, ${end.y})`);
   }finally{e.dispose();}
 });
+
+test('Pedro follows a custom curve facing along it (its own .tangent()) and ends on the end point',{skip},async()=>{
+  const r=await drive('fused',[{x:110,y:24,path:{rotate:'tangent',controls:[{x:50,y:80},{x:90,y:80}]}}],{seconds:12});
+  try{assert.ok(r.doneAt!==null,r.phases.join(' → '));const t=r.truth;assert.ok(Math.hypot(t.x-110,t.y-24)<1.5,`ended at (${t.x.toFixed(2)}, ${t.y.toFixed(2)})`);
+    // The tangent at the end of this curve points down and to the right (from (90,80) to (110,24)).
+    const end=Math.atan2(24-80,110-90);assert.ok(Math.abs(Math.atan2(Math.sin(t.heading-end),Math.cos(t.heading-end)))<Math.PI/30,`final heading ${(t.heading*180/Math.PI).toFixed(1)}° vs ${(end*180/Math.PI).toFixed(1)}°`);
+  }finally{r.dispose();}
+});

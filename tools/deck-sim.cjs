@@ -127,6 +127,10 @@ function pinFrom(flags,x,y){
   if(flags.track){p.rotate='track';p.target=point(flags.track,'--track');}
   else if(flags.heading!==undefined){p.rotate='turn';p.heading=num(flags.heading,'--heading');}
   else if(flags.spin!==undefined){p.rotate='spin';p.spins=num(flags.spin,'--spin');}
+  else if(flags.tangent)p.rotate='tangent';
+  else if(flags.reverse)p.rotate='reverse';
+  // --curve x1,y1[,x2,y2[,x3,y3]]: a custom Bezier curve through these control points, driven as given.
+  if(flags.curve!==undefined){const v=String(flags.curve).split(',').map(Number);if(v.length<2||v.length>6||v.length%2||!v.every(Number.isFinite))throw Error('--curve needs 1 to 3 control points: x1,y1[,x2,y2[,x3,y3]].');p.controls=[];for(let i=0;i<v.length;i+=2)p.controls.push({x:v[i],y:v[i+1]});}
   if(flags['path-note'])p.note=String(flags['path-note']);
   return clean(pin);
 }
@@ -260,6 +264,8 @@ Route
       --path-for S        only for the first S seconds of the path (default: the whole path)
       --cell other        aim the pin's Shoot/Aim at the hive's other cell (up after the first tip); --path-cell other for a path
       --track X,Y         keep aiming at a point while driving   --heading DEG   turn to a heading while driving
+      --tangent           face along the path while driving      --reverse       face backwards along it
+      --curve X1,Y1,X2,Y2 a custom Bezier curve with these control points (1-3 points), driven exactly
   pin <setup.json> clear                   Remove every pin
   plan <setup.json> [--json]               Plan the route; report length, pauses and any blocked pin
   test <setup.json> [--json] [--code onbot|teamcode|pedro|motionmodule] [--log run.wpilog]
