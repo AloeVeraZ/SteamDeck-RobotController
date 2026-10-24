@@ -584,7 +584,7 @@ public class MyAuto implements DeckAutonomous {
   // The robot's outline every few inches along the open path, at the heading it has there.
   function onionShapes(){const i=openPath(),route=L().route,fp=route?.footprint;if(tab!=='plan'||i<0||!route||!fp)return [];const to=exporter.pathIndex(route),parts=route.segments.filter((_,k)=>to[k]===i),out=[];let since=Infinity,prev=null;
     for(const s of parts)for(let j=0;j<=40;j++){const t=j/40,p=bez(s.points,t);if(prev)since+=Math.hypot(p.x-prev.x,p.y-prev.y);prev=p;if(since<8&&!(s===parts.at(-1)&&j===40))continue;since=0;
-      out.push(svg('polygon',{class:'sim-onion',points:pts(planner.body({...p,heading:planner.headingAt(s,t)},fp))}));}
+      const h=planner.headingAt(s,t);out.push(svg('polygon',{class:'sim-onion',points:pts(planner.body({...p,heading:finite(h)?h:finite(route.heading)?route.heading:start.heading},fp))}));}
     return out.slice(0,60);}
   function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(tab!=='plan'||!c?.length)return [];const a=pathStart(i),out=[];
     out.push(svg('polyline',{class:'sim-control-guide',points:pts([a,c[0]])}),svg('polyline',{class:'sim-control-guide',points:pts([c.at(-1),q])}));if(c.length>2)out.push(svg('polyline',{class:'sim-control-guide',points:pts(c)}));
@@ -996,8 +996,10 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-clear-zones').onclick=()=>{L().zones=[];selected=null;changed('zones');};
 
   // ------------------------------------------------------------------ export
+  // Why there is nothing to export: no paths yet, still planning, or a route issue to fix first.
+  const noRoute=()=>!L().pins.length?'Add a path first: click the field in Path planning.':diagnostics.length?`Fix the route issue first (${diagnostics[0].message}) — see Path planning → Diagnostics.`:planError?`Fix the route first: ${planError}`:'The route is still being planned. Try again in a moment.';
   function exportText(format){
-    const l=L(),route=l.route;if(!route)throw Error('Plan a route first.');
+    const l=L(),route=l.route;if(!route)throw Error(noRoute());
     if(format==='onbot')return teamCode(route,true).source;
     if(format==='motionmodule')return window.DeckSimMotionModule.autonomous(route,{...project.timing,...(project.timing.source==='robot'?info?.timing:{}),power:project.tuning.maxPathSpeed??.8},{name:l.name,mechanisms:info?.mechanisms,target:info?.target,robot:project.robot});
     if(format==='timed')return JSON.stringify({format:'deck-timed-drive-v1',controller:project.controller,units:'inches',feedback:'IMU heading only; no X/Y feedback',notice:'Simulation schedule; not a MotionModule firmware integration.',start,field:l.field,...window.DeckTimed.compile(route,{...project.timing,...(project.timing.source==='robot'?info?.timing:{}),power:project.tuning.maxPathSpeed??.8})},null,2);
@@ -1029,11 +1031,11 @@ public class MyAuto implements DeckAutonomous {
     return window.DeckSimFtc[onbot?'onBotJava':'files']({route,layout:lay,mechanisms:info.mechanisms,target:info.target,tuning:info.tuning,robot:info.robot,localization:project.sensors.localization,setupName:project.setupName,packageName:project.export.packageName,className:project.export.className,
       routeJava:exporter.java(route,lay,{className:project.export.className,packageName:project.export.packageName,polygon:planner.polygon})});}
   $('#sim-export-onbot').onclick=()=>void exportRoute('onbot');
-  $('#sim-export-teamcode').onclick=async()=>{try{if(!L().route)throw Error('Plan a route first.');const out=teamCode(L().route),r=await api.simFile('teamcode-save',{files:out.files,keep:out.keep});if(r)status('#sim-export-status',`Wrote ${r.count} TeamCode files under ${r.name}${r.kept?.length?` (kept your ${r.kept.join(', ')})`:''}. OpMode: ${out.opMode.split('.').pop()}. Mechanism code goes in RobotActions.java.`);}catch(e){status('#sim-export-status',e.message);}};
+  $('#sim-export-teamcode').onclick=async()=>{try{if(!L().route)throw Error(noRoute());const out=teamCode(L().route),r=await api.simFile('teamcode-save',{files:out.files,keep:out.keep});if(r)status('#sim-export-status',`Wrote ${r.count} TeamCode files under ${r.name}${r.kept?.length?` (kept your ${r.kept.join(', ')})`:''}. OpMode: ${out.opMode.split('.').pop()}. Mechanism code goes in RobotActions.java.`);}catch(e){status('#sim-export-status',e.message);}};
   // Pedro Pathing 3: the route, its OpMode and action slots for a TeamCode built from the Pedro Quickstart.
   function pedroCode(route){const l=L(),lay={name:l.name,field:l.field,fieldName:GAMES[l.field],width:l.width,height:l.height,start,zones:l.zones};if(!info)throw Error('Wait for the simulation to load.');
     return window.DeckSimPedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:project.setupName,packageName:project.export.packageName,className:project.export.className,defaultPower:project.tuning.maxPathSpeed??.8,hardware:window.DeckSimFtc.hardware(info.robot,project.sensors.localization),tuning:info.tuning});}
-  $('#sim-export-pedro').onclick=async()=>{try{if(!L().route)throw Error('Plan a route first.');const out=pedroCode(L().route),r=await api.simFile('teamcode-save',{files:out.files,keep:out.keep});if(r){status('#sim-export-status',`Wrote ${r.count} Pedro Pathing ${window.DeckSimPedro.PEDRO_VERSION} files under ${r.name}${r.kept?.length?` (kept your ${r.kept.join(', ')})`:''}. OpMode: ${out.opMode.split('.').pop()}. It uses the Follower from your Quickstart's pedro/Constants.java.`);$('#sim-export-ready').dataset.pedro='1';checklist(out.checklist);}}catch(e){status('#sim-export-status',e.message);}};
+  $('#sim-export-pedro').onclick=async()=>{try{if(!L().route)throw Error(noRoute());const out=pedroCode(L().route),r=await api.simFile('teamcode-save',{files:out.files,keep:out.keep});if(r){status('#sim-export-status',`Wrote ${r.count} Pedro Pathing ${window.DeckSimPedro.PEDRO_VERSION} files under ${r.name}${r.kept?.length?` (kept your ${r.kept.join(', ')})`:''}. OpMode: ${out.opMode.split('.').pop()}. It uses the Follower from your Quickstart's pedro/Constants.java.`);$('#sim-export-ready').dataset.pedro='1';checklist(out.checklist);}}catch(e){status('#sim-export-status',e.message);}};
   // What an export proves and what the team still has to do, shown under the export buttons.
   // The Control Hub checklist for the current route; re-read when opened, since the route may have been re-planned.
   function exportChecklist(){try{const route=L().route;checklist(project.controller==='motionmodule'?[]:window.DeckSimFtc.checklist({mechanisms:info?.mechanisms?.enabled?info.mechanisms:null,actions:route?exporter.actions(route):[]}));}catch{checklist([]);}}
