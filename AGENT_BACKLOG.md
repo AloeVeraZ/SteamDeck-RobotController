@@ -25,7 +25,7 @@
 ## Robot code correctness and safety
 
 1. An optional Pedro export with Ivy commands, if `com.pedropathing:ivy` is published and stable.
-2. Open a generated `.pp` in the hosted Pedro Visualizer to confirm it loads. This was only checked against its loader source.
+2. Open a generated `.pp` in the hosted Pedro Visualizer website. Its loader and animation code already run against Deck's files under Node.
 
 ## Path planning UX
 

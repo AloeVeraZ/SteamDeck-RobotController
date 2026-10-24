@@ -162,6 +162,19 @@ ${parts.map(leg).join(',\n')}
   }
   // Deck path-file JSON (.pp): a start point and lines with optional Bezier control points.
   const COLORS=['#2563eb','#16a34a','#d97706','#9333ea','#dc2626','#0891b2','#db2777','#65a30d'];
+  // The Visualizer turns a linear heading the short way and spreads it by arc length; Deck's robot code turns by
+  // the curve parameter and may turn the long way or spin. A turn of 179° or more, or a turn along a curve, is
+  // written as piecewise linear pieces of at most 120° each, placed at the arc-length progress where the robot
+  // reaches each angle, so the Visualizer shows the turn the robot makes.
+  function linearHeading(s){
+    const from=s.heading,turn=s.endHeading-s.heading,curve=s.type==='curve';
+    if(!curve&&Math.abs(turn)<179)return {type:'linear',startDeg:+n(from),endDeg:+n(s.endHeading)};
+    const k=Math.min(400,Math.max(Math.ceil(Math.abs(turn)/120),curve?12:1)),steps=k*16,length=[0];let prev=s.points[0];
+    const at=t=>{let p=s.points.map(q=>({x:q.x,y:q.y}));while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];};
+    for(let i=1;i<=steps;i++){const q=at(i/steps);length.push(length[i-1]+Math.hypot(q.x-prev.x,q.y-prev.y));prev=q;}
+    const total=length[steps]||1,progress=j=>j===k?1:+(length[j*16]/total).toFixed(5);
+    return {type:'piecewise',piecewiseHeading:{segments:Array.from({length:k},(_,j)=>({startProgress:progress(j),endProgress:progress(j+1),interpolationType:'linear',parameters:{startDeg:+n(from+turn*j/k),endDeg:+n(from+turn*(j+1)/k)}}))}};
+  }
   function pp(route,layout,options={}){
     const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map(),to=pathIndex(route),stops=route.stops||[];
     let index=-1;for(const l of parts){index+=l.segments.length;endsLeg.set(index,l);}
@@ -174,7 +187,7 @@ ${parts.map(leg).join(',\n')}
       const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       // The Visualizer's own fields: an atomic path, its heading as an object, a colour per Deck path.
       line.kind='atomic';line.color=COLORS[to[i]%COLORS.length];if(!line.controlPoints)line.controlPoints=[];
-      line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:{x:+n(s.target.x),y:+n(s.target.y)}}}]}}:finite(s.endHeading)?{type:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)}:{type:'constant',degrees:+n(s.heading??route.heading)};
+      line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:{x:+n(s.target.x),y:+n(s.target.y)}}}]}}:finite(s.endHeading)?linearHeading(s):{type:'constant',degrees:+n(s.heading??route.heading)};
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)})),color:'#dc2626',fillColor:'#ef444433'}));
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:route.segments.some(s=>s.target)?'deck-sim-2':'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),

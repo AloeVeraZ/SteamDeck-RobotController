@@ -2,7 +2,7 @@
   "fileName": "BIOBUZZ red auto.pp",
   "version": "deck-sim-1",
   "stopAndTurn": true,
-  "timestamp": "2026-10-24T08:30:24.710Z",
+  "timestamp": "2026-10-24T09:53:04.522Z",
   "field": {
     "type": "biobuzz",
     "width": 144,
@@ -86,9 +86,119 @@
       "kind": "atomic",
       "color": "#d97706",
       "heading": {
-        "type": "linear",
-        "startDeg": -90,
-        "endDeg": -180
+        "type": "piecewise",
+        "piecewiseHeading": {
+          "segments": [
+            {
+              "startProgress": 0,
+              "endProgress": 0.0745,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -90,
+                "endDeg": -97.5
+              }
+            },
+            {
+              "startProgress": 0.0745,
+              "endProgress": 0.15214,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -97.5,
+                "endDeg": -105
+              }
+            },
+            {
+              "startProgress": 0.15214,
+              "endProgress": 0.23336,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -105,
+                "endDeg": -112.5
+              }
+            },
+            {
+              "startProgress": 0.23336,
+              "endProgress": 0.31797,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -112.5,
+                "endDeg": -120
+              }
+            },
+            {
+              "startProgress": 0.31797,
+              "endProgress": 0.40532,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -120,
+                "endDeg": -127.5
+              }
+            },
+            {
+              "startProgress": 0.40532,
+              "endProgress": 0.49449,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -127.5,
+                "endDeg": -135
+              }
+            },
+            {
+              "startProgress": 0.49449,
+              "endProgress": 0.58435,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -135,
+                "endDeg": -142.5
+              }
+            },
+            {
+              "startProgress": 0.58435,
+              "endProgress": 0.67368,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -142.5,
+                "endDeg": -150
+              }
+            },
+            {
+              "startProgress": 0.67368,
+              "endProgress": 0.76119,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -150,
+                "endDeg": -157.5
+              }
+            },
+            {
+              "startProgress": 0.76119,
+              "endProgress": 0.84557,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -157.5,
+                "endDeg": -165
+              }
+            },
+            {
+              "startProgress": 0.84557,
+              "endProgress": 0.92556,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -165,
+                "endDeg": -172.5
+              }
+            },
+            {
+              "startProgress": 0.92556,
+              "endProgress": 1,
+              "interpolationType": "linear",
+              "parameters": {
+                "startDeg": -172.5,
+                "endDeg": -180
+              }
+            }
+          ]
+        }
       }
     },
     {

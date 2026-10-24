@@ -25,6 +25,8 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - **`DeckStarterConstants.java`.** Pedro's Mecanum plus Pinpoint, OTOS, TwoWheel or ThreeWheelIMU, with Foresight filled from the simulated robot. Clearly labelled as estimates.
 - **Readiness checklist** in the Export tab: verified items versus team setup, calibration and physical testing.
 - **`.pp` files** now use the current Pedro Visualizer schema.
+  - Long turns, spins and turns along curves are written so the Visualizer shows the turn the robot makes. Before, it turned them the wrong way.
+  - This was checked by running the Visualizer's own code.
 - **Generated OpModes stop the drive first** when they end: an error in a mechanism's stop code can no longer leave the wheels turning. This applies to OnBot, TeamCode and Pedro.
 - **Names cannot break the Java.** A setup or action name containing a Java unicode escape for `*/` (a backslash, `u002a`, then `/`) used to end a generated comment early, because javac decodes unicode escapes before comments.
 - The example exports in `examples/` were regenerated. The BIOBUZZ ones were already out of date before this session.

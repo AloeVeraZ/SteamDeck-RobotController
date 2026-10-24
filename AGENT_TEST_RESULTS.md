@@ -69,6 +69,18 @@ Optimized route: 9.77 s with the follower, 9.83 s for OnBot on the virtual hub, 
 - Every run: 40 points, 12/12 shots, no contact, parked 0.06–0.42 in from the end point.
 - With start nudges of ±0.75 in, it is faster than the original in every valid case.
 
+## .pp files in the Pedro Visualizer's own code
+
+The Visualizer's normalizer, path flattening and animation heading code (`segmentHeadingAt`, from its source at commit f953ee0) were run under Node against Deck's `.pp` output. The heading it shows was compared with the planner's heading at 41 points per segment.
+
+| Case | Before the fix | After |
+|---|---|---|
+| Linear 90°, tangent, reverse, target, constant | at most 0.6° | at most 0.6° |
+| Relative 270°, relative −180°, 2 spins | 180° (turned the wrong way) | 0.0° |
+| Custom curve with a 120° turn | 8.75° | 0.12° |
+| lunala, BIOBUZZ red, BIOBUZZ dual examples | | at most 0.1° |
+| BIOBUZZ blue 15×15 | | 2.3° at the end of one tangent curve (the Visualizer uses a coarser tangent step) |
+
 ## Robot log comparison on a real file
 
 `output/advantagescope/biobuzz-red-auto.wpilog` was already on disk (written by the app's own AdvantageScope export on 23 October).
@@ -86,4 +98,4 @@ Optimized route: 9.77 s with the follower, 9.83 s for OnBot on the virtual hub, 
 
 - No physical robot test of any export. No robot hardware was available.
 - Pedro starter constants are model estimates. A team must still run the Quickstart tuners.
-- The Pedro Visualizer reading the new `.pp` files was checked against its loader's source code, not by opening the file in the website.
+- The Pedro Visualizer reading the new `.pp` files was checked by running its own loader and animation code under Node, not by opening the file in the hosted website.
