@@ -301,3 +301,9 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
   body.driver-station > header { gap: 2px; }
   .driver-station .tab { padding: 0 6px; min-width: 0; }
 }
+/* The smallest phones (360 px): a little less padding again so the ⋮ menu is not pushed off screen. */
+@media (max-width: 380px) {
+  .driver-station .tab { padding: 0 3px; }
+  .driver-station .header-right { gap: 2px; }
+  .driver-station button.controller { padding: 4px 3px; gap: 3px; }
+}
