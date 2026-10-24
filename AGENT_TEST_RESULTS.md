@@ -59,9 +59,7 @@ The latest run passed with no warnings:
   - A million spins hung the planner. Fixed by limiting it to 100 spins.
 - **D (regression).**
   - Full unit suite.
-  - E2E `tests/simulation-ui.cjs`: every section passes. At baseline it stopped at its first check.
-    - A full run passed 14 sections up to the Control Hub/Pedro export section.
-    - After the MotionModule step was updated, the remaining three sections (Control Hub, MotionModule, cleanup) passed in a trimmed run of just those sections.
+  - E2E `tests/simulation-ui.cjs`: all 16 sections pass in one full run, with no page errors and no renderer crash. At baseline it stopped at its first check.
 
 ## lunala red auto (`deck-sim test`)
 
@@ -95,6 +93,7 @@ The Visualizer's normalizer, path flattening and animation heading code (`segmen
 - **Selected step under the mouse:** keeps its dark fill.
 - **Shift-drag of a curve handle:** snaps to (32.5, 42).
 - **Robot log comparison, end to end:** Run & review → Data → Open robot log…, with the real AdvantageScope file. It draws 225 logged poses in orange beside the plan, with the same mean, worst and end figures.
+- **Control Hub mounting:** in the Control Hub fixture, choosing logo Left then USB Up greys out Left/Right for USB and saves the choice. The exported OnBot Java then contains `LogoFacingDirection.LEFT,RevHubOrientationOnRobot.UsbFacingDirection.UP`.
 - **Narrow windows:** at 360 px and 390 px wide, no tab scrolls sideways.
 
 ## Planning time (`deck-sim` setups, planner only)

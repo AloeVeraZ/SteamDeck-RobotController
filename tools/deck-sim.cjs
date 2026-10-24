@@ -231,6 +231,7 @@ Fields and setups
                    [--rpm 312] [--sensors fused|odometry|odometry3|encoders|optical|gyro] [--power 1] [--class Name]
   robot <setup.json> [--cad robot.step [--units mm] [--up z|y] [--front +x] [--top +z]]
                      [--length L --width W --height H --drivetrain D --rpm R]
+                     [--hub-logo up --hub-usb forward]   how the Control Hub is mounted (for its IMU)
   start <setup.json> <x> <y> <heading>     Starting pose (checked against walls and field parts)
   alliance <setup.json> red|blue [--keep]  BIOBUZZ alliance: which hive shots aim at and score for; moves the
                                            route to that side (turned 180° about the centre) unless --keep
@@ -331,6 +332,9 @@ async function main(argv){
       return changed(setup,json?JSON.stringify(setup.mechanisms,null,2):describeMechanisms(setup.mechanisms,layoutOf(setup)));}
     case'robot':{const setup=readSetup(file);if(flags.drivetrain){if(!C.drives[flags.drivetrain])throw Error(`Drivetrains: ${Object.keys(C.drives).join(', ')}.`);setup.robot.drivetrain=flags.drivetrain;}
       if(flags.rpm)setup.robot.driveRpm=num(flags.rpm,'--rpm');
+      // Control Hub mounting for its IMU: --hub-logo and --hub-usb, each up, down, forward, backward, left or right.
+      for(const [flag,key] of [['hub-logo','hubLogo'],['hub-usb','hubUsb']])if(flags[flag]!==undefined){const v=String(flags[flag]).toLowerCase();if(!C.HUB.includes(v))throw Error(`--${flag} is one of: ${C.HUB.join(', ')}.`);setup.robot[key]=v;}
+      if((flags['hub-logo']!==undefined||flags['hub-usb']!==undefined)&&C.hubMounting(setup.robot).hubUsb!==(setup.robot.hubUsb||'forward'))throw Error('The Control Hub logo and USB ports cannot face along the same axis (for example up and down).');
       let cadFound=[];if(flags.cad){const box=await cadBox(path.resolve(flags.cad),flags);Object.assign(setup.robot,pickSize(box,flags));setup.deckCli={...setup.deckCli,model:cadRef(flags)};cadFound=setUpFromCad(setup,box,setup.deckCli.model);}
       else Object.assign(setup.robot,pickSize({},flags));
       return changed(setup,`Robot: ${setup.robot.drivetrain} ${setup.robot.length} x ${setup.robot.width} x ${setup.robot.heightIn} in${setup.deckCli?.model?` from ${path.basename(setup.deckCli.model.file)}`:''}.${cadFound.length?`

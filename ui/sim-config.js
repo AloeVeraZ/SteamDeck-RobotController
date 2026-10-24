@@ -38,8 +38,12 @@
   // driveAmps is retained solely for old setup files; it is not an editable torque multiplier.
   const electrical={ftc:{defaultAmps:10,maxAmps:10,voltage:12,minVoltage:8,maxVoltage:15},motionmodule:{defaultAmps:10,voltage:12,minVoltage:3,maxVoltage:18}};
   function current(value,controller){const profile=electrical[controller];return Math.min(profile?.maxAmps??Infinity,positive(value,profile?.defaultAmps??20));}
+  // How the Control Hub is mounted, for its IMU (RevHubOrientationOnRobot). The logo and the USB ports must face
+  // along different axes; an impossible pair keeps the logo and picks a USB direction across it.
+  const HUB=['up','down','forward','backward','left','right'],hubAxis=d=>Math.floor(HUB.indexOf(d)/2);
+  function hubMounting(raw={}){const hubLogo=HUB.includes(raw.hubLogo)?raw.hubLogo:'up';let hubUsb=HUB.includes(raw.hubUsb)?raw.hubUsb:'forward';if(hubAxis(hubUsb)===hubAxis(hubLogo))hubUsb=hubAxis(hubLogo)===1?'up':'forward';return {hubLogo,hubUsb};}
   function robot(raw={},controller){return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
-    length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),wheelDiameterMm:positive(raw.wheelDiameterMm,104),driveAmps:current(raw.driveAmps,controller),driveStyle:raw.driveStyle==='field'?'field':'robot',
+    length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),wheelDiameterMm:positive(raw.wheelDiameterMm,104),driveAmps:current(raw.driveAmps,controller),driveStyle:raw.driveStyle==='field'?'field':'robot',...hubMounting(raw),
     appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer'};}
   // A robot imported from CAD (appearance custom) collides as its chassis only: length × width.
   const chassisHitbox=r=>r?.appearance==='custom';
@@ -48,5 +52,5 @@
     return {x0:0,y0:0,x1:positive(layout.width,144),y1:positive(layout.height,144)};}
   const sensorChoices=controller=>controller==='motionmodule'?['gyro','odometry','odometry3','optical']:['encoders','odometry','odometry3','fused','optical','gyro'];
   const localization=(controller,mode)=>sensorChoices(controller).includes(mode)?mode:controller==='motionmodule'?'gyro':'encoders';
-  return {drives,sensors,sensorChoices,localization,electrical,current,robot,intake,chassisHitbox,footprint,bounds,finite};
+  return {HUB,hubMounting,drives,sensors,sensorChoices,localization,electrical,current,robot,intake,chassisHitbox,footprint,bounds,finite};
 });

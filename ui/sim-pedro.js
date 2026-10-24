@@ -420,7 +420,7 @@ public class ${o.opMode} extends LinearOpMode {
     const m=hardware.drive.motors,dir=x=>`DcMotorSimple.Direction.${x.mount<0?'REVERSE':'FORWARD'}`,loc=hardware.localization,pinpoint=loc==='fused',t=tuning;
     // Pods: Pedro's two-pod maths takes the forward pod's offset as minus its distance to the left of centre, and the
     // strafe pod's as its distance in front of centre; ticks per inch from the pod wheels Deck assumes (goBILDA 32 mm, 2000 counts).
-    const pods=hardware.pods||[],fwd=pods.filter(p=>p.axis==='forward'),side=pods.find(p=>p.axis==='strafe'),ticks=p=>(1/(p?.ticksPerInch||1)).toPrecision(6),imuLine=`new RevHubIMU(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.UP, RevHubOrientationOnRobot.UsbFacingDirection.FORWARD))`;
+    const pods=hardware.pods||[],fwd=pods.filter(p=>p.axis==='forward'),side=pods.find(p=>p.axis==='strafe'),ticks=p=>(1/(p?.ticksPerInch||1)).toPrecision(6),hub=hardware.hub||{logo:'UP',usb:'FORWARD'},imuLine=`new RevHubIMU(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.${hub.logo}, RevHubOrientationOnRobot.UsbFacingDirection.${hub.usb}))`;
     if(loc==='odometry'&&(fwd.length!==1||!side))throw Error('Two-pod odometry needs one forward and one strafe pod.');if(loc==='odometry3'&&(fwd.length!==2||!side))throw Error('Three-pod odometry needs two forward pods and one strafe pod.');
     const left=fwd.slice().sort((a,b)=>b.y-a.y)[0],right=fwd.slice().sort((a,b)=>a.y-b.y)[0];
     const podLocalizer=loc!=='odometry'&&loc!=='odometry3'?'':loc==='odometry'?`    /** Two odometry pods ("${comment(fwd[0].name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}". MEASURE the pod offsets and check the directions. */
@@ -429,7 +429,7 @@ public class ${o.opMode} extends LinearOpMode {
             c.xPodName.set(${javaString(fwd[0].name)});
             c.yPodName.set(${javaString(side.name)});
             c.imuName.set(${javaString(hardware.imu)});
-            // Set the logo and USB directions to how your Control Hub is mounted, or every heading will be wrong.
+            // How the Control Hub is mounted (Deck: Setup → Robot controller). If this is wrong, every heading is wrong.
             c.imu.set(${imuLine});
             c.xPodOffset.set(${dbl(-fwd[0].y)});
             c.yPodOffset.set(${dbl(side.x)});
@@ -445,7 +445,7 @@ public class ${o.opMode} extends LinearOpMode {
             c.rightEncoderName.set(${javaString(right.name)});
             c.strafeEncoderName.set(${javaString(side.name)});
             c.imuName.set(${javaString(hardware.imu)});
-            // Set the logo and USB directions to how your Control Hub is mounted, or every heading will be wrong.
+            // How the Control Hub is mounted (Deck: Setup → Robot controller). If this is wrong, every heading is wrong.
             c.imu.set(${imuLine});
             c.leftPodY.set(${dbl(left.y)});
             c.rightPodY.set(${dbl(right.y)});

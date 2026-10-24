@@ -29,6 +29,8 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
   - This was checked by running the Visualizer's own code.
 - **Generated OpModes stop the drive first** when they end: an error in a mechanism's stop code can no longer leave the wheels turning. This applies to OnBot, TeamCode and Pedro.
 - **Names cannot break the Java.** A setup or action name containing a Java unicode escape for `*/` (a backslash, `u002a`, then `/`) used to end a generated comment early, because javac decodes unicode escapes before comments.
+- **Control Hub mounting.** Setup → Robot controller has "Control Hub logo faces" and "Its USB ports face". OnBot, TeamCode and the Pedro starter constants for pods write them into `RevHubOrientationOnRobot`. Before, every export assumed logo up, USB forward, so a hub mounted any other way would have turned wrongly. Also `deck-sim robot --hub-logo/--hub-usb`.
+- Exports without a route default power or tuning wrote `NaN.0` into `MOTOR_POWER`, which does not compile. They now fall back to 0.8, like the Deck route Java.
 - The example exports in `examples/` were regenerated. The BIOBUZZ ones were already out of date before this session.
 
 ### Path planning
