@@ -125,7 +125,7 @@ public class MyAuto implements DeckAutonomous {
   const L=()=>project.layouts.find(l=>l.id===project.active)||project.layouts[0];
   if(!L().start){try{const legacy=field.restore(localStorage.getItem(field.KEY));if(legacy&&L().field==='empty')L().start=legacy;}catch{}}
   let diagnostics=[],analysisPending=false;
-  let planError='',blockedPin=-1,sketch=null,cursor=null,info=null,frame=null,selected=null,tool='start',active=false,pointer=null,startGrab={dx:0,dy:0},stroke=null,drag=null,planSeq=0,keys=new Set(),trail=[],loading=null,view3d=null,runState='idle',logLines=[],model=null,modelPreview=null,selectedSide=null,optimizing=false;
+  let planError='',blockedPin=-1,sketch=null,cursor=null,info=null,frame=null,selected=null,tool='start',active=false,pointer=null,startGrab={dx:0,dy:0},stroke=null,drag=null,planSeq=0,keys=new Set(),trail=[],loading=null,view3d=null,runState='idle',logLines=[],model=null,modelPreview=null,selectedSide=null,optimizing=false,videoCheck=null,videoReplay=null;
   const fallbackFootprint=()=>C.footprint(project.robot);
   // The chassis alone (size settings, no intakes): the red outline in the model preview and what the model is fitted to.
   const chassisFootprint=()=>({front:project.robot.length/2,rear:project.robot.length/2,half:project.robot.width/2});
@@ -156,7 +156,7 @@ public class MyAuto implements DeckAutonomous {
     <div class="simulation-layout"><section class="field-area" aria-label="Simulation field">
       <div class="sim-toolbar">
         ${segmented('tool',{select:'Select',rect:'Box',circle:'Circle',triangle:'Triangle',shape:'Shape',pin:'Click to add',draw:'Draw path'},'Field tool')}
-        <div class="sim-transport"><button type="button" id="sim-play" class="secondary">Play</button><button type="button" id="sim-stop" class="secondary">Stop</button><button type="button" id="sim-reset" class="secondary">Reset</button><button type="button" id="sim-hitboxes" class="secondary" aria-pressed="false" hidden>Hitboxes</button><div class="segmented sim-seg sim-zoom" role="group" aria-label="Field zoom"><button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">−</button><button type="button" data-zoom="fit" aria-label="Fit the whole field" title="Fit the whole field (0)">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (+). Scroll to zoom where you point; middle-drag or Space+drag to pan.">+</button></div>${segmented('view',{'2d':'2D','3d':'3D'},'View')}</div>
+        <div class="sim-transport"><button type="button" id="sim-play" class="secondary">Play</button><button type="button" id="sim-stop" class="secondary">Stop</button><button type="button" id="sim-reset" class="secondary">Reset</button><button type="button" id="sim-hitboxes" class="secondary" aria-pressed="false" hidden>Hitboxes</button><div class="segmented sim-seg sim-zoom" role="group" aria-label="Field zoom"><button type="button" data-zoom="out" aria-label="Zoom out" title="Zoom out (-)">−</button><button type="button" data-zoom="fit" aria-label="Fit the whole field" title="Fit the whole field (0)">Fit</button><button type="button" data-zoom="in" aria-label="Zoom in" title="Zoom in (+). Scroll or pinch to zoom where you point; drag empty floor to move around.">+</button></div>${segmented('view',{'2d':'2D','3d':'3D'},'View')}</div>
       </div>
       <div class="sim-stage" id="sim-stage">
       <svg id="simulation-field" viewBox="-16 -9 168 172" role="group" tabindex="0" aria-label="Simulation field, inches from the bottom-left corner" aria-describedby="field-help field-coordinates">
@@ -243,7 +243,7 @@ public class MyAuto implements DeckAutonomous {
         <div id="sim-route-step" hidden><h2>Paths</h2>
         <p class="hint sim-legend"><span class="key-hold">● Hold</span><span class="key-power">● Power</span><span class="key-rotation">● Rotation</span><span class="key-track">● Target</span><span class="key-action">● Action</span><span>Dashed = action · Hover for all modifiers</span></p>
         <p class="hint">Each path drives from the previous point to its end point. Click the field (or + Add path) to add one, drag a point to move it, and click a path or its line to edit it in the list. Points in a red area move to the nearest clear spot. Draw path turns a dragged stroke into paths. Give a path an action to run it while driving, such as intaking or shooting while moving; each action you name gets its own labeled slot in the exported code. Ctrl+Z undoes a change and Ctrl+Shift+Z redoes it.</p>
-        <p class="hint sim-shortcuts"><strong>Keys</strong> (click the field first): arrows nudge the selected end point or obstacle 1 in (Shift: 0.1 in) · Delete removes it (or the open path) · Enter edits it · Shift while dragging a curve handle snaps it to 0.5 in · [ ] turn an obstacle · Escape cancels · Ctrl+Z / Ctrl+Shift+Z undo and redo · scroll, + − and 0 zoom · middle-drag or Space+drag pans.</p>
+        <p class="hint sim-shortcuts"><strong>Keys</strong> (click the field first): arrows nudge the selected end point or obstacle 1 in (Shift: 0.1 in) · Delete removes it (or the open path) · Enter edits it · Shift while dragging a curve handle snaps it to 0.5 in · [ ] turn an obstacle · Escape cancels · Ctrl+Z / Ctrl+Shift+Z undo and redo · scroll, pinch, + − and 0 zoom · drag empty floor (or middle-drag, or Space+drag) to move around a zoomed field, or click the small map in its corner.</p>
         <div id="sim-zone-editor" class="sim-editor" hidden></div>
         <div class="sim-path-bar"><button id="sim-add-path" class="primary" type="button" title="Add a path from the last point">+ Add path</button></div>
         <ol id="sim-pin-list" class="sim-list sim-path-list"></ol>
@@ -261,7 +261,7 @@ public class MyAuto implements DeckAutonomous {
         <div class="sim-grid3"><div><label for="sim-auto-seconds">Auto</label><input id="sim-auto-seconds" type="number" min="0.1" step="any" data-slider-min="1" data-slider-max="120" data-slider-step="1"></div><div><label for="sim-transition-seconds">Transition</label><input id="sim-transition-seconds" type="number" min="0" step="any" data-slider-max="60" data-slider-step="1"></div><div><label for="sim-teleop-seconds">Teleop</label><input id="sim-teleop-seconds" type="number" min="0.1" step="any" data-slider-min="1" data-slider-max="300" data-slider-step="1"></div></div><div id="sim-practice-clock" class="sim-practice-clock" role="timer" aria-live="off"><span id="sim-practice-phase">Ready</span><strong id="sim-practice-time">0:30</strong></div>
         <p class="hint" id="sim-run-readiness"></p><button id="sim-run-sensors" type="button" class="secondary" hidden>Choose position sensing</button><button id="sim-run-plan" type="button" class="secondary" hidden>Go to Path planning</button><p class="hint" id="sim-practice-help"></p>
         ${segmented('program',{route:'Planned route',opmode:'OnBot Java export',source:'Java program'},'Program')}<p id="sim-program-note" class="hint"></p><pre id="sim-program-preview" class="sim-program-preview"></pre>
-        <div class="sim-run-row"><button id="sim-run" class="primary" type="button">Run</button><label class="sr-only" for="sim-speed">Speed</label><select id="sim-speed">${options({'0.25':'0.25×','0.5':'0.5×','1':'1×','2':'2×','4':'4×'},'1')}</select></div>
+        <div class="sim-run-row"><button id="sim-run" class="primary" type="button">Run</button><label class="sr-only" for="sim-speed">Speed</label><select id="sim-speed">${options({'0.25':'0.25×','0.5':'0.5×','1':'1×','2':'2×','4':'4×'},'1')}</select><button id="sim-record" class="secondary sim-record" type="button" aria-pressed="false" title="Film the next run (or the one playing) and save it as a video when it ends">Record</button></div>
         <p id="sim-run-status" role="status"></p><section id="sim-run-analysis" class="sim-run-analysis" hidden><h3>Run report</h3><div id="sim-run-report" class="sim-run-report"></div></section><div id="sim-error" class="sim-error" role="alert" hidden></div>
         <div id="sim-source-box" hidden><div class="button-row"><button id="sim-java-open" class="secondary" type="button">Open .java…</button><button id="sim-java-example" class="secondary" type="button">Example</button></div>
           <label for="sim-source" id="sim-source-name">Program</label><textarea id="sim-source" spellcheck="false" wrap="off"></textarea></div>
@@ -274,17 +274,29 @@ public class MyAuto implements DeckAutonomous {
   // ---------------------------------------------------------------- zoom and pan
   // The viewBox is in SVG units (y down); pointer maths elsewhere goes through getScreenCTM, so editing
   // works the same at any zoom.
-  let fitBox={x:-16,y:-9,w:168,h:172},zoom={z:1,cx:68,cy:77},panning=null,spaceHeld=false,zoomDraw=false;
+  let fitBox={x:-16,y:-9,w:168,h:172},floorSize={w:144,h:144},zoom={z:1,cx:68,cy:77},panning=null,spaceHeld=false,zoomDraw=false;
   // Pins and handles shrink as the field zooms in (by the square root), so they stay easy to grab without hiding what is near them.
   const marker=()=>1/Math.sqrt(zoom.z);
+  // While zoomed in, a small copy of the whole field shows the part in view; click or drag it to look somewhere else.
+  const minimap=svg('svg',{id:'sim-minimap',class:'sim-minimap',role:'group','aria-label':'Whole field. Click or drag to move the zoomed view.'}),miniFloor=svg('rect',{class:'field-floor',x:0,y:0}),miniUses=['#sim-overlay','#field-robot'].map(ref=>svg('use',{'data-ref':ref})),miniView=svg('rect',{class:'sim-minimap-view'});
+  minimap.append(miniFloor,...miniUses,miniView);minimap.setAttribute('hidden','');graph.after(minimap);
+  function minimapView(w,h){const show=zoom.z>1.001&&project.view!=='3d';minimap.toggleAttribute('hidden',!show);
+    // The copies follow the field only while shown, so a fitted field does not pay for them.
+    for(const u of miniUses){const ref=show?u.dataset.ref:null;if(u.getAttribute('href')!==ref)ref?u.setAttribute('href',ref):u.removeAttribute('href');}if(!show)return;
+    const pad=Math.max(floorSize.w,floorSize.h)*.03;minimap.setAttribute('viewBox',`${-pad} ${-pad} ${floorSize.w+pad*2} ${floorSize.h+pad*2}`);miniFloor.setAttribute('width',floorSize.w);miniFloor.setAttribute('height',floorSize.h);
+    for(const [k,v] of Object.entries({x:zoom.cx-w/2,y:zoom.cy-h/2,width:w,height:h}))miniView.setAttribute(k,v);}
+  minimap.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();minimap.setPointerCapture(e.pointerId);const go=ev=>{const m=minimap.getScreenCTM();if(!m)return;const p=new DOMPoint(ev.clientX,ev.clientY).matrixTransform(m.inverse());zoom.cx=p.x;zoom.cy=p.y;applyZoom();};go(e);
+    const move=ev=>{if(ev.pointerId===e.pointerId)go(ev);},end=ev=>{if(ev.pointerId!==e.pointerId)return;minimap.removeEventListener('pointermove',move);minimap.removeEventListener('pointerup',end);minimap.removeEventListener('pointercancel',end);};
+    minimap.addEventListener('pointermove',move);minimap.addEventListener('pointerup',end);minimap.addEventListener('pointercancel',end);});
+  minimap.addEventListener('wheel',e=>{e.preventDefault();zoomBy(Math.exp(-e.deltaY*(e.deltaMode===1?.05:.0015)));},{passive:false});
   function applyZoom(){const w=fitBox.w/zoom.z,h=fitBox.h/zoom.z;zoom.cx=Math.max(fitBox.x+w/2,Math.min(fitBox.x+fitBox.w-w/2,zoom.cx));zoom.cy=Math.max(fitBox.y+h/2,Math.min(fitBox.y+fitBox.h-h/2,zoom.cy));
-    graph.setAttribute('viewBox',`${zoom.cx-w/2} ${zoom.cy-h/2} ${w} ${h}`);graph.dataset.zoomed=String(zoom.z>1.001);graph.style.setProperty('--line-scale',String(marker()));
+    graph.setAttribute('viewBox',`${zoom.cx-w/2} ${zoom.cy-h/2} ${w} ${h}`);graph.dataset.zoomed=String(zoom.z>1.001);graph.style.setProperty('--line-scale',String(marker()));minimapView(w,h);
     for(const t of $$('.field-labels text')){t.dataset.size??=t.getAttribute('font-size');t.setAttribute('font-size',t.dataset.size/zoom.z);}if(!zoomDraw){zoomDraw=true;requestAnimationFrame(()=>{zoomDraw=false;draw();});}for(const b of $$('[data-zoom]'))b.disabled=b.dataset.zoom==='in'?zoom.z>=8:zoom.z<=1.001;}
   // Zoom by a factor, keeping the SVG point under (clientX, clientY) where it is.
   function zoomBy(factor,clientX,clientY){const m=graph.getScreenCTM(),z=Math.max(1,Math.min(8,zoom.z*factor));if(!m||z===zoom.z)return;const r=graph.getBoundingClientRect(),x=clientX??r.left+r.width/2,y=clientY??r.top+r.height/2,p=new DOMPoint(x,y).matrixTransform(m.inverse());
     zoom.cx=p.x+(zoom.cx-p.x)*zoom.z/z;zoom.cy=p.y+(zoom.cy-p.y)*zoom.z/z;zoom.z=z;applyZoom();}
   function fieldDrawing(){const b=geometry().bounds,w=L().field==='empty'?L().width:144,h=fieldHeight(),key=JSON.stringify([b,L().field,!!window.DeckThree?.drawDsimField,info?.fieldZones]);if(key===fieldArtKey)return;fieldArtKey=key;
-    const margin=Math.max(w,h)*.075;fitBox={x:-margin*1.5,y:-margin*.5,w:w+margin*2,h:h+margin*2};zoom={z:1,cx:fitBox.x+fitBox.w/2,cy:fitBox.y+fitBox.h/2};applyZoom();$('#sim-overlay').setAttribute('transform',`matrix(1 0 0 -1 0 ${h})`);
+    const margin=Math.max(w,h)*.075;fitBox={x:-margin*1.5,y:-margin*.5,w:w+margin*2,h:h+margin*2};floorSize={w,h};zoom={z:1,cx:fitBox.x+fitBox.w/2,cy:fitBox.y+fitBox.h/2};applyZoom();$('#sim-overlay').setAttribute('transform',`matrix(1 0 0 -1 0 ${h})`);
     const floor=$('.field-floor');floor.setAttribute('width',w);floor.setAttribute('height',h);$('.field-grid').replaceChildren();$('.field-labels').replaceChildren();
     const step=Math.max(12,Math.ceil(Math.max(w,h)/288)*24),font=Math.max(w,h)/48;
     for(let v=0;v<=w;v+=step){if(v>0&&v<w)$('.field-grid').append(svg('path',{d:`M${v} 0V${h}`}));$('.field-labels').append(svg('text',{x:v,y:h+font*2,'text-anchor':'middle','font-size':font},v));}
@@ -325,7 +337,7 @@ public class MyAuto implements DeckAutonomous {
   async function call(method,...args){await ready();return api.sim(method,...args);}
   if(native)api.onSim(message=>{
     if(!active)return;
-    if(message.type==='frame'){liveFrame=message;runData?.record(message);if(runData&&!runData.live())return;frame=message;trailPoint(message);paint();telemetry();return;}
+    if(message.type==='frame'){liveFrame=message;runData?.record(message);if(videoReplay||runData&&!runData.live())return;frame=message;trailPoint(message);paint();telemetry();return;}
     if(message.type==='run')runEvent(message);
     else if(message.type==='practice')practicePanel(message);
     else if(message.type==='optimize'&&optimizing&&optimize.layoutId===L().id)status('#sim-plan-status',`Test-driving route ${message.index+1} of ${message.total}…`);
@@ -336,7 +348,7 @@ public class MyAuto implements DeckAutonomous {
   function trailPoint(f){let last=trail.at(-1);const t=f.truth;if(last&&Math.hypot(last.x-t.x,last.y-t.y)>12){trail=[];last=null;}if(!last||Math.hypot(last.x-t.x,last.y-t.y)>.4||(f.estimate&&!last.e))trail.push({x:t.x,y:t.y,e:f.estimate?{x:f.estimate.x,y:f.estimate.y}:null});if(trail.length>3000)trail.splice(0,1000);}
   function appendRunLog(line){logLines.push(line);logLines=logLines.slice(-200);$('#sim-log').textContent=logLines.join('\n');}
   function runEvent(m){
-    if(m.state==='starting'){runData?.reset();logLines=[];appendRunLog('Starting '+(m.kind||'autonomous')+'…');}
+    if(m.state==='starting'){if(videoReplay)videoReplay.cancel=true;runData?.reset();logLines=[];appendRunLog('Starting '+(m.kind||'autonomous')+'…');}
     else if(m.state==='running')appendRunLog('Running. Escape stops the autonomous and practice timer.');
     else if(m.state==='finished')appendRunLog(`Route finished in ${m.result?.time?.toFixed(2)||'?'} s · ${m.result?.violations?.length||0} zone contact(s).`);
     else if(m.state==='stopped')appendRunLog('Stopped by user.');
@@ -426,6 +438,7 @@ public class MyAuto implements DeckAutonomous {
     if(project.view!=='3d')draw();transport();
   }
   function transport(){
+    videoCheck?.();
     $('#sim-play').textContent=frame?.playing?'Pause':'Play';
     for(const id of ['#sim-play','#sim-stop','#sim-reset','#sim-speed'])$(id).disabled=!native;
     $('#sim-play').disabled=!native||(!frame?.practice&&runState!=='running')||frame?.practice?.phase==='finished';
@@ -449,7 +462,8 @@ public class MyAuto implements DeckAutonomous {
     if(analysisPending){try{diagnostics=planner.analyze({...planRequest(L().style).project,start:graph.dataset.dragging?preview:start},geometry().footprint,info?.fieldZones||[],geometry().bounds);}catch(e){diagnostics=[{pin:null,code:'setup',message:e.message}];}}
     const banner=$('#sim-live-status');if(banner){banner.hidden=tab!=='plan';banner.classList.toggle('has-issues',diagnostics.length>0);const est=!diagnostics.length&&!analysisPending&&L().route?routeEstimate():null,auto=project.practice.autoSeconds,late=est?.time>auto,missed=est&&(est.violations>0||est.miss>1.5);if(est&&!diagnostics.length)banner.classList.toggle('has-issues',!!(late||missed||est.error));
     const timing=!est?'':est.pending?' · test-driving for a time estimate…':est.error?` · test drive did not finish: ${est.error}`:`${missed?' · test drive touched something or missed the end point':''} · about ${est.time.toFixed(1)} s in simulation${late?`, longer than the ${auto} s autonomous`:''}`;
-    banner.textContent=diagnostics.length?`${diagnostics.length} route issue${diagnostics.length>1?"s":""} · ${diagnostics.filter(d=>d.pin!==null).map(d=>'Path '+(d.pin+1)).filter((p,i,a)=>a.indexOf(p)===i).join(', ')||'Starting pose'} · View diagnostics`:analysisPending?'Analyzing route…':L().pins.length?`Route checks passed${timing} · View diagnostics`:'Add paths to check your route';}
+    const more=banner.getAttribute('aria-expanded')==='true'?' · Hide details':' · Details';
+    banner.textContent=diagnostics.length?`${diagnostics.length} route issue${diagnostics.length>1?"s":""} · ${diagnostics.filter(d=>d.pin!==null).map(d=>'Path '+(d.pin+1)).filter((p,i,a)=>a.indexOf(p)===i).join(', ')||'Starting pose'}${more}`:analysisPending?'Analyzing route…':L().pins.length?`Route checks passed${timing}${more}`:'Add paths to check your route';}
     const warnings=[];if(!C.sensors[project.sensors.localization].translation&&L().pins.some(p=>['spin','turn','relative','start','track'].includes(p.path?.rotate)))warnings.push('Turning while driving with IMU-only sensing can accumulate large X/Y errors. Add odometry for accurate curves or stop and turn at pins.');
     for(const [i,p] of L().pins.entries())if((p.path?.power??project.tuning.maxPathSpeed)===0)warnings.push(`Path to pin ${i+1} has zero motor power. It will stop the autonomous until you change power and restart.`);
     // Contact: a no-go zone the robot sits in, a wall or part it is pushing while running, or contacts the last
@@ -820,10 +834,34 @@ public class MyAuto implements DeckAutonomous {
   function releaseCursor(){if(document.pointerLockElement!==graph)return;const m=graph.getScreenCTM(),x=m?m.a*preview.x+m.e:0,y=m?m.d*(fieldHeight()-preview.y)+m.f:0;
     if(m)document.addEventListener('pointerlockchange',()=>void api.cursor?.(x,y).catch(()=>{}),{once:true});document.exitPointerLock();}
   graph.addEventListener('wheel',e=>{if(!active||project.view==='3d')return;e.preventDefault();zoomBy(Math.exp(-e.deltaY*(e.deltaMode===1?.05:.0015)),e.clientX,e.clientY);},{passive:false});
-  // Middle-drag, or Space+drag, pans a zoomed field; it runs before (and instead of) the editing handlers.
-  graph.addEventListener('pointerdown',e=>{if(!active||project.view==='3d'||!(e.button===1||spaceHeld&&e.button===0)||zoom.z<=1.001)return;e.preventDefault();e.stopImmediatePropagation();panning={x:e.clientX,y:e.clientY,cx:zoom.cx,cy:zoom.cy,id:e.pointerId};graph.setPointerCapture(e.pointerId);graph.dataset.panning='true';},true);
-  graph.addEventListener('pointermove',e=>{if(!panning||e.pointerId!==panning.id)return;e.stopImmediatePropagation();const m=graph.getScreenCTM();if(!m)return;zoom.cx=panning.cx-(e.clientX-panning.x)/m.a;zoom.cy=panning.cy-(e.clientY-panning.y)/m.d;applyZoom();},true);
-  for(const type of ['pointerup','pointercancel'])graph.addEventListener(type,e=>{if(!panning||e.pointerId!==panning.id)return;e.stopImmediatePropagation();panning=null;delete graph.dataset.panning;},true);
+  // A zoomed field pans by dragging empty floor (anywhere in Run & review), middle-drag or Space+drag, and
+  // two fingers pinch to zoom. A press on empty floor waits to see whether it moves: if it does not, it is
+  // the usual click (add a path, clear the selection). These run before (and instead of) the editing handlers.
+  const zoomed=()=>zoom.z>1.001;
+  function emptyFloor(e){if(tab==='run')return true;if(tab!=='plan'||sketch||targetPick||effects.session||!['pin','select','start'].includes(tool))return false;
+    const p=toField(e);return !!p&&!hit(p)&&!pathHit(p)&&!planner.contains(p,planner.body(preview,geometry().footprint));}
+  function floorClick(e){graph.focus({preventScroll:true});const p=toField(e);if(tab!=='plan'||!p)return;if(tool==='pin'&&planningStep==='pins')addPin(p);else if(tool==='select'){selected=null;draw();zonePanel();pinPanel();}}
+  const svgPoint=(x,y)=>new DOMPoint(x,y).matrixTransform(graph.getScreenCTM().inverse());
+  function panFrom(id){const at=panning.pointers.get(id);Object.assign(panning,{id,x:at.x,y:at.y,cx:zoom.cx,cy:zoom.cy,pinch:null});}
+  graph.addEventListener('pointerdown',e=>{if(!active||project.view==='3d')return;
+    // A second finger turns the drag into a pinch around the point between the fingers.
+    if(panning?.touch&&e.pointerType==='touch'&&panning.pointers.size===1){e.preventDefault();e.stopImmediatePropagation();panning.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});graph.setPointerCapture(e.pointerId);
+      const [a,b]=panning.pointers.values();panning.maybe=null;panning.pinch={d:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),z:zoom.z,at:svgPoint((a.x+b.x)/2,(a.y+b.y)/2)};graph.dataset.panning='true';return;}
+    if(panning){e.preventDefault();e.stopImmediatePropagation();return;}
+    const forced=e.button===1||spaceHeld&&e.button===0,touch=e.pointerType==='touch';
+    if(!(forced?zoomed():e.button===0&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&(zoomed()||touch)&&emptyFloor(e)))return;
+    e.preventDefault();e.stopImmediatePropagation();tooltip.hidden=true;panning={pointers:new Map([[e.pointerId,{x:e.clientX,y:e.clientY}]]),touch,maybe:forced?null:{x:e.clientX,y:e.clientY,clientX:e.clientX,clientY:e.clientY}};panFrom(e.pointerId);
+    graph.setPointerCapture(e.pointerId);if(forced)graph.dataset.panning='true';},true);
+  graph.addEventListener('pointermove',e=>{const at=panning?.pointers.get(e.pointerId);if(!at)return;e.stopImmediatePropagation();at.x=e.clientX;at.y=e.clientY;
+    if(panning.pinch){const [a,b]=panning.pointers.values(),{d,z,at:point}=panning.pinch;zoom.z=Math.max(1,Math.min(8,z*Math.hypot(a.x-b.x,a.y-b.y)/d));applyZoom();const q=svgPoint((a.x+b.x)/2,(a.y+b.y)/2);zoom.cx+=point.x-q.x;zoom.cy+=point.y-q.y;applyZoom();return;}
+    if(e.pointerId!==panning.id)return;
+    if(panning.maybe){if(Math.hypot(e.clientX-panning.maybe.x,e.clientY-panning.maybe.y)<(panning.touch?8:4))return;panning.maybe=null;graph.dataset.panning='true';}
+    const m=graph.getScreenCTM();if(!m)return;zoom.cx=panning.cx-(e.clientX-panning.x)/m.a;zoom.cy=panning.cy-(e.clientY-panning.y)/m.d;applyZoom();},true);
+  for(const type of ['pointerup','pointercancel'])graph.addEventListener(type,e=>{if(!panning?.pointers.has(e.pointerId))return;e.stopImmediatePropagation();panning.pointers.delete(e.pointerId);
+    if(panning.pointers.size){panFrom(panning.pointers.keys().next().value);return;}
+    const click=type==='pointerup'&&panning.maybe;panning=null;delete graph.dataset.panning;if(click)floorClick(click);},true);
+  // The grab cursor shows where a drag pans; with Click to add, the crosshair stays (a click still adds a path).
+  graph.addEventListener('pointermove',e=>{const pan=!panning&&e.pointerType==='mouse'&&zoomed()&&tool!=='pin'&&project.view!=='3d'&&emptyFloor(e);if((graph.dataset.pan==='true')!==pan)graph.dataset.pan=String(pan);});
   graph.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault();});
   graph.addEventListener('keydown',e=>{if(!active||effects.session||e.ctrlKey||e.metaKey||e.altKey)return;if(e.key===' '){spaceHeld=true;if(zoom.z>1.001)e.preventDefault();return;}const k={'+':'in','=':'in','-':'out','_':'out','0':'fit'}[e.key];if(!k||project.view==='3d')return;e.preventDefault();k==='fit'?(zoom.z=1,applyZoom()):zoomBy(k==='in'?1.4:1/1.4);});
   graph.addEventListener('keyup',e=>{if(e.key===' ')spaceHeld=false;});addEventListener('blur',()=>{spaceHeld=false;});
@@ -981,7 +1019,7 @@ public class MyAuto implements DeckAutonomous {
       const stops=route.stops.filter(s=>s.wait>0).length,avoid=info?.obstacleName?` and ${info.fieldName}'s ${info.obstacleName}`:'';
       status('#sim-plan-status',`Route ready: ${route.length.toFixed(0)} in${stops?`, ${stops} pause${stops>1?'s':''}`:''}. It stays ${(route.clearance/2).toFixed(1)}+ in from your zones${avoid}.`);
       tested();programPanel();void autoExport();scheduleEstimate();return route;
-    }catch(e){if(seq===planSeq){l.route=null;planError=e.message;analysisPending=false;diagnostics=e.issues?.length?e.issues:planner.analyze(planRequest(l.style).project,geometry().footprint,info?.fieldZones||[],geometry().bounds);const m=/pin (\d+)/i.exec(e.message);blockedPin=m?Number(m[1])-1:-1;if(!diagnostics.length)diagnostics=[{pin:blockedPin>=0?blockedPin:null,code:'path',message:e.message}];refreshDiagnostics();draw();status('#sim-plan-status',`${diagnostics.length} issue${diagnostics.length===1?'':'s'} found. Open Diagnostics for every affected path.`);}return null;}
+    }catch(e){if(seq===planSeq){l.route=null;planError=e.message;analysisPending=false;diagnostics=e.issues?.length?e.issues:planner.analyze(planRequest(l.style).project,geometry().footprint,info?.fieldZones||[],geometry().bounds);const m=/pin (\d+)/i.exec(e.message);blockedPin=m?Number(m[1])-1:-1;if(!diagnostics.length)diagnostics=[{pin:blockedPin>=0?blockedPin:null,code:'path',message:e.message}];refreshDiagnostics();draw();status('#sim-plan-status',`${diagnostics.length} issue${diagnostics.length===1?'':'s'} found. Open the route checks above the paths for every affected path.`);}return null;}
   }
   // Simulated time for the planned route: once edits settle, the route is test-driven in the background
   // with the same physics and follower as Run (about a second). It is the simulator's estimate, shown as one.
@@ -1023,7 +1061,7 @@ public class MyAuto implements DeckAutonomous {
 
   // ------------------------------------------------------------------ export
   // Why there is nothing to export: no paths yet, still planning, or a route issue to fix first.
-  const noRoute=()=>!L().pins.length?'Add a path first: click the field in Path planning.':diagnostics.length?`Fix the route issue first (${diagnostics[0].message}) — see Path planning → Diagnostics.`:planError?`Fix the route first: ${planError}`:'The route is still being planned. Try again in a moment.';
+  const noRoute=()=>!L().pins.length?'Add a path first: click the field in Path planning.':diagnostics.length?`Fix the route issue first (${diagnostics[0].message}) — see the route checks in Path planning.`:planError?`Fix the route first: ${planError}`:'The route is still being planned. Try again in a moment.';
   function exportText(format){
     const l=L(),route=l.route;if(!route)throw Error(noRoute());
     if(format==='onbot')return teamCode(route,true).source;
@@ -1478,7 +1516,7 @@ public class MyAuto implements DeckAutonomous {
   script.cache={};
   function state3d(){return {layout:L(),start,info,trail,frame,hitboxes:project.hitboxes};}
   async function setView(next){
-    project.view=next;save();pressed('view',next);const three3=next==='3d';$('#sim-3d').hidden=!three3;graph.style.display=three3?'none':'';
+    project.view=next;save();pressed('view',next);const three3=next==='3d';$('#sim-3d').hidden=!three3;graph.style.display=three3?'none':'';applyZoom();
     $('[data-tool]').parentElement.classList.toggle('three',three3);$('#sim-hitboxes').hidden=!three3;$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));
     if(three3){tool='select';try{await three();await script('sim-3d.js');view3d=view3d||window.DeckSim3D.create($('#sim-3d'));view3d.setField(info,L());view3d.setModel(model?.holder||null);view3d.update(frame,state3d());}catch(e){status('#sim-run-status',e.message);}}
     draw();
@@ -1487,7 +1525,7 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-hitboxes').onclick=()=>{project.hitboxes=!project.hitboxes;save();$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));view3d?.update(frame,state3d());};
   $('#sim-game-elements').onchange=e=>{L().elements=e.target.checked;save();reload();};
   function selectTab(name){if(tab!==name){pointer=null;drag=null;}tab=name;root.dataset.tab=name;if(name==='plan'&&planningStep==='start')tool='start';for(const b of $$('[data-tab]')){b.setAttribute('aria-selected',String(b.dataset.tab===name));b.tabIndex=b.dataset.tab===name?0:-1;}for(const p of $$('[data-panel]'))p.hidden=p.dataset.panel!==name;$('.field-area').hidden=name==='setup';$('.sim-toolbar [data-tool]').parentElement.hidden=name==='run';$('#sim-telemetry').hidden=name!=='run';$('#sim-run-timing').hidden=name!=='run';$('.sim-planning-steps').hidden=name!=='plan';
-    document.body.classList.toggle('sim-workspace',active&&name!=='setup');if($('#sim-live-status'))$('#sim-live-status').hidden=name!=='plan'||!$('#sim-live-status').textContent;activeSetupPanel();window.scrollTo(0,0);if(name==='plan')planningPanel();if(name!=='run'&&frame?.playing)void call('pause');view3d?.resize();modelPreview?.resize?.();}
+    document.body.classList.toggle('sim-workspace',active&&name!=='setup');if($('#sim-live-status'))$('#sim-live-status').hidden=name!=='plan'||!$('#sim-live-status').textContent;activeSetupPanel();window.scrollTo(0,0);if(name==='plan'){planningPanel();refreshDiagnostics();}if(name!=='run'&&frame?.playing)void call('pause');view3d?.resize();modelPreview?.resize?.();}
   // Field obstacles are a step only on the empty field; game fields go from the start straight to paths.
   const hasObstacleStep=()=>L().field==='empty';
   function planningPanel(){if(planningStep==='zones'&&!hasObstacleStep())planningStep='pins';const zones=hasObstacleStep();$('#sim-step-zones').hidden=!zones;
@@ -1497,7 +1535,9 @@ public class MyAuto implements DeckAutonomous {
   const steps=$('.sim-planning-steps');$('.sim-panel').prepend(steps);steps.hidden=true;
   const activeSetup=document.createElement('button');activeSetup.id='sim-active-setup';activeSetup.type='button';activeSetup.className='sim-active-setup';activeSetup.hidden=true;activeSetup.innerHTML='<span>Setup</span><strong></strong>';activeSetup.onclick=()=>selectTab('setup');steps.after(activeSetup);
   const liveStatus=document.createElement('button');liveStatus.id='sim-live-status';liveStatus.type='button';liveStatus.className='sim-live-status';liveStatus.hidden=true;activeSetup.after(liveStatus);
-  liveStatus.onclick=()=>{setStep('pins');const button=[...$('#sim-route-step').querySelectorAll('[role=tab]')].find(b=>b.textContent==='Diagnostics');button?.click();};
+  // The status line opens and closes the route checks right under it, in any planning step.
+  liveStatus.setAttribute('aria-expanded','false');liveStatus.setAttribute('aria-controls','sim-plan-diagnostics');
+  liveStatus.onclick=()=>{liveStatus.setAttribute('aria-expanded',String(liveStatus.getAttribute('aria-expanded')!=='true'));refreshDiagnostics();};
   $('#sim-start-step').prepend($('#sim-start-controls'));
   // ------------------------------------------------------------------ mechanisms
   // The robot's parts, edited like DSIM's robot builder: option cards, side chips and a 3×3 position
@@ -1644,7 +1684,19 @@ public class MyAuto implements DeckAutonomous {
   const routeStep=$('#sim-route-step'),routeChildren=[...routeStep.children],routeSettings=routeChildren.indexOf($('[data-style]').parentElement.previousElementSibling),routeExport=routeChildren.findIndex(n=>n.tagName==='H3');
   const nextRun=$('#sim-plan-next'),exportNodes=routeChildren.slice(routeExport).filter(n=>n!==nextRun);nextRun.remove();
   const routeHelp=n=>n.matches('.sim-legend,.sim-shortcuts')||n.tagName==='P'&&n.textContent.startsWith('Each path');
-  settingsViews(routeStep,[['Paths',routeChildren.slice(0,routeSettings).filter(n=>!routeHelp(n))],['Route',routeChildren.slice(routeSettings,routeExport)],['Diagnostics',[diagnosticBox('sim-plan-diagnostics')]],['Help',routeChildren.slice(0,routeSettings).filter(routeHelp)]]);routeStep.append(nextRun);
+  // Two views: the paths themselves, and the options for the whole route. Route checks open under the status line
+  // above, and the editing help opens over the list from the ? beside + Add path.
+  settingsViews(routeStep,[['Paths',routeChildren.slice(0,routeSettings).filter(n=>!routeHelp(n))],['Route options',routeChildren.slice(routeSettings,routeExport)]]);routeStep.append(nextRun);
+  liveStatus.after(diagnosticBox('sim-plan-diagnostics'));
+  const helpButton=document.createElement('button'),helpPop=document.createElement('div'),helpHead=document.createElement('div'),helpClose=document.createElement('button');
+  Object.assign(helpButton,{type:'button',className:'secondary sim-help-button',textContent:'?',title:'How to edit paths, and the keyboard shortcuts'});helpButton.setAttribute('aria-label','Path editing help');helpButton.setAttribute('aria-controls','sim-path-help');helpButton.setAttribute('aria-expanded','false');
+  Object.assign(helpPop,{id:'sim-path-help',className:'sim-help-pop',hidden:true});helpPop.setAttribute('role','dialog');helpPop.setAttribute('aria-label','Path editing help');
+  Object.assign(helpClose,{type:'button',className:'text-button',textContent:'Close'});helpHead.className='sim-help-head';helpHead.append(Object.assign(document.createElement('h3'),{textContent:'Editing paths'}),helpClose);
+  helpPop.append(helpHead,...routeChildren.slice(0,routeSettings).filter(routeHelp));$('.sim-path-bar').append(helpButton);$('.sim-path-bar').after(helpPop);
+  const showHelp=open=>{helpPop.hidden=!open;helpButton.setAttribute('aria-expanded',String(open));if(open)helpPop.style.maxHeight=Math.max(160,innerHeight-helpPop.getBoundingClientRect().top-12)+'px';};
+  helpButton.onclick=()=>showHelp(helpPop.hidden);helpClose.onclick=()=>{showHelp(false);helpButton.focus();};
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!helpPop.hidden){e.stopPropagation();showHelp(false);if(helpPop.contains(document.activeElement))helpButton.focus();}},true);
+  document.addEventListener('pointerdown',e=>{if(!helpPop.hidden&&!helpPop.contains(e.target)&&!helpButton.contains(e.target))showHelp(false);});
   const runPanel=$('#sim-panel-run'),runChildren=[...runPanel.children],timers=runPanel.querySelector('.sim-grid3'),clock=$('#sim-practice-clock'),programButtons=$('[data-program]').parentElement;
   const programNodes=[programButtons,$('#sim-program-note'),$('#sim-program-preview'),$('#sim-source-box')],outputNodes=runChildren.filter(n=>n.matches('.sim-log,.sim-credit'));
   const timing=document.createElement('section');timing.id='sim-run-timing';timing.className='sim-run-timing';timing.hidden=true;timing.setAttribute('aria-label','Practice timing');
@@ -1678,8 +1730,66 @@ public class MyAuto implements DeckAutonomous {
   compareBox.querySelector('#sim-log-clear').onclick=()=>{robotLog.data=null;drawRobotLog();$('#sim-log-result').replaceChildren();$('#sim-log-clear').hidden=true;};
   compareBox.querySelector('#sim-log-origin').onchange=()=>{if(robotLog.data?.format==='csv')compareBox.querySelector('#sim-log-status').textContent='Open the CSV again to use these coordinates.';};
   const logNodes=[Object.assign(document.createElement('h3'),{textContent:'Run log'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'The last run with every value, in the WPILOG format FTC and FRC log viewers read.'}),logButton,logStatus];
+  // Run videos, filmed from this window and cropped to the field (2D or 3D, as shown). Record beside Run films
+  // the next run, or the one playing, and asks where to save it when the run ends. Export → Run video films one
+  // period of the last run again by replaying it on the field at real speed.
+  const Video=window.DeckSimVideo,video={armed:false,live:false,ending:false,start:null};
+  const videoRec=Video.create({element:$('#sim-stage'),frame:()=>frame,name:()=>L().name,start:()=>video.start??runData.frames()[0]?.time??0});
+  const recordButton=$('#sim-record'),recordStatus=Object.assign(document.createElement('p'),{id:'sim-record-status',className:'hint'}),videoSection=document.createElement('select'),videoButton=document.createElement('button'),videoStatus=document.createElement('p');
+  recordStatus.setAttribute('role','status');recordStatus.hidden=true;recordButton.parentElement.after(recordStatus);
+  videoSection.id='sim-video-section';videoSection.innerHTML=options(Video.SECTIONS,'auto');videoButton.type='button';videoButton.className='secondary';videoButton.id='sim-video-save';videoStatus.className='hint';videoStatus.setAttribute('role','status');
+  const videoSay=text=>{videoStatus.textContent=recordStatus.textContent=text;recordStatus.hidden=!text;};
+  const videoButtons=()=>{recordButton.setAttribute('aria-pressed',String(video.armed));recordButton.classList.toggle('recording',video.live);recordButton.textContent=video.live?'Stop recording':video.armed?'Recording next run':'Record';recordButton.disabled=!native||!!videoReplay||video.ending;videoButton.textContent=videoReplay?'Cancel video':'Save video of the last run…';};
+  const videoSections=()=>{const s=Video.sections(runData.frames());for(const o of videoSection.options)o.disabled=!s[o.value];return s;};
+  const showFrame=()=>{if(project.view==='3d')paint();else draw();};
+  async function saveVideo(blob,section){
+    if(!blob?.size){videoSay('Nothing was filmed. Keep this window open and on screen while it records.');return;}
+    videoSay('Choose where to save the video…');
+    try{const r=await api.simFile('video-save',{name:Video.title(L().name,section),ext:videoRec.ext(),bytes:new Uint8Array(await blob.arrayBuffer())});videoSay(r?.message||'The video was not saved.');}catch(e){videoSay(e.message);}
+  }
+  async function endLive(wait){
+    video.ending=true;videoButtons();if(wait)await new Promise(r=>setTimeout(r,wait));
+    const blob=await videoRec.stop();videoRec.close();Object.assign(video,{armed:false,live:false,ending:false,start:null});videoButtons();
+    await saveVideo(blob,{autonomous:'auto',teleop:'teleop'}[project.practice.mode]||'all');
+  }
+  // Called with every transport update: filming starts when the run does and ends shortly after it stops.
+  videoCheck=()=>{
+    if(video.armed&&!video.live&&!video.ending&&runState==='running'){try{videoRec.begin();video.live=true;videoSay('Recording the run. It is saved when the run ends.');}catch(e){videoRec.close();video.armed=false;videoSay(e.message);}videoButtons();}
+    else if(video.live&&!video.ending&&runState==='idle')void endLive(700);
+  };
+  recordButton.onclick=async()=>{
+    if(video.live){void endLive(0);return;}
+    if(video.armed){videoRec.close();video.armed=false;videoSay('');videoButtons();return;}
+    try{await videoRec.open();}catch(e){videoSay(e.message||'Recording could not start.');return;}
+    video.armed=true;videoSay(runState==='running'?'':'Recording the next run: press Run.');videoButtons();videoCheck();
+  };
+  videoSection.onfocus=videoSections;
+  videoButton.onclick=async()=>{
+    if(videoReplay){videoReplay.cancel=true;return;}
+    const frames=runData.frames().slice(),section=videoSection.value,range=videoSections()[section];
+    if(!frames.length)return videoSay('Run the robot first; every run is recorded while it plays.');
+    if(!range)return videoSay(`The last run has no ${Video.SECTIONS[section].toLowerCase()} period. Choose another part.`);
+    if(!native)return videoSay('Saving videos needs the installed app.');
+    if(runState==='starting'||frame?.playing||video.armed)return videoSay('Stop the run (and Record) first, then save its video.');
+    try{await videoRec.open();}catch(e){return videoSay(e.message||'Recording could not start.');}
+    const list=frames.slice(range[0],range[1]+1),t0=list[0].time,span=list.at(-1).time-t0,saved={frame,trail};console.log('VIDEO-DEBUG',JSON.stringify({n:frames.length,range,span,first:frames[0].time,last:frames.at(-1).time,phases:frames.filter((f,i)=>i%10==0).map(f=>(f.practice?.phase||'-')[0]+f.time.toFixed(1)).join(' ')}));
+    videoReplay={cancel:false};video.start=t0;videoButtons();trail=[];frame=list[0];trailPoint(frame);showFrame();
+    let finished=false,failed=false;
+    try{
+      // Let the first picture of the replay reach the window before filming starts.
+      await new Promise(r=>setTimeout(r,250));videoRec.begin();const began=performance.now();let i=0;
+      await new Promise(resolve=>{const tick=()=>{if(videoReplay.cancel)return resolve();const t=(performance.now()-began)/1000;
+        while(i<list.length-1&&list[i+1].time-t0<=t){i++;trailPoint(list[i]);}frame=list[i];showFrame();videoSay(`Filming the ${Video.SECTIONS[section].toLowerCase()}… ${Math.min(t,span).toFixed(0)} of ${span.toFixed(0)} s`);
+        if(t>=span+.6){finished=true;return resolve();}requestAnimationFrame(tick);};tick();});
+    }catch(e){failed=true;videoSay(e.message);}
+    const blob=await videoRec.stop();videoRec.close();frame=saved.frame;trail=saved.trail;videoReplay=null;video.start=null;videoButtons();showFrame();
+    if(finished)await saveVideo(blob,section);else if(!failed)videoSay('Video cancelled.');
+  };
+  const videoNodes=[Object.assign(document.createElement('h3'),{textContent:'Run video'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'Save the last run as a video of the field (2D or 3D, as shown), with the period, clock and points above it. It replays at real speed, so a 30 s autonomous takes 30 s; keep this window open on screen. To film a run while you drive it, press Record beside Run instead.'}),
+    Object.assign(document.createElement('label'),{htmlFor:'sim-video-section',textContent:'Part of the run'}),videoSection,videoButton,videoStatus];
+  videoButtons();
   // The run's data first; the output, code and checks are for after the run.
-  settingsViews(runPanel,[['Data',[$('#sim-run-analysis'),dataBox,compareBox]],['Output',outputNodes],['Program',programNodes],['Export',[...exportNodes,...logNodes]],['Diagnostics',[diagnosticBox('sim-run-diagnostics')]]]);
+  settingsViews(runPanel,[['Data',[$('#sim-run-analysis'),dataBox,compareBox]],['Output',outputNodes],['Program',programNodes],['Export',[...exportNodes,...logNodes,...videoNodes]],['Diagnostics',[diagnosticBox('sim-run-diagnostics')]]]);
   const obstacleStep=$('#sim-obstacle-step');$('#sim-zone-editor').hidden=true;const obstacleHelp=document.createElement('p');obstacleHelp.className='hint';obstacleHelp.textContent='Drag an existing obstacle to move it. Double-click it to edit its dimensions and corners, then press Done to save.';obstacleStep.append(obstacleHelp);
   // Paginate settings blocks when a short viewport cannot fit a whole settings view.
   // No fields are discarded, and the field itself stays in the same viewport.

@@ -52,6 +52,13 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
 - **Tangent and reverse-tangent headings.** Includes a turning-footprint check and works in every runtime.
 - **Alliance switching** moves the route: a 180° turn about the field centre for BIOBUZZ, a mirror for empty fields.
 - **Zoom and pan.** Markers shrink as you zoom so they stay grabbable.
+  - Drag empty floor to move around a zoomed field (anywhere in Run & review). A press that does not move is still a click, so Click to add still adds a path.
+  - Two fingers pinch to zoom on the Steam Deck touchscreen; one finger drags.
+  - While zoomed, a small map of the whole field in the corner outlines the view. Click or drag it to jump elsewhere without zooming out.
+  - Path labels (such as "90°") shrink with zoom like the pins.
+- **Simpler Paths panel.** Two views, Paths and Route options, instead of Paths / Route / Diagnostics / Help.
+  - Clicking the route status line opens the route checks under it, in any planning step.
+  - The editing help and keys open over the list from a **?** beside + Add path (Escape or Close shuts it).
 - **Editing aids.**
   - Onion robot outlines along the open path.
   - Duplicate path.
@@ -59,7 +66,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
   - **Route preview:** a scrubber and a Preview button move a robot outline along the whole planned route, with no physics. The path card it is on is marked.
   - Shift snaps a dragged curve handle to a 0.5 in grid.
   - Lines stay thin when zoomed in.
-  - A Keys line in Help.
+  - A Keys line in the **?** help.
   - The right-click editor matches the path card.
 - **`deck-sim pin --tangent/--reverse/--curve`** from the terminal.
 - **Import a path file (.pp).**

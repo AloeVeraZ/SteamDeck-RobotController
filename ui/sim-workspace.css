@@ -28,6 +28,11 @@
 .sim-active-setup{display:flex;align-items:baseline;gap:8px;width:100%;min-width:0;text-align:left;margin:0 0 8px;padding:6px 10px;min-height:32px;border:1px solid var(--line);background:var(--surface);border-radius:6px;color:var(--text)}.sim-active-setup:hover{background:var(--hover)}.sim-active-setup>span{flex:none;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.sim-active-setup>strong{min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sim-live-status{display:block;width:100%;text-align:left;font-size:11px;margin:0 0 8px;padding:5px 8px;min-height:28px;color:var(--muted);border:1px solid var(--line);background:var(--surface);border-radius:6px}
 .sim-live-status.has-issues{color:#ff9aa6;border-color:#a44655}
+/* The route checks open under the status line (and only in Path planning, where the line shows). */
+.sim-live-status[aria-expanded=true]{border-bottom-left-radius:0;border-bottom-right-radius:0;margin-bottom:0}
+#sim-plan-diagnostics{margin:0 0 8px;padding:0 8px 4px;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface)}
+#sim-plan-diagnostics h3{display:none}
+#sim-live-status[hidden]+#sim-plan-diagnostics,#sim-live-status[aria-expanded=false]+#sim-plan-diagnostics{display:none}
 @media(max-height:600px){.sim-popover .hint{display:none}.sim-popover label{margin-top:3px}.sim-popover{max-height:calc(100dvh - 110px)}}
 body.sim-workspace{overflow:hidden}
 .sim-workspace #simulation-view{height:calc(100dvh - 76px);padding:4px 16px 12px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0}
@@ -279,6 +284,13 @@ body.sim-workspace{overflow:hidden}
 .sim-path-bar .sim-edit-tools{flex:1;min-width:0;margin:0}
 .sim-workspace #sim-route-step .sim-settings-page>.sim-settings-unit:first-child>h2{display:none}
 .sim-path-bar .primary{flex:none;min-height:34px;padding:4px 12px;white-space:nowrap}
+/* Editing help: opens over the path list from the ? beside + Add path. */
+#sim-route-step .sim-settings-page{position:relative}
+.sim-path-bar .sim-help-button{flex:none;min-width:34px;min-height:34px;padding:4px;font-weight:700}
+.sim-help-button[aria-expanded=true]{border-color:var(--accent);color:var(--accent)}
+.sim-help-pop{position:absolute;left:0;right:0;z-index:5;max-height:440px;overflow-y:auto;overscroll-behavior:contain;margin-top:2px;padding:4px 12px 8px;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 8px 24px rgb(0 0 0 / .35)}
+.sim-help-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sim-workspace .sim-panel .sim-help-head h3{margin:6px 0 2px}
 .sim-path-list.sim-list,.sim-workspace .sim-path-list.sim-list{display:grid;align-content:start;gap:4px;max-height:min(52vh,460px);overflow:auto;margin:6px 0 10px;overscroll-behavior:contain}
 .sim-path-start,.sim-path-head{display:flex;align-items:center;gap:6px;min-width:0}
 .sim-path-start{padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-control);font-size:12px}

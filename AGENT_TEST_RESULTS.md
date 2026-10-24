@@ -10,7 +10,8 @@ All commands run on this Windows laptop with the repo's Electron as Node:
 | Baseline (before changes) | 263/265. Fails: the planner time budget (already failing before this session) and the motor-ceiling test (run-folder collision bug). |
 | After the Pedro export | 270/271. Only the time budget failed (6.2 s against 5 s). |
 | Mid-session full run | 293/294. The one failure was a spin-limit test, fixed right after by raising the limit to 100 spins. |
-| Latest full run (24 October, morning) | **324/324.** The 24-barrier time-budget test takes about 1.2 s. |
+| Full run (24 October, morning) | **324/324.** The 24-barrier time-budget test takes about 1.2 s. |
+| Latest full run (after drag-to-pan, the field map and the two-view Paths panel) | **325/325.** `tests/simulation-ui.cjs` passes too. |
 
 New test files:
 - `sim-pedro`
