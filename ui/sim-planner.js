@@ -77,7 +77,9 @@
   // Visibility checks need only a boundary tolerance, not the actual distance.
   // Compare squared distances to avoid a square root for every polygon edge.
   function nearBoundary(p,poly,tol){const limit=tol*tol;for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length],dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy,t=l?clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/l,0,1):0,x=p.x-a.x-dx*t,y=p.y-a.y-dy*t;if(x*x+y*y<=limit)return true;}return false;}
-  function rayInside(p,poly){let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[j],b=poly[i];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
+  // A point outside the polygon's bounding box is outside it: most tests end here (the box is cached on the polygon).
+  const outsideBox=(p,poly)=>{const b=poly.box||(poly.box=boxOf(poly));return p.x<b.x0||p.x>b.x1||p.y<b.y0||p.y>b.y1;};
+  function rayInside(p,poly){if(outsideBox(p,poly))return false;let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[j],b=poly[i];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
   // Strictly inside by more than `tol`: boundary points (within tol) are free space.
   const inside=(p,poly,tol=TOL)=>rayInside(p,poly)&&!nearBoundary(p,poly,tol);
   // Kept for callers that used the old name: strict=true means "inside, not on the boundary".
@@ -111,7 +113,7 @@
   function inflated(zones,footprint,heading,clearance){const offsets=body({x:0,y:0,heading},footprint).map(p=>({x:-p.x,y:-p.y}));const ring=clearance>0?Array.from({length:16},(_,i)=>({x:clearance/Math.cos(Math.PI/16)*Math.cos(i*Math.PI/8),y:clearance/Math.cos(Math.PI/16)*Math.sin(i*Math.PI/8)})):[{x:0,y:0}];return zones.flatMap(zone=>parts(zone).map(part=>hull(part.flatMap(p=>offsets.flatMap(q=>ring.map(r=>({x:p.x+q.x+r.x,y:p.y+q.y+r.y})))))));}
   function boxOf(poly){const xs=poly.map(p=>p.x),ys=poly.map(p=>p.y);return {x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys)};}
   function segmentClear(a,b,polys,tol=TOL){
-    for(const poly of polys){const box=poly.box||boxOf(poly);if(Math.max(a.x,b.x)<box.x0-tol||Math.min(a.x,b.x)>box.x1+tol||Math.max(a.y,b.y)<box.y0-tol||Math.min(a.y,b.y)>box.y1+tol)continue;
+    for(const poly of polys){const box=poly.box||(poly.box=boxOf(poly));if(Math.max(a.x,b.x)<box.x0-tol||Math.min(a.x,b.x)>box.x1+tol||Math.max(a.y,b.y)<box.y0-tol||Math.min(a.y,b.y)>box.y1+tol)continue;
       if(inside(a,poly,tol)||inside(b,poly,tol))return false;
       const ts=[0,1],dx=b.x-a.x,dy=b.y-a.y;
       for(let i=0;i<poly.length;i++){const p=poly[i],q=poly[(i+1)%poly.length],ex=q.x-p.x,ey=q.y-p.y,den=dx*ey-dy*ex;if(Math.abs(den)<1e-12)continue;const t=((p.x-a.x)*ey-(p.y-a.y)*ex)/den,u=((p.x-a.x)*dy-(p.y-a.y)*dx)/den;if(t>0&&t<1&&u>=-1e-9&&u<=1+1e-9)ts.push(t);}
