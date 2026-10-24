@@ -176,9 +176,9 @@ public class PlannedRouteAuto extends LinearOpMode {
         DeckFollower.Pose p = follower.pose();
         telemetry.addData("Leg", (leg + 1) + " of " + legs);
         telemetry.addData("Phase", phase);
-        telemetry.addData("x", p.x());
-        telemetry.addData("y", p.y());
-        telemetry.addData("heading", Math.toDegrees(p.heading()));
+        telemetry.addData("x", "%.1f", p.x());
+        telemetry.addData("y", "%.1f", p.y());
+        telemetry.addData("heading", "%.1f", Math.toDegrees(p.heading()));
         telemetry.update();
     }
 
