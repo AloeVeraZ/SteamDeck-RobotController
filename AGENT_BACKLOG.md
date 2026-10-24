@@ -31,7 +31,10 @@
 
 ## Robot code correctness and safety
 
-1. An optional Pedro export with Ivy commands, if `com.pedropathing:ivy` is published and stable.
+1. An optional Pedro export with Ivy commands. Checked on 24 October:
+   - Maven Central has `com.pedropathing:ivy` 0.0.1 (February) and 1.0.0 (April), plus newer `ivy/core` and `ivy/pedro` artifacts (July), so the API is still moving.
+   - The Pedro Quickstart does not depend on Ivy, and the current LinearOpMode export needs only the Quickstart.
+   - Revisit when the Quickstart adopts Ivy.
 2. Open a generated `.pp` in the hosted Pedro Visualizer website. Its loader and animation code already run against Deck's files under Node.
 
 ## Reliability and performance
