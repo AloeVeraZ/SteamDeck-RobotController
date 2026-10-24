@@ -2,7 +2,7 @@
   "fileName": "BIOBUZZ red auto.pp",
   "version": "deck-sim-1",
   "stopAndTurn": true,
-  "timestamp": "2026-10-24T12:27:16.306Z",
+  "timestamp": "2026-10-24T12:53:30.487Z",
   "field": {
     "type": "biobuzz",
     "width": 141.348,
@@ -235,6 +235,10 @@
     }
   ],
   "shapes": [],
+  "settings": {
+    "rWidth": 15.5,
+    "rHeight": 16.5
+  },
   "deck": {
     "start": {
       "x": 9.1,

@@ -74,3 +74,9 @@ test('a Visualizer file drawn for a different robot size says so',()=>{
   assert.match(X.fromPP(file,{robot:{length:17.56,width:17.79}}).notes.join(' '),/drawn for a 16 × 16 in robot; this one is 17\.56 × 17\.79 in/);
   assert.deepEqual(X.fromPP(file,{robot:{length:16.2,width:15.9}}).notes,[]);assert.deepEqual(X.fromPP(file,{}).notes,[]);
 });
+
+test('Deck\'s .pp tells the Visualizer the robot size (its collision footprint), and reads back without a size note',()=>{
+  const route=P.plan(project,{front:9,rear:7,half:8.5}),data=JSON.parse(X.pp(route,layoutOf(start,zones),{polygon:P.polygon,bounds:EMPTY}));
+  assert.deepEqual(data.settings,{rWidth:17,rHeight:16});
+  assert.deepEqual(X.fromPP(data,{field:'empty',bounds:EMPTY,robot:{length:16,width:17}}).notes.filter(n=>/drawn for/.test(n)),[]);
+});

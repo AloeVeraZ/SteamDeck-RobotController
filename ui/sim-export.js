@@ -200,7 +200,7 @@ ${parts.map(leg).join(',\n')}
     // Deck's own pins ride along, so opening the file in Deck again restores them exactly (unless the lines were edited).
     const deck=Array.isArray(options.pins)?{start:layout.start,pins:options.pins,zones:layout.zones||[],signature:signature(lines)}:undefined;
     return JSON.stringify({fileName:`${String(layout.name||'route')}.pp`,version:route.segments.some(s=>s.target)?'deck-sim-2':'deck-sim-1',stopAndTurn:!!(route.nonholonomic||route.turns),timestamp:options.timestamp||new Date().toISOString(),
-      field:{type:layout.field||'empty',width:o.x?+n(options.bounds.x1-o.x):layout.width||144,height:o.y?+n(options.bounds.y1-o.y):layout.height||144},deckOrigin:{x:+n(o.x),y:+n(o.y)},startPoint:{...P(layout.start),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes,deck},null,2)+'\n';
+      field:{type:layout.field||'empty',width:o.x?+n(options.bounds.x1-o.x):layout.width||144,height:o.y?+n(options.bounds.y1-o.y):layout.height||144},deckOrigin:{x:+n(o.x),y:+n(o.y)},startPoint:{...P(layout.start),headingDeg:+n(layout.start.heading),heading:'constant',degrees:+n(layout.start.heading)},lines,shapes,...(route.footprint?{settings:{rWidth:+n(2*route.footprint.half),rHeight:+n(route.footprint.front+route.footprint.rear)}}:{}),deck},null,2)+'\n';
   }
   // A fingerprint of the drawn lines: Deck's saved pins are only used while the lines still match it.
   function signature(lines){const s=JSON.stringify(lines.map(l=>[l.endPoint?.x,l.endPoint?.y,l.controlPoints,l.heading]));let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h.toString(16);}
@@ -271,7 +271,8 @@ ${parts.map(leg).join(',\n')}
     let zones=[];const shapes=Array.isArray(data.shapes)?data.shapes:[];
     if(field!=='empty'&&shapes.length)notes.push(`${shapes.length} shape${shapes.length>1?'s':''} from the file ${shapes.length>1?'were':'was'} left out: Deck's field already has the game's structures.`);
     else zones=shapes.map((s,i)=>({s,points:(s.vertices||[]).map(at).filter(Boolean)})).filter(z=>z.points.length>=3&&z.points.length<=40).map((z,i)=>({id:`pp${i+1}`,type:'polygon',points:z.points}));
-    // The Visualizer saves the robot size it drew for; a different robot may not clear the same paths.
+    // The Visualizer saves the robot size it drew for (Deck writes its collision footprint there); a different robot
+    // may not clear the same paths.
     const drawn=[+data.settings?.rWidth,+data.settings?.rHeight];if(robot&&drawn.every(v=>finite(v)&&v>0)&&finite(robot.length)&&finite(robot.width)){const a=[...drawn].sort((x,y)=>x-y),b=[robot.length,robot.width].sort((x,y)=>x-y);if(Math.abs(a[0]-b[0])>.5||Math.abs(a[1]-b[1])>.5)notes.push(`The file was drawn for a ${round3(drawn[0])} × ${round3(drawn[1])} in robot; this one is ${round3(robot.length)} × ${round3(robot.width)} in, so check the clearances Deck reports.`);}
     return {start,pins,zones,notes,exact:false};
   }

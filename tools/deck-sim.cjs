@@ -397,7 +397,7 @@ Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shot
         for(const [rel,text] of Object.entries(files)){const target=folder?path.resolve(out,rel):path.resolve(out);if(folder&&!target.startsWith(path.resolve(out)+path.sep))throw Error('Invalid export path.');fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
         say(`Wrote ${names.length} file${names.length>1?'s':''} to ${path.resolve(out)}${note?`. ${note}`:''}`);if(flags.show)say(show(file,setup,flags));return;}finally{e.dispose();}}
     case'import-pp':{const pp=rest[0];if(!pp)throw Error('Use: import-pp <setup.json> <file.pp>.');
-      const setup=readSetup(file),l=layoutOf(setup),{e,info}=await load(setup);let r;try{r=X.fromPP(fs.readFileSync(pp,'utf8'),{field:l.field,bounds:info.bounds,robot:info.robot});}finally{e.dispose();}
+      const setup=readSetup(file),l=layoutOf(setup),{e,info}=await load(setup);let r;try{r=X.fromPP(fs.readFileSync(pp,'utf8'),{field:l.field,bounds:info.bounds,robot:{length:info.footprint.front+info.footprint.rear,width:2*info.footprint.half}});}finally{e.dispose();}
       l.start=r.start;l.pins=r.pins;if(r.zones.length||r.exact)l.zones=r.zones;l.route=null;l.tested=null;
       return changed(setup,`Imported ${r.pins.length} path${r.pins.length===1?'':'s'} from ${path.basename(pp)}${r.exact?' exactly as Deck saved them':''}.${r.notes.length?'\n'+r.notes.map(n=>'  - '+n).join('\n'):''}`);}
     case'compare':{const log=rest[0];if(!log)throw Error('Use: compare <setup.json> <log.wpilog|log.csv> [--origin center].');
