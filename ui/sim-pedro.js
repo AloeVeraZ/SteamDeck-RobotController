@@ -13,6 +13,8 @@
   // Follower.follow/hold/update/stop/setPose/pose/velocity/following/algorithm, Foresight.config.maxPathSpeed.at.
   const PEDRO_VERSION='3.0.2',SDK_VERSION='12.0.0',QUICKSTART_CONSTANTS='org.firstinspires.ftc.teamcode.pedro.Constants';
   const n=v=>{if(!Number.isFinite(Number(v)))throw Error('The route has a coordinate or heading that is not a number. Re-plan it before exporting.');return Number(v).toFixed(3).replace(/\.?0+$/,'').replace(/^-0$/,'0')||'0';};
+  // A Java double literal: ConfigVar<Double>.set needs 4.0, not 4 (an int does not box to Double).
+  const dbl=v=>{const t=n(v);return /[.eE]/.test(t)?t:t+'.0';};
   const finite=Number.isFinite,norm=d=>((d%360)+540)%360-180,rad=d=>`Math.toRadians(${n(d)})`;
   const javaString=s=>'"'+String(s).replace(/[\\"]/g,c=>'\\'+c).replace(/[\u0000-\u001f]/g,'')+'"';
   const comment=s=>String(s||'').replace(/\*\//g,'* /').replace(/[\r\n]+/g,' ').trim();
@@ -406,13 +408,51 @@ public class ${o.opMode} extends LinearOpMode {
   // speeds, decelerations, braking distances and gains (the same quantities the Quickstart's Foresight
   // tuner measures on a real robot). The simulator runs Pedro exports with it; teams can start from it,
   // but every number is an estimate until the Quickstart tuners have been run on the real robot.
-  const STARTER_LOCALIZERS={fused:'goBILDA Pinpoint',optical:'SparkFun OTOS'};
+  const STARTER_LOCALIZERS={fused:'goBILDA Pinpoint',optical:'SparkFun OTOS',odometry:'two odometry pods + IMU',odometry3:'three odometry pods + IMU'};
   function starterConstants({hardware,tuning,packageName='org.firstinspires.ftc.teamcode.pedro',className='DeckStarterConstants'}){
-    if(!STARTER_LOCALIZERS[hardware?.localization])throw Error(`Pedro starter constants support ${Object.values(STARTER_LOCALIZERS).join(' and ')} localization.`);
+    if(!STARTER_LOCALIZERS[hardware?.localization])throw Error(`Pedro starter constants support ${Object.values(STARTER_LOCALIZERS).join(', ')} localization.`);
     if(hardware.drive?.kind!=='mecanum')throw Error('Pedro starter constants support mecanum drivetrains.');
     for(const k of ['maxForward','maxStrafe','forwardDeceleration','strafeDeceleration','linearBrakeForward','linearBrakeStrafe','quadraticBrakeForward','quadraticBrakeStrafe','headingBrakeLinear','headingBrakeQuadratic','headingP','translationalP','translationalSmall'])if(!(finite(tuning?.[k])&&tuning[k]>=0))throw Error(`The simulated robot has no ${k}; load the simulation first.`);
-    const m=hardware.drive.motors,dir=x=>`DcMotorSimple.Direction.${x.mount<0?'REVERSE':'FORWARD'}`,pinpoint=hardware.localization==='fused',t=tuning;
-    const localizer=pinpoint?`    /** ${STARTER_LOCALIZERS.fused} "${comment(hardware.pinpoint)}". MEASURE the pod offsets and check both pod directions. */
+    const m=hardware.drive.motors,dir=x=>`DcMotorSimple.Direction.${x.mount<0?'REVERSE':'FORWARD'}`,loc=hardware.localization,pinpoint=loc==='fused',t=tuning;
+    // Pods: Pedro's two-pod maths takes the forward pod's offset as minus its distance to the left of centre, and the
+    // strafe pod's as its distance in front of centre; ticks per inch from the pod wheels Deck assumes (goBILDA 32 mm, 2000 counts).
+    const pods=hardware.pods||[],fwd=pods.filter(p=>p.axis==='forward'),side=pods.find(p=>p.axis==='strafe'),ticks=p=>(1/(p?.ticksPerInch||1)).toPrecision(6),imuLine=`new RevHubIMU(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.UP, RevHubOrientationOnRobot.UsbFacingDirection.FORWARD))`;
+    if(loc==='odometry'&&(fwd.length!==1||!side))throw Error('Two-pod odometry needs one forward and one strafe pod.');if(loc==='odometry3'&&(fwd.length!==2||!side))throw Error('Three-pod odometry needs two forward pods and one strafe pod.');
+    const left=fwd.slice().sort((a,b)=>b.y-a.y)[0],right=fwd.slice().sort((a,b)=>a.y-b.y)[0];
+    const podLocalizer=loc!=='odometry'&&loc!=='odometry3'?'':loc==='odometry'?`    /** Two odometry pods ("${comment(fwd[0].name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}". MEASURE the pod offsets and check the directions. */
+    public static TwoWheelConfig localizer() {
+        return new TwoWheelConfig(c -> {
+            c.xPodName.set(${javaString(fwd[0].name)});
+            c.yPodName.set(${javaString(side.name)});
+            c.imuName.set(${javaString(hardware.imu)});
+            c.imu.set(${imuLine});
+            c.xPodOffset.set(${dbl(-fwd[0].y)});
+            c.yPodOffset.set(${dbl(side.x)});
+            c.forwardTicksToInches.set(${ticks(fwd[0])});
+            c.strafeTicksToInches.set(${ticks(side)});
+            c.xPodDirection.set(Encoder.FORWARD);
+            c.yPodDirection.set(Encoder.FORWARD);
+        });
+    }`:`    /** Three odometry pods ("${comment(left.name)}" and "${comment(right.name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}". MEASURE the pod offsets and check the directions. */
+    public static ThreeWheelIMUConfig localizer() {
+        return new ThreeWheelIMUConfig(c -> {
+            c.leftEncoderName.set(${javaString(left.name)});
+            c.rightEncoderName.set(${javaString(right.name)});
+            c.strafeEncoderName.set(${javaString(side.name)});
+            c.imuName.set(${javaString(hardware.imu)});
+            c.imu.set(${imuLine});
+            c.leftPodY.set(${dbl(left.y)});
+            c.rightPodY.set(${dbl(right.y)});
+            c.strafePodX.set(${dbl(side.x)});
+            c.forwardTicksToInches.set(${ticks(left)});
+            c.strafeTicksToInches.set(${ticks(side)});
+            c.turnTicksToRadians.set(${ticks(left)});
+            c.leftEncoderDirection.set(Encoder.FORWARD);
+            c.rightEncoderDirection.set(Encoder.FORWARD);
+            c.strafeEncoderDirection.set(Encoder.FORWARD);
+        });
+    }`;
+    const localizer=loc==='odometry'||loc==='odometry3'?podLocalizer:pinpoint?`    /** ${STARTER_LOCALIZERS.fused} "${comment(hardware.pinpoint)}". MEASURE the pod offsets and check both pod directions. */
     public static PinpointConfig localizer() {
         return new PinpointConfig(c -> {
             c.name.set(${javaString(hardware.pinpoint)});
@@ -435,16 +475,16 @@ import com.pedropathing.algorithm.ForesightConfig;
 import com.pedropathing.controllers.Controller;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Matrix;
-${pinpoint?'':'import com.pedropathing.math.Pose;\n'}import com.pedropathing.math.Vector2D;
+${loc==='optical'?'import com.pedropathing.math.Pose;\n':''}import com.pedropathing.math.Vector2D;
 import com.pedropathing.revhub.drivetrains.Mecanum;
 import com.pedropathing.revhub.drivetrains.MecanumConfig;
-${pinpoint?'import com.pedropathing.revhub.localizers.PinpointConfig;\nimport com.pedropathing.revhub.localizers.PinpointLocalizer;\nimport com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;':'import com.pedropathing.revhub.localizers.OTOSConfig;\nimport com.pedropathing.revhub.localizers.OTOSLocalizer;'}
+${loc==='odometry'?'import com.pedropathing.revhub.localizers.Encoder;\nimport com.pedropathing.revhub.localizers.RevHubIMU;\nimport com.pedropathing.revhub.localizers.TwoWheelConfig;\nimport com.pedropathing.revhub.localizers.TwoWheelLocalizer;\nimport com.qualcomm.hardware.rev.RevHubOrientationOnRobot;':loc==='odometry3'?'import com.pedropathing.revhub.localizers.Encoder;\nimport com.pedropathing.revhub.localizers.RevHubIMU;\nimport com.pedropathing.revhub.localizers.ThreeWheelIMUConfig;\nimport com.pedropathing.revhub.localizers.ThreeWheelIMULocalizer;\nimport com.qualcomm.hardware.rev.RevHubOrientationOnRobot;':pinpoint?'import com.pedropathing.revhub.localizers.PinpointConfig;\nimport com.pedropathing.revhub.localizers.PinpointLocalizer;\nimport com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;':'import com.pedropathing.revhub.localizers.OTOSConfig;\nimport com.pedropathing.revhub.localizers.OTOSLocalizer;'}
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
 /**
  * STARTING VALUES for Pedro Pathing ${PEDRO_VERSION}, estimated by Deck Driver Station from the robot set up in its
- * simulator (mecanum, ${STARTER_LOCALIZERS[hardware.localization]}). They are not measurements of your robot.
+ * simulator (mecanum, ${STARTER_LOCALIZERS[loc]}). They are not measurements of your robot.
  * Before driving fast: check the motor names and directions, measure the localizer offsets, then run
  * the Pedro Quickstart tuners and replace the Foresight numbers with what they measure.
  * To use it: in pedro/Constants.java, return ${className}.create(h);
@@ -477,15 +517,15 @@ ${localizer}
             c.headingBrakeCoefficients.set(Vector2D.cartesian(${t.headingBrakeLinear.toPrecision(4)}, ${t.headingBrakeQuadratic.toPrecision(4)}));
             c.linearBrakeCoefficients.set(Matrix.diag(${t.linearBrakeForward.toPrecision(4)}, ${t.linearBrakeStrafe.toPrecision(4)}));
             c.quadraticBrakeCoefficients.set(Matrix.diag(${t.quadraticBrakeForward.toPrecision(4)}, ${t.quadraticBrakeStrafe.toPrecision(4)}));
-            c.maxAchievableForwardVelocity.set(${n(t.maxForward)});
-            c.maxAchievableStrafeVelocity.set(${n(t.maxStrafe)});
-            c.naturalForwardDeceleration.set(${n(t.forwardDeceleration)});
-            c.naturalStrafeDeceleration.set(${n(t.strafeDeceleration)});
+            c.maxAchievableForwardVelocity.set(${dbl(t.maxForward)});
+            c.maxAchievableStrafeVelocity.set(${dbl(t.maxStrafe)});
+            c.naturalForwardDeceleration.set(${dbl(t.forwardDeceleration)});
+            c.naturalStrafeDeceleration.set(${dbl(t.strafeDeceleration)});
         });
     }
 
     public static Follower create(HardwareMap h) {
-        return new Follower(new ${pinpoint?'Pinpoint':'OTOS'}Localizer(h, localizer()), new Mecanum(h, drivetrain()), new Foresight(foresight()));
+        return new Follower(new ${{fused:'Pinpoint',optical:'OTOS',odometry:'TwoWheel',odometry3:'ThreeWheelIMU'}[loc]}Localizer(h, localizer()), new Mecanum(h, drivetrain()), new Foresight(foresight()));
     }
 }
 `;

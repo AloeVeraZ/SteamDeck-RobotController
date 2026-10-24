@@ -10,7 +10,9 @@ const skip=!built?'run node tools/simulation/build.cjs first':!jars?'run node to
 const P=require('../ui/sim-planner.js'),Pedro=require('../ui/sim-pedro.js'),F=require('../ui/sim-ftc.js');
 const start={x:24,y:24,heading:0},layout={name:'Pedro runtime',field:'empty',width:144,height:144,start,zones:[]};
 
-async function drive(localization,pins,{defaultPower=.8,seconds=20,onTick}={}){
+// pace: one simulation tick per 1/60 s of wall time. Pedro's pod localizers measure velocity with System.nanoTime,
+// so they only read the simulated robot correctly when the simulation runs in real time.
+async function drive(localization,pins,{defaultPower=.8,seconds=20,onTick,pace=false}={}){
   const {SimEngine}=require('../src/sim-engine.cjs'),e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-pedro-')),now:()=>0});
   try{
     const info=await e.load({field:'empty',start,robot:{drivetrain:'mecanum',length:17,width:17,driveRpm:500},sensors:{localization,noise:0,gyroDrift:0,scaleError:0}});
@@ -18,7 +20,7 @@ async function drive(localization,pins,{defaultPower=.8,seconds=20,onTick}={}){
     const files={...out.files,'org/firstinspires/ftc/teamcode/pedro/Constants.java':Pedro.starterConstants({hardware:F.hardware(info.robot,localization),tuning:info.tuning,className:'Constants'})};
     const started=await e.run({kind:'opmode',files,opMode:out.opMode,classpath:jars});assert.equal(started.ok,true,JSON.stringify(started));
     const phases=[];let doneAt=null;
-    for(let i=0;i<seconds*60&&e.mode==='program';i++){await e.programTick();const ph=`${e.telemetry?.Leg||''} ${e.telemetry?.Phase||''}`.trim();if(ph&&phases.at(-1)!==ph)phases.push(ph);
+    for(let i=0;i<seconds*60&&e.mode==='program';i++){const began=Date.now();await e.programTick();if(pace){const wait=1000/60-(Date.now()-began);if(wait>0)await new Promise(r=>setTimeout(r,wait));}const ph=`${e.telemetry?.Leg||''} ${e.telemetry?.Phase||''}`.trim();if(ph&&phases.at(-1)!==ph)phases.push(ph);
       if(onTick&&await onTick(e,i))break;if(doneAt===null&&/Done$/.test(ph))doneAt=i/60;if(doneAt!==null&&i/60>doneAt+1)break;}
     return {e,phases,doneAt,truth:e.truth(),dispose:()=>e.dispose()};
   }catch(err){e.dispose();throw err;}
@@ -62,4 +64,19 @@ test('Pedro follows a custom curve facing along it (its own .tangent()) and ends
     // The tangent at the end of this curve points down and to the right (from (90,80) to (110,24)).
     const end=Math.atan2(24-80,110-90);assert.ok(Math.abs(Math.atan2(Math.sin(t.heading-end),Math.cos(t.heading-end)))<Math.PI/30,`final heading ${(t.heading*180/Math.PI).toFixed(1)}° vs ${(end*180/Math.PI).toFixed(1)}°`);
   }finally{r.dispose();}
+});
+
+test('Pedro runs with its two-pod and three-pod odometry localizers too',{skip},async()=>{
+  for(const localization of ['odometry','odometry3']){
+    const r=await drive(localization,[{x:90,y:24},{x:100,y:80,path:{rotate:'turn',heading:90}}],{seconds:14,pace:true});
+    try{assert.ok(r.doneAt!==null,`${localization}: ${r.phases.join(' → ')}`);const t=r.truth;assert.ok(Math.hypot(t.x-100,t.y-80)<2,`${localization} ended at (${t.x.toFixed(2)}, ${t.y.toFixed(2)})`);assert.ok(Math.abs(Math.atan2(Math.sin(t.heading-Math.PI/2),Math.cos(t.heading-Math.PI/2)))<Math.PI/36,`${localization} heading ${(t.heading*180/Math.PI).toFixed(1)}°`);}
+    finally{r.dispose();}
+  }
+});
+
+test('Pedro drives straight through a leg boundary that only changes the speed limit, slower on the limited leg',{skip},async()=>{
+  let slowMax=0,fastMax=0;
+  const r=await drive('fused',[{x:60,y:24,path:{power:.4}},{x:115,y:24,path:{power:1}}],{defaultPower:1,seconds:10,onTick:async e=>{const t=e.truth(),v=Math.hypot(t.vx,t.vy);if(t.x>32&&t.x<52)slowMax=Math.max(slowMax,v);if(t.x>75&&t.x<100)fastMax=Math.max(fastMax,v);return false;}});
+  try{assert.ok(r.doneAt!==null,r.phases.join(' → '));assert.ok(!r.phases.includes('1 of 2 Settling'),`no stop between the legs: ${r.phases.join(' → ')}`);
+    assert.ok(slowMax<fastMax*.7,`the 40% leg is slower (${slowMax.toFixed(1)} vs ${fastMax.toFixed(1)} in/s)`);const t=r.truth;assert.ok(Math.hypot(t.x-115,t.y-24)<1.5);}finally{r.dispose();}
 });

@@ -88,9 +88,22 @@ test('Pedro starter constants: Pedro\'s Mecanum and Pinpoint/OTOS with Foresight
   assert.match(pinpoint,/c\.frontLeftName\.set\("front_left"\);/);assert.match(pinpoint,/c\.frontLeftDirection\.set\(DcMotorSimple\.Direction\.REVERSE\);/);assert.match(pinpoint,/c\.frontRightDirection\.set\(DcMotorSimple\.Direction\.FORWARD\);/);
   assert.match(pinpoint,/c\.maxAchievableForwardVelocity\.set\(86\.6\);/);assert.match(pinpoint,/c\.quadraticBrakeCoefficients\.set\(Matrix\.diag\(0\.001760, 0\.002370\)\);/);assert.match(pinpoint,/STARTING VALUES/);
   const otos=Pedro.starterConstants({hardware:F.hardware(robot,'optical'),tuning});assert.match(otos,/new OTOSLocalizer\(h, localizer\(\)\)/);assert.match(otos,/c\.name\.set\("sensor_otos"\);/);
-  assert.throws(()=>Pedro.starterConstants({hardware:F.hardware(robot,'encoders'),tuning}),/Pinpoint and SparkFun OTOS/);
+  assert.throws(()=>Pedro.starterConstants({hardware:F.hardware(robot,'encoders'),tuning}),/Pinpoint, SparkFun OTOS/);
   assert.throws(()=>Pedro.starterConstants({hardware:F.hardware(robot,'fused'),tuning:{}}),/load the simulation/);
   // The export writes it beside the Quickstart's Constants.java when it can describe the robot.
   const start={x:20,y:24,heading:0},route=P.plan({start,zones:[],pins:[{x:60,y:24}],style:'sharp',clearance:2},fp),o=out(route,layoutOf(start),{hardware:F.hardware(robot,'fused'),tuning});
   assert.ok(o.starter);assert.ok(o.files['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java']);assert.equal(out(route,layoutOf(start)).starter,false);
+});
+
+test('Pedro starter constants for two and three odometry pods with the hub IMU',()=>{
+  const F=require('../ui/sim-ftc.js'),robot={drivetrain:'mecanum',length:17,width:17,driveRpm:500};
+  const tuning={maxForward:86.6,maxStrafe:69.3,forwardDeceleration:83.8,strafeDeceleration:68.9,linearBrakeForward:.0941,linearBrakeStrafe:.0403,quadraticBrakeForward:.00176,quadraticBrakeStrafe:.00237,headingBrakeLinear:.0601,headingBrakeQuadratic:.00486,headingP:3.95,translationalP:.304,translationalSmall:.101};
+  const two=Pedro.starterConstants({hardware:F.hardware(robot,'odometry'),tuning});
+  assert.match(two,/new TwoWheelLocalizer\(h, localizer\(\)\)/);assert.match(two,/c\.xPodName\.set\("par"\);/);assert.match(two,/c\.yPodName\.set\("perp"\);/);
+  // Pedro's sign: the forward pod 4 in left of centre gives xPodOffset -4; the strafe pod 3 in behind gives yPodOffset -3.
+  assert.match(two,/c\.xPodOffset\.set\(-4\.0\);/);assert.match(two,/c\.yPodOffset\.set\(-3\.0\);/);assert.match(two,/c\.forwardTicksToInches\.set\(0\.00197896\);/);
+  assert.match(two,/new RevHubIMU\(new RevHubOrientationOnRobot\(RevHubOrientationOnRobot\.LogoFacingDirection\.UP, RevHubOrientationOnRobot\.UsbFacingDirection\.FORWARD\)\)/);
+  const three=Pedro.starterConstants({hardware:F.hardware(robot,'odometry3'),tuning});
+  assert.match(three,/new ThreeWheelIMULocalizer\(h, localizer\(\)\)/);assert.match(three,/c\.leftEncoderName\.set\("par_left"\);/);assert.match(three,/c\.rightEncoderName\.set\("par_right"\);/);
+  assert.match(three,/c\.leftPodY\.set\(6\.0\);/);assert.match(three,/c\.rightPodY\.set\(-6\.0\);/);assert.match(three,/c\.strafePodX\.set\(-3\.0\);/);assert.doesNotMatch(three,/PinpointConfig|OTOSConfig/);
 });

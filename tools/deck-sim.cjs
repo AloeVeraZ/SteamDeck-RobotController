@@ -173,7 +173,7 @@ function teamCode(setup,l,route,info,onbot){
 // The Pedro export plus a pedro/Constants.java that builds the Follower from DeckStarterConstants, as a team would.
 function pedroForSim(setup,l,route,info){
   const names=javaNames(setup),out=Pedro.files({route,layout:layoutFor(l),mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardware(info.robot,setup.sensors?.localization),tuning:info.tuning});
-  if(!out.files['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java'])throw Error('Pedro starter constants need a mecanum robot with goBILDA Pinpoint or SparkFun OTOS sensing.');
+  if(!out.files['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java'])throw Error('Pedro starter constants need a mecanum robot with goBILDA Pinpoint, SparkFun OTOS or two/three odometry pods.');
   return {...out,files:{...out.files,'org/firstinspires/ftc/teamcode/pedro/Constants.java':Pedro.QUICKSTART_USING_STARTER}};
 }
 function exported(setup,l,route,info,format){
