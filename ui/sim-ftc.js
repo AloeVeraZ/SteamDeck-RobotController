@@ -84,6 +84,7 @@ ${motors.map(([key,m],i)=>`        motors[${i}]=map.get(DcMotorEx.class, "${m.na
         for(DcMotorEx m:motors){m.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);}
 ${pods.map((p,i)=>`        pods[${i}]=map.get(DcMotorEx.class,"${p.name}");`).join('\n')}
         imu=map.get(IMU.class,"${h.imu}");
+        // Set the logo and USB directions to how your Control Hub is mounted, or every turn and heading will be wrong.
         imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.UP,RevHubOrientationOnRobot.UsbFacingDirection.FORWARD)));
         pinpoint=${h.localization==='fused'?`map.get(GoBildaPinpointDriver.class,"${h.pinpoint}")`:'null'};
         otos=${h.localization==='optical'?`map.get(SparkFunOTOS.class,"${h.otos}")`:'null'};

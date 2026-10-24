@@ -399,6 +399,7 @@ public class BiobuzzRedAuto extends LinearOpMode {
         for(DcMotorEx m:motors){m.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);m.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);}
 
         imu=map.get(IMU.class,"imu");
+        // Set the logo and USB directions to how your Control Hub is mounted, or every turn and heading will be wrong.
         imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.UP,RevHubOrientationOnRobot.UsbFacingDirection.FORWARD)));
         pinpoint=map.get(GoBildaPinpointDriver.class,"pinpoint");
         otos=null;

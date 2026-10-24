@@ -429,6 +429,7 @@ public class ${o.opMode} extends LinearOpMode {
             c.xPodName.set(${javaString(fwd[0].name)});
             c.yPodName.set(${javaString(side.name)});
             c.imuName.set(${javaString(hardware.imu)});
+            // Set the logo and USB directions to how your Control Hub is mounted, or every heading will be wrong.
             c.imu.set(${imuLine});
             c.xPodOffset.set(${dbl(-fwd[0].y)});
             c.yPodOffset.set(${dbl(side.x)});
@@ -444,6 +445,7 @@ public class ${o.opMode} extends LinearOpMode {
             c.rightEncoderName.set(${javaString(right.name)});
             c.strafeEncoderName.set(${javaString(side.name)});
             c.imuName.set(${javaString(hardware.imu)});
+            // Set the logo and USB directions to how your Control Hub is mounted, or every heading will be wrong.
             c.imu.set(${imuLine});
             c.leftPodY.set(${dbl(left.y)});
             c.rightPodY.set(${dbl(right.y)});
