@@ -29,7 +29,9 @@ Downloads FTC SDK RobotCore and Hardware 12.0.0 and Pedro Pathing core and revhu
 The latest run passed with no warnings:
 - Control Hub TeamCode: 11 cases.
 - OnBot Java: 11 cases.
-- Pedro export: 8 holonomic cases plus 3 example setups. `DeckStarterConstants` was included for Pinpoint, OTOS, two pods and three pods.
+- Pedro export: 8 holonomic cases, a swerve robot, and 3 example setups. `DeckStarterConstants` was included for Pinpoint, OTOS, two pods and three pods.
+- One case has the Control Hub mounted logo left, USB up.
+- 40 compile steps in all, all without warnings (latest run, 24 October).
 - Examples with mechanisms: TeamCode, OnBot and Pedro.
 - Stand-ins: all 239 public members match the real SDK.
 
@@ -95,6 +97,14 @@ The Visualizer's normalizer, path flattening and animation heading code (`segmen
 - **Robot log comparison, end to end:** Run & review → Data → Open robot log…, with the real AdvantageScope file. It draws 225 logged poses in orange beside the plan, with the same mean, worst and end figures.
 - **Control Hub mounting:** in the Control Hub fixture, choosing logo Left then USB Up greys out Left/Right for USB and saves the choice. The exported OnBot Java then contains `LogoFacingDirection.LEFT,RevHubOrientationOnRobot.UsbFacingDirection.UP`.
 - **Narrow windows:** at 360 px and 390 px wide, no tab scrolls sideways.
+
+## Action names
+
+`tests/sim-action-names.test.cjs` covers: Shoot/shoot, 射击, Стрелять, 🎯, 射击 2, Lanzar épée, class, 3 point.
+- Every name now has a slot and a dispatch case.
+- The TeamCode export with these names compiles with the bundled javac against the SDK stand-ins.
+- MotionModule's Python parses.
+- Before the fix, the non-Latin names and the second "shoot" silently did nothing.
 
 ## Generator fuzzing
 
