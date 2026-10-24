@@ -373,7 +373,7 @@ public class MyAuto implements DeckAutonomous {
     for(const [k,v] of Object.entries({x:b.x0,y:b.y0,width:b.x1-b.x0,height:b.y1-b.y0}))$('#sim-walls').setAttribute(k,v);
     const sel=selected?.kind==='zone'&&zoneById(selected.id);
     $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4})):[]));
-    $('#sim-route').replaceChildren(...(l.route?routeShapes(l.route):[]));
+    $('#sim-route').replaceChildren(...(l.route?routeShapes(l.route):[]),...controlShapes());
     $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':''),transform:`translate(${p.x} ${p.y})`,'data-pin':i});
       // A pin that turns the robot shows the heading it turns to.
     if(finite(p.turn)){const h=l.route?.stops[i]?.turn??p.turn;n.append(svg('path',{class:'sim-pin-turn',d:`M0 0L${(5.2*Math.cos(h*Math.PI/180)).toFixed(2)} ${(5.2*Math.sin(h*Math.PI/180)).toFixed(2)}`}));}
@@ -435,14 +435,14 @@ public class MyAuto implements DeckAutonomous {
     if(analysisPending){try{diagnostics=planner.analyze({...planRequest(L().style).project,start:graph.dataset.dragging?preview:start},geometry().footprint,info?.fieldZones||[],geometry().bounds);}catch(e){diagnostics=[{pin:null,code:'setup',message:e.message}];}}
     const banner=$('#sim-live-status');if(banner){banner.hidden=tab!=='plan';banner.classList.toggle('has-issues',diagnostics.length>0);const est=!diagnostics.length&&!analysisPending&&L().route?routeEstimate():null,auto=project.practice.autoSeconds,late=est?.time>auto,missed=est&&(est.violations>0||est.miss>1.5);if(est&&!diagnostics.length)banner.classList.toggle('has-issues',!!(late||missed||est.error));
     const timing=!est?'':est.pending?' · test-driving for a time estimate…':est.error?` · test drive did not finish: ${est.error}`:`${missed?' · test drive touched something or missed the end point':''} · about ${est.time.toFixed(1)} s in simulation${late?`, longer than the ${auto} s autonomous`:''}`;
-    banner.textContent=diagnostics.length?`${diagnostics.length} route issue(s) · ${diagnostics.filter(d=>d.pin!==null).map(d=>'Path '+(d.pin+1)).filter((p,i,a)=>a.indexOf(p)===i).join(', ')||'Starting pose'} · View diagnostics`:analysisPending?'Analyzing route…':L().pins.length?`Route checks passed${timing} · View diagnostics`:'Add paths to check your route';}
+    banner.textContent=diagnostics.length?`${diagnostics.length} route issue${diagnostics.length>1?"s":""} · ${diagnostics.filter(d=>d.pin!==null).map(d=>'Path '+(d.pin+1)).filter((p,i,a)=>a.indexOf(p)===i).join(', ')||'Starting pose'} · View diagnostics`:analysisPending?'Analyzing route…':L().pins.length?`Route checks passed${timing} · View diagnostics`:'Add paths to check your route';}
     const warnings=[];if(!C.sensors[project.sensors.localization].translation&&L().pins.some(p=>['spin','turn','relative','start','track'].includes(p.path?.rotate)))warnings.push('Turning while driving with IMU-only sensing can accumulate large X/Y errors. Add odometry for accurate curves or stop and turn at pins.');
     for(const [i,p] of L().pins.entries())if((p.path?.power??project.tuning.maxPathSpeed)===0)warnings.push(`Path to pin ${i+1} has zero motor power. It will stop the autonomous until you change power and restart.`);
     // Contact: a no-go zone the robot sits in, a wall or part it is pushing while running, or contacts the last
     // run made after leaving its start pose (the run report's count; starting against the wall is normal).
     const touching=frame?.hit?.length||runState==='running'&&frame?.contacts?.length,events=lastReport?lastReport.contacts.length+(frame?.violations?.length&&!lastReport.contacts.some(c=>c.kind==='zone')?frame.violations.length:0):(frame?.violations?.length||0)+(frame?.contactEvents||0);
     if(touching||events)warnings.push(`Chassis contact: ${touching?'currently touching a wall or no-go area':`${events} contact event(s) during this run`}. Increase clearance or reduce path power.`);
-    for(const id of ['#sim-plan-diagnostics','#sim-run-diagnostics']){const box=$(id);if(!box)continue;const key=JSON.stringify([diagnostics,warnings,analysisPending,L().pins.length,!!L().route,diagnosticPages[id]||0]);if(box.dataset.content===key)continue;box.dataset.content=key;const head=document.createElement('h3');head.textContent=analysisPending?'Analyzing route…':diagnostics.length?`${diagnostics.length} route issue(s)`:'Route checks';const legend=document.createElement('p');legend.className='hint';legend.textContent='Numbered markers on the field are path end points: red has a clearance or path issue, amber pauses or runs an action, plain only drives. Power is a limit, not a guaranteed speed.';
+    for(const id of ['#sim-plan-diagnostics','#sim-run-diagnostics']){const box=$(id);if(!box)continue;const key=JSON.stringify([diagnostics,warnings,analysisPending,L().pins.length,!!L().route,diagnosticPages[id]||0]);if(box.dataset.content===key)continue;box.dataset.content=key;const head=document.createElement('h3');head.textContent=analysisPending?'Analyzing route…':diagnostics.length?`${diagnostics.length} route issue${diagnostics.length>1?"s":""}`:'Route checks';const legend=document.createElement('p');legend.className='hint';legend.textContent='Numbered markers on the field are path end points: red has a clearance or path issue, amber pauses or runs an action, plain only drives. Power is a limit, not a guaranteed speed.';
       const list=document.createElement('ul'),size=innerHeight<650?1:2,entries=[...diagnostics,...warnings.map(message=>({pin:null,code:'warning',message}))],pages=Math.ceil(entries.length/size),page=Math.max(0,Math.min(pages-1,diagnosticPages[id]||0));for(const issue of entries.slice(page*size,(page+1)*size)){const item=document.createElement('li');item.className=issue.code==='warning'?'hint warn':'sim-issue';item.textContent=issue.message;if(issue.pin!==null){const jump=document.createElement('button');jump.type='button';jump.className='text-button';jump.textContent=`Edit path ${issue.pin+1}`;jump.onclick=()=>editPath(issue.pin);item.append(jump);}list.append(item);}
       if(!diagnostics.length&&!analysisPending){const item=document.createElement('li');item.textContent=L().pins.length?L().route?'Every end point and planned movement keeps the robot clear.':'Pin footprints checked. Planning route movements…':'Add paths to check their movements.';list.append(item);}box.replaceChildren(head,legend,list);if(pages>1){const nav=document.createElement('div');nav.className='sim-pin-pages';const prev=document.createElement('button'),next=document.createElement('button'),label=document.createElement('span');prev.textContent='← Previous';next.textContent='Next →';prev.disabled=page===0;next.disabled=page===pages-1;prev.type=next.type='button';prev.className=next.className='secondary';label.textContent=`${page*size+1}–${Math.min(entries.length,(page+1)*size)} of ${entries.length}`;prev.onclick=()=>{diagnosticPages[id]=page-1;refreshDiagnostics();};next.onclick=()=>{diagnosticPages[id]=page+1;refreshDiagnostics();};nav.append(prev,label,next);box.append(nav);}
     }
@@ -466,7 +466,9 @@ public class MyAuto implements DeckAutonomous {
     if(effects.session||optimizing)return;recordPlan();const h=planHistory(),from=back?h.undo:h.redo;
     if(!from.length)return status('#sim-plan-status',back?'Nothing to undo.':'Nothing to redo.');
     (back?h.redo:h.undo).push(planState());const state=JSON.parse(from.pop());PLAN_KEYS.forEach((k,i)=>{L()[k]=state[i];});lastPlan={key:planKey(),state:planState()};
-    if(L().start)start=L().start;preview={...start};selected=null;drag=null;pointer=null;stroke=null;targetPick=null;inputs();robotPanel();
+    // Keep the open path or selected obstacle when it still exists, so its handles stay on screen.
+    const kept=selected?.kind==='zone'?L().zones.some(z=>z.id===selected.id):['pin','path'].includes(selected?.kind)&&!!L().pins[selected.index];
+    if(L().start)start=L().start;preview={...start};if(!kept)selected=null;drag=null;pointer=null;stroke=null;targetPick=null;inputs();robotPanel();
     changed('zones');if(native&&info)void api.sim('start',start).catch(()=>{});status('#sim-plan-status',back?'Undid the last change.':'Redid the change.');
   }
   document.addEventListener('keydown',event=>{
@@ -518,6 +520,7 @@ public class MyAuto implements DeckAutonomous {
     status('#sim-plan-status',`${extend?'Added':'Drew'} ${pins.length} pin${pins.length>1?'s':''} from your path. Planning…`);
   }
   function hit(p){
+    const c=controlHit(p);if(c)return c;
     const l=L();for(let i=l.pins.length-1;i>=0;i--)if(Math.hypot(l.pins[i].x-p.x,l.pins[i].y-p.y)<=3.2)return {kind:'pin',index:i};
     const z0=selected?.kind==='zone'&&zoneById(selected.id);if(z0){const i=handles(z0).findIndex(h=>Math.hypot(h.x-p.x,h.y-p.y)<=2.2);if(i>=0)return {kind:'handle',id:z0.id,index:i};}
     const near=(q,a,b)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((q.x-a.x)*dx+(q.y-a.y)*dy)/(dx*dx+dy*dy||1)));return Math.hypot(q.x-a.x-dx*t,q.y-a.y-dy*t);};
@@ -563,6 +566,20 @@ public class MyAuto implements DeckAutonomous {
       if(path.rotate==='track'&&path.target){const t=path.target;out.push(svg('circle',{class:'sim-aim-target',cx:t.x,cy:t.y,r:2}),svg('path',{class:'sim-aim-target',d:`M${t.x-3} ${t.y}h6M${t.x} ${t.y-3}v6`}));}}
     out.push(...turnGhosts(route));return out;
   }
+  // Custom curves (Pedro Pathing style): the open path's Bezier control points are drawn as handles with
+  // guide lines from the path's ends, and can be dragged. The planner drives the curve exactly as drawn.
+  const pathStart=i=>i>0?L().pins[i-1]:start;
+  function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(!c?.length)return [];const a=pathStart(i),out=[];
+    out.push(svg('polyline',{class:'sim-control-guide',points:pts([a,c[0]])}),svg('polyline',{class:'sim-control-guide',points:pts([c.at(-1),q])}));if(c.length>2)out.push(svg('polyline',{class:'sim-control-guide',points:pts(c)}));
+    if(!L().route||planError)out.push(svg('polyline',{class:'sim-path draft'+(diagnostics.some(d=>d.pin===i)?' blocked':''),points:pts(Array.from({length:33},(_,j)=>bez([a,...c,q],j/32)))}));
+    c.forEach((h,j)=>out.push(svg('circle',{class:'sim-control'+(drag?.kind==='control'&&drag.control===j?' active':''),cx:h.x,cy:h.y,r:1.8,'data-control':j,role:'button','aria-label':`Path ${i+1} curve handle ${j+1}: drag to shape the curve`})));return out;}
+  function controlHit(p){const i=openPath(),c=L().pins[i]?.path?.controls;if(!c)return null;const m=graph.getScreenCTM(),reach=Math.max(2.4,9/(m?Math.hypot(m.a,m.b):1));
+    for(let j=c.length-1;j>=0;j--)if(Math.hypot(c[j].x-p.x,c[j].y-p.y)<=reach)return {kind:'control',index:i,control:j};return null;}
+  // Handles for a new custom curve keep the shape the robot drives now: the planned curve's own control
+  // points when the path is one cubic, otherwise points a third and two thirds along the straight line.
+  function startControls(i){const l=L(),a=pathStart(i),b=l.pins[i],route=l.route;
+    if(route){const to=exporter.pathIndex(route),parts=route.segments.filter((_,k)=>to[k]===i);if(parts.length===1&&parts[0].points.length===4)return parts[0].points.slice(1,3).map(p=>({x:field.round(p.x),y:field.round(p.y)}));}
+    return [1/3,2/3].map(t=>({x:field.round(a.x+(b.x-a.x)*t),y:field.round(a.y+(b.y-a.y)*t)}));}
   // The path (by the pin it leads to) under a field point, if the route passes within reach.
   function pathHit(p,reach=1.8){const route=L().route;if(!route)return null;const matrix=graph.getScreenCTM();reach=Math.max(reach,7/(matrix?Math.hypot(matrix.a,matrix.b):1));const to=exporter.pathIndex(route);let best=null;
     route.segments.forEach((s,i)=>{const q=segmentPoints(s);for(let j=1;j<q.length;j++){const a=q[j-1],b=q[j],dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1))),d=Math.hypot(p.x-a.x-dx*t,p.y-a.y-dy*t);if(d<=reach&&(!best||d<best.d))best={d,index:to[i]};}});
@@ -713,7 +730,7 @@ public class MyAuto implements DeckAutonomous {
   function finishShape(){const points=sketch;sketch=null;cursor=null;showDraft(null);if(!points||points.length<2)return;
     if(L().zones.length>=24)return status('#sim-plan-status','Use at most 24 zones.');
     try{const z=planner.validateZone({id:'zone-'+Date.now().toString(36),type:'polygon',points});L().zones.push(z);selected={kind:'zone',id:z.id};selectTab('plan');changed('zones');}catch(e){status('#sim-plan-status',e.message);}}
-  graph.addEventListener('contextmenu',event=>{if(!active||tab!=='plan'||effects.session)return;const p=toField(event);const h=p&&(hit(p)||pathHit(p));if(!h)return;event.preventDefault();
+  graph.addEventListener('contextmenu',event=>{if(!active||tab!=='plan'||effects.session)return;const p=toField(event);const h=p&&(hit(p)||pathHit(p));if(!h)return;event.preventDefault();if(h.kind==='control')return;
     if(hold?.fired)return;clearTimeout(hold?.timer);hold=null;
     if(h.kind==='pin'||h.kind==='path'){drag=null;pendingPin=null;openEffects(h,event);return;}selected=h;removeSelected();});
   graph.addEventListener('pointermove',event=>{
@@ -728,6 +745,8 @@ public class MyAuto implements DeckAutonomous {
     if(drag?.kind==='handle'){const z=zoneById(drag.id);if(z){try{Object.assign(z,planner.validateZone({...drag.zone,...handles(drag.zone)[drag.index].set(p)}));drag.moved=true;liveEdit();zonePanel();}catch{}}return;}
     if(tool==='shape'&&sketch){cursor=p;showDraft(null);}
     if(tool==='draw'&&stroke&&pointer===event.pointerId){if(dist2(stroke.at(-1),p)>=1)stroke.push({x:p.x,y:p.y});$('#sim-draft').replaceChildren(svg('polyline',{class:'sim-draw-stroke',points:pts(stroke)}));return;}
+    if(drag?.kind==='control'){const q=L().pins[drag.index],b=geometry().bounds;if(!q?.path?.controls?.[drag.control])return;if(!drag.moved&&Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<3)return;
+      q.path.controls[drag.control]={x:field.round(Math.max(b.x0,Math.min(b.x1,p.x))),y:field.round(Math.max(b.y0,Math.min(b.y1,p.y)))};drag.moved=true;liveEdit();return;}
     if(drag?.kind==='pin'){const q=L().pins[drag.index];if(!drag.moved&&Math.hypot(event.clientX-drag.clientX,event.clientY-drag.clientY)<4)return;clearTimeout(hold?.timer);hold=null;const at=drag.from?{x:drag.pin.x+p.x-drag.from.x,y:drag.pin.y+p.y-drag.from.y}:p;Object.assign(q,nearestPin(at,12)||q);drag.moved=true;liveEdit();return;}
     $('#field-coordinates').textContent=`X ${field.round(p.x)} in · Y ${field.round(p.y)} in`;
   });
@@ -737,6 +756,7 @@ public class MyAuto implements DeckAutonomous {
     if(effects.session)return;
     graph.focus({preventScroll:true});pointer=event.pointerId;graph.setPointerCapture(event.pointerId);
     const existing=hit(p);
+    if(existing?.kind==='control'&&!sketch){drag={...existing,clientX:event.clientX,clientY:event.clientY};return;}
     if(existing&&(!sketch||tool!=='shape')){selected=existing;if(existing.kind==='handle')drag={...existing,zone:JSON.parse(JSON.stringify(zoneById(existing.id)))};else if(existing.kind==='zone')drag={...existing,downTime:performance.now(),clientX:event.clientX,clientY:event.clientY,from:p,zone:JSON.parse(JSON.stringify(zoneById(existing.id)))};else{drag={...existing,downTime:performance.now(),clientX:event.clientX,clientY:event.clientY,from:p,pin:{...L().pins[existing.index]}};holdStart(existing,event);}draw();zonePanel();pinPanel();return;}
     if(!sketch&&planner.contains(p,planner.body(preview,geometry().footprint))){startGrab={dx:preview.x-p.x,dy:preview.y-p.y};graph.dataset.dragging='true';
       // A mouse grabs the robot by its centre: the pointer is locked and drawn there until release.
@@ -761,7 +781,7 @@ public class MyAuto implements DeckAutonomous {
     if(grabbed){const clear=nearestPin(preview,72,preview.heading);if(clear&&Math.hypot(clear.x-preview.x,clear.y-preview.y)>.75)status('#start-status','Moved to the nearest clear spot outside the red area.');if(clear)preview={...preview,...clear};try{commit(preview);}catch(e){status('#start-status',e.message);preview={...start};tool='start';draw();}releaseCursor();return;}
     if(tool==='draw'&&stroke){const drawn=stroke;stroke=null;$('#sim-draft').replaceChildren();drawnPath(drawn);return;}
     if(drag?.kind==='draw'){const z=drag.zone;drag=null;showDraft(null);if(z&&(z.type==='circle'?z.radius>=.75:z.width>=1&&z.height>=1)){if(L().zones.length>=24)status('#sim-plan-status','Use at most 24 zones.');else{L().zones.push(planner.validateZone(z));selected={kind:'zone',id:z.id};selectTab('plan');changed('zones');}}return;}
-    if(drag){const moved=drag.moved,kind=drag.kind,index=drag.index,downTime=drag.downTime;drag=null;if(moved){lastPinTap=null;changed(kind==='pin'?'pins':'zones');}else if(['pin','zone'].includes(kind)&&performance.now()-downTime<500){const now=performance.now(),previous=lastPinTap;lastPinTap={kind,index,id:selected?.id,layout:L().id,time:now,x:event.clientX,y:event.clientY};if(previous&&previous.layout===L().id&&previous.kind===kind&&previous.index===index&&(kind!=='zone'||previous.id===selected?.id)&&now-previous.time<500&&Math.hypot(previous.x-event.clientX,previous.y-event.clientY)<10){lastPinTap=null;if(kind==='zone')openZoneEffects({kind:'zone',id:selected.id},event);else openEffects({kind:'pin',index},event);}}}
+    if(drag){const moved=drag.moved,kind=drag.kind,index=drag.index,downTime=drag.downTime;drag=null;if(moved){lastPinTap=null;changed(kind==='pin'||kind==='control'?'pins':'zones');}else if(['pin','zone'].includes(kind)&&performance.now()-downTime<500){const now=performance.now(),previous=lastPinTap;lastPinTap={kind,index,id:selected?.id,layout:L().id,time:now,x:event.clientX,y:event.clientY};if(previous&&previous.layout===L().id&&previous.kind===kind&&previous.index===index&&(kind!=='zone'||previous.id===selected?.id)&&now-previous.time<500&&Math.hypot(previous.x-event.clientX,previous.y-event.clientY)<10){lastPinTap=null;if(kind==='zone')openZoneEffects({kind:'zone',id:selected.id},event);else openEffects({kind:'pin',index},event);}}}
   });
   graph.addEventListener('dblclick',event=>{if(!active||tab!=='plan'||effects.session)return;if(tool==='shape'&&sketch){event.preventDefault();finishShape();return;}const p=toField(event),h=p&&(hit(p)||pathHit(p));if(h?.kind==='zone'){event.preventDefault();drag=null;openZoneEffects(h,event);return;}if(h&&['pin','path'].includes(h.kind)){event.preventDefault();drag=null;pendingPin=null;if(planningStep!=='pins')setStep('pins');choosePath(h.index);$('#path-x')?.focus({preventScroll:true});}});
   // Leave pointer lock with the system cursor on the robot's centre (where the drawn cursor was).
@@ -855,7 +875,7 @@ public class MyAuto implements DeckAutonomous {
       ${HEADING_VALUE[path.rotate]?`<label for="path-heading-value">${HEADING_VALUE[path.rotate][1]}</label><input id="path-heading-value" type="number" step="${path.rotate==='spin'?1:'any'}">`:''}
       ${path.rotate==='track'?'<div class="sim-grid2"><div><label for="path-target-x">Target X · in</label><input id="path-target-x" type="number" step="any"></div><div><label for="path-target-y">Target Y · in</label><input id="path-target-y" type="number" step="any"></div></div>':''}
       ${holonomic?'':'<p class="hint">Tank drivetrains turn in place between straight paths.</p>'}
-      <div class="sim-grid2"><div><label for="path-shape">Shape</label><select id="path-shape"><option value="">Route default</option><option value="sharp">Straight</option><option value="spline"${holonomic?'':' disabled'}>Curve</option></select></div><div><label for="path-power">Motor power · 0–1</label><input id="path-power" type="number" min="0" max="1" step="any" placeholder="Setup ${project.tuning.maxPathSpeed??.8}"></div></div>
+      <div class="sim-grid2"><div><label for="path-shape">Shape</label><select id="path-shape"><option value="">Route default</option><option value="sharp">Straight</option><option value="spline"${holonomic?'':' disabled'}>Curve</option><option value="custom"${holonomic?'':' disabled'}>Custom curve (drag handles)</option></select></div><div><label for="path-power">Motor power · 0–1</label><input id="path-power" type="number" min="0" max="1" step="any" placeholder="Setup ${project.tuning.maxPathSpeed??.8}"></div></div>
       <label for="path-drive-action">While driving</label><select id="path-drive-action"></select>
       <div class="sim-grid2"><div><label for="path-wait">Wait at end · s</label><input id="path-wait" type="number" min="0" step="any"></div><div><label for="path-end-action">Then do</label><select id="path-end-action"></select></div></div>
       <div class="sim-path-more"><button type="button" class="text-button" data-more="path">Path options…</button><button type="button" class="text-button" data-more="pin">End point options…</button></div>`;
@@ -871,7 +891,7 @@ public class MyAuto implements DeckAutonomous {
     q('#path-heading').onchange=e=>{path.rotate=e.target.value;if(path.rotate==='track'&&!path.target){const b=geometry().bounds;path.target={x:field.round((b.x0+b.x1)/2),y:field.round(b.y1-8)};}p.path=planner.pathEffects(path);changed('plan');};
     if(q('#path-heading-value')){const [key]=HEADING_VALUE[path.rotate];number(q('#path-heading-value'),v=>path[key]=key==='heading'?field.heading(v):key==='spins'?Math.round(v)||1:v);}
     if(q('#path-target-x'))for(const axis of ['x','y'])number(q('#path-target-'+axis),v=>path.target={...path.target,[axis]:v});
-    q('#path-shape').onchange=e=>{path.style=e.target.value||null;path.shapeAuto=false;p.path=planner.pathEffects(path);changed('plan');};
+    q('#path-shape').onchange=e=>{const v=e.target.value;if(v==='custom'){path.controls=startControls(i);path.style=null;}else{path.controls=null;path.style=v||null;}path.shapeAuto=false;p.path=planner.pathEffects(path);changed('plan');if(v==='custom')status('#sim-plan-status',`${name} is a custom curve: drag its two handles on the field to shape it.`);};
     number(q('#path-power'),v=>path.power=v,0,1,true);number(q('#path-wait'),v=>p.wait=v,0);
     actionOptions(q('#path-drive-action'),path.action,'Just drive');actionOptions(q('#path-end-action'),p.action,'Nothing');
     q('#path-drive-action').onchange=e=>{if(e.target.value==='__other'){e.target.value=path.action||'';return openEffects({kind:'path',index:i},at(e));}
@@ -888,7 +908,7 @@ public class MyAuto implements DeckAutonomous {
     for(const row of list.querySelectorAll('.sim-path-row')){const i=Number(row.dataset.path),p=l.pins[i];if(!p)continue;
       row.querySelector('[data-at]').textContent=`→ ${xy(p)}`;row.querySelector('.sim-path-swatch').style.background=planner.pathAppearance(p.path,power).color;row.querySelector('.sim-pin-summary').textContent=effectSummary(p);
       if(!row.classList.contains('selected'))continue;const path=planner.pathEffects(p.path),q=s=>row.querySelector(s);
-      set(q('#path-x'),field.round(p.x));set(q('#path-y'),field.round(p.y));set(q('#path-heading'),path.rotate);set(q('#path-shape'),path.style||'');set(q('#path-power'),path.power??'');set(q('#path-wait'),p.wait||0);
+      set(q('#path-x'),field.round(p.x));set(q('#path-y'),field.round(p.y));set(q('#path-heading'),path.rotate);set(q('#path-shape'),path.controls?'custom':path.style||'');set(q('#path-power'),path.power??'');set(q('#path-wait'),p.wait||0);
       if(HEADING_VALUE[path.rotate])set(q('#path-heading-value'),path[HEADING_VALUE[path.rotate][0]]);if(path.target){set(q('#path-target-x'),path.target.x);set(q('#path-target-y'),path.target.y);}}
   }
 

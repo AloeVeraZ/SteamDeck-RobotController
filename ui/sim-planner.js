@@ -183,9 +183,12 @@
   const text=(s,n)=>typeof s==='string'?s.slice(0,n):'';
   const targetOf=t=>t&&finite(t.x)&&finite(t.y)?{x:t.x,y:t.y}:null;
   const bearing=(p,t)=>Math.atan2(t.y-p.y,t.x-p.x)*180/Math.PI;
+  // A custom curve: 1-3 Bezier control points between the path's start and its end point, placed by the
+  // user like Pedro Pathing's visualizer. The robot drives exactly this curve (it is checked, never moved).
+  const controlsOf=c=>{if(!Array.isArray(c))return null;const out=c.filter(q=>q&&finite(q.x)&&finite(q.y)).slice(0,3).map(q=>({x:Math.round(q.x*1000)/1000,y:Math.round(q.y*1000)/1000}));return out.length?out:null;};
   function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin','relative','start','track'].includes(r.rotate)?r.rotate:'keep';
     // actionSeconds: how long an action path's action runs from the start of the path (null: the whole path).
-    return {kind:r.kind==='action'?'action':'regular',cell:r.cell==='other'?'other':'start',action:text(r.action,40),actionSeconds:finite(r.actionSeconds)&&r.actionSeconds>0?Math.min(30,r.actionSeconds):null,note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
+    return {controls:controlsOf(r.controls),kind:r.kind==='action'?'action':'regular',cell:r.cell==='other'?'other':'start',action:text(r.action,40),actionSeconds:finite(r.actionSeconds)&&r.actionSeconds>0?Math.min(30,r.actionSeconds):null,note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
   // At a pin the robot pauses for `wait`, then runs `action` for actionSeconds (null: until it finishes),
   // then drives on. Older routes ran an intake for the pin's pause: that becomes the intake's own time.
   function pinEffects(p){
@@ -198,11 +201,11 @@
   function pathDescription(raw,power=.8){const p=pathEffects(raw),bits=[`${Math.round((p.power??power)*100)}% motor power${p.power===null?' (setup)':''}`];
     if(p.kind==='action')bits.push(`${p.action||'Action'} while driving${finite(p.actionSeconds)?` for the first ${p.actionSeconds} s`:''}`);
     bits.push(p.rotate==='relative'?`Turn by ${p.angle>=0?'+':''}${p.angle}°`:p.rotate==='turn'?`Face field heading ${p.heading}°`:p.rotate==='spin'?`Spin ${Math.abs(p.spins)} ${p.spins<0?'clockwise':'counterclockwise'}`:p.rotate==='start'?'Return to starting heading':p.rotate==='track'?`Track target ${p.target?`(${p.target.x}, ${p.target.y}) in`:'not selected'}`:'Hold inherited heading');
-    if(p.style)bits.push(p.style==='spline'?'Smooth spline':'Straight segments');if(p.note)bits.push(p.note);return bits;}
+    if(p.controls)bits.push(`Custom curve (${p.controls.length} handle${p.controls.length>1?'s':''})`);else if(p.style)bits.push(p.style==='spline'?'Smooth spline':'Straight segments');if(p.note)bits.push(p.note);return bits;}
   function pathAppearance(raw,power=.8){const p=pathEffects(raw),key=p.rotate==='track'?'track':p.rotate!=='keep'?'rotation':p.power!==null?'power':p.kind==='action'?'action':'normal';return {key,color:{track:'#49cbb3',rotation:'#b79bff',power:'#f2bc62',action:'#63c5ff',normal:'#aeb8c5'}[key],action:p.kind==='action',power:p.power??power};}
   const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,actionSeconds:p.actionSeconds,cell:p.cell,note:p.note,turn:p.turn,path:p.path});
   const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||['relative','start','track'].includes(path.rotate)||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
-  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&['turn','spin','relative','start','track'].includes(p?.path?.rotate));
+  const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&(['turn','spin','relative','start','track'].includes(p?.path?.rotate)||controlsOf(p?.path?.controls)));
   // Each segment records which pin it leads to, so paths can be told apart (action or regular).
   function annotate(route){const stops=route.stops||[];let k=0;route.segments.forEach((s,i)=>{while(k<stops.length-1&&stops[k].segment<i)k++;s.to=k;});return route;}
   // Inspect every endpoint even when another pin (or the start) prevents planning. Path checks
@@ -233,7 +236,7 @@
   // Exhaustive for up to four unlocked paths; bounded alternatives for longer routes.
   // Manually assigned shapes stay fixed. Optimizer assignments remain eligible next time.
   function shapeCandidates(project,seed){
-    const free=project.pins.map((p,i)=>!p.path?.style||p.path.shapeAuto?i:-1).filter(i=>i>=0),base=project.pins.map(p=>p.path?.style||(['sharp','spline'].includes(project.style)?project.style:'sharp'));
+    const free=project.pins.map((p,i)=>(!p.path?.style||p.path.shapeAuto)&&!controlsOf(p.path?.controls)?i:-1).filter(i=>i>=0),base=project.pins.map(p=>p.path?.style||(['sharp','spline'].includes(project.style)?project.style:'sharp'));
     const out=[],seen=new Set(),add=styles=>{const key=styles.join(',');if(seen.has(key))return;seen.add(key);const pins=project.pins.map((p,i)=>({...p,path:{...pathEffects(p.path),style:styles[i],shapeAuto:free.includes(i)}}));out.push({styles,project:{...project,pins},label:styles.every(s=>s===styles[0])?(styles[0]==='sharp'?'All straight':'All splines'):`Mixed · ${styles.filter(s=>s==='sharp').length} straight / ${styles.filter(s=>s==='spline').length} spline`});};
     if(seed){add([...seed]);for(const i of free){const next=[...seed];next[i]=next[i]==='sharp'?'spline':'sharp';add(next);}return out;}
     if(free.length<=4){for(let mask=0;mask<2**free.length;mask++){const styles=[...base];free.forEach((i,j)=>styles[i]=mask&(1<<j)?'spline':'sharp');add(styles);}}
@@ -277,7 +280,7 @@
     const flush=()=>{const now=chunk;chunk=[];if(!now.length||now.every(p=>dist(p,at)<.01))return;
       let r;try{r=planBasic({...project,rotate:tank?project.rotate:false,start:at,pins:now.map(plain)},footprint,fieldZones,field);}catch(e){throw renumber(e,base);}add(r,at.heading);};
     pins.forEach((p,i)=>{
-      if(!tank&&(mixed||rotates(p.path,at.heading))){flush();
+      if(!tank&&(mixed||rotates(p.path,at.heading)||p.path.controls)){flush();
         const radius=reach(footprint)+.05,square={front:radius,rear:radius,half:radius},spin=p.path.rotate==='spin';
         // Try the actual heading interpolation first. A full rotation envelope at the start
         // incorrectly rejects a robot that safely drives away from a wall as it turns.
@@ -293,9 +296,12 @@
               if(tracking){const dx=pose.x-prev.x,dy=pose.y-prev.y,t=Math.max(0,Math.min(1,((s.target.x-prev.x)*dx+(s.target.y-prev.y)*dy)/(dx*dx+dy*dy||1)));if(dist({x:prev.x+t*dx,y:prev.y+t*dy},s.target)<.25)throw Error('Target lies on the driving path. Move the target away from the route.');}
               if(!safeSweep(prev,pose,all,footprint,field)||all.some(z=>zoneHits(body(pose,padded),z)))throw Error('Turning sweep blocked.');prev=pose;}}
           return r;};
-        const attempt=fp=>{const baseRoute=planBasic({...project,style:styleOf(p),start:{...at,heading:h0},pins:[plain(p)],rotate:false},fp,fieldZones,field);try{return check(rotateRoute(shaped(baseRoute,i)));}catch{return check(rotateRoute(baseRoute));}};
+        // A custom curve is driven as drawn: it is only checked, never re-routed.
+        const custom=p.path.controls?(()=>{const points=[{x:at.x,y:at.y},...p.path.controls.map(c=>({x:c.x,y:c.y})),{x:p.x,y:p.y}],samples=Array.from({length:65},(_,j)=>bezier(points,j/64));return {segments:[{type:'curve',points,custom:true}],samples,length:samples.slice(1).reduce((n,q,j)=>n+dist(q,samples[j]),0)};})():null;
+        const attempt=fp=>{if(custom)return check(rotateRoute(custom));const baseRoute=planBasic({...project,style:styleOf(p),start:{...at,heading:h0},pins:[plain(p)],rotate:false},fp,fieldZones,field);try{return check(rotateRoute(shaped(baseRoute,i)));}catch{return check(rotateRoute(baseRoute));}};
         let r;try{r=attempt(footprint);
-        }catch(first){try{r=attempt(square);}
+        }catch(first){if(custom)throw Error(/Target lies/.test(first.message)?`Path to pin ${i+1}: target lies on the driving path. Move the target away from the route.`:`Path to pin ${i+1}: the custom curve takes the robot into a wall, obstacle or the field edge. Drag its handles into open space, or set the path's shape back to automatic.`);
+          try{r=attempt(square);}
         catch(last){if(/Target lies/.test(first.message)||/Target lies/.test(last.message))throw Error(`Path to pin ${i+1}: target lies on the driving path. Move the target away from the route.`);throw Error(`The path to pin ${i+1} has no room to ${spin?'spin':'turn'} while driving: the turning robot needs ${(2*radius).toFixed(0)} in of clear width. Move pin ${i+1} or the path's start away from obstacles and walls, or turn at a pin instead.`);}
         }
         add({...r,turnDegrees:Math.abs(h1-h0)},h0);

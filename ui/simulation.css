@@ -277,3 +277,9 @@
 .sim-checklist li[data-status=verified]::before{background:var(--connected);border-color:var(--connected)}
 .sim-checklist li[data-status=physical]::before,.sim-checklist li[data-status=calibration]::before{border-color:var(--warning)}
 .sim-checklist strong{color:var(--text);font-weight:600}
+/* Custom curve handles (Pedro Pathing style): dashed guides from the path's ends to its control points. */
+.sim-control{fill:var(--bg);stroke:var(--accent);stroke-width:.7;cursor:grab}
+.sim-control:hover,.sim-control.active{fill:var(--accent);cursor:grabbing}
+.sim-control-guide{fill:none;stroke:var(--accent);stroke-width:.35;stroke-dasharray:1.2 1;opacity:.85;pointer-events:none}
+.sim-path.draft{stroke-dasharray:2 1.4;opacity:.7;pointer-events:none}
+.sim-path.draft.blocked{stroke:var(--danger);opacity:.9}
