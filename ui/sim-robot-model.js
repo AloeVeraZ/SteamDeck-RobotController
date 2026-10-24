@@ -28,9 +28,15 @@
     if(target==='top'||target==='bottom')return {front:perpendicular(cur.front),top:axisName(wanted)};
     const top=perpendicular(cur.top);return {front:axisName(cross(wanted,AXES[top])),top};
   }
+  // Quarter turns counterclockwise (seen from above) that carry the model, in the robot frame, from orientation a
+  // to orientation b; null when the top changed too (then its sides do not simply turn).
+  function turnBetween(a,b){const [Fa,,Ta]=rows(a),[Fb,Lb,Tb]=rows(b);if(dot(Ta,Tb)<.5)return null;
+    return ((Math.round(Math.atan2(dot(Lb,Fa),dot(Fb,Fa))/(Math.PI/2))%4)+4)%4;}
   function meta(raw){
     if(!raw||typeof raw.id!=='string'||!/^[0-9a-f]{32}\.glb$/.test(raw.id))return null;
-    return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:raw.source==='step'?'step':'mesh'};
+    const parts=Array.isArray(raw.parts)?raw.parts.slice(0,64).filter(p=>p&&Array.isArray(p.box)&&p.box.length===6&&p.box.every(Number.isFinite)).map(p=>({name:String(p.name||'').slice(0,80),role:['chassis','intake','shooter','indexer'].includes(p.role)?p.role:'other',
+      ...(['pollen','nectar','both'].includes(p.pieces)?{pieces:p.pieces}:{}),...(['turret','fixed'].includes(p.type)?{type:p.type}:{}),...(['sweeper','siderollers','ramp'].includes(p.kind)?{kind:p.kind}:{}),...(typeof p.key==='string'?{key:p.key.slice(0,400)}:{}),...(p.chosen===true?{chosen:true}:{}),box:p.box.slice()})):[];
+    return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:raw.source==='step'?'step':'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
   }
   let THREE=null;
   function three(){if(!THREE){THREE=globalThis.DeckThree;if(!THREE)throw Error('3D library not loaded.');}return THREE;}
@@ -38,6 +44,8 @@
   function geometryFromArrays(m){
     const {THREE:T}=three(),g=new T.BufferGeometry(),colors=new Float32Array(m.colors.length);for(let i=0;i<colors.length;i++)colors[i]=m.colors[i]/255;
     g.setAttribute('position',new T.BufferAttribute(m.positions,3));g.setAttribute('color',new T.BufferAttribute(colors,3));g.setIndex(new T.BufferAttribute(m.index,1));
+    // Which part each vertex belongs to, and the assembly tree, so the team can click a part and say what it is.
+    if(m.part?.length===m.positions.length/3&&m.tree?.nodes)g.setAttribute('_part',new T.BufferAttribute(m.part,1));if(m.tree?.nodes)g.userData.parts=m.tree;
     if(m.normals&&m.normals.some(v=>v!==0))g.setAttribute('normal',new T.BufferAttribute(m.normals,3));else g.computeVertexNormals();return g;
   }
   async function parseMesh(format,bytes){
@@ -49,17 +57,19 @@
   }
   // Every mesh in the file, in its placed position, with its colour baked per vertex, merged.
   function mergeObject(object){
-    const L=three(),T=L.THREE,parts=[];object.updateMatrixWorld(true);
+    const L=three(),T=L.THREE,parts=[],nodes=[],leaf=[],keys=new Map();object.updateMatrixWorld(true);
+    const nodeOf=o=>{if(!o||o===object)return -1;const parent=nodeOf(o.parent);if(!o.name)return parent;const k=parent+'/'+o.name;let i=keys.get(k);if(i===undefined){i=nodes.length;keys.set(k,i);nodes.push({name:o.name.slice(0,80),parent});}return i;};
     object.traverse(o=>{if(!o.isMesh||!o.geometry?.attributes.position)return;
       let g=o.geometry.clone();g.applyMatrix4(o.matrixWorld);if(g.index)g=g.toNonIndexed();
       const count=g.attributes.position.count,color=new Float32Array(count*3),src=g.attributes.color,mat=[].concat(o.material)[0],base=mat?.color||new T.Color(.62,.65,.7);
       for(let i=0;i<count;i++){color[i*3]=src?src.getX(i):base.r;color[i*3+1]=src?src.getY(i):base.g;color[i*3+2]=src?src.getZ(i):base.b;}
-      const clean=new T.BufferGeometry();clean.setAttribute('position',g.attributes.position);clean.setAttribute('color',new T.BufferAttribute(color,3));parts.push(clean);});
+      const clean=new T.BufferGeometry();clean.setAttribute('position',g.attributes.position);clean.setAttribute('color',new T.BufferAttribute(color,3));
+      let at=nodeOf(o);if(at<0){at=nodes.length;nodes.push({name:'Part '+(leaf.length+1),parent:-1});}clean.setAttribute('_part',new T.BufferAttribute(new Float32Array(count).fill(leaf.length),1));leaf.push(at);parts.push(clean);});
     if(!parts.length)throw Error('That file has no 3D geometry.');
-    const merged=L.mergeGeometries(parts,false);merged.computeVertexNormals();return merged;
+    const merged=L.mergeGeometries(parts,false);merged.computeVertexNormals();merged.userData.parts={nodes,leaf};return merged;
   }
   async function bodyFromImport(result){
-    if(result.kind==='step')return {geometry:geometryFromArrays(result),parts:result.parts,units:'in',source:'step'};
+    if(result.kind==='step')return {geometry:geometryFromArrays(result),parts:result.parts,units:'in',source:'step',groups:Array.isArray(result.groups)?result.groups:[]};
     const object=await parseMesh(result.format,result.bytes);let parts=0;object.traverse(o=>{if(o.isMesh)parts++;});
     return {geometry:mergeObject(object),parts,units:result.format==='stl'?'mm':result.format==='obj'?'mm':'m',source:'mesh'};
   }
@@ -69,7 +79,45 @@
     return new Promise((resolve,reject)=>new L.GLTFExporter().parse(mesh,buffer=>resolve(new Uint8Array(buffer)),e=>reject(Error('Could not store the model: '+(e?.message||e))),{binary:true}));
   }
   async function fromGlb(bytes){const scene=await parseMesh('glb',bytes);let geometry=null;scene.traverse(o=>{if(o.isMesh&&!geometry)geometry=o.geometry;});if(!geometry)throw Error('Stored model is empty.');return geometry;}
-  // The body in the robot frame: scaled to inches, oriented, bottom on the floor, centred on the footprint.
+  // ---- parts: what the team clicks ---------------------------------------------------------
+  // The assembly tree of a stored body: each node's key (names from the top, joined by "/"), children and parts.
+  function partTree(geometry){
+    const t=geometry?.userData?.parts,attr=geometry?.attributes?._part;if(!t?.nodes?.length||!attr)return null;
+    const nodes=t.nodes.map((n,i)=>({index:i,name:n.name,parent:n.parent,children:[],meshes:[]}));
+    for(const n of nodes){n.key=n.parent>=0?null:n.name;if(n.parent>=0)nodes[n.parent]?.children.push(n);}
+    const keyOf=n=>n.key??=(keyOf(nodes[n.parent])+'/'+n.name);for(const n of nodes)keyOf(n);
+    (t.leaf||[]).forEach((at,mesh)=>nodes[at]?.meshes.push(mesh));
+    // The top: the first level that splits the robot into several assemblies.
+    let top=nodes.filter(n=>n.parent<0);while(top.length===1&&top[0].children.length&&!top[0].meshes.length)top=top[0].children;
+    const under=n=>{const out=new Set(n.meshes);for(const c of n.children)for(const m of under(c))out.add(m);return out;};
+    return {nodes,top,under,byKey:new Map(nodes.map(n=>[n.key,n])),
+      // The node a part (mesh) sits in at the level below `inside` (or at the top), for click-to-select then click-to-go-in.
+      at(mesh,inside=null){let n=nodes[t.leaf[mesh]];if(!n)return null;const chain=[];for(let x=n;x;x=x.parent>=0?nodes[x.parent]:null)chain.unshift(x);
+        const i=inside?chain.indexOf(inside):-1,start=i>=0?i:chain.findIndex(x=>top.includes(x))-1;return chain[start+1]||chain.at(-1);}};
+  }
+  // The box of some parts (in the model file's frame and units), as [x0,y0,z0,x1,y1,z1].
+  function meshesBox(geometry,meshes){
+    const p=geometry.attributes.position,a=geometry.attributes._part,lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(let i=0;i<p.count;i++){if(!meshes.has(a.getX(i)))continue;const v=[p.getX(i),p.getY(i),p.getZ(i)];for(let k=0;k<3;k++){if(v[k]<lo[k])lo[k]=v[k];if(v[k]>hi[k])hi[k]=v[k];}}
+    return lo.every(Number.isFinite)?[...lo,...hi].map(v=>+v.toFixed(3)):null;
+  }
+  // The named CAD parts as boxes in the robot frame (inches: x forward and y left from the chassis center, or
+  // the whole model's when there is no chassis part; z up from the model's bottom).
+  function partBoxes(m){
+    if(!Array.isArray(m?.parts)||!m.parts.length)return null;
+    const [F,L,T]=rows(m),s=UNITS[m.units]||1,to=p=>[dot(F,p)*s,dot(L,p)*s,dot(T,p)*s];
+    const boxes=m.parts.map(p=>{const c=[];for(const x of [p.box[0],p.box[3]])for(const y of [p.box[1],p.box[4]])for(const z of [p.box[2],p.box[5]])c.push(to([x,y,z]));
+      return {...p,lo:[0,1,2].map(i=>Math.min(...c.map(v=>v[i]))),hi:[0,1,2].map(i=>Math.max(...c.map(v=>v[i])))};});
+    const union=list=>({lo:[0,1,2].map(i=>Math.min(...list.map(b=>b.lo[i]))),hi:[0,1,2].map(i=>Math.max(...list.map(b=>b.hi[i])))}),{lo,hi}=union(boxes),body=boxes.filter(b=>b.role!=='intake');
+    // No assembly named Chassis: in CAD imported since setups gained chassis hitboxes (bodyChassis), the chassis is
+    // every part except the intakes, so an intake that sticks out stays outside the robot's size and hitbox.
+    const chassis=boxes.find(b=>b.role==='chassis')||(m.bodyChassis&&body.length&&body.length<boxes.length?{name:'All parts except the intakes',derived:true,...union(body)}:null),ref=chassis||{lo,hi};
+    const cx=(ref.lo[0]+ref.hi[0])/2,cy=(ref.lo[1]+ref.hi[1])/2,floor=lo[2];
+    return {chassis:chassis?{x:cx,y:cy,length:chassis.hi[0]-chassis.lo[0],width:chassis.hi[1]-chassis.lo[1],...(chassis.derived?{name:chassis.name,derived:true}:{})}:null,extent:{length:hi[0]-lo[0],width:hi[1]-lo[1]},
+      parts:boxes.map(({lo:a,hi:b,box:_,...p})=>({...p,box:{x0:a[0]-cx,x1:b[0]-cx,y0:a[1]-cy,y1:b[1]-cy,z0:a[2]-floor,z1:b[2]-floor}}))};
+  }
+  // The body in the robot frame: scaled to inches, oriented, bottom on the floor, centred on the footprint
+  // (on its chassis part when the CAD names one, so intakes that stick out stay where they are).
   function place(geometry,m,footprint){
     const {THREE:T}=three(),[F,L,Up]=rows(m),s=UNITS[m.units]||1,rot=new T.Matrix4().set(F[0],F[1],F[2],0,L[0],L[1],L[2],0,Up[0],Up[1],Up[2],0,0,0,0,1);
     const mesh=geometry.isObject3D?geometry.clone(true):new T.Mesh(geometry,material()),inner=new T.Group(),holder=new T.Group();
@@ -77,9 +125,10 @@
     // Measure after the scale and rotation reach the world matrices.
     holder.updateMatrixWorld(true);
     const box=new T.Box3().setFromObject(holder),c=box.getCenter(new T.Vector3()),f=footprint||{front:9,rear:9,half:9};
-    const size=box.getSize(new T.Vector3()),sx=2*f.rear/Math.max(size.x,.001),sy=2*f.half/Math.max(size.y,.001);
-    inner.scale.set(sx,sy,1);inner.position.set(-c.x*sx,-c.y*sy,-box.min.z);holder.updateMatrixWorld(true);
-    holder.userData.modelScale={x:sx,y:sy,F,L,c:{x:c.x,y:c.y}};holder.userData.nativeSize={length:size.x,width:size.y,height:size.z};holder.userData.size={length:2*f.rear,width:2*f.half,height:size.z};return holder;
+    const size=box.getSize(new T.Vector3()),chassis=partBoxes(m)?.chassis,fit=chassis||{x:c.x,y:c.y,length:size.x,width:size.y};
+    const sx=2*f.rear/Math.max(fit.length,.001),sy=2*f.half/Math.max(fit.width,.001);
+    inner.scale.set(sx,sy,1);inner.position.set(-fit.x*sx,-fit.y*sy,-box.min.z);holder.updateMatrixWorld(true);
+    holder.userData.modelScale={x:sx,y:sy,F,L,c:{x:fit.x,y:fit.y}};holder.userData.nativeSize={length:size.x,width:size.y,height:size.z};holder.userData.size={length:2*f.rear,width:2*f.half,height:size.z};return holder;
   }
   async function builtin(bytes,meta){
     const {THREE:T}=three(),scene=await parseMesh('glb',bytes),wheels=[],podParts=[];scene.traverse(o=>{if(o.userData.deckWheel)wheels.push(o);if(o.userData.deckSteerBody)podParts.push(o);if(o.isMesh){o.castShadow=true;o.receiveShadow=true;o.material.roughness=.52;o.material.metalness=.28;}});
@@ -103,7 +152,8 @@
   }
   // Top-down picture of the placed body for the 2D field, with its extent in robot inches.
   function silhouette(holder){
-    const {THREE:T}=three(),box=new T.Box3().setFromObject(holder),ppi=10,w=Math.max(8,Math.min(2048,Math.round((box.max.x-box.min.x)*ppi))),h=Math.max(8,Math.min(2048,Math.round((box.max.y-box.min.y)*ppi)));
+    // A top-down render of the model (the 2D field shows it in place of the plain robot shape).
+    const {THREE:T}=three(),box=new T.Box3().setFromObject(holder),ppi=16,w=Math.max(8,Math.min(2048,Math.round((box.max.x-box.min.x)*ppi))),h=Math.max(8,Math.min(2048,Math.round((box.max.y-box.min.y)*ppi)));
     const renderer=new T.WebGLRenderer({alpha:true,antialias:true,preserveDrawingBuffer:true});renderer.setSize(w,h,false);renderer.setClearColor(0,0);
     const scene=new T.Scene(),camera=new T.OrthographicCamera(box.min.x,box.max.x,box.max.y,box.min.y,.1,1000);camera.up.set(0,1,0);camera.position.set(0,0,box.max.z+50);camera.lookAt(0,0,0);
     scene.add(new T.HemisphereLight(0xffffff,0x555555,2.4),holder.clone());const sun=new T.DirectionalLight(0xffffff,1.2);sun.position.set(30,-30,100);scene.add(sun);
@@ -205,7 +255,33 @@
       controls.minDistance=radius*1.2;controls.maxDistance=radius*7;
       if(bodyKey!==holder?.uuid||!update.looked||Math.abs(radius-oldRadius)>radius*.2){bodyKey=holder?.uuid;update.looked=true;for(const face of cubeHost.querySelectorAll('.cube-part'))face.classList.remove('selected');look(null);}draw();
     }
-    return {update,look,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
+    // Picking a point on the model (a click that did not orbit), in the robot frame (inches; x forward,
+    // y left, z up), and coloured markers for placed parts.
+    let picker=null,down=null;const ray=new T.Raycaster(),markerGroup=new T.Group();scene.add(markerGroup);
+    renderer.domElement.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};});
+    renderer.domElement.addEventListener('pointerup',e=>{
+      if(!picker||!down||!body||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)return;const r=renderer.domElement.getBoundingClientRect();
+      ray.setFromCamera(new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObject(body,true)[0],ids=hit?.object.geometry?.attributes._part;
+      picker(hit?{x:hit.point.x,y:hit.point.y,z:hit.point.z,part:ids&&hit.face?ids.getX(hit.face.a):null}:null);});
+    function pick(fn){picker=fn||null;box.classList.toggle('picking',!!picker);}
+    let glow=null,glowKey=null;
+    function highlight(meshes,color=0xffb224){
+      const mesh=[];body?.traverse(o=>{if(o.isMesh&&o.geometry.attributes._part)mesh.push(o);});const target=mesh[0],key=target&&meshes?.size?target.uuid+':'+[...meshes].join(','):null;
+      if(key===glowKey)return;glowKey=key;if(glow){glow.parent?.remove(glow);glow.geometry.dispose();glow.material.dispose();glow=null;}
+      if(!key){draw();return;}
+      const g=target.geometry,ids=g.attributes._part,src=g.index,out=[];for(let t=0;t<src.count;t+=3)if(meshes.has(ids.getX(src.getX(t))))out.push(src.getX(t),src.getX(t+1),src.getX(t+2));
+      const geometry=new T.BufferGeometry();geometry.setAttribute('position',g.attributes.position);geometry.setIndex(out);
+      glow=new T.Mesh(geometry,new T.MeshBasicMaterial({color,transparent:true,opacity:.55,depthTest:true,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));glow.renderOrder=5;target.add(glow);draw();
+    }
+    function markers(list=[]){
+      for(const child of [...markerGroup.children]){markerGroup.remove(child);child.geometry.dispose();child.material.dispose();}
+      // A marker is a dot, or a see-through box when it has a size (an intake's hitbox).
+      for(const m of list){const shape=m.size?new T.BoxGeometry(...m.size):new T.SphereGeometry(m.radius||1.1,20,14),mark=new T.Mesh(shape,new T.MeshBasicMaterial({color:m.color||0xffffff,depthTest:!m.size?false:true,transparent:true,opacity:m.size?.35:.9}));
+        mark.position.set(m.x,m.y,m.z);mark.renderOrder=10;markerGroup.add(mark);
+        if(m.size){const edges=new T.LineSegments(new T.EdgesGeometry(shape),new T.LineBasicMaterial({color:m.color||0xffffff}));edges.position.copy(mark.position);edges.renderOrder=11;markerGroup.add(edges);}}
+      draw();
+    }
+    return {update(...a){glowKey=null;glow=null;return update(...a);},look,pick,highlight,markers,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
   }
-  return {AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate};
+  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate};
 });

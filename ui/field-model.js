@@ -28,8 +28,17 @@
   }
   // Against the left wall, centred vertically.
   function edgePose(angle=0,geometry={}){const b=geometry.bounds||FIELD,a=heading(angle),[x0]=extents(a,geometry.footprint);return {x:round(b.x0-x0+1e-9),y:(b.y0+b.y1)/2,heading:a};}
+  // Turn in place, keeping any wall the robot was against (within `reach` inches) flush with it, so a
+  // robot parked on the perimeter pivots along the wall instead of crossing it or leaving a gap.
+  function turn(pose,angle,geometry={},reach=1.5){
+    const b=geometry.bounds||FIELD,a=heading(angle),[p0,p1,q0,q1]=extents(pose.heading,geometry.footprint),[x0,x1,y0,y1]=extents(a,geometry.footprint);
+    let {x,y}=pose;
+    if(pose.x+p0-b.x0<=reach)x=b.x0-x0;else if(b.x1-pose.x-p1<=reach)x=b.x1-x1;
+    if(pose.y+q0-b.y0<=reach)y=b.y0-y0;else if(b.y1-pose.y-q1<=reach)y=b.y1-y1;
+    return constrain({x:round(x),y:round(y),heading:a},geometry);
+  }
   function fromGraph(x,y,angle=0,geometry={}){return constrain({x:round(x),y:round(SIZE-y),heading:angle},geometry);}
   function restore(raw,geometry){try{const data=JSON.parse(raw);if(data?.version!==1)return null;return validate(data.start,geometry);}catch{return null;}}
   function serialize(pose,geometry){return JSON.stringify({version:1,start:validate(pose,geometry)});}
-  return {SIZE,FOOTPRINT,KEY,round,heading,inset,extents,constrain,validate,edgePose,fromGraph,restore,serialize};
+  return {SIZE,FOOTPRINT,KEY,round,heading,inset,extents,constrain,validate,edgePose,turn,fromGraph,restore,serialize};
 });

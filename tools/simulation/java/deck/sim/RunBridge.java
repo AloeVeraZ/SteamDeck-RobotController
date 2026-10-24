@@ -192,6 +192,8 @@ public final class RunBridge {
                 // face first, a turn in place at the pin, the pin's pause and action, and action paths.
                 List<Double> legHeadings = new ArrayList<>(), turnAfter = new ArrayList<>();
                 List<String> moving = new ArrayList<>();
+                List<Double> actionTimes = new ArrayList<>(), movingTimes = new ArrayList<>();
+                List<Integer> paths = new ArrayList<>();
                 for (JsonElement e : r.getAsJsonArray("legs")) {
                     JsonObject l = e.getAsJsonObject();
                     int last = Math.min(l.get("last").getAsInt(), parts.size() - 1);
@@ -203,10 +205,13 @@ public final class RunBridge {
                     moving.add(l.get("moving").getAsString());
                     legHeadings.add(l.has("heading") ? Math.toRadians(num(l, "heading")) : partHeadings.get(from));
                     turnAfter.add(l.has("turn") && !l.get("turn").isJsonNull() ? Math.toRadians(num(l, "turn")) : Double.NaN);
+                    actionTimes.add(l.has("actionSeconds") && !l.get("actionSeconds").isJsonNull() ? num(l, "actionSeconds") : Double.NaN);
+                    movingTimes.add(l.has("movingSeconds") && !l.get("movingSeconds").isJsonNull() ? num(l, "movingSeconds") : Double.NaN);
+                    paths.add(l.has("path") ? l.get("path").getAsInt() : legs.size());
                     from = last + 1;
                 }
                 for (JsonElement e : stops) pins.add(new Pose(num(e.getAsJsonObject(), "x"), num(e.getAsJsonObject(), "y"), heading));
-                details = new Object[] { legHeadings, turnAfter, moving };
+                details = new Object[] { legHeadings, turnAfter, moving, actionTimes, movingTimes, paths };
                 stops = new JsonArray();
             } else if (turning) {
                 // A turning leg also ends wherever the next segment needs a different heading.
@@ -244,7 +249,7 @@ public final class RunBridge {
         localizer.setPose(startPose);
         robot = new SimRobot(follower, drivetrain, config, startPose, route, pins, legs, waits, actions);
         robot.legPowers(powers);
-        if (details != null) robot.legDetails((List<Double>) details[0], (List<Double>) details[1], (List<String>) details[2]);
+        if (details != null) robot.legDetails((List<Double>) details[0], (List<Double>) details[1], (List<String>) details[2], (List<Double>) details[3], (List<Double>) details[4], (List<Integer>) details[5]);
         JsonObject programSpec = m.getAsJsonObject("program");
         String kindName = programSpec.get("kind").getAsString();
         if ("route".equals(kindName)) program = new RouteAutonomous(turning);
@@ -268,6 +273,9 @@ public final class RunBridge {
         SimClock.setSeconds(t);
         if (started < 0) started = t;
         robot.time(t - started);
+        JsonObject mech = m.has("mech") && m.get("mech").isJsonObject() ? m.getAsJsonObject("mech") : null;
+        robot.mechanismBusy = mech != null && mech.has("busy") && mech.get("busy").getAsBoolean();
+        robot.actingName = "";
         JsonObject odo = m.has("odo") && m.get("odo").isJsonObject() ? m.getAsJsonObject("odo") : null;
         localizer.ingest(odo == null ? 0 : num(odo, "dx"), odo == null ? 0 : num(odo, "dy"), num(m, "imu"), num(m, "dt"));
         if (!done) {
@@ -315,6 +323,13 @@ public final class RunBridge {
         robot.telemetry.forEach(telemetry::addProperty);
         cmd.add("telemetry", telemetry);
         cmd.addProperty("done", done);
+        if (!robot.actingName.isEmpty()) {
+            JsonObject act = new JsonObject();
+            act.addProperty("name", robot.actingName);
+            act.addProperty("leg", robot.actingLeg);
+            act.addProperty("moving", robot.actingMoving);
+            cmd.add("act", act);
+        }
         if (robot.waitingStop >= 0) {
             JsonObject wait = new JsonObject();
             wait.addProperty("stop", robot.waitingStop);
@@ -342,6 +357,7 @@ public final class RunBridge {
     private JsonObject tickHub(JsonObject m) throws Exception {
         SimClock.setSeconds(num(m, "t"));
         JsonObject odo = m.has("odo") && m.get("odo").isJsonObject() ? m.getAsJsonObject("odo") : null;
+        hub.mechanismState(m.has("mech") && m.get("mech").isJsonObject() ? m.getAsJsonObject("mech") : null);
         if (!hub.done()) {
             try {
                 hub.tick(odo == null ? 0 : num(odo, "dx"), odo == null ? 0 : num(odo, "dy"), num(m, "imu"), num(m, "dt"));
@@ -360,6 +376,7 @@ public final class RunBridge {
         cmd.add("drive", d);
         hub.telemetry().forEach(telemetry::addProperty);
         cmd.add("telemetry", telemetry);
+        cmd.add("mech", hub.mechanismOutputs());
         cmd.addProperty("done", hub.done());
         return cmd;
     }

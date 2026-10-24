@@ -14,12 +14,14 @@ import java.util.ArrayDeque;
  * straightens up and resumes the leg.
  */
 public final class RouteAutonomous implements DeckAutonomous {
-    private int leg;
-    private double arrived = -1, pathEnded = -1;
+    private int leg, movingPath;
+    private double arrived = -1, pathEnded = -1, movingStarted;
     private final boolean turning;
     private boolean turningNow, turnThenFollow, turnedAfter;
     private double turnStarted, turnTarget;
     private static final double SETTLE_SECONDS = .15;
+    // The simulator answers one tick later, so a pin action waits this long before it can count as done.
+    private static final double MECHANISM_START = 0.05, MECHANISM_LIMIT = 10;
     private double settleStarted = -1, settleHeading;
     // Stall recovery: recent poses, the moment progress stopped, and the back-out target.
     private static final double STALL_SPEED = 1.5, STALL_SECONDS = .8, BACKOFF_SECONDS = 2.5;
@@ -97,8 +99,13 @@ public final class RouteAutonomous implements DeckAutonomous {
             startFollowing(robot);
             return;
         }
+        // An action path's action runs from the start of its path, for its set time or the whole path.
         String moving = robot.movingAction(leg);
-        robot.telemetry("phase", moving.isEmpty() ? "Driving leg" : "Action path: " + moving);
+        if (!moving.isEmpty() && robot.legPath(leg) != movingPath) { movingPath = robot.legPath(leg); movingStarted = robot.time(); }
+        double movingFor = robot.movingSeconds(leg);
+        boolean movingOn = !moving.isEmpty() && (Double.isNaN(movingFor) || robot.time() - movingStarted < movingFor);
+        robot.telemetry("phase", movingOn ? "Action path: " + moving : "Driving leg");
+        if (movingOn && follower.following()) robot.acting(leg, moving, true);
         boolean through=leg+1<robot.routeLegs().size()&&robot.stopWait(leg)==0&&robot.stopAction(leg).isEmpty()&&Double.isNaN(robot.turnAfter(leg))&&DeckFollower.continuous(robot.routeLegs().get(leg),robot.routeLegs().get(leg+1));
         if (through&&follower.remainingDistance()<1.5&&robot.near(robot.routeLegs().get(leg).endPose(),1.5,3)) {
             leg++;arrived=pathEnded=-1;beginLeg(robot);return;
@@ -142,8 +149,16 @@ public final class RouteAutonomous implements DeckAutonomous {
         if (arrived < 0) { if (pause > 0) robot.waiting(leg, robot.stopAction(leg), pause); return; }
         double held = robot.time() - arrived;
         boolean last = leg == robot.routeLegs().size() - 1;
-        if (pause > 0) robot.waiting(leg, robot.stopAction(leg), pause - held);
-        if (held < pause || (!settled && held < pause + 3)) return;
+        String action = robot.stopAction(leg);
+        // At a pin: pause first, then run the action for its set time (or until it finishes), then drive on.
+        if (held < pause) { robot.waiting(leg, action, pause - held); robot.telemetry("phase", "Pause"); return; }
+        double acted = held - pause, actFor = robot.actionSeconds(leg);
+        boolean busy = !action.isEmpty() && (Double.isNaN(actFor)
+            // Until it finishes, bounded so a jammed mechanism cannot hold the route forever.
+            ? acted < MECHANISM_START || robot.mechanismBusy() && acted < MECHANISM_LIMIT
+            : acted < actFor);
+        if (busy) { robot.acting(leg, action, false); robot.telemetry("phase", "Action: " + action); }
+        if (busy || (!settled && held < pause + 3)) return;
         robot.moving();
         if (last) {
             robot.finish();

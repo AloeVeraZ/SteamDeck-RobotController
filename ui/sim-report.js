@@ -1,0 +1,100 @@
+(function(root,factory){const value=factory();if(typeof module==='object'&&module.exports)module.exports=value;else root.DeckSimReport=value;})(typeof globalThis==='object'?globalThis:this,()=>{
+  'use strict';
+  // Run report: answers "did my autonomous work, how long did it take, where did the time go and what
+  // should I change next" from the frames the run recorded. Nothing here is estimated or invented:
+  // every number comes from the simulated run, and the report says so.
+  const finite=n=>typeof n==='number'&&Number.isFinite(n),s1=n=>`${n.toFixed(1)} s`;
+  // Which leg (one per route path) a frame belongs to: the route program reports "leg N of M",
+  // timed driving reports the segment it is on. Other programs (team Java) have no legs.
+  function legOf(f){
+    const m=/^(\d+) of (\d+)$/.exec(String(f.telemetry?.leg??f.telemetry?.Leg??''));if(m)return {index:Number(m[1])-1,count:Number(m[2])};
+    if(f.execution==='timed'&&finite(f.follower?.pathIndex))return {index:f.follower.pathIndex,count:null};return null;
+  }
+  // The mechanism action a frame is running, if any: a pin's pause, an action path, or the mechanism commands.
+  function action(f){const c=f.mechanisms?.command||{};return f.wait?.action||f.acting||(c.feed?'Shoot':c.intake?'Intake':c.spin||c.aim?'Spin up and aim':'');}
+  // What the robot was doing during a frame: driving, turning in place, stopped for a pause or an
+  // action (intaking, spinning up, shooting), or stopped with nothing running.
+  function activity(f){
+    const t=f.truth||{};if(Math.hypot(t.vx||0,t.vy||0)>1)return 'drive';if(Math.abs(t.omega||0)>10)return 'turn';
+    return f.wait||action(f)?'pause':'idle';
+  }
+  const contactKind=id=>id==='field-wall'?'wall':/^(field|goal)-/.test(id)?'field':'zone';
+  const KIND={wall:'the field wall',field:'a field structure',zone:'a no-go zone'};
+  // frames: recorded run frames. ctx: {pins:[{x,y,path:{power}}], defaultPower, autoSeconds, optimized}.
+  function build(frames,ctx={}){
+    const end=[...frames].reverse().find(f=>f.result)?.result;if(!end||!frames.length)return null;
+    const pins=ctx.pins||[],t0=frames[0].time,stop=end.time,run=frames.filter(f=>f.time<=stop+1e-6),total=Math.max(0,stop-t0);
+    // Time per leg, split by activity.
+    const legs=[],blank=i=>({index:i,drive:0,turn:0,pause:0,idle:0,total:0,start:null,actions:new Set()});let count=null,before=0;
+    for(let i=0;i<run.length;i++){
+      const f=run[i],next=run[i+1]?.time??stop,dt=Math.max(0,next-f.time),leg=legOf(f);if(!dt)continue;
+      if(!leg){before+=dt;continue;}if(leg.count)count=leg.count;
+      const l=legs[leg.index]||=blank(leg.index);l[activity(f)]+=dt;l.total+=dt;if(l.start===null)l.start=f.time-t0;const act=activity(f)==='pause'&&action(f);if(act)l.actions.add(act);
+    }
+    // Paths are numbered like the planner's list only when every leg is one of its paths.
+    const editable=count===pins.length;
+    const out=legs.filter(Boolean).map(l=>({...l,actions:[...l.actions],label:`${editable?'Path':'Leg'} ${l.index+1}`,pin:editable?l.index:null}));
+    // Contacts that started during the run. Robots usually start against the wall, so contact made
+    // before the robot has moved an inch from its start pose is where it was placed, not the route.
+    const contacts=[],home=frames[0].truth,moved=f=>home&&f.truth&&Math.hypot(f.truth.x-home.x,f.truth.y-home.y)>1;let prev=new Set([...(frames[0].contacts||[]),...(frames[0].hit||[])]),away=false;
+    for(const f of run){const now=new Set([...(f.contacts||[]),...(f.hit||[])]);away||=moved(f);for(const id of now)if(!prev.has(id)&&away){const leg=legOf(f);contacts.push({id,kind:contactKind(id),time:f.time-t0,pin:editable&&leg?leg.index:null,label:leg?`${editable?'Path':'Leg'} ${leg.index+1}`:'the start'});}prev=now;}
+    const last=pins.at(-1),endError=last&&end.truth&&['route','timed'].includes(end.kind)?Math.hypot(end.truth.x-last.x,end.truth.y-last.y):null;
+    const estimateError=end.estimate&&end.truth?Math.hypot(end.estimate.x-end.truth.x,end.estimate.y-end.truth.y):null;
+    const zones=end.violations?.length||0,mech=[...run].reverse().find(f=>f.mechanisms)?.mechanisms||null;
+    const timedOut=end.reason==='time-limit',auto=finite(ctx.autoSeconds)?ctx.autoSeconds:null;
+    // Things that went wrong, each tied to the path where it happened.
+    const issues=[];const grouped=new Map();for(const c of contacts){const key=c.kind+'|'+c.label;if(!grouped.has(key))grouped.set(key,c);}
+    for(const c of grouped.values())issues.push({level:c.kind==='wall'?'warn':'bad',pin:c.pin,text:`Touched ${KIND[c.kind]} during ${c.label} at ${s1(c.time)}.`});
+    if(finite(endError)&&endError>2)issues.push({level:'warn',pin:editable&&pins.length?pins.length-1:null,text:`Stopped ${endError.toFixed(1)} in away from the last path’s end point.`});
+    // Suggestions, most useful first. Each names what the run measured.
+    const tips=[];
+    if(timedOut){const at=out.at(-1);tips.push({pin:at?.pin??null,text:`The route needs more than the ${auto??'autonomous'}${auto?' s':''} period${at?` (it was on ${at.label})`:''}. Remove a path, shorten pauses or raise motor power.`});}
+    if(grouped.size)tips.push({pin:[...grouped.values()][0].pin,text:'Move that path’s points away from what it touched, or raise “Space around obstacles” in Path planning → Paths → Route.'});
+    const slow=out.length>1?out.reduce((a,b)=>b.total>a.total?b:a):null;
+    if(slow&&total>0){const parts=[slow.pause>.05&&`${s1(slow.pause)} stopped for ${slow.actions.length?slow.actions.join(', ').toLowerCase():'a pause'}`,slow.turn>.05&&`${s1(slow.turn)} turning in place`,slow.idle>.2&&`${s1(slow.idle)} stopped`].filter(Boolean);
+      tips.push({pin:slow.pin,text:`${slow.label} takes the longest: ${s1(slow.total)} of ${s1(total)}${parts.length?`, including ${parts.join(' and ')}`:''}. Changes there save the most time.`});}
+    const sum=k=>out.reduce((a,l)=>a+l[k],0),pause=sum('pause'),turn=sum('turn');
+    if(total>0&&pause/total>.2){const most=out.reduce((a,b)=>b.pause>a.pause?b:a);tips.push({pin:most.pin,text:`The robot spends ${s1(pause)} stopped for pauses and actions. Shorten a pause if its mechanism finishes sooner, or run the action while driving (most is in ${most.label}).`});}
+    if(total>0&&turn/total>.15){const most=out.reduce((a,b)=>b.turn>a.turn?b:a);tips.push({pin:most.pin,text:`Turning in place takes ${s1(turn)}. If the robot does not need that heading, letting it keep its heading or turn while driving saves time (most is in ${most.label}).`});}
+    const def=finite(ctx.defaultPower)?ctx.defaultPower:1;
+    for(const l of out){const power=pins[l.index]?.path?.power??def;if(l.pin!==null&&power<.75&&l.drive>=1){tips.push({pin:l.pin,text:`${l.label} drives at ${Math.round(power*100)}% motor power for ${s1(l.drive)}. If your robot stays in control, more power would shorten it.`});break;}}
+    if(mech&&mech.shots>mech.landed)tips.push({pin:null,text:`${mech.shots-mech.landed} of ${mech.shots} shot${mech.shots>1?'s':''} missed the hive. Drag the timeline to replay each shot and see where it went.`});
+    if(ctx.optimized===false&&out.length>1)tips.push({pin:null,text:'Optimize (Path planning → Paths → Route) test-drives straight and smooth shapes for your paths and keeps the fastest safe one.'});
+    if(!timedOut&&!issues.length&&auto&&auto-total>5)tips.push({pin:null,text:`${s1(auto-total)} of the autonomous period is left: room for another path or more scoring.`});
+    const level=timedOut?'bad':issues.some(i=>i.level==='bad')?'bad':issues.length?'warn':'ok';
+    const title=timedOut?'Autonomous ended before the route finished':issues.length?`Route finished in ${s1(total)}, with ${issues.length} thing${issues.length>1?'s':''} to check`:`Route finished cleanly in ${s1(total)}`;
+    const facts=[['Time',auto?`${s1(total)} of the ${auto} s autonomous${timedOut?'':` · ${s1(Math.max(0,auto-total))} to spare`}`:s1(total),timedOut?'bad':'']];
+    if(finite(endError))facts.push(['Final position',`${endError.toFixed(1)} in from the last end point`,endError>2?'warn':'']);
+    if(finite(estimateError))facts.push(['Sensor estimate',`off by ${estimateError.toFixed(1)} in at the end`,estimateError>2?'warn':'']);
+    facts.push(['Contact',contacts.length?[...new Set(contacts.map(c=>KIND[c.kind]))].join(', '):'None',contacts.some(c=>c.kind!=='wall')||zones?'bad':contacts.length?'warn':'']);
+    if(mech&&finite(mech.score))facts.push(['Points',`${mech.score}${mech.shots?` · ${mech.landed} of ${mech.shots} shots landed`:''}`,'']);
+    return {level,title,total,before,legs:out,contacts,issues,tips:tips.slice(0,3),facts,endError,estimateError,timedOut};
+  }
+
+  // ------------------------------------------------------------------ drawing
+  // grow sets flex-grow through the CSSOM: the app's content security policy ignores style attributes.
+  const el=(tag,attrs={},children=[])=>{const e=document.createElement(tag);for(const [k,v] of Object.entries(attrs))k==='text'?e.textContent=v:k==='grow'?e.style.flexGrow=String(v):k.startsWith('on')?e[k]=v:e.setAttribute(k,v);e.append(...children);return e;};
+  const editButton=(pin,label,onEdit)=>el('button',{type:'button',class:'text-button sim-report-edit',onclick:()=>onEdit(pin),text:`Edit ${label} →`});
+  // report: from build(). onEdit(pinIndex) opens that path in Path planning; onSeek(seconds) replays a moment.
+  function render(host,report,{onEdit,onSeek}={}){
+    if(!report){host.replaceChildren();return;}
+    const icon={ok:'✓',warn:'!',bad:'×'}[report.level];
+    const head=el('div',{class:'sim-report-verdict '+report.level},[el('span',{class:'sim-report-icon','aria-hidden':'true',text:icon}),el('strong',{text:report.title})]);
+    const facts=el('dl',{class:'sim-analysis-list sim-report-facts'},report.facts.flatMap(([k,v,l])=>[el('dt',{text:k}),el('dd',{text:v,class:l||''})]));
+    const parts=[head,facts];
+    if(report.issues.length)parts.push(el('ul',{class:'sim-report-issues'},report.issues.map(i=>el('li',{class:i.level},[el('span',{text:i.text}),...(i.pin!==null&&onEdit?[editButton(i.pin,`path ${i.pin+1}`,onEdit)]:[])]))));
+    // Where the time went: one bar per path, its width its share of the run, split into driving,
+    // turning in place, pausing and stopped. Clicking a path replays its start on the field.
+    if(report.legs.length&&report.total>0){
+      const bar=el('div',{class:'sim-report-bar',role:'list','aria-label':'Time per path'});
+      for(const l of report.legs){const seg=el('button',{type:'button',class:'sim-report-leg',role:'listitem',grow:Math.max(.001,l.total),title:`${l.label}: ${l.total.toFixed(1)} s · driving ${l.drive.toFixed(1)} s · turning ${l.turn.toFixed(1)} s · actions and pauses ${l.pause.toFixed(1)} s${l.idle>.05?` · stopped ${l.idle.toFixed(1)} s`:''}. Click to replay.`,'aria-label':`${l.label}, ${l.total.toFixed(1)} seconds. Replay on the field.`,onclick:()=>onSeek?.(l.start)},
+          [el('span',{class:'sim-report-mix'},['drive','turn','pause','idle'].filter(k=>l[k]>0).map(k=>el('i',{class:k,grow:l[k]}))),el('span',{class:'sim-report-label',text:String(l.index+1)})]);bar.append(seg);}
+      const key=el('p',{class:'sim-report-key'},[['drive','Driving'],['turn','Turning in place'],['pause','Stopped for an action or pause'],['idle','Stopped, nothing running']].map(([k,t])=>el('span',{},[el('i',{class:k}),document.createTextNode(t)])));
+      parts.push(el('h4',{text:'Where the time went'}),bar,key);
+    }
+    if(report.tips.length)parts.push(el('h4',{text:'What to try next'}),el('ol',{class:'sim-report-tips'},report.tips.map(t=>el('li',{},[el('span',{text:t.text}),...(t.pin!==null&&onEdit?[editButton(t.pin,`path ${t.pin+1}`,onEdit)]:[])]))));
+    parts.push(el('p',{class:'hint sim-report-note',text:'Simulated estimate. Battery charge, wheel traction, tuning and field differences change real results, so test on your robot before a match.'}));
+    host.replaceChildren(...parts);
+  }
+  return {build,render,legOf,activity,action};
+});

@@ -64,6 +64,22 @@ public final class VirtualHub {
     private final boolean tank;
     private final String className;
     private double gyro;
+    // Mechanisms named by the export: intake motors, and shooters (flywheel, indexer motor or
+    // continuous servo, and a turret motor when it has one). Any may be absent.
+    private final List<SimMotor> intakes = new ArrayList<>();
+    /** Kicker servos with their down and up positions: a kicker sent down counts as the intake running. */
+    private final List<SimServo> kickers = new ArrayList<>();
+    private final List<double[]> kickerPositions = new ArrayList<>();
+    /** Ramp servos with their down and up positions: a ramp sent down folds down (its rollers are intake motors). */
+    private final List<SimServo> ramps = new ArrayList<>();
+    private final List<double[]> rampPositions = new ArrayList<>();
+    private final List<Shooter> shooters = new ArrayList<>();
+
+    private static final class Shooter {
+        SimMotor flywheel, indexerMotor, turret;
+        SimCRServo indexerServo;
+        double full = 1, turretTicksPerDegree = 1;
+    }
 
     private VirtualHub(JsonObject hub, double heading) {
         JsonObject d = hub.getAsJsonObject("drive");
@@ -90,6 +106,45 @@ public final class VirtualHub {
         if (hub.has("pinpoint")) { pinpoint = new SimSensors.Pinpoint(); pinpoint.gyro = heading; map.put(hub.get("pinpoint").getAsString(), pinpoint); }
         if (hub.has("otos")) { otos = new SimSensors.Otos(); otos.gyro = heading; map.put(hub.get("otos").getAsString(), otos); }
         map.put("Control Hub", new SimSensors.Battery());
+        if (hub.has("mechanisms")) {
+            JsonObject mech = hub.getAsJsonObject("mechanisms");
+            int servoPort = 0;
+            if (mech.has("intakes")) for (JsonElement e : mech.getAsJsonArray("intakes")) {
+                SimMotor motor = new SimMotor(port++, 1);
+                intakes.add(motor);
+                map.put(e.getAsString(), motor);
+            }
+            if (mech.has("kickers")) for (JsonElement e : mech.getAsJsonArray("kickers")) {
+                JsonObject k = e.getAsJsonObject();
+                SimServo servo = new SimServo(servoPort++);
+                kickers.add(servo);
+                kickerPositions.add(new double[] { k.get("down").getAsDouble(), k.get("up").getAsDouble() });
+                map.put(k.get("name").getAsString(), servo);
+            }
+            if (mech.has("ramps")) for (JsonElement e : mech.getAsJsonArray("ramps")) {
+                JsonObject k = e.getAsJsonObject();
+                SimServo servo = new SimServo(servoPort++);
+                ramps.add(servo);
+                rampPositions.add(new double[] { k.get("down").getAsDouble(), k.get("up").getAsDouble() });
+                map.put(k.get("name").getAsString(), servo);
+            }
+            if (mech.has("shooters")) for (JsonElement e : mech.getAsJsonArray("shooters")) {
+                JsonObject s = e.getAsJsonObject();
+                Shooter shooter = new Shooter();
+                JsonObject f = s.getAsJsonObject("flywheel");
+                map.put(f.get("name").getAsString(), shooter.flywheel = new SimMotor(port++, 1));
+                shooter.full = f.get("ticksPerSecond").getAsDouble();
+                JsonObject x = s.getAsJsonObject("indexer");
+                if ("crservo".equals(x.get("kind").getAsString())) map.put(x.get("name").getAsString(), shooter.indexerServo = new SimCRServo(servoPort++));
+                else map.put(x.get("name").getAsString(), shooter.indexerMotor = new SimMotor(port++, 1));
+                if (s.has("turret")) {
+                    JsonObject t = s.getAsJsonObject("turret");
+                    map.put(t.get("name").getAsString(), shooter.turret = new SimMotor(port++, 1));
+                    shooter.turretTicksPerDegree = t.get("ticksPerDegree").getAsDouble();
+                }
+                shooters.add(shooter);
+            }
+        }
         className = hub.get("opmode").getAsString();
     }
 
@@ -224,6 +279,62 @@ public final class VirtualHub {
         SimMotor m = drive.get(corner);
         return m == null ? 0 : m.wheelCommand();
     }
+
+    /** The simulator's flywheel speed (a fraction of full) and turret angle, read by the OpMode through the encoders. */
+    public void mechanismState(JsonObject state) {
+        if (state == null) return;
+        for (int i = 0; i < shooters.size(); i++) {
+            Shooter s = shooters.get(i);
+            if (state.has("flywheel")) s.flywheel.encoder(0, state.get("flywheel").getAsDouble() * s.full);
+            // Each turret reads its own angle; older states carry one shared angle.
+            boolean own = state.has("turrets") && state.getAsJsonArray("turrets").size() > i;
+            if (s.turret != null && (own || state.has("turret"))) s.turret.encoder((own ? state.getAsJsonArray("turrets").get(i).getAsDouble() : state.get("turret").getAsDouble()) * s.turretTicksPerDegree, 0);
+        }
+    }
+
+    /** What the OpMode commands its mechanisms to do this tick. The simulator runs shooters together,
+     * so it reads the strongest command of each kind, and the first turret that has a target. */
+    public JsonObject mechanismOutputs() {
+        JsonObject out = new JsonObject();
+        if (!intakes.isEmpty() || !kickers.isEmpty()) {
+            double intake = 0;
+            for (SimMotor m : intakes) intake = strongest(intake, m.commanded(1));
+            for (int i = 0; i < kickers.size(); i++) {
+                double p = kickers.get(i).output(), down = kickerPositions.get(i)[0], up = kickerPositions.get(i)[1];
+                if (!Double.isNaN(p) && Math.abs(p - down) < Math.abs(p - up)) intake = strongest(intake, 1);
+            }
+            out.addProperty("intake", intake);
+        }
+        if (!ramps.isEmpty()) {
+            // 1 while any ramp servo sits nearer its down position than its up one.
+            double ramp = 0;
+            for (int i = 0; i < ramps.size(); i++) {
+                double p = ramps.get(i).output(), down = rampPositions.get(i)[0], up = rampPositions.get(i)[1];
+                if (!Double.isNaN(p) && Math.abs(p - down) < Math.abs(p - up)) ramp = 1;
+            }
+            out.addProperty("ramp", ramp);
+        }
+        if (!shooters.isEmpty()) {
+            double indexer = 0, flywheel = 0;
+            for (Shooter s : shooters) {
+                indexer = strongest(indexer, s.indexerMotor != null ? s.indexerMotor.commanded(1) : s.indexerServo.output());
+                flywheel = strongest(flywheel, s.flywheel.commanded(s.full));
+                if (s.turret != null && !out.has("turretDeg") && !Double.isNaN(s.turret.targetTicks())) out.addProperty("turretDeg", s.turret.targetTicks() / s.turretTicksPerDegree);
+            }
+            out.addProperty("indexer", indexer);
+            out.addProperty("flywheel", flywheel);
+            // Each turret's own commanded angle (null for a fixed shooter or one not yet positioned).
+            com.google.gson.JsonArray degrees = new com.google.gson.JsonArray();
+            for (Shooter s : shooters) {
+                if (s.turret == null || Double.isNaN(s.turret.targetTicks())) degrees.add(com.google.gson.JsonNull.INSTANCE);
+                else degrees.add(s.turret.targetTicks() / s.turretTicksPerDegree);
+            }
+            out.add("turretDegs", degrees);
+        }
+        return out;
+    }
+
+    private static double strongest(double a, double b) { return Math.abs(b) > Math.abs(a) ? b : a; }
 
     public Map<String, String> telemetry() { return telemetry.shown(); }
     public boolean done() { return OpModeHost.finished(); }

@@ -1,0 +1,190 @@
+{
+  "deckSimulation": 2,
+  "version": 2,
+  "imuSource": "hub",
+  "timing": {
+    "power": 1
+  },
+  "orientations": {},
+  "hitboxes": false,
+  "robot": {
+    "drivetrain": "mecanum",
+    "length": 17,
+    "width": 17,
+    "heightIn": 12,
+    "driveRpm": 312,
+    "intakeIn": 0,
+    "driveStyle": "robot",
+    "appearance": "strafer"
+  },
+  "tuning": {
+    "maxPathSpeed": 1
+  },
+  "practice": {
+    "mode": "autonomous",
+    "autoSeconds": 30,
+    "transitionSeconds": 8,
+    "teleopSeconds": 120
+  },
+  "program": {
+    "kind": "route",
+    "name": "",
+    "source": ""
+  },
+  "model": null,
+  "view": "2d",
+  "export": {
+    "packageName": "org.firstinspires.ftc.teamcode",
+    "className": "BiobuzzRed",
+    "keep": false
+  },
+  "controller": "ftc",
+  "sensors": {
+    "localization": "fused",
+    "gyroDrift": 0.5,
+    "noise": 0.05
+  },
+  "layouts": [
+    {
+      "id": "climvk8r6ey",
+      "name": "BIOBUZZ red auto",
+      "field": "biobuzz",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": {
+        "x": 9.83,
+        "y": 27,
+        "heading": 0
+      },
+      "zones": [],
+      "pins": [
+        {
+          "x": 24,
+          "y": 30,
+          "wait": 0,
+          "action": "Shoot",
+          "note": "Shoot all 4 preloaded pollen into the red up cell (the turret aims itself)",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Leave the wall at full power while the flywheel spins up"
+          }
+        },
+        {
+          "x": 22,
+          "y": 20,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "style": "spline",
+            "note": "Turn the intake toward the audience wall",
+            "rotate": "turn",
+            "heading": -90
+          }
+        },
+        {
+          "x": 16,
+          "y": 12.5,
+          "wait": 0.6,
+          "action": "Intake",
+          "note": "Keep the intake running while the last pollen feeds in",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Drive the intake into the red GARDEN pollen"
+          }
+        },
+        {
+          "x": 24,
+          "y": 24,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "style": "sharp",
+            "note": "Back out of the corner"
+          }
+        },
+        {
+          "x": 36,
+          "y": 28,
+          "wait": 0,
+          "action": "Shoot",
+          "note": "Shoot the garden pollen",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Spin up on the way back"
+          }
+        },
+        {
+          "x": 16,
+          "y": 107,
+          "wait": 0,
+          "action": "",
+          "note": "PARK: partly inside the red LOADING ZONE",
+          "path": {
+            "style": "spline",
+            "note": "Around the hive frame to the red LOADING ZONE",
+            "rotate": "turn",
+            "heading": 0
+          }
+        }
+      ],
+      "clearance": 2,
+      "style": "spline",
+      "rotate": true,
+      "route": null,
+      "tested": [
+        {
+          "label": "Mixed · 2 straight / 4 spline",
+          "time": 13.333333333333576,
+          "ok": true,
+          "note": "",
+          "best": true
+        }
+      ],
+      "alliance": "red"
+    }
+  ],
+  "active": "climvk8r6ey",
+  "setupName": "biobuzz-red-auto",
+  "mechanisms": {
+    "enabled": true,
+    "preload": 4,
+    "storage": 4,
+    "intake": {
+      "kind": "sweeper",
+      "side": "front",
+      "motor": "intake",
+      "power": 1
+    },
+    "indexer": {
+      "seconds": 0.35,
+      "kind": "motor",
+      "name": "indexer",
+      "power": 1
+    },
+    "shooter": {
+      "type": "turret",
+      "mount": "center",
+      "hood": 75,
+      "motor": "shooter",
+      "rpm": 3000,
+      "ticksPerRev": 28,
+      "spinUp": 0.8,
+      "shotGap": 0.3
+    },
+    "turret": {
+      "motor": "turret",
+      "speed": 240,
+      "min": -170,
+      "max": 170,
+      "ticksPerDegree": 4.6
+    },
+    "target": null
+  }
+}

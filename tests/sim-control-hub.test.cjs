@@ -21,7 +21,7 @@ for(const [localization,tolerance] of [['encoders',2.5],['odometry',1],['odometr
     const {e,out,error}=await setup(localization);try{
       assert.ok(Object.keys(out.files).some(k=>k.endsWith('drive/Constants.java')));assert.ok(Object.keys(out.files).some(k=>k.endsWith('drive/RobotDrive.java')));assert.ok(out.files['deck/pathing/DeckFollower.java']);assert.ok(Object.values(out.files).every(s=>!s.includes('com.pedropathing')));
       const started=await e.run({kind:'opmode',files:out.files,opMode:out.opMode});assert.equal(started.ok,true,error());assert.equal(started.program,'org.firstinspires.ftc.teamcode.PlannedRouteAuto');
-      const phases=await finish(e);assert.ok(['Driving','Waiting','Done'].every(p=>phases.has(p)),[...phases].join());assert.ok(!phases.has('Turning'),'a fixed-heading route never stops to turn');
+      const phases=await finish(e);assert.ok(['Driving','Pause','Done'].every(p=>phases.has(p)),[...phases].join());assert.ok(!phases.has('Turning'),'a fixed-heading route never stops to turn');
       const t=e.truth();assert.ok(Math.hypot(t.x-120,t.y-120)<tolerance,JSON.stringify(t));assert.ok(Math.abs(t.heading)<.1);
       assert.equal(e.violations.size,0,'no zone touched');
     }finally{e.dispose();}
@@ -66,7 +66,7 @@ for(const [drivetrain,localization] of [['tank','encoders'],['tank2','encoders']
       const out=F.files({route,layout,tuning:info.tuning,robot:info.robot,localization,routeJava:X.java(route,layout,{polygon:P.polygon})});
       const dir='org/firstinspires/ftc/teamcode/drive/';assert.ok(out.files[dir+'RobotDrive.java']);assert.match(out.files[dir+'Constants.java'],/config.tank=true/);assert.match(out.files[dir+'RobotDrive.java'],drivetrain==='tank2'?/left_drive/:/front_left/);
       assert.equal((await e.run({kind:'opmode',files:out.files,opMode:out.opMode})).ok,true,error);
-      const phases=await finish(e,3000);assert.ok(['Turning','Driving','Waiting','Done'].every(p=>phases.has(p)),[...phases].join());
+      const phases=await finish(e,3000);assert.ok(['Turning','Driving','Pause','Done'].every(p=>phases.has(p)),[...phases].join());
       const t=e.truth();assert.ok(Math.hypot(t.x-100,t.y-100)<2.5,JSON.stringify(t));assert.equal(e.violations.size,0);
     }finally{e.dispose();}
   });

@@ -15,7 +15,7 @@ final class SimMotor implements DcMotorEx {
     private Direction direction = Direction.FORWARD;
     private ZeroPowerBehavior zeroPower = ZeroPowerBehavior.BRAKE;
     private RunMode mode = RunMode.RUN_WITHOUT_ENCODER;
-    private double power, rawTicks, resetTicks, ticksPerSecond;
+    private double power, rawTicks, resetTicks, ticksPerSecond, velocityTarget = Double.NaN;
     private int target, tolerance = 5;
     private boolean enabled = true;
 
@@ -29,6 +29,18 @@ final class SimMotor implements DcMotorEx {
     /** Wheel-forward command from this motor, -1..1, after direction and mounting. */
     double wheelCommand() { return enabled ? power * sign() * mount : 0; }
 
+    /** A mechanism motor's encoder, set by the simulator (absolute ticks and ticks per second). */
+    void encoder(double ticks, double tps) { rawTicks = ticks; ticksPerSecond = tps; }
+
+    /** The commanded speed as a fraction of `fullTicksPerSecond` (velocity control) or the power. */
+    double commanded(double fullTicksPerSecond) {
+        if (!enabled) return 0;
+        return Double.isNaN(velocityTarget) ? power * sign() : velocityTarget * sign() / Math.max(1e-9, fullTicksPerSecond);
+    }
+
+    /** RUN_TO_POSITION target in raw encoder ticks, or NaN when the motor is not positioning. */
+    double targetTicks() { return mode == RunMode.RUN_TO_POSITION && enabled && power != 0 ? target * sign() + resetTicks : Double.NaN; }
+
     /** Advances the encoder by `ticks` of wheel-forward travel over `dt` seconds. */
     void advance(double ticks, double dt) {
         rawTicks += ticks * mount;
@@ -37,7 +49,7 @@ final class SimMotor implements DcMotorEx {
 
     @Override public void setDirection(Direction direction) { this.direction = direction; }
     @Override public Direction getDirection() { return direction; }
-    @Override public void setPower(double power) { this.power = Math.max(-1, Math.min(1, power)); }
+    @Override public void setPower(double power) { this.power = Math.max(-1, Math.min(1, power)); velocityTarget = Double.NaN; }
     @Override public double getPower() { return power; }
     @Override public void setZeroPowerBehavior(ZeroPowerBehavior behavior) { zeroPower = behavior; }
     @Override public ZeroPowerBehavior getZeroPowerBehavior() { return zeroPower; }
@@ -54,7 +66,8 @@ final class SimMotor implements DcMotorEx {
     @Override public void setMotorEnable() { enabled = true; }
     @Override public void setMotorDisable() { enabled = false; }
     @Override public boolean isMotorEnabled() { return enabled; }
-    @Override public void setVelocity(double angularRate) { throw new UnsupportedOperationException("setVelocity is not modelled by the virtual Control Hub; use setPower."); }
+    /** Velocity control (ticks per second), as the SDK runs it with RUN_USING_ENCODER. */
+    @Override public void setVelocity(double angularRate) { velocityTarget = angularRate; power = 0; }
     @Override public void setVelocity(double angularRate, AngleUnit unit) { setVelocity(angularRate); }
     @Override public double getVelocity() { return ticksPerSecond * sign(); }
     @Override public double getVelocity(AngleUnit unit) { throw new UnsupportedOperationException("getVelocity(AngleUnit) needs the motor's ticks per revolution; use getVelocity()."); }

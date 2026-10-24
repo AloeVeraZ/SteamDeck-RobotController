@@ -13,7 +13,11 @@ const {PracticeClock}=require('./sim-practice.cjs');
 const Timed=require('../ui/sim-timed.js');
 const Ftc=require('../ui/sim-ftc.js');
 const Export=require('../ui/sim-export.js');
+const Mech=require('../ui/sim-mechanisms.js');
+const MotionModule=require('../ui/sim-motionmodule.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
+// How long the game physics takes to swing its ramp down or up (DSIM's BB_RAMP_DEPLOY_S).
+const RAMP_SWING=.3;
 const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
 // What each game's planning obstacles are, for the UI.
 const OBSTACLES={empty:'',decode:'goals and ramps',biobuzz:'hive legs and flower bases'};
@@ -64,10 +68,15 @@ class SimEngine{
     await this.init();this.stopProgram('Simulation reloaded.');this.practice=null;this.playing=false;this.lastLoad=raw;
     const field=Object.hasOwn(FIELDS,raw.field)?raw.field:'empty',physics=field==='biobuzz'&&raw.physics!=='2d'?'3d':'2d';
     const start=raw.start&&[raw.start.x,raw.start.y,raw.start.heading].every(finite)?{x:raw.start.x,y:raw.start.y,heading:raw.start.heading}:{x:9,y:72,heading:0};
-    this.config={field,physics,start,controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:config.robot(raw.robot,raw.controller==='motionmodule'?'motionmodule':'ftc'),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:config.localization('motionmodule',raw.sensors?.localization)}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
+    // Mechanisms (intake, storage, indexer, shooter) use the game's own piece physics, so they act on BIOBUZZ.
+    const mechanisms=Mech.sanitize(raw.mechanisms);mechanisms.enabled=mechanisms.enabled&&field==='biobuzz';
+    this.config={field,physics,start,mechanisms,alliance:raw.alliance==='blue'?'blue':'red',controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:config.robot(raw.robot,raw.controller==='motionmodule'?'motionmodule':'ftc'),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:config.localization('motionmodule',raw.sensors?.localization)}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
     this.origin=field==='empty'?{x:this.config.bounds.x1/2,y:this.config.bounds.y1/2}:{x:OFFSET,y:OFFSET};
     this.zones=Array.isArray(raw.zones)?raw.zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];
     this.build();
+    // Timed driving needs no floor measurements: unless the team typed numbers measured on their robot,
+    // speed, speed-up and coasting come from the robot settings (the simulated robot driven 1 s and 2 s).
+    if(this.config.timing.source==='robot'){const key=JSON.stringify([this.config.robot,this.config.timing.power]);if(this._timedAuto?.key!==key)this._timedAuto={key,value:this.timedCalibration(this.config.timing.power)};const {power,...value}=this._timedAuto.value;Object.assign(this.config.timing,value);}
     const r=this.world.robots[0],D=this.dsim,ext=D.footprintExtents(r.spec),dp=D.driveParams(r.spec);
     const mod=this.module(),walls=4,bounds=mod?mod.bounds:{halfX:OFFSET,halfY:OFFSET};
     const fieldZones=mod?mod.colliders.statics.slice(walls).map((s,i)=>({id:`field-${i}`,type:'rect',x:s.tx+OFFSET,y:s.ty+OFFSET,width:2*s.hx,height:2*s.hy,angle:s.rot*DEG})):[];
@@ -85,31 +94,54 @@ class SimEngine{
       footprint:{front:ext.front,rear:ext.rear,half:ext.half},
       robot:{...this.config.robot},driveProfile:config.drives[this.config.robot.drivetrain],
       drive:{maxSpeed:dp.maxSpeed,maxStrafe:dp.maxSpeed*dp.strafeMult,maxTurnDeg:dp.maxTurn*DEG,accel:dp.accel},
-      sensors:this.config.sensors,localizationName:LOCALIZATION[this.config.sensors.localization],tuning:this.tuning(r.spec)};
+      mechanisms:this.config.mechanisms,alliance:this.config.alliance,target:Mech.target(this.config.mechanisms,field,this.config.alliance),
+      timing:{...this.config.timing},sensors:this.config.sensors,localizationName:LOCALIZATION[this.config.sensors.localization],tuning:this.tuning(r.spec)};
     this.emitFrame(true);return this.info;
   }
   module(){return this.config.field==='empty'?null:this.dsim.SIM_GAMES[this.config.field];}
   build(){
     const D=this.dsim;if(this.world?.game==='biobuzz')D.disposePhysics3dFor(this.world);
-    const c=this.config,engineDrive=config.drives[c.robot.drivetrain].engine,spec=D.coerceSpec({...D.DEFAULT_SPEC,...c.robot,drivetrain:engineDrive,intake:'sloped'},D.DEFAULT_SPEC,c.field==='biobuzz'?'biobuzz':'decode');
-    const setup={id:0,alliance:'blue',spec,assists:{fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false},startIndex:0};
+    const c=this.config,m=c.mechanisms,engineDrive=config.drives[c.robot.drivetrain].engine,spec=D.coerceSpec({...D.DEFAULT_SPEC,...c.robot,drivetrain:engineDrive,intake:'sloped',...(m.enabled?Mech.engineSpec(m):{})},D.DEFAULT_SPEC,c.field==='biobuzz'?'biobuzz':'decode');
+    const setup={id:0,alliance:c.field==='biobuzz'?c.alliance:'blue',spec,assists:{fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false},startIndex:0};
     const mod=this.module();
     this.world=mod?mod.createWorld('free',1,[setup],undefined,c.physics):D.SIM_GAMES.decode.createWorld('free',1,[setup]);
-    this.world.balls=c.elements?this.world.balls.filter(b=>b.state?.kind!=='held'):[];if(Array.isArray(this.world.robots[0].hopper))this.world.robots[0].hopper=[];
+    // Without mechanisms the robot is a pushbot: it carries nothing. With them it keeps up to
+    // `preload` of the pieces the game stages in or on the robot.
+    const robot=this.world.robots[0],keep=m.enabled&&c.elements?m.preload.pollen:0;let held=0;
+    this.world.balls=c.elements?this.world.balls.filter(b=>b.state?.kind!=='held'||held++<keep):[];if(Array.isArray(robot.hopper))robot.hopper=robot.hopper.slice(0,Math.min(keep,held));
+    this.spreadStaged();
+    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m);this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;
     this.applyBarriers();
     const r=this.world.robots[0],p={x:c.start.x-this.origin.x,y:c.start.y-this.origin.y};
     // The game engine's competition limits do not apply to an offline pushbot. Override after
     // spawn coercion, before the first physics step (including lazy Rapier body construction).
     // Preserve the drive model's historical 20 A torque reference at the editor's nominal
     // 10 A per-port setting. This calibration is a torque scale, not a measured current draw.
-    Object.assign(r.spec,{length:c.robot.length,width:c.robot.width,heightIn:c.robot.heightIn,stowHeightIn:c.robot.heightIn,massLb:c.robot.massLb,driveRpm:c.robot.driveRpm,deckWheelMm:c.robot.wheelDiameterMm,deckDriveMotors:c.robot.drivetrain==='tank2'?2:4,drivetrain:engineDrive,deckIntakeReach:c.robot.intakeIn});
+    Object.assign(r.spec,{length:c.robot.length,width:c.robot.width,heightIn:c.robot.heightIn,stowHeightIn:c.robot.heightIn,massLb:c.robot.massLb,driveRpm:c.robot.driveRpm,deckWheelMm:c.robot.wheelDiameterMm,deckDriveMotors:c.robot.drivetrain==='tank2'?2:4,drivetrain:engineDrive,deckIntakeReach:config.chassisHitbox(c.robot)?0:c.robot.intakeIn,deckBodyOnly:config.chassisHitbox(c.robot)});
+    // Mechanism parts beyond the game's builder (build adapter deck-mechanism-parts): intake sides, separate
+    // pollen and nectar capacity, and fixed shooters that keep the heading mechanismTick gives them.
+    if(m.enabled){const mount=Mech.engineIntakeMount(m);if(mount)r.spec.intakeMount=mount;r.spec.deckCaps={...m.capacity};r.spec.deckFixedYaw=m.shooters.map(s=>s.type==='fixed');r.spec.deckShooterPieces=m.shooters.map(s=>s.pieces);
+      // Each intake's box is its hitbox: it sticks out past the frame, and a piece must touch it to be taken.
+      // flower: whether it is the intake kind the physics reaches into flowers with (a ramp or side rollers).
+      const boxes={},flower=Mech.flowerKind(m);for(const i of m.intakes)for(const e of i.sides){const edge=e==='front'||e==='back'?c.robot.width:c.robot.length;boxes[e]={reach:i.reach,width:Math.min(i.width??edge,edge),height:i.height,flower:i.kind===flower};}r.spec.deckIntakeBoxes=boxes;
+      // Two shooters on one turret launch from its one spot; the game's spawn checks moved the second apart.
+      if(m.shooters[1]?.sharesTurret&&r.spec.bbMech?.launcher)r.spec.bbMech={...r.spec.bbMech,launcher:{...r.spec.bbMech.launcher,mount:m.shooters[0].mount,mount2:m.shooters[0].mount}};
+      this.rampDown=false;}
+    // The mechanism model points the turret (see mechanismTick); the game physics launches along it.
     Object.assign(r,{pos:p,heading:c.start.heading/DEG,turretHeading:c.start.heading/DEG,vel:{x:0,y:0},angVel:0,fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false});
     this.sensors=new Sensors(c.sensors,this.truth());this.estimate=null;this.command={...ZERO};this.result=null;this.trail=[];
   }
+  // BIOBUZZ stages each missing robot's four POLLEN in one line at its alliance's loading zone. Deck
+  // drives one robot, so the other alliance has two no-shows and both lines land on the same spot:
+  // every ball starts inside another and the first physics step blasts them across the field. The
+  // stacked lines become one line of eight along the wall, filling the 22.69 in zone as on the real field.
+  spreadStaged(){const at=new Map();for(const b of this.world.balls){if(b.state?.kind!=='ground')continue;const key=b.pos.x.toFixed(3)+','+b.pos.y.toFixed(3);at.set(key,[...(at.get(key)||[]),b]);}
+    const lines=new Map();for(const group of at.values())if(group.length>1){const x=group[0].pos.x.toFixed(3);lines.set(x,[...(lines.get(x)||[]),...group]);}
+    for(const line of lines.values()){const d=2*(line[0].r||1.4),mid=line.reduce((s,b)=>s+b.pos.y,0)/line.length;line.sort((p,q)=>p.pos.y-q.pos.y).forEach((b,k)=>{b.pos={x:b.pos.x,y:mid+(k-(line.length-1)/2)*d};});}}
   colliders(){const T=10,b=this.config.bounds,x0=b.x0-this.origin.x,x1=b.x1-this.origin.x,y0=b.y0-this.origin.y,y1=b.y1-this.origin.y,w=x1-x0,h=y1-y0,wall=(tx,ty,hx,hy)=>({tx,ty,hx,hy,rot:0});return this._empty||(this._empty={statics:[wall(x0-T,(y0+y1)/2,T,h/2+2*T),wall(x1+T,(y0+y1)/2,T,h/2+2*T),wall((x0+x1)/2,y0-T,w/2+2*T,T),wall((x0+x1)/2,y1+T,w/2+2*T,T)],bounds:{halfX:w/2,halfY:h/2}});}
   applyBarriers(){const triangles=[];for(const zone of this.zones){let p=planner.polygon(zone);if(p.length===2){const [a,b]=p,angle=Math.atan2(b.y-a.y,b.x-a.x)*DEG;p=planner.polygon({type:'rect',x:(a.x+b.x)/2,y:(a.y+b.y)/2,width:Math.hypot(b.x-a.x,b.y-a.y),height:1,angle});}const points=p.flatMap(q=>[q.x-this.origin.x,q.y-this.origin.y]),indices=this.dsim.Earcut.triangulate(points);for(let i=0;i<indices.length;i+=3)triangles.push(indices.slice(i,i+3).flatMap(j=>points.slice(j*2,j*2+2)));}this.world.deckPolygons=triangles;}
   physicsStep(world,cmd){
-    const D=this.dsim,dt=D.SIM_DT,input={driveX:-cmd.strafe,driveY:cmd.forward,rotate:cmd.turn,leftDrive:clamp(cmd.forward-cmd.turn,-1,1),rightDrive:clamp(cmd.forward+cmd.turn,-1,1),intake:false,fire:false};
+    const D=this.dsim,dt=D.SIM_DT,mech=world===this.world&&this.config.mechanisms.enabled?this.mechOut:null,input={driveX:-cmd.strafe,driveY:cmd.forward,rotate:cmd.turn,leftDrive:clamp(cmd.forward-cmd.turn,-1,1),rightDrive:clamp(cmd.forward+cmd.turn,-1,1),intake:!!mech?.intake,fire:!!mech?.fire};
     // Explicit FLOAT commands coast unpowered axes instead of braking.
     world.robots[0].deckFloat=cmd.float===true;
     const mod=world===this.world?this.module():null;
@@ -154,7 +186,7 @@ class SimEngine{
       headingP:6*turnScale*inertiaScale,headingD:.06*turnScale*inertiaScale,translationalP:.45*speedScale,translationalSmall:.15*speedScale,translationalD:.012*speedScale,
       // Default path speed: 60% of top speed, capped near 45 in/s so a fast robot still tracks tight
       // corners within ~2 in (measured). Advanced settings can raise it.
-      maxPathSpeed:Math.max(.3,Math.min(.6,Math.floor(45/fwd.v*20)/20)),holdTimeoutMs:2000};
+      maxPathSpeed:Math.max(.3,Math.min(.8,Math.floor(45/fwd.v*20)/20)),holdTimeoutMs:2000};
     this._tuning={key,value};return this.userTuning(value);
   }
   // Timed-driving calibration, the way a team does it on the floor: drive at `power` for 1 s and for
@@ -171,13 +203,9 @@ class SimEngine{
   }
   userTuning(base={}){
     const t=this.config?.tuning||{},out={...base};
-    // UI response is a dimensionless multiplier of gains calibrated for this robot. Old raw
-    // PID overrides are deliberately migrated to auto-tuning; arbitrarily large gains ring.
-    const scale=finite(t.correctionScale)?clamp(t.correctionScale,0,2):1;
-    for(const k of ['translationalP','translationalSmall'])if(finite(base[k]))out[k]=base[k]*scale;
-    const noise=this.config?.sensors.noise||0;
-    if(noise>.2){out.translationalP*=Math.max(.2,.2/noise);out.translationalSmall*=Math.max(.2,.2/noise);}
-    out.maxPathSpeed=finite(t.maxPathSpeed)?clamp(t.maxPathSpeed,0,1):(base.maxPathSpeed??.6);
+    // Correction gains always come from this robot's measured drive model. Old raw PID overrides
+    // and the retired 0–2 correction strength are ignored; arbitrarily large gains ring.
+    out.maxPathSpeed=finite(t.maxPathSpeed)?clamp(t.maxPathSpeed,0,1):(base.maxPathSpeed??.8);
     return out;
   }
 
@@ -205,8 +233,42 @@ class SimEngine{
     catch(e){this.fail(e.message);}finally{this.busy=false;}
     if(now-this.lastFrame>=32)this.emitFrame();
   }
+  // Mechanism commands for this tick become the game physics' intake and fire inputs.
+  mechanismTick(){
+    if(!this.config.mechanisms.enabled)return;
+    const r=this.world.robots[0],t=this.truth();
+    this.mechOut=this.mech.tick(this.dsim.SIM_DT,this.mechCmd,{pose:{x:t.x,y:t.y,heading:t.heading},target:this.aimTarget(),held:Array.isArray(r.hopper)?r.hopper.length:0});
+    const boxes=r.spec.deckIntakeBoxes;if(boxes)for(const e of Object.keys(boxes))boxes[e].off=this.mechOut.edgesOff.includes(e);
+    // A ramp's servo: when it is sent down or up, the game physics swings its ramp (RAMP_SWING s) so it settles when
+    // the model's ramp gets there. Only a settled ramp reaches into flowers; one that hits a wall folds back.
+    const ramp=this.mechOut.ramp;
+    if(ramp&&ramp.down!==this.rampDown){this.rampDown=ramp.down;Object.assign(r,{bbRampOut:ramp.down,bbRampAt:this.world.time+ramp.eta-RAMP_SWING,bbRampBlocked:false});}
+    // Each shooter points where the model says, relative to the chassis (a turret where it aimed, a fixed
+    // shooter along its facing); launches follow it. The second shooter is the game's nectar launcher.
+    const shooters=this.config.mechanisms.shooters;r.aimAssist=false;
+    if(shooters[0])r.turretHeading=r.heading+this.mech.aim(0)/DEG;if(shooters[1])r.bbTurret2Heading=r.heading+this.mech.aim(1)/DEG;
+  }
+  // Where shooters aim: the cell the route's action names (the hive cell up at the start, or the other one);
+  // in teleop, whichever cell faces up right now, as a driver would.
+  aimTarget(){
+    const c=this.config,hive=this.world?.biobuzz?.hives?.[c.alliance];
+    const cell=this.mode==='manual'&&hive?(hive.up===(c.alliance==='blue'?'north':'south')?'start':'other'):this.mechCell||'start';
+    return Mech.target(c.mechanisms,c.field,c.alliance,cell);
+  }
+  mechanismState(){
+    if(!this.config.mechanisms.enabled)return null;const s=this.mech.state(),m=this.config.mechanisms,score=this.world.biobuzz?.points?.[this.config.alliance];
+    const st=this.pieceStats,hopper=Array.isArray(this.world.robots[0].hopper)?this.world.robots[0].hopper:[],nectar=hopper.filter(c=>c==='red'||c==='blue').length;return {...s,pollen:hopper.length-nectar,nectar,pickedUp:st?.picked??0,launched:st?.launched.size??0,landed:st?.landed.size??0,busy:this.mechBusy,command:{...this.mechCmd},flywheelTicksPerSecond:s.flywheel*m.shooter.rpm*m.shooter.ticksPerRev/60,turretTicks:s.turret*m.turret.ticksPerDegree,score:finite(score)?score:null,tips:this.world.biobuzz?.hives?.[this.config.alliance]?.tips??null};
+  }
+  // Run analysis: pieces the robot picked up, launched, and that landed in its alliance's hive, by piece id.
+  trackPieces(){
+    const w=this.world,r=w.robots[0];if(!this.config.mechanisms.enabled||!w.biobuzz)return;
+    const held=new Set(w.balls.filter(b=>b.state?.kind==='held'&&(b.state.robot===undefined||b.state.robot===r.id)).map(b=>b.id));
+    const st=this.pieceStats||(this.pieceStats={held,picked:0,launched:new Set(),landed:new Set()});
+    for(const id of held)if(!st.held.has(id))st.picked++;for(const id of st.held)if(!held.has(id))st.launched.add(id);st.held=held;
+    for(const id of w.biobuzz.hives?.[this.config.alliance]?.contents||[])if(st.launched.has(id))st.landed.add(id);
+  }
   tick(cmd){
-    this.command=cmd;this.physicsStep(this.world,cmd);const t=this.truth(),reading=this.sensors.read(t,this.dsim.SIM_DT);
+    this.mechanismTick();this.command=cmd;this.physicsStep(this.world,cmd);this.trackPieces();const t=this.truth(),reading=this.sensors.read(t,this.dsim.SIM_DT);
     if(this.world.tick%3===0){this.trail.push({x:t.x,y:t.y,e:this.estimate?{x:this.estimate.x,y:this.estimate.y}:null});if(this.trail.length>2400)this.trail.splice(0,600);}
     const corners=planner.body({x:t.x,y:t.y,heading:t.heading*DEG},this.info.footprint);
     const hit=this.zones.filter(z=>planner.zoneHits(corners,z)).map(z=>z.id);
@@ -226,15 +288,18 @@ class SimEngine{
     const result=await this.run(raw.program||{});if(result.ok)this.practice=new PracticeClock(raw.mode,raw.timing);this.emitFrame(true);return result;
   }
   practiceInput(pad){
-    if(!this.practice||this.practice.phase!=='teleop'||!this.playing){this.manualInput=null;return;}
+    if(!this.practice||this.practice.phase!=='teleop'||!this.playing){this.manualInput=null;this.manualMech=null;return;}
     const n=v=>finite(v)?clamp(v,-1,1):0,valid=pad&&pad.mapping==='standard',x=valid?n(pad.axes?.[0]):0,y=valid?-n(pad.axes?.[1]):0,turn=valid?n(pad.axes?.[2]):0;
-    if(!valid){this.manualInput=null;this.practice.neutralRequired=true;return;}
+    if(!valid){this.manualInput=null;this.manualMech=null;this.practice.neutralRequired=true;return;}
     if(this.practice.neutralRequired){this.manualInput=null;if(Math.max(Math.abs(x),Math.abs(y),Math.abs(turn))<=.06){this.practice.neutralRequired=false;this.practiceInputAt=this.now();}return;}
     this.practiceInputAt=this.now();this.manualInput={x,y,turn,fieldCentric:this.config.robot.driveStyle==='field',precision:!!pad.buttons?.[4]?.pressed};
+    // Teleop mechanisms: right bumper intakes, left trigger spins up, right trigger shoots (keyboard: E, Shift, G).
+    const press=i=>!!pad.buttons?.[i]?.pressed||(pad.buttons?.[i]?.value??0)>.3;this.manualMech={intake:press(5),spin:press(6),feed:press(7)};
   }
   async practiceTick(){
     const practice=this.practice,seq=this.runSeq;
-    if(practice&&practice.phase==='teleop'&&this.now()-this.practiceInputAt>500){this.manualInput=null;practice.neutralRequired=true;}
+    if(practice&&practice.phase==='teleop'&&this.now()-this.practiceInputAt>500){this.manualInput=null;this.manualMech=null;practice.neutralRequired=true;}
+    if(this.mode==='manual'&&this.config.mechanisms.enabled){const b=practice?.phase==='teleop'&&this.manualInput?this.manualMech||{}:{},shoot=!!b.feed;this.mechCmd={intake:!!b.intake,spin:!!b.spin||shoot,aim:!!b.spin||shoot,feed:shoot};this.mechBusy=false;}
     if(this.mode==='program')await this.programTick();else if(this.mode==='timed')this.timedTick();else this.tick(practice&&practice.phase!=='teleop'?ZERO:this.manualCommand());
     if(!practice||practice!==this.practice||!this.playing)return;
     // A run failure invalidates the session; a clean early finish holds still until AUTO ends.
@@ -259,7 +324,7 @@ class SimEngine{
       if(!program.files||typeof program.files!=='object'||typeof program.opMode!=='string')throw Error('Export the Control Hub files first.');
       const size=Object.values(program.files).reduce((s,v)=>s+(typeof v==='string'?v.length:Infinity),0);if(size>400000)throw Error('TeamCode files are limited to 400 KB.');
       if(!['mecanum','tank'].includes(config.drives[this.config.robot.drivetrain].engine))throw Error('The virtual Control Hub runs mecanum and tank-style drivetrains; choose one of those robots.');
-      hub={...Ftc.hardware(this.config.robot,this.config.sensors.localization),files:program.files,opmode:program.opMode};
+      hub={...Ftc.hardware(this.config.robot,this.config.sensors.localization),files:program.files,opmode:program.opMode};if(this.config.mechanisms.enabled)hub.mechanisms=Ftc.mechanismHardware(this.config.mechanisms);
     }
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');
     const timed=kind==='route'&&!config.sensors[this.config.sensors.localization].translation;
@@ -285,8 +350,9 @@ class SimEngine{
     child.stdin.on('error',()=>{});
     const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic||program.route.segments.some(s=>finite(s.heading))),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?Math.max(0,s.wait):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
     // The leg plan every export shares: where the robot stops, turns at pins and runs action paths.
-    if(route){let last=-1;route.legs=Export.legs(program.route).map(l=>{last+=l.segments.length;return {last,power:l.power??this.info.tuning.maxPathSpeed,wait:Math.max(0,l.wait||0),action:String(l.action||'').slice(0,40),moving:String(l.moving?.action||(l.moving?'Action path':'')).slice(0,40),heading:finite(l.heading)?l.heading:program.route.heading,turn:finite(l.turn)?l.turn:null};});}
-    const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,actions:typeof program.actions==='string'?program.actions:'',motionModule:program.motionModule,deps:program.deps||''}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
+    const legPlan=route?Export.legs(program.route):null;this.legPaths=legPlan?.map(l=>l.path)??null;this.legSeconds=legPlan?.map(l=>({pin:l.actionSeconds,moving:l.moving?.seconds??null}))??null;this.legCells=legPlan?.map(l=>({pin:l.cell||0,moving:l.moving?.cell||0}))??null;
+    if(route){let last=-1;route.legs=Export.legs(program.route).map(l=>{last+=l.segments.length;return {last,power:l.power??this.info.tuning.maxPathSpeed,wait:Math.max(0,l.wait||0),action:String(l.action||'').slice(0,40),actionSeconds:finite(l.actionSeconds)?l.actionSeconds:null,movingSeconds:finite(l.moving?.seconds)?l.moving.seconds:null,path:l.path,moving:String(l.moving?.action||(l.moving?'Action path':'')).slice(0,40),heading:finite(l.heading)?l.heading:program.route.heading,turn:finite(l.turn)?l.turn:null};});}
+    const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,actions:typeof program.actions==='string'?program.actions:'',motionModule:program.motionModule,deps:program.deps||'',...(this.config.mechanisms.enabled?{mechanisms:MotionModule.mechanismHardware(this.config.mechanisms)}:{})}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:config.drives[this.info.robot.drivetrain].engine,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);
     let ready;try{ready=await this.request(bridge,init,30000,'Compiling and starting the program');}catch(e){if(seq===this.runSeq)this.fail(e.message,seq);return {ok:false,error:e.message};}
@@ -305,14 +371,23 @@ class SimEngine{
   }
   async programTick(){
     const bridge=this.child;if(!bridge||bridge.seq!==this.runSeq){this.mode='idle';return;}
+    // Mechanisms: a route names its active action; exported code drives its mechanism motors and servos.
+    if(this.config.mechanisms.enabled){
+      if(bridge.kind==='opmode'||bridge.kind==='motionmodule'){
+        // MotionModule zeroes every motor for a few milliseconds when a drive wheel reverses (dead time);
+        // a spinning flywheel or indexer barely notices, so its outputs count as on for 0.12 s after.
+        const d=this.mechDevices||{},now=this.world.time,latch=this.mechLatch||(this.mechLatch={}),on=(key,active)=>{if(active)latch[key]=now;return bridge.kind==='motionmodule'?now-(latch[key]??-Infinity)<=.12:active;};
+        this.mechCmd={intake:on('intake',Math.abs(d.intake||0)>.2),spin:on('spin',(d.flywheel||0)>.2),feed:on('feed',Math.abs(d.indexer||0)>.2),aim:finite(d.turretDeg)||Array.isArray(d.turretDegs),turretDeg:finite(d.turretDeg)?d.turretDeg:undefined,turretDegs:Array.isArray(d.turretDegs)?d.turretDegs:undefined,...(typeof d.ramp==='number'?{ramp:d.ramp>.5}:{})};this.mechBusy=false;}
+      else{this.mechCell=this.mechAct&&this.legCells?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']?'other':'start';const next=this.mechRunner.commands(this.mechAct&&{...this.mechAct,path:this.legPaths?.[this.mechAct.leg],seconds:this.legSeconds?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy;}
+    }
     const reading=this.tick(this.command),seq=bridge.seq;bridge.ticks++;
-    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu};
+    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState()};
     // The first ticks include JIT warm-up; later ticks must return promptly.
     let reply;try{reply=await this.request(bridge,msg,bridge.ticks<30?5000:750,'One loop() call');}catch(e){this.fail(e.message,seq);return;}
     if(seq!==this.runSeq)return; // stopped while waiting: discard the stale reply
     if(reply.type==='error'){this.fail(this.describe(reply),seq,reply);return;}
     const d=reply.drive||{},n=v=>finite(v)?clamp(v,-1,1):0;this.command={forward:n(d.forward),strafe:n(d.strafe),turn:n(d.turn),float:d.float===true};
-    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;
+    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;this.mechAct=reply.act||null;this.mechDevices=reply.mech||null;
     if(reply.log?.length)this.emit({type:'log',lines:reply.log.slice(-60)});
     if(reply.done)this.finish(seq);
   }
@@ -322,10 +397,14 @@ class SimEngine{
     // coasts onto the pin). Record where it comes to rest, as a real robot would be measured.
     for(let i=0;i<120;i++){const r=this.truth();if(Math.hypot(r.vx,r.vy)<.5&&Math.abs(r.omega)<.02)break;this.command={...ZERO};this.tick(this.command);}
     const t=this.truth();
-    this.result={reason:'finished',kind:this.timed?'timed':this.child?.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},estimate:this.estimate&&{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG},violations:[...(this.violations||[])]};
+    this.result={reason:'finished',kind:this.timed?'timed':this.child?.kind,time:this.world.time,truth:{x:t.x,y:t.y,heading:t.heading*DEG},estimate:this.estimate&&{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG},violations:[...(this.violations||[])],mechanisms:this.mechanismState()};
     this.stopProgram();this.emit({type:'run',state:'finished',result:this.result});this.emitFrame(true);
   }
-  timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),next=runner.advance(this.dsim.SIM_DT,reading.imu);this.command=next.drive;this.waiting=next.wait;this.acting=next.acting||null;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
+  timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),mech=this.config.mechanisms.enabled;let held=false;
+    // A pin's mechanism action holds the timed robot until it finishes, like the exported MotionModule code.
+    const hold=mech?(step,index)=>{this.mechCell=step.cell==='other'?'other':'start';const next=this.mechRunner.commands({name:step.action,leg:index,moving:false},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy;held=true;return next.busy;}:null;
+    const next=runner.advance(this.dsim.SIM_DT,reading.imu,hold);
+    if(mech&&!held){this.mechCell=next.acting&&next.actingCell==='other'?'other':'start';const r=this.mechRunner.commands(next.acting?{name:next.acting,leg:next.segment,path:'timed:'+next.acting,moving:true}:null,this.mech.state(),this.world.time);this.mechCmd=r.cmd;this.mechBusy=false;}this.command=next.drive;this.waiting=next.wait;this.acting=next.acting||null;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
   describe(reply){const where={compile:'Compile error',load:'Could not load the program',init:'init() failed',loop:'loop() failed',bridge:'Deck bridge error'}[reply.stage]||'Program error';return `${where}: ${reply.message}`;}
   fail(message,seq=this.runSeq,reply){
     if(seq!==this.runSeq)return;this.stopProgram();this.playing=false;this.practice=null;
@@ -333,7 +412,7 @@ class SimEngine{
   }
   // Ends any program: invalidates pending replies, kills the Java process and zeroes the drive.
   stopProgram(reason){
-    const bridge=this.child;this.runSeq++;this.child=null;this.timed=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;this.acting=null;
+    const bridge=this.child;this.runSeq++;this.child=null;this.timed=null;this.command={...ZERO};this.manualInput=null;this.waiting=null;this.acting=null;this.mechAct=null;this.mechDevices=null;this.mechBusy=false;if(this.mechCmd)this.mechCmd={intake:false,spin:false,aim:false,feed:false};
     if(['program','manual','timed'].includes(this.mode))this.mode='idle';
     if(bridge){for(const w of bridge.waiters.splice(0))w.reject(Error(reason||'Stopped.'));try{bridge.child.stdin.end(JSON.stringify({type:'stop'})+'\n');}catch{}try{bridge.child.kill();}catch{}setTimeout(()=>{try{fs.rmSync(bridge.dir,{recursive:true,force:true});}catch{}},2000).unref?.();}
   }
@@ -367,7 +446,8 @@ class SimEngine{
     return {type:'frame',time:this.world.time,tick:this.world.tick,mode:this.mode,playing:this.playing,speed:this.speed,
       truth:{x:t.x,y:t.y,heading:t.heading*DEG,vx:t.vx,vy:t.vy,omega:t.omega*DEG,z:t.z},command:this.command,
       estimate:this.estimate?{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG}:null,
-      follower:this.follower||null,telemetry:this.telemetry||null,contacts:this.contacts||[],contactEvents:this.contactEvents?.size||0,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,acting:this.acting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'deck':null,
+      follower:this.follower||null,telemetry:this.telemetry||null,contacts:this.contacts||[],contactEvents:this.contactEvents?.size||0,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,acting:this.acting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'deck':null,mechanisms:this.mechanismState(),
+      modules:config.drives[this.config.robot.drivetrain]?.engine==='swerve'&&Array.isArray(this.world.robots[0].moduleAngles)?this.world.robots[0].moduleAngles.slice(0,4):null,
       fieldState:{game:this.config.field,time:this.world.time,tick:this.world.tick,balls:this.world.balls.map(b=>({...b,pos:{...b.pos},state:{...b.state}})),robots:[],biobuzz:this.world.biobuzz?structuredClone(this.world.biobuzz):undefined}};
   }
   emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<32)return;this.lastFrame=now;this.emit(this.frame());}

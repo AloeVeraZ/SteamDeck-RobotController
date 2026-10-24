@@ -13,7 +13,7 @@
 #simulation-field{display:block;width:100%;max-height:calc(100dvh - 300px);min-height:260px;touch-action:none;border-radius:4px}
 #simulation-field[data-placing="true"],#simulation-field[data-mode=rect],#simulation-field[data-mode=circle],#simulation-field[data-mode=triangle],#simulation-field[data-mode=shape],#simulation-field[data-mode=pin]{cursor:crosshair}
 #simulation-field:focus-visible{outline:2px solid var(--text);outline-offset:2px}
-.field-floor{fill:var(--surface);stroke:none}.field-grid{fill:none;stroke:var(--line);stroke-width:.3}
+.field-floor{fill:var(--surface);stroke:none}.field-grid{fill:none;stroke:var(--line-strong);stroke-width:.35}
 .sim-walls{fill:none;stroke:var(--line-strong);stroke-width:.8}
 .field-labels{fill:var(--muted);font:3px var(--font)}
 .sim-obstacle{fill:var(--muted);fill-opacity:.35;stroke:var(--muted);stroke-width:.3}
@@ -43,7 +43,7 @@
 .sim-panel .hint{font-size:12px}.sim-panel [role=status]{min-height:18px;margin:8px 0;color:var(--text);font-size:13px}
 .sim-panel .sim-seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;width:100%;margin-bottom:12px}
 .sim-drop{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:12px;text-align:center;margin-bottom:10px}.sim-drop p{margin:0 0 8px;font-size:13px}
-.sim-drop.over{border-color:var(--text);background:var(--well)}.sim-drop.compact{padding:8px}.sim-drop.compact p{display:none}
+.sim-drop.over{border-color:var(--text);background:var(--well)}.sim-drop.compact{padding:8px}.sim-drop.compact p:not(.sim-import-status){display:none}
 .sim-model-preview{position:relative;height:220px;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--well)}
 .model-view,.model-canvas{position:absolute;inset:0}.model-canvas canvas{display:block;width:100%;height:100%}
 .view-cube{position:absolute;right:14px;top:10px;width:110px;height:134px;z-index:3;touch-action:none;user-select:none;-webkit-user-select:none}
@@ -91,7 +91,20 @@
 .sim-tabs button span{display:inline-grid;place-items:center;width:23px;height:23px;border:1px solid var(--line-strong);border-radius:50%;font-size:11px}
 .sim-tabs button[aria-selected=true] span{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 .sim-setup-bar{display:flex;align-items:center;gap:8px;margin-bottom:20px;flex-wrap:wrap}
-.sim-setup-bar>label{font-size:12px;color:var(--muted);margin-right:4px}.sim-setup-bar>select,.sim-setup-bar>input{width:200px;min-height:38px;margin:0}.sim-setup-bar>.secondary{min-height:38px;padding-inline:14px}.sim-setup-bar>.hint{margin-left:auto;font-size:12px}
+.sim-setup-bar>.sim-setup-label{font-size:12px;color:var(--muted);margin-right:4px}.sim-setup-picker{position:relative;min-width:0}.sim-setup-picker>input{width:260px;min-height:44px;margin:0}
+.sim-setup-current{display:flex;align-items:center;gap:10px;width:min(420px,60vw);min-height:44px;padding:5px 10px 5px 12px;text-align:left;background:var(--control);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--text)}.sim-setup-current:hover{background:var(--input-hover)}
+.sim-setup-text{display:grid;min-width:0;flex:1}.sim-setup-text strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sim-setup-text small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sim-setup-current .ui-icon{flex:none;width:18px;height:18px}
+.sim-setup-list{position:absolute;z-index:30;top:calc(100% + 4px);left:0;width:min(460px,calc(100vw - 32px));max-height:min(60vh,520px);overflow:auto;padding:6px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius);box-shadow:0 10px 30px rgb(0 0 0 / .28)}
+.sim-setup-option{display:grid;gap:4px;width:100%;padding:9px 10px;margin:0 0 4px;text-align:left;background:none;border:1px solid transparent;border-radius:8px;color:var(--text)}.sim-setup-option:hover,.sim-setup-option:focus-visible{background:var(--hover)}.sim-setup-option[aria-selected=true]{border-color:var(--accent);background:var(--accent-bg)}
+.sim-setup-option>strong{font-size:14px}.sim-setup-facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 10px;font-size:11px;color:var(--muted)}.sim-setup-facts>b{font-weight:600;color:var(--quiet)}.sim-setup-list>.hint{font-size:11px;margin:4px 6px 2px}
+.sim-setup-menu{position:fixed;z-index:40;display:grid;min-width:170px;padding:4px;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 10px 30px rgb(0 0 0 / .32)}.sim-setup-menu>button{min-height:34px;padding:6px 12px;text-align:left;background:none;border:0;border-radius:6px;color:var(--text);font-size:13px}.sim-setup-menu>button:hover:not(:disabled),.sim-setup-menu>button:focus-visible{background:var(--hover)}.sim-setup-menu>button:disabled{opacity:.45}.sim-setup-menu>.danger{color:var(--danger)}
+.sim-setup-bar>.hint.failed{color:var(--danger)}.sim-setup-bar>.hint{margin-left:auto;font-size:12px}
+/* Setup actions: one joined bar for the setups themselves, one for files, the same height as the picker. */
+.sim-setup-actions{display:flex;gap:2px;padding:3px;background:var(--raised);border-radius:var(--radius-control)}
+.sim-setup-actions>button{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 12px;background:none;border:0;border-radius:6px;color:var(--text);font:600 13px/1 var(--font);white-space:nowrap}
+.sim-setup-actions>button .ui-icon{width:16px;height:16px;color:var(--muted)}.sim-setup-actions>button:hover:not(:disabled),.sim-setup-actions>button:focus-visible{background:var(--hover)}
+.sim-setup-actions>.danger:hover:not(:disabled),.sim-setup-actions>.danger:focus-visible{background:var(--danger-bg);color:var(--danger)}.sim-setup-actions>.danger:is(:hover,:focus-visible) .ui-icon{color:var(--danger)}
+.driver-station #sim-setup-delete-confirm{max-width:460px}.driver-station .primary.danger{background:var(--danger);color:var(--bg)}.driver-station .primary.danger:hover:not(:disabled){background:var(--danger);filter:brightness(1.1)}
 #simulation-view[data-tab=setup] .simulation-layout{display:block}
 #simulation-view[data-tab=setup] .sim-panel{max-width:none;margin:0;width:100%}
 .sim-setup-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);grid-template-rows:auto 1fr;gap:20px 32px;align-items:start}
@@ -105,16 +118,16 @@
 #simulation-view[data-tab=plan] #simulation-field,#simulation-view[data-tab=run] #simulation-field{max-height:calc(100dvh - 210px);min-height:300px}
 .sim-seg.three>button:not([data-tool=select]){display:none}
 .sim-toolbar [hidden],.sim-panel [hidden],.sim-setup-bar [hidden],.simulation-layout>[hidden]{display:none!important}
-.sim-field-detail{pointer-events:none}.sim-field-tape{fill:none;stroke-width:1.2;stroke-linejoin:round}.sim-field-metal{fill:var(--surface);stroke:var(--muted);stroke-width:.35}.sim-field-structure{fill:var(--well);stroke:var(--muted);stroke-width:.45}.sim-field-detail text{font:600 3px var(--font);fill:var(--muted)}
-@media(max-width:900px){.sim-setup-grid{grid-template-columns:1fr;gap:20px}.sim-robot-card,.sim-advanced-card{grid-column:1;grid-row:auto}.sim-setup-bar>.hint{display:none}#simulation-view[data-tab=run] .simulation-layout{grid-template-columns:1fr}.driver-station .sim-tabs{gap:14px}.driver-station .sim-tabs>button{font-size:12px}.sim-setup-bar>select{flex:1;min-width:100px;width:auto}#simulation-view[data-tab=plan] #simulation-field,#simulation-view[data-tab=run] #simulation-field{max-height:520px}.sim-panel .sim-project{justify-content:stretch}.sim-panel .sim-project>button{flex:1}}
+/* Our own plain field: tiles, structures as outlines from above (alliance-tinted) and the planner's boundaries. */
+.sim-field-detail{pointer-events:none}.sim-field-structure{fill:var(--raised);stroke:var(--quiet);stroke-width:.35;stroke-linejoin:round}.sim-field-structure.red{fill:#e2564d;fill-opacity:.18;stroke:#e2564d}.sim-field-structure.blue{fill:#2f7fe0;fill-opacity:.18;stroke:#2f7fe0}.sim-field-ring{fill:none;stroke:var(--quiet);stroke-width:.35}
+@media(max-width:900px){.sim-setup-grid{grid-template-columns:1fr;gap:20px}.sim-robot-card,.sim-advanced-card{grid-column:1;grid-row:auto}.sim-setup-bar>.hint{display:none}#simulation-view[data-tab=run] .simulation-layout{grid-template-columns:1fr}.driver-station .sim-tabs{gap:14px}.driver-station .sim-tabs>button{font-size:12px}.sim-setup-picker{flex:1 1 320px}.sim-setup-current{width:100%}#simulation-view[data-tab=plan] #simulation-field,#simulation-view[data-tab=run] #simulation-field{max-height:520px}.sim-panel .sim-project{justify-content:stretch}.sim-panel .sim-project>button{flex:1}}
 @media(max-width:450px){.sim-setup-bar>label{width:100%}.sim-tabs button span{display:none}.driver-station .sim-tabs{gap:12px}.start-xy{gap:8px}.sim-grid3{gap:6px}.sim-panel .sim-project>button{font-size:12px}.sim-toolbar{gap:6px}.driver-station .sim-seg>button{padding:0 9px}.sim-row{gap:2px}}
 .sim-practice-clock{display:flex;justify-content:space-between;align-items:center;border-block:1px solid var(--line);padding:14px 0;margin:6px 0 12px;gap:8px}.sim-practice-clock>span{font-size:12px;color:var(--muted)}.sim-practice-clock>strong{font:700 34px var(--font);font-variant-numeric:tabular-nums}
 @media(min-width:901px){.field-area{position:sticky;top:76px}}
 .sim-planning-steps{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}.sim-planning-steps button{flex:1;min-width:130px;min-height:42px}.sim-planning-steps [aria-selected=true]{background:var(--accent);color:var(--bg)}
 .sim-planning-steps[hidden]{display:none}#sim-start-next{width:100%;margin-top:12px}#sim-start-controls h2{margin-top:0}.sim-side-assignments{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.sim-side-assignments button{padding:8px;min-height:36px;font-size:12px}
-.sim-physical-boundary{fill:#ff6373;fill-opacity:.07;stroke:#ff6373;stroke-width:.55;stroke-dasharray:.6 1.2;stroke-linecap:round;pointer-events:none}
-#simulation-field:not([data-field=empty]) .sim-path{stroke:#76e8fc;stroke-width:1.1;filter:drop-shadow(0 0 .3px #111)}#simulation-field:not([data-field=empty]) .sim-pin circle{fill:#d4f7ff;stroke:#111}#simulation-field:not([data-field=empty]) .sim-pin text{fill:#111}
-#field-robot rect,#field-robot.has-model rect{stroke:#ff6373;stroke-width:.6;stroke-dasharray:1 .7;fill:none}#field-robot.has-model path{stroke:#ff6373}
+.sim-physical-boundary{fill:var(--danger);fill-opacity:.06;stroke:var(--danger);stroke-width:.4;stroke-dasharray:1.4 .9;pointer-events:none}
+#field-robot rect,#field-robot.has-model rect{stroke:var(--danger);stroke-width:.5;stroke-dasharray:none;fill:none}#field-robot.has-model path{stroke:var(--danger)}
 .sim-3d{position:relative}.sim-field-cube{z-index:3;right:14px;top:10px}
 .sim-model-preview{height:310px}.sim-model-preview .view-cube{right:20px;top:20px}
 #simulation-view[data-tab=plan] #sim-hitboxes:not([hidden]){display:block}.sim-controller-setup{padding:0 0 16px}.sim-controller-setup h2{margin-top:0}.sim-controller-setup .hint{margin:10px 0 0}#sim-timed-settings{border-top:1px solid var(--line);margin-top:16px;padding-top:4px}
@@ -124,7 +137,6 @@
 
 /* Paths and pins with effects: action paths dashed in the action colour; turn and spin marks. */
 .sim-path.action{stroke:var(--warning);stroke-dasharray:2.2 1.2}.sim-path.selected{stroke-width:1.6}
-#simulation-field:not([data-field=empty]) .sim-path.action{stroke:#ffc35a}
 .sim-path-mark{fill:var(--text);font:700 3.4px var(--font);paint-order:stroke;stroke:var(--bg);stroke-width:.6px;pointer-events:none}
 .sim-pin-turn{stroke:var(--text);stroke-width:.8;stroke-linecap:round;pointer-events:none}
 .sim-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.sim-key{display:inline-block;width:22px;border-top:3px solid var(--accent);vertical-align:middle;margin-right:4px}.sim-key.action{border-top:3px dashed var(--warning)}
@@ -136,3 +148,125 @@
 .sim-popover .hint{font-size:11px;margin:6px 0 0}.sim-popover .button-row{margin-top:10px;justify-content:space-between}
 .sim-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 @media(max-width:700px){.sim-popover{max-height:calc(100dvh - 8px)}}
+/* Setup runs in three steps like Path planning: field, robot controller with its sensing, robot. */
+.sim-setup-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0 0 20px;max-width:1360px}
+.driver-station .sim-setup-steps button{min-width:0;min-height:40px;font-size:13px;padding:6px 8px}
+.driver-station .sim-setup-steps [aria-selected=true]{background:var(--accent);color:var(--bg)}
+.sim-setup-page{max-width:1360px}.sim-setup-page[data-setup-page=mechanisms]{max-width:760px}.sim-setup-page[hidden]{display:none!important}
+/* Field and Robot controller use the full width: two columns side by side on wide screens. */
+.sim-setup-col{min-width:0}.sim-setup-col>#sim-alliance-box{margin-top:14px}.sim-setup-col>h3{margin:24px 0 10px;padding-top:16px;border-top:1px solid var(--line);font-size:14px}
+@media(min-width:1000px){
+  .sim-setup-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 32px;align-items:start}
+  .sim-setup-col>#sim-timed-settings:not([hidden]),.sim-setup-col>#sim-timed-settings[hidden]+.sim-advanced{margin-top:0;border-top:0;padding-top:0}
+  .sim-setup-col>.sim-field-official:first-child{margin-top:0}
+}
+.sim-setup-page>h2{margin:0 0 4px}.sim-setup-page>h2+.hint{margin:0 0 14px}
+.sim-setup-page>h3,.sim-mech-main>h3{margin:24px 0 10px;padding-top:16px;border-top:1px solid var(--line);font-size:14px}
+.sim-setup-page .sim-advanced h3,.sim-setup-page #sim-timed-settings h3{margin-top:0}
+.sim-setup-page .sim-row{margin-bottom:6px}
+.sim-field-official{margin:10px 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--well);font-size:13px;line-height:1.45;color:var(--text)}
+.sim-setup-nav{display:flex;justify-content:flex-end;gap:8px;margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}
+.sim-setup-nav>.secondary{margin-right:auto}.driver-station .sim-setup-nav>button{min-height:40px;padding-inline:18px}
+/* Setup: every value shows its bar beside its box, like DSIM's builder. */
+#sim-panel-setup .num-field{flex-direction:row;align-items:center;gap:14px}
+#sim-panel-setup .num-field>input[type=number]{order:2;flex:none;width:96px;min-height:38px;padding:4px 10px;text-align:right;font-variant-numeric:tabular-nums}
+#sim-panel-setup .num-field>input.num-slider{order:1;flex:1;margin:0;min-width:0}
+@media(max-width:450px){.driver-station .sim-setup-steps button{font-size:11px;padding:5px 4px}}
+
+.driver-station .sim-setup-page label.check{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin:16px 0 4px;font-size:14px}
+.driver-station .sim-setup-page label.check input{width:18px;height:18px;min-height:0;margin:0;flex:none}
+
+.sim-setup-page h4.sim-setup-group{margin:14px 0 6px;font-size:13px;color:var(--text)}
+/* Mechanisms: a live drawing, then DSIM-style parts: option cards, side chips and a 3×3 position grid.
+   With a robot model, the parts scroll on the left while the model stays in view on the right for "Place on model". */
+.sim-mech-layout{display:flex;flex-direction:column}.sim-mech-main{min-width:0}.sim-mech-aside{order:-1;min-width:0}
+@media(min-width:1100px){
+  .sim-setup-page[data-setup-page=mechanisms]:has(#mech-model-box:not([hidden])){max-width:1360px}
+  .sim-mech-layout:has(#mech-model-box:not([hidden])){display:grid;grid-template-columns:minmax(0,760px) minmax(360px,1fr);gap:0 28px;align-items:start}
+  .sim-mech-layout .sim-mech-aside{order:0;position:sticky;top:76px;max-height:calc(100dvh - 92px);overflow-y:auto;overscroll-behavior:contain;margin-top:8px}
+  .sim-mech-aside .sim-mech-model .sim-model-preview{height:clamp(300px,100dvh - 330px,560px)}
+}
+/* Robot step: the CAD on the left, the chassis size, drivetrain and motors it fills in beside it on the right.
+   On wide screens the CAD stays in view while the page scrolls the settings beside it: one scroll for the whole page. */
+.sim-robot-layout{display:flex;flex-direction:column}.sim-robot-cad,.sim-robot-specs{min-width:0}
+.sim-robot-layout h3{margin:24px 0 10px;padding-top:16px;border-top:1px solid var(--line);font-size:14px}.sim-robot-cad>h3:first-child{margin-top:8px}
+.sim-robot-specs .sim-part-list{max-height:none;overflow:visible}
+.sim-robot-layout:not(:has(#sim-model-box:not([hidden]))) .sim-robot-cad{display:none}
+@media(min-width:1000px){
+  .sim-robot-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,1fr);gap:0 28px;align-items:start}
+  .sim-robot-cad{position:sticky;top:76px;display:flex;flex-direction:column;max-height:calc(100dvh - 92px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  .sim-robot-cad:has(#sim-model-box:not([hidden])){height:calc(100dvh - 92px)}
+  /* No model yet: the settings take the whole width instead of sitting beside an empty column. */
+  .sim-robot-layout:not(:has(#sim-model-box:not([hidden]))){display:flex;align-items:stretch}
+  .sim-robot-cad #sim-model-box:not([hidden]){display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+  .sim-robot-cad #sim-model-box>*{flex:none}
+  .sim-robot-cad #sim-model-box>.sim-model-preview{flex:1 1 auto;height:auto;min-height:150px}
+  .sim-robot-cad .sim-side-assignments{grid-template-columns:repeat(3,minmax(0,1fr))}.driver-station .sim-robot-cad .sim-side-assignments button{min-height:32px;padding:4px 8px}
+  .sim-robot-cad .sim-part-pick{margin:6px 0 0}.sim-robot-cad #sim-model-remove{align-self:flex-start;min-height:32px}
+  .sim-robot-cad #sim-units-box{display:flex;align-items:center;gap:10px;margin-top:8px}.sim-robot-cad #sim-units-box label{margin:0;white-space:nowrap}
+  .driver-station .sim-robot-cad #sim-units-box select{width:auto;min-height:36px}
+  .sim-robot-cad #sim-model-help,.sim-robot-cad #sim-orientation-summary{margin:6px 0}.sim-robot-cad #sim-orientation-summary:empty{display:none}
+  .sim-robot-cad #sim-model-status:empty{display:none}
+  .sim-robot-specs>h3:first-of-type,.sim-robot-specs>.sim-needs-you:first-child+h3,.sim-robot-specs>.sim-parts>h3{margin-top:8px}
+  .sim-robot-specs>.sim-parts:not([hidden])+h3{margin-top:24px}
+}
+/* Longer explanations stay one tap away instead of filling the page. */
+.sim-more{margin:8px 0 2px}.sim-more summary{width:fit-content;cursor:pointer;color:var(--muted);font-size:12px;padding:4px 0}.sim-more summary:hover{color:var(--text)}
+.sim-more[open] summary{color:var(--text)}.sim-more>.hint{margin:6px 0 0;padding-left:12px;border-left:2px solid var(--line)}
+.sim-mech-model{margin:0 0 10px}.sim-mech-model .sim-model-preview{height:260px}.sim-mech-model .model-canvas.picking{cursor:crosshair}
+.driver-station .sim-mech-add{display:block;width:100%;min-height:40px;margin:0 0 6px;border-style:dashed}.driver-station .sim-mech-add[hidden]{display:none}
+.sim-mech-part{border:1px solid var(--line);border-radius:10px;padding:10px 12px 12px;margin:0 0 10px;background:var(--surface)}
+.sim-mech-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.driver-station .sim-setup-page .sim-mech-part h4{margin:0;font-size:14px}
+.sim-mech-label{display:block;margin:12px 0 6px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.sim-choice-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.driver-station .sim-choice{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-height:64px;padding:9px 11px;text-align:left;background:var(--well);border:1px solid var(--line-strong);border-radius:8px;color:var(--text);font-weight:400;white-space:normal}
+.sim-choice strong{font-size:13px}.sim-choice span{font-size:11px;line-height:1.35;color:var(--muted)}
+.driver-station .sim-choice[aria-pressed=true]{border-color:var(--accent);background:var(--raised);box-shadow:inset 0 0 0 1px var(--accent)}
+.sim-chips{display:flex;flex-wrap:wrap;gap:6px}
+.driver-station .sim-chip{min-height:34px;padding:4px 14px;font-size:12px;border-radius:999px;background:var(--well);border:1px solid var(--line-strong);color:var(--text)}
+.driver-station .sim-chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.driver-station .sim-chip:disabled{opacity:.35}
+.sim-mount-grid{display:grid;grid-template-columns:repeat(3,minmax(0,92px));gap:4px;padding:6px;border:1px solid var(--line);border-radius:8px;width:max-content;max-width:100%;box-sizing:border-box}
+.sim-mount-front{grid-column:1/-1;text-align:center;font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--muted);text-transform:uppercase}
+.driver-station .sim-mount-grid button{min-height:34px;padding:2px 4px;font-size:11px;background:var(--well);border:1px solid var(--line-strong);border-radius:6px;color:var(--text)}
+.driver-station .sim-mount-grid button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+.driver-station .sim-mount-grid button:disabled{opacity:.3}
+.driver-station .sim-place{display:inline-block;margin-top:8px;min-height:32px;padding:3px 12px;font-size:12px}.driver-station .sim-place[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.sim-mech-pieces{margin:10px 0 0}
+.sim-mech-code{margin-top:10px}.sim-mech-code summary{cursor:pointer;color:var(--muted);font-size:12px}
+#mech-timing[hidden],#mech-preloads[hidden],#mech-turret-timing[hidden],#mech-turret-code[hidden]{display:none}
+
+/* Timed driving numbers worked out from the robot settings. */
+.sim-timed-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 12px;margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.sim-timed-summary dt{font-size:11px;color:var(--muted);grid-row:1}.sim-timed-summary dd{margin:0;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;grid-row:2}
+#sim-timed-manual[hidden]{display:none}
+@media(max-width:560px){.sim-timed-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.sim-timed-summary dt,.sim-timed-summary dd{grid-row:auto}}
+.sim-mech-key{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px;font-size:12px;color:var(--muted)}.sim-mech-key li{display:flex;align-items:center;gap:6px}.sim-mech-key i{flex:none;width:12px;height:12px;border-radius:3px}.sim-mech-key b{color:var(--text)}
+.driver-station .sim-pin-row select{min-height:32px;margin:0;font-size:12px;padding:2px 6px;min-width:0}
+/* 2D robot: intake boxes and shooters, dotted in their part colours. */
+#field-robot rect.sim-glyph-intake{fill:#49cbb3;fill-opacity:.15;stroke:#49cbb3;stroke-width:.6;stroke-dasharray:1 .7}
+#field-robot circle.sim-glyph-shooter{fill:#f2d14b;fill-opacity:.15;stroke:#f2d14b;stroke-width:.6;stroke-dasharray:1 .7}
+#field-robot circle.sim-glyph-shooter.nectar{fill:#e5484d;stroke:#e5484d}#field-robot circle.sim-glyph-shooter.both{fill:#f2994a;stroke:#f2994a}
+.sim-mech-cad{margin:8px 0 0}.sim-mech-cad[hidden]{display:none}.sim-mech-cad .hint{margin:4px 0 0}
+/* Robot presets: DSIM-style cards; a preset sets the mechanism parts (shown, not editable). */
+.sim-presets{margin:8px 0}.sim-presets[hidden],#sim-robot-custom[hidden],.sim-mech-preset[hidden]{display:none}
+.sim-mech-preset{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.sim-mech-preset p{margin:0;font-size:13px}
+/* Sensors list */
+.sim-sensor-list{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px}.sim-sensor-list li{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:4px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.sim-sensor-list b{font-size:13px}.sim-sensor-list span{font-size:12px;color:var(--muted)}.sim-sensor-list li:not(:has(button)) span{grid-column:2/-1}
+#sim-sensor-add[hidden]{display:none}
+.sim-robot-file{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 12px}.sim-robot-file .hint{flex-basis:100%;margin:0}
+.sim-robot-import .sim-drop{margin-bottom:8px}.sim-robot-save{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+/* A preset robot's mechanisms are shown, not edited. */
+.sim-setup-page[data-locked] #mech-intakes,.sim-setup-page[data-locked] #mech-shooters,.sim-setup-page[data-locked] #mech-timing,.sim-setup-page[data-locked] #mech-preloads,.sim-setup-page[data-locked] #mech-cad{pointer-events:none;opacity:.6}.sim-setup-page[data-locked] .sim-mech-add{display:none!important}
+/* CAD import progress and errors, shown where the file was dropped. */
+.sim-import-status{margin:8px 0 0;font-size:12px;color:var(--text)}.sim-import-status:empty{display:none}
+.sim-drop.busy{border-color:var(--accent);opacity:.9}.sim-drop.busy #sim-model-open{pointer-events:none;opacity:.5}
+/* CAD import: detail choice, the parts list (click a part, say what it is) and the settings a person enters. */
+.sim-parts{margin-top:10px}.sim-parts h4{margin:0 0 4px}.sim-part-list{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
+.sim-part-item{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:6px 8px;border-radius:6px;border:1px solid var(--line,#3334);background:transparent;color:inherit;cursor:pointer}
+.sim-part-item em{font-style:normal;opacity:.75;white-space:nowrap}.sim-part-item.selected{border-color:#ffb224;background:#ffb22422}
+.sim-part-pick{border:1px solid #ffb224;border-radius:8px;padding:8px;margin:6px 0}.sim-part-pick p{margin:0 0 6px}.sim-part-pick .chips{display:flex;flex-wrap:wrap;gap:6px}.sim-part-pick .chip[aria-pressed="true"]{outline:2px solid #ffb224;outline-offset:1px}
+.sim-part-nav{display:flex;justify-content:space-between;margin-top:6px}
+.sim-needs-you{border-left:3px solid #ffb224;padding:4px 8px;font-size:13px}.sim-needs-input input{outline:2px solid #ffb224;outline-offset:1px}

@@ -95,17 +95,44 @@ test('DSIM fields: DECODE planar, BIOBUZZ Rapier 3D; reload disposes the 3D worl
     e.reset();assert.notEqual(e.world,first,'reset builds a fresh world');assert.ok(Math.abs(e.truth().x-30)<1e-6);
   }finally{e.dispose();}
 });
+test('BIOBUZZ staged pollen starts apart and stays put until something touches it',{skip},async()=>{
+  // One robot means two no-shows on the other alliance; both of their preload lines used to land on one spot.
+  const e=engine();try{for(const alliance of ['red','blue']){
+    await e.load({field:'biobuzz',alliance,start:{x:72,y:20,heading:90}});const ground=e.world.balls.filter(b=>b.state.kind==='ground'),before=new Map(ground.map(b=>[b.id,{...b.pos}]));
+    for(const [i,a] of ground.entries())for(const b of ground.slice(i+1))assert.ok(Math.hypot(a.pos.x-b.pos.x,a.pos.y-b.pos.y)>=a.r+b.r-1e-6,`${alliance}: pollen ${a.id} and ${b.id} start overlapping`);
+    // As on the real field: the other alliance's eight sit in one line against its side wall, inside its LOADING ZONE.
+    const other=alliance==='red'?'blue':'red',zone=other==='red'?[95.9,118.6]:[25.4,48.1],wall=other==='red'?e.info.bounds.x0:e.info.bounds.x1;
+    const line=ground.filter(b=>Math.abs(b.pos.x+72-wall)<3&&b.pos.y+72>zone[0]-1&&b.pos.y+72<zone[1]+1);
+    assert.equal(line.length,8,`${other}: eight pollen in the loading zone`);assert.equal(new Set(line.map(b=>b.pos.x.toFixed(3))).size,1,`${other}: one line, not two`);
+    for(const b of line)assert.ok(b.pos.y+72-b.r>zone[0]-.01&&b.pos.y+72+b.r<zone[1]+.01,`${other}: pollen ${b.id} inside the loading zone`);
+    e.manual({x:0,y:0,turn:0});for(let i=0;i<120;i++)e.tick(e.manualCommand());
+    for(const b of e.world.balls.filter(b=>before.has(b.id))){const p=before.get(b.id);assert.ok(Math.hypot(b.pos.x-p.x,b.pos.y-p.y)<.5,`${alliance}: pollen ${b.id} moved on its own`);}
+  }}finally{e.dispose();}
+});
 test('the standalone Deck controller is built without a third-party follower and uses an injected clock',{skip},()=>{
   const manifest=JSON.parse(fs.readFileSync(path.join(runtime,'manifest.json'),'utf8'));assert.equal(manifest.java.controller,'deck');assert.equal(manifest.java.clock,'injected simulation clock');assert.equal(manifest.upstream.pedro,undefined);
   const source=fs.readFileSync(path.join(__dirname,'../tools/simulation/java/deck/pathing/DeckFollower.java'),'utf8');assert.doesNotMatch(source,/com\.pedropathing|System\.nanoTime/);assert.match(source,/LongSupplier/);
 });
+test('a light, fast robot stays on a zigzag route: correction keeps priority over path speed',{skip},async()=>{
+  const e=engine();try{
+    // 9 lb at 1150 RPM: a 0.3 power ceiling leaves cruise and correction fighting for the same motors.
+    // Uniformly scaling both let this robot cut corners by about 4 in.
+    const start={x:20,y:20,heading:0},pins=[{x:60,y:60},{x:100,y:20},{x:124,y:110}];
+    const info=await e.load({field:'empty',start,robot:{length:15,width:15,massLb:9,driveRpm:1150},sensors:{noise:0,gyroDrift:0}});
+    const route=planner.plan({start,zones:[],pins,clearance:2,style:'sharp',rotate:false},info.footprint,info.fieldZones,info.bounds);
+    const path=route.segments.flatMap(s=>s.points),off=t=>Math.min(...path.slice(1).map((b,i)=>{const a=path[i],dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy||1,u=Math.max(0,Math.min(1,((t.x-a.x)*dx+(t.y-a.y)*dy)/l));return Math.hypot(t.x-a.x-dx*u,t.y-a.y-dy*u);}));
+    await e.run({kind:'route',route:{heading:route.heading,segments:route.segments,stops:route.stops}});
+    let worst=0;await ticks(e,1800,()=>{worst=Math.max(worst,off(e.truth()));return false;});
+    const done=runEvent(e,'finished');assert.ok(done,'finished');assert.ok(worst<2,`left the path by ${worst.toFixed(2)} in`);assert.ok(Math.hypot(done.result.truth.x-124,done.result.truth.y-110)<1);
+  }finally{e.dispose();}
+});
 test('pins with a pause: the robot stops, waits, then continues',{skip},async()=>{
   const e=engine();try{
-    const start={x:20,y:40,heading:0},pins=[{x:60,y:40,wait:1,action:'Intake'},{x:100,y:40}],info=await e.load({field:'empty',start});
+    const start={x:20,y:40,heading:0},pins=[{x:60,y:40,wait:1,action:'Score'},{x:100,y:40}],info=await e.load({field:'empty',start});
     const route=planner.plan({start,zones:[],pins,clearance:1,style:'spline'},info.footprint,[],info.bounds);
     await e.run({kind:'route',route:{heading:route.heading,segments:route.segments,stops:route.stops}});
     let still=0,sawAction=false;
-    await ticks(e,1200,()=>{if(e.waiting){sawAction=sawAction||e.waiting.action==='Intake';const t=e.truth();if(Math.hypot(t.vx,t.vy)<.5&&Math.abs(t.x-60)<1.5)still++;}return false;});
+    await ticks(e,1200,()=>{if(e.waiting){sawAction=sawAction||e.waiting.action==='Score';const t=e.truth();if(Math.hypot(t.vx,t.vy)<.5&&Math.abs(t.x-60)<1.5)still++;}return false;});
     const done=runEvent(e,'finished');assert.ok(done,'finished');assert.ok(sawAction,'reported the pause action');
     assert.ok(still>=45,`robot held still at the stop for about 1 s (${still} ticks)`);assert.ok(Math.abs(done.result.truth.x-100)<1);
   }finally{e.dispose();}
@@ -131,5 +158,18 @@ test('STEP assembly import merges every part into one rigid body, in inches',{sk
   let max=0;for(const i of m.index)max=Math.max(max,i);assert.ok(max<m.positions.length/3,'one index buffer over all parts');
   let x0=Infinity,x1=-Infinity;for(let i=0;i<m.positions.length;i+=3){x0=Math.min(x0,m.positions[i]);x1=Math.max(x1,m.positions[i]);}
   assert.ok(x1-x0>7&&x1-x0<8.5,`size in inches (${(x1-x0).toFixed(2)})`);
+  // Read in pieces on several threads, the same body: every part, placed and coloured as in one read.
+  const split=await convertStep(step,runtime,{pieces:4,threads:3});
+  assert.ok(split.pieces>1,'split into pieces');assert.equal(split.parts,m.parts);assert.equal(split.triangles,m.triangles);
+  const box=v=>{const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let i=0;i<v.positions.length;i+=3)for(let a=0;a<3;a++){lo[a]=Math.min(lo[a],v.positions[i+a]);hi[a]=Math.max(hi[a],v.positions[i+a]);}return [...lo,...hi].map(x=>+x.toFixed(3));};
+  assert.deepEqual(box(split),box(m));assert.deepEqual(new Set(split.colors),new Set(m.colors));
+  // Heavy parts as convex hulls: every part still there, placed where it belongs (the hull of a part is no smaller
+  // than the part, and no bigger than its edges allow).
+  const quick=await convertStep(step,runtime,{exactBytes:0,pieces:3,threads:3});
+  assert.ok(quick.simplified>0,'some parts simplified');assert.equal(quick.parts,m.parts);
+  box(quick).forEach((v,i)=>assert.ok(Math.abs(v-box(m)[i])<.05,`hull box ${i}: ${v} vs ${box(m)[i]}`));
+  // A second import of the same file comes from the cache.
+  const cacheDir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-cad-'));await convertStep(step,runtime,{cacheDir});const again=await convertStep(step,runtime,{cacheDir});
+  assert.equal(again.cached,true);assert.equal(again.triangles,m.triangles);assert.deepEqual(box(again),box(m));
   await assert.rejects(convertStep(path.join(__dirname,'sim-engine.test.cjs'),runtime),/\.step or \.stp/);
 });

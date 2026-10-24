@@ -1,6 +1,51 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const K=require('../ui/keyboard-layout.js'),{identity}=require('../ui/controllers.js'),{ControllerHub}=require('../src/controller-hub.cjs'),{controllerOutput}=require('../src/controller-output.cjs');
+const {KeyboardInput}=require('../src/keyboard-input.cjs');
+
+test('Windows keys without physical code still test and drive; supplied positions stay authoritative',()=>{
+  const keyboard=new KeyboardInput();
+  for(const [key,axis,value] of [['w',1,-1],['A',0,-1],['s',1,1],['D',0,1],['ArrowUp',3,-1]]){
+    assert.equal(keyboard.key({type:'keyDown',key,code:''}),true);
+    assert.equal(K.pad(keyboard.down).axes[axis],value,key);
+    keyboard.key({type:'keyUp',key,code:''});assert.deepEqual(K.pad(keyboard.down).axes,[0,0,0,0]);
+  }
+  assert.equal(K.code({key:'z',code:'KeyW'}),'KeyW','AZERTY stays position based');
+  assert.equal(K.code({key:'w',code:'KeyZ'}),'KeyZ','an unused supplied code is not rebound');
+  for(const [key,code] of [[' ','Space'],['Shift','ShiftLeft'],['`','Backquote'],['Enter','Enter']])assert.equal(K.code({key}),code);
+});
+
+test('WASD testing stays live while robot output is paused and releases each axis',()=>{
+  const keyboard=new KeyboardInput(),hub=new ControllerHub({hardware:{}});
+  const ingest=()=>{hub.ingest([K.pad(keyboard.down)],{pin:K.ID});return hub.state();};
+  ingest();
+  for(const [code,axis,value] of [['KeyW',1,-1],['KeyA',0,-1],['KeyS',1,1],['KeyD',0,1]]){
+    assert.equal(keyboard.key({type:'keyDown',code,isAutoRepeat:false}),true);
+    const raw=ingest();assert.equal(raw.readings[0].axes[axis],value,code+' is visible in the tester');
+    assert.deepEqual(controllerOutput({...raw,paused:true})[0].axes,[0,0,0,0],'background output is neutral');
+    keyboard.key({type:'keyUp',code});assert.deepEqual(ingest().readings[0].axes,[0,0,0,0]);
+  }
+});
+test('closing a tester or changing editing focus cannot transfer held keys into driving',()=>{
+  const keyboard=new KeyboardInput();
+  keyboard.key({type:'keyDown',code:'KeyW',isAutoRepeat:false});
+  assert.equal(keyboard.release(),true);assert.deepEqual(K.pad(keyboard.down).axes,[0,0,0,0]);
+  assert.equal(keyboard.key({type:'keyDown',code:'KeyW',isAutoRepeat:true}),false,'OS repeat remains blocked');
+  assert.deepEqual(K.pad(keyboard.down).axes,[0,0,0,0]);
+  keyboard.key({type:'keyUp',code:'KeyW'});keyboard.key({type:'keyDown',code:'KeyW',isAutoRepeat:false});
+  assert.equal(K.pad(keyboard.down).axes[1],-1,'a fresh press drives normally');
+  keyboard.release();keyboard.key({type:'keyDown',code:'KeyW',isAutoRepeat:false});
+  assert.equal(K.pad(keyboard.down).axes[1],-1,'a release outside the app does not require an extra tap');
+});
+test('shortcuts and unmapped keys do not become controller input; source reset clears stale holds',()=>{
+  const keyboard=new KeyboardInput();
+  for(const input of [{code:'KeyP'},{code:'KeyW',control:true},{code:'KeyA',alt:true},{code:'KeyS',meta:true}])assert.equal(keyboard.key({type:'keyDown',...input}),false);
+  assert.equal(keyboard.down.size,0);
+  keyboard.key({type:'keyDown',code:'Space'});keyboard.release();keyboard.reset();
+  assert.equal(keyboard.key({type:'keyDown',code:'Space',isAutoRepeat:true}),true);
+  assert.equal(K.pad(keyboard.down).buttons[0],1);
+  assert.equal(keyboard.key({type:'keyUp',code:'Space',control:true}),true);
+});
 
 test('WASD and the arrow keys drive the sticks; diagonals stay inside the unit circle',()=>{
   const p=K.pad(new Set(['KeyW','KeyD','ArrowLeft']));

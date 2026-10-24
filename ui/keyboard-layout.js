@@ -8,6 +8,9 @@ const buttons=[['Space'],['KeyC'],['KeyR'],['KeyF'],['KeyQ'],['KeyE'],['ShiftLef
 // [negative, positive] for Left X, Left Y, Right X, Right Y.
 const axes=[['KeyA','KeyD'],['KeyW','KeyS'],['ArrowLeft','ArrowRight'],['ArrowUp','ArrowDown']];
 const used=new Set([...buttons.flat(),...axes.flat()]);
+// Some Windows/virtual keyboards omit code. Prefer physical positions whenever
+// supplied; otherwise accept their named keys instead of silently dropping input.
+function code(input){return input.code||(/^[a-z]$/i.test(input.key||'')?'Key'+input.key.toUpperCase():({' ':'Space',Shift:'ShiftLeft','`':'Backquote'}[input.key]||input.key));}
 function stick(x,y){const length=Math.hypot(x,y);return length>1?[x/length,y/length]:[x,y];}
 function pad(down){
   const held=code=>down.has(code)?1:0,raw=axes.map(([negative,positive])=>held(positive)-held(negative));
@@ -44,5 +47,5 @@ function detect(map,language=''){
 const names={Space:'Space',ShiftLeft:'Shift',Enter:'Enter',ArrowLeft:'←',ArrowRight:'→',ArrowUp:'↑',ArrowDown:'↓',Backquote:'`'};
 // The keycap printed at that physical position on this layout, e.g. KeyW is "Z" on AZERTY.
 function label(code,map){const key=map&&typeof map.get==='function'?map.get(code):map?.[code];if(names[code]&&(code!=='Backquote'||!key))return names[code];return key?String(key).toUpperCase():code.replace(/^Key|^Digit/,'');}
-return {ID,INDEX,buttons,axes,used,pad,isKeyboard,detect,label};
+return {ID,INDEX,buttons,axes,used,code,pad,isKeyboard,detect,label};
 });

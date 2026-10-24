@@ -3,39 +3,101 @@
 // (occt-import-js, LGPL-2.1) and every part is merged into ONE rigid body: no joints, no
 // articulation, one draw call. The model is visual; the collision footprint stays the robot
 // settings the team enters.
-const fs=require('node:fs'),path=require('node:path');
-const STEP_LIMIT=200*1024*1024,TRIANGLE_LIMIT=1500000;
-let kernel=null;
-function load(runtimeDir){
-  if(!kernel){const dir=path.join(runtimeDir,'occt');const factory=require(path.join(dir,'occt-import-js.js'));kernel=factory({wasmBinary:fs.readFileSync(path.join(dir,'occt-import-js.wasm'))});}
-  return kernel;
-}
-// One body: positions/normals in inches (the kernel converts from the file's own unit),
-// a colour per vertex from each part's colour, and one index buffer.
+//
+// Speed: one OpenCascade read of a big assembly is single-threaded and slows down badly with size (a 150 MB
+// robot took 10 minutes and still failed to mesh). The file is split into pieces of whole solids, each keeping the
+// assembly structure (step-split.cjs), and the pieces are read at the same time on worker threads. A finished
+// import is cached by the file's contents, so loading the same CAD again is immediate.
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),{Worker}=require('node:worker_threads');
+const {plan}=require('./step-split.cjs'),{swapMarkers}=require('./step-hull.cjs');
+const STEP_LIMIT=200*1024*1024,TRIANGLE_LIMIT=2500000,PIECE_BYTES=2.5*1024*1024,CACHE_VERSION=3;
+let compiled=null;
+const wasmModule=runtimeDir=>compiled||=WebAssembly.compile(fs.readFileSync(path.join(runtimeDir,'occt','occt-import-js.wasm')));
+// Facet size in inches: fine on a part, coarser on a whole big robot (it is a visual model).
+const deflectionFor=size=>size>60*1024*1024?.04:size>15*1024*1024?.025:.012;
 function merge(meshes){
-  let vertices=0,triangles=0;for(const m of meshes){vertices+=m.attributes.position.array.length/3;triangles+=m.index.array.length/3;}
-  const positions=new Float32Array(vertices*3),normals=new Float32Array(vertices*3),colors=new Uint8Array(vertices*3),index=new Uint32Array(triangles*3);
+  let vertices=0,triangles=0;for(const m of meshes){vertices+=m.position.length/3;triangles+=m.index.length/3;}
+  // part: which mesh (part instance) each vertex belongs to, so a click on the body finds its part.
+  const positions=new Float32Array(vertices*3),normals=new Float32Array(vertices*3),colors=new Uint8Array(vertices*3),index=new Uint32Array(triangles*3),part=new Float32Array(vertices);
   let v=0,t=0;
-  for(const m of meshes){
-    const p=m.attributes.position.array,n=m.attributes.normal?.array,c=(m.color||[.62,.65,.7]).map(x=>Math.round(Math.max(0,Math.min(1,x))*255)),count=p.length/3;
+  for(const [k,m] of meshes.entries()){
+    const p=m.position,n=m.normal,c=(m.color||[.62,.65,.7]).map(x=>Math.round(Math.max(0,Math.min(1,x))*255)),count=p.length/3;
     positions.set(p,v*3);if(n&&n.length===p.length)normals.set(n,v*3);
     for(let i=0;i<count;i++){colors[(v+i)*3]=c[0];colors[(v+i)*3+1]=c[1];colors[(v+i)*3+2]=c[2];}
-    const idx=m.index.array;for(let i=0;i<idx.length;i++)index[t+i]=idx[i]+v;
-    v+=count;t+=idx.length;
+    const idx=m.index;for(let i=0;i<idx.length;i++)index[t+i]=idx[i]+v;
+    part.fill(k,v,v+count);v+=count;t+=idx.length;
   }
-  return {positions,normals,colors,index,parts:meshes.length,triangles};
+  return {positions,normals,colors,index,part,parts:meshes.length,triangles};
 }
-async function convertStep(file,runtimeDir){
+// The assembly's named parts: the first level of the name tree that splits it into several assemblies (chassis,
+// intake, shooter...), each with its bounding box (inches, file frame) and the names inside it. Every mesh
+// carries the assembly names above it, so the pieces' meshes group the same way the whole file would.
+function groups(meshes){
+  const tree={children:new Map(),meshes:[]};
+  meshes.forEach((m,i)=>{let node=tree;for(const name of m.path||[]){let next=node.children.get(name);if(!next)node.children.set(name,next={name,key:(node.key?node.key+'/':'')+name,children:new Map(),meshes:[]});node=next;}node.meshes.push(i);});
+  let level=tree;while(level.children.size===1&&!level.meshes.length)level=[...level.children.values()][0];
+  if(level.children.size<2)return [];
+  const all=(n,out=[])=>{out.push(...n.meshes);for(const c of n.children.values())all(c,out);return out;},inner=(n,out=[])=>{for(const c of n.children.values()){if(out.length<24)out.push(c.name);inner(c,out);}return out;};
+  return [...level.children.values()].slice(0,64).map(n=>{const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(const i of all(n)){const p=meshes[i].position;for(let k=0;k<p.length;k+=3)for(let a=0;a<3;a++){const v=p[k+a];if(v<lo[a])lo[a]=v;if(v>hi[a])hi[a]=v;}}
+    return lo.every(Number.isFinite)?{name:String(n.name||'').slice(0,80),key:n.key,inner:inner(n).map(v=>String(v).slice(0,80)),box:[...lo,...hi].map(v=>+v.toFixed(3))}:null;}).filter(Boolean);
+}
+// The assembly tree for picking parts: nodes {name, parent} (-1 for the top) and, per mesh, its own node. A mesh
+// named differently from the assembly it sits in (a part of a part) gets a node of its own.
+function tree(meshes){
+  const nodes=[],key=new Map(),node=(name,parent)=>{const k=parent+'/'+name;let i=key.get(k);if(i===undefined){i=nodes.length;key.set(k,i);nodes.push({name:String(name).slice(0,80),parent});}return i;};
+  const leaf=meshes.map(m=>{let at=-1;for(const name of m.path||[])at=node(name,at);const own=String(m.name||'');if(own&&own!==String((m.path||[]).at(-1)||'').replace(/s*<d+>$/,''))at=node(own,at);return at<0?node('Part',-1):at;});
+  return {nodes,leaf};
+}
+// Every distinct assembly and part name ("104mm Mecanum Wheel"...), without instance numbers.
+function names(meshes){const out=new Set();for(const m of meshes)for(const name of [...(m.path||[]),m.name])if(name&&out.size<2000)out.add(String(name).replace(/\s*<\d+>$/,'').slice(0,80));return [...out];}
+// Reads pieces on up to `threads` workers; `progress(done,total)` after each.
+async function readPieces(planned,runtimeDir,params,threads,progress){
+  const module=await wasmModule(runtimeDir),total=planned.count,results=new Array(total);let next=0,done=0;
+  const workers=Array.from({length:Math.min(threads,total)},()=>new Worker(path.join(__dirname,'step-worker.cjs'),{workerData:{runtimeDir,module}}));
+  try{
+    await Promise.all(workers.map(worker=>new Promise((resolve,reject)=>{
+      const send=()=>{if(next>=total)return resolve();const id=next++;worker.postMessage({id,bytes:Buffer.from(planned.piece(id),'latin1'),params});};
+      worker.on('message',m=>{if(!m.ok)return reject(Error(m.error));results[m.id]=m.meshes;progress?.(++done,total);send();});
+      worker.on('error',reject);worker.on('exit',code=>{if(code)reject(Error(`The CAD reader stopped (code ${code}).`));});
+      send();})));
+  }finally{for(const w of workers)void w.terminate();}
+  return results.flat();
+}
+const cacheFile=(dir,key)=>dir&&path.join(dir,`${key}.bin`);
+function readCache(file){
+  try{const buf=fs.readFileSync(file),head=buf.readUInt32LE(0),meta=JSON.parse(buf.subarray(4,4+head).toString('utf8'));let at=4+head;
+    const take=(Type,count)=>{const out=new Type(count);Buffer.from(out.buffer).set(buf.subarray(at,at+out.byteLength));at+=out.byteLength;return out;};
+    const positions=take(Float32Array,meta.vertices*3),normals=take(Float32Array,meta.vertices*3),colors=take(Uint8Array,meta.vertices*3),index=take(Uint32Array,meta.triangles*3),part=take(Float32Array,meta.vertices);
+    return {...meta.info,positions,normals,colors,index,part};}catch{return null;}
+}
+function writeCache(file,value){
+  try{const {positions,normals,colors,index,part,...info}=value,meta=Buffer.from(JSON.stringify({vertices:positions.length/3,triangles:index.length/3,info}),'utf8'),head=Buffer.alloc(4);head.writeUInt32LE(meta.length);
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    // Keep the newest few imports.
+    const dir=path.dirname(file),old=fs.readdirSync(dir).filter(f=>f.endsWith('.bin')).map(f=>({f,t:fs.statSync(path.join(dir,f)).mtimeMs})).sort((a,b)=>b.t-a.t).slice(5);for(const {f} of old)fs.rmSync(path.join(dir,f),{force:true});
+    const tmp=file+'.tmp';fs.writeFileSync(tmp,Buffer.concat([head,meta,...[positions,normals,colors,index,part].map(a=>Buffer.from(a.buffer,a.byteOffset,a.byteLength))]));fs.renameSync(tmp,file);}catch{}
+}
+// Every part is read exactly. `exactBytes` (tests) turns solids beyond that much geometry into hulls instead.
+async function convertStep(file,runtimeDir,{cacheDir=null,progress=null,threads=null,pieces=null,exactBytes=Infinity}={}){
   if(typeof file!=='string'||!/\.(step|stp)$/i.test(file))throw Error('Choose a .step or .stp file.');
   const size=fs.statSync(file).size;if(size>STEP_LIMIT)throw Error(`${path.basename(file)} is larger than 200 MB.`);
-  const occt=await load(runtimeDir),bytes=fs.readFileSync(file);
-  // Coarser tessellation for very large assemblies keeps the driver station responsive.
-  for(const deflection of [.002,.006,.015]){
-    const result=occt.ReadStepFile(bytes,{linearUnit:'inch',linearDeflectionType:'bounding_box_ratio',linearDeflection:deflection,angularDeflection:.5});
-    if(!result.success||!result.meshes.length)throw Error('That STEP file could not be read. Export it again as STEP AP214 or AP242.');
-    const triangles=result.meshes.reduce((n,m)=>n+m.index.array.length/3,0);
-    if(!triangles)throw Error('The CAD reader found parts but could not tessellate this assembly. Export a smaller STEP AP214/AP242 assembly, or a GLB/STL/OBJ mesh.');
-    if(triangles<=TRIANGLE_LIMIT||deflection===.015)return {name:path.basename(file),...merge(result.meshes)};
+  const bytes=fs.readFileSync(file),key=crypto.createHash('sha256').update(bytes).digest('hex').slice(0,32)+'-v'+CACHE_VERSION,cached=readCache(cacheFile(cacheDir,key));
+  if(cached)return {...cached,name:path.basename(file),cached:true};
+  progress?.({stage:'split'});
+  const text=bytes.toString('latin1'),cores=threads||Math.max(1,Math.min(8,(os.availableParallelism?.()||os.cpus().length)-1));
+  const planned=plan(text,pieces||(size<PIECE_BYTES?1:Math.max(cores,Math.min(64,Math.ceil(size/PIECE_BYTES)))),{exact:exactBytes});
+  let deflection=deflectionFor(size),meshes,triangles;
+  for(let pass=0;pass<2;pass++){
+    meshes=await readPieces(planned,runtimeDir,{linearUnit:'inch',linearDeflectionType:'absolute_value',linearDeflection:deflection,angularDeflection:.5},cores,(done,total)=>progress?.({stage:'read',done,total}));
+    // Heavy parts came back as markers: each becomes its hull where the assembly placed it.
+    if(planned.shapes.length)for(const m of meshes){const swapped=swapMarkers(m,planned.shapes);if(swapped)Object.assign(m,swapped);}
+    triangles=meshes.reduce((n,m)=>n+m.index.length/3,0);if(triangles<=TRIANGLE_LIMIT)break;deflection*=3;
   }
+  if(!meshes.length)throw Error('That STEP file has no solid parts. Export it again as STEP AP214 or AP242.');
+  if(!triangles)throw Error('The CAD reader found parts but could not mesh them. Export the robot as a GLB, STL or OBJ mesh instead.');
+  const value={name:path.basename(file),...merge(meshes),tree:tree(meshes),groups:groups(meshes),names:names(meshes),pieces:planned.count,simplified:meshes.reduce((n,m)=>n+(m.hulls||0),0)};
+  if(cacheDir)writeCache(cacheFile(cacheDir,key),value);
+  return value;
 }
-module.exports={convertStep,merge,STEP_LIMIT};
+module.exports={convertStep,merge,groups,tree,names,deflectionFor,STEP_LIMIT};

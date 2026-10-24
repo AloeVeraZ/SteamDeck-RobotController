@@ -6,7 +6,7 @@ const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {sho
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
 // Controller 1 can be the keyboard: a virtual standard pad built from held physical keys.
-const DeckKeyboard=require('../ui/keyboard-layout.js');let keyboardSource=false,sourceFile='',lastPads=[];const keysDown=new Set();
+const DeckKeyboard=require('../ui/keyboard-layout.js');let keyboardSource=false,sourceFile='',lastPads=[];const {KeyboardInput}=require('./keyboard-input.cjs');const keyboardInput=new KeyboardInput();let shellKeyboardEditing=false;
 const {controllerOutput}=require('./controller-output.cjs');let lastControllerInput=0;
 const {deadzone}=require('../ui/controller-calibration.js');let calibrationFile,calibrations=Object.create(null);
 const discovery=require('./discovery.cjs');let finding=null;
@@ -23,7 +23,24 @@ app.setName('Deck Driver Station');
 // Offline simulator: a utility process started by the Simulation view, never connected to a robot.
 const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
-if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',()=>{win?.show();win?.focus();});
+if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',(_event,argv)=>{win?.show();win?.focus();terminalSetup(argv);});
+// Terminal integration: `tools/deck-sim.cjs show` launches the app (or reaches the running one
+// through the single-instance hand-off) with --deck-sim-open=<setup.json>. The setup opens in
+// Simulation once the window says it is listening; only .json setup files are read.
+let terminalRequest=null,terminalReady=false;
+function terminalSetup(argv){
+  const arg=name=>{const prefix=`--deck-sim-${name}=`,a=argv.find(v=>typeof v==='string'&&v.startsWith(prefix));return a?a.slice(prefix.length):'';},file=arg('open');if(!file)return;
+  try{
+    const abs=path.resolve(file);if(!/\.json$/i.test(abs)||!fs.statSync(abs).isFile()||fs.statSync(abs).size>150*1024*1024)throw Error('Use a simulation setup .json file.');
+    const model=arg('model'),axis=v=>['+x','-x','+y','-y','+z','-z'].includes(v)?v:'';
+    terminalRequest={name:path.basename(abs),text:fs.readFileSync(abs,'utf8'),tab:['setup','plan','run'].includes(arg('tab'))?arg('tab'):'run',run:argv.includes('--deck-sim-run'),model:model&&path.isAbsolute(model)&&fs.existsSync(model)?model:'',front:axis(arg('front')),top:axis(arg('top'))};
+    void deliverTerminalSetup();
+  }catch(e){emit('notice',`Could not open ${path.basename(file)} from the terminal: ${e.message}`);}
+}
+async function deliverTerminalSetup(){
+  if(!terminalReady||!terminalRequest||!win||win.isDestroyed())return;const request=terminalRequest;terminalRequest=null;
+  try{if(state.page!=='simulation')await setPage('simulation');emit('sim-open',request);}catch(e){emit('notice',e.message);}
+}
 // The shell's webContents, or null once the window is destroyed (late IPC during shutdown).
 function shellContents(){return win&&!win.isDestroyed()?win.webContents:null;}
 function emit(channel,value){try{if(win&&!win.isDestroyed())win.webContents.send(channel,value);}catch{}}
@@ -44,19 +61,17 @@ function setZoom(step){const contents=(managerView||robotView)?.webContents;if(!
 function trusted(e){const shell=shellContents();if(!shell||e.sender!==shell||e.senderFrame!==shell.mainFrame)throw Error('Only app settings can perform this action.');}
 function handle(channel,fn){ipcMain.handle(channel,async(e,...args)=>{try{trusted(e);return {ok:true,value:await fn(...args)};}catch(e){return {ok:false,error:e.message,code:e.code};}});}
 function hardware(){const d=screen.getDisplayMatching(win.getBounds());return {...device,platform:process.platform,launchedThroughSteam:[process.env.SteamGameId,process.env.SteamAppId].some(id=>/^[1-9]\d*$/.test(id||'')),display:{width:d.size.width,height:d.size.height,scale:d.scaleFactor}};}
-function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,source1:keyboardSource?'keyboard':'controller',deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:suspended||state.recovering||state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible};}
+function controllerState(){const value=controllerHub?.state()||{count:1,slots:[null,null],capture:null,blocked:[]};return {...value,source1:keyboardSource?'keyboard':'controller',deadzones:value.slots.map(p=>p?calibrations[p.id]||0:0),paused:suspended||state.recovering||state.page!=='drive'||!!overlay||!!auth||!!managerView||!!robotKeyboard?.visible||keyboardSource&&shellKeyboardEditing};}
 function blockHeldControllers(){for(const pad of controllerHub?.state().slots||[])if(pad){recoveryControllers.add(pad.id);controllerHub.blocked.add(`${pad.index}:${pad.id}`);}}
-function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,keyboardKeys:keyboardSource&&state.page!=='simulation'?[...DeckKeyboard.used]:[],pads:controllerOutput(value)};}
+function inputConfig(value=controllerState()){const {count,slots,capture,blocked,paused,deadzones}=value;return {count,slots,capture,blocked,paused,deadzones,keyboardKeys:keyboardSource&&(state.page!=='simulation'||overlay)?[...DeckKeyboard.used]:[],pads:controllerOutput(value)};}
 function ingestPads(pads){
   lastPads=Array.isArray(pads)?pads:[];
-  controllerHub.ingest(keyboardSource?[...lastPads.filter(p=>p?.index!==DeckKeyboard.INDEX),DeckKeyboard.pad(keysDown)]:lastPads,{pin:keyboardSource?DeckKeyboard.ID:null});
+  controllerHub.ingest(keyboardSource?[...lastPads.filter(p=>p?.index!==DeckKeyboard.INDEX),DeckKeyboard.pad(keyboardInput.down)]:lastPads,{pin:keyboardSource?DeckKeyboard.ID:null});
 }
 function keyboardKey(input){
-  const held=keysDown.has(input.code);
-  if(input.type==='keyDown'&&!input.control&&!input.meta&&!input.alt)keysDown.add(input.code);else if(input.type==='keyUp')keysDown.delete(input.code);
-  if(held!==keysDown.has(input.code)&&controllerHub){ingestPads(lastPads);sendControllers();}
+  if(keyboardInput.key(input)&&controllerHub){ingestPads(lastPads);sendControllers();}
 }
-function releaseKeys(){if(!keysDown.size)return;keysDown.clear();if(controllerHub){ingestPads(lastPads);sendControllers();}}
+function releaseKeys(){const changed=keyboardInput.release();if(changed&&controllerHub)ingestPads(lastPads);if(keyboardSource)simulation?.practiceInput(null);sendControllers();}
 function sendControllers(force=false){
   if(!controllerHub)return;controllerHub.tick();const value=controllerState(),signature=JSON.stringify(value);if(!force&&signature===lastControllerState)return;lastControllerState=signature;
   emit('controller-state',value);
@@ -69,6 +84,10 @@ function touchSession(session){if(!touchSessions.has(session)){session.registerP
 function controllerSession(session){if(!controllerSessions.has(session)){session.registerPreloadScript({type:'frame',filePath:path.join(__dirname,'controller-preload.cjs')});touchSession(session);controllerSessions.add(session);}}
 function controllerSender(e){return e.sender===shellContents()||e.sender===robotView?.webContents;}
 ipcMain.on('controller-ready',e=>{if(controllerSender(e)&&e.senderFrame===e.sender.mainFrame)e.reply('controller-config',inputConfig());});
+ipcMain.on('controller-keyboard-editing',(e,editing)=>{
+  if(e.sender!==shellContents()||e.senderFrame!==e.sender.mainFrame||typeof editing!=='boolean'||editing===shellKeyboardEditing)return;
+  shellKeyboardEditing=editing;releaseKeys();
+});
 ipcMain.on('controller-input',(e,pads)=>{
   if(!controllerHub||e.sender!==shellContents()||e.senderFrame!==e.sender.mainFrame)return;
   lastControllerInput=performance.now();ingestPads(pads);
@@ -76,7 +95,7 @@ ipcMain.on('controller-input',(e,pads)=>{
   if(suspended||state.recovering)blockHeldControllers();sendControllers();
   // The simulation process accepts Controller 1 only during an explicitly started TELEOP
   // practice phase. Autonomous and transition always reject it; robot output stays paused.
-  if(simulation?.running&&state.page==='simulation'){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture;simulation.practiceInput(blocked?null:controllerOutput({...padState,paused:false})[0]);}
+  if(simulation?.running&&state.page==='simulation'){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture||keyboardSource&&shellKeyboardEditing;simulation.practiceInput(blocked?null:controllerOutput({...padState,paused:false})[0]);}
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -150,7 +169,7 @@ async function runShortcut(action){
 // Escape always leaves fullscreen (robot view first, then the app window) unless a station
 // menu or dialog is open, where it only closes that. The key still reaches the page.
 function leaveFullscreen(){if(state.robotFullscreen)void setRobotFullscreen(false);else if(win&&!win.isDestroyed()&&win.isFullScreen())win.setFullScreen(false);}
-function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{if(keyboardSource&&state.page!=='simulation'&&DeckKeyboard.used.has(input.code))keyboardKey(input);if(input.type==='keyDown'&&input.key==='Escape'&&!(shell&&(overlay||auth)))leaveFullscreen();const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
+function keys(contents,{shell=false}={}){contents.on('before-input-event',(event,input)=>{if(keyboardSource&&DeckKeyboard.used.has(DeckKeyboard.code(input)))keyboardKey(input);if(input.type==='keyDown'&&input.key==='Escape'&&!(shell&&(overlay||auth)))leaveFullscreen();const action=shortcut(input);if(!action||shell&&(overlay||auth)&&action!=='reload')return;event.preventDefault();void runShortcut(action).catch(e=>emit('notice',e.message));});}
 function robotEscape(contents){keys(contents);contents.on('dom-ready',()=>sendTouchKeyboard(contents));contents.on('zoom-changed',(_event,direction)=>setZoom(direction==='in'?1:-1));contents.on('did-finish-load',()=>applyZoom(contents));contents.on('before-input-event',(_event,input)=>{if(input.type==='keyDown'&&input.key==='Escape')robotKeyboard?.hide();});contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)robotKeyboard?.hide({focus:false});});}
 handle('robot-fullscreen',setRobotFullscreen);
 ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.webContents||e.senderFrame!==e.sender.mainFrame)throw Error('Only the fullscreen exit button can restore this view.');await setRobotFullscreen(false);});
@@ -279,6 +298,7 @@ async function setPage(page){
   return snapshot();
 }
 handle('page',setPage);
+handle('sim-open-ready',()=>{terminalReady=true;void deliverTerminalSetup();});
 // A simulator robot drag locks the pointer; on release the system cursor is put back on the robot.
 // Electron cannot move the cursor, so Windows uses user32 from one long-lived PowerShell (started
 // when the drag begins) and Linux uses xdotool when it is installed. macOS leaves it in place.
@@ -312,13 +332,13 @@ handle('system-wifi',async()=>{
   await run('systemsettings',['kcm_networkmanagement'],{timeout:5000}).catch(e=>{if(e.killed)return;throw Error('Open Wi-Fi from the SteamOS quick settings menu.');});
 });
 handle('bounds',bounds=>{if(!bounds||!['x','y','width','height'].every(k=>Number.isFinite(bounds[k])&&bounds[k]>=0))throw Error('Invalid robot view bounds.');if(!state.robotFullscreen)viewBounds=bounds;fitView();});
-handle('overlay',visible=>{const previous=overlay;overlay=!!visible;if(overlay)robotKeyboard?.hide({focus:false});fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
+handle('overlay',visible=>{const previous=overlay;overlay=!!visible;if(previous!==overlay)releaseKeys();if(overlay)robotKeyboard?.hide({focus:false});fitView();if(previous&&!overlay&&state.page==='drive'&&win.isFocused())robotView?.webContents.focus();});
 handle('robot-focus',()=>{if(state.page==='drive'&&!overlay&&!auth&&!robotKeyboard?.visible&&win.isFocused())(managerView||robotView)?.webContents.focus();});
 async function goBack(){const view=managerView||robotView;if(view?.webContents.navigationHistory.canGoBack())view.webContents.navigationHistory.goBack();else if(managerView)await closeManager();}
 handle('reload',()=>{const view=managerView||robotView;if(view)view.webContents.reload();});handle('back',goBack);handle('zoom',step=>setZoom(Math.sign(Number(step))||0));handle('keep-awake',enabled=>{keepAwake=enabled!==false;syncAwake();return keepAwake;});handle('touch-keyboard',enabled=>{touchKeyboard=enabled!==false;if(!touchKeyboard)robotKeyboard?.hide({focus:false});for(const view of [robotView,managerView])sendTouchKeyboard(view?.webContents);return touchKeyboard;});
 handle('controllers',()=>controllerHub.state().slots);
 handle('controller-info',()=>controllerState());handle('controller-capture',captureController);handle('controller-cancel',()=>{controllerHub.cancel();sendControllers(true);return controllerState();});
-handle('controller-source',source=>{if(!['controller','keyboard'].includes(source))throw Error('Choose a controller or the keyboard.');keyboardSource=source==='keyboard';keysDown.clear();try{fs.writeFileSync(sourceFile,JSON.stringify({controller1:source}),{mode:0o600});}catch{}ingestPads(lastPads);if(!keyboardSource){controllerHub.promote();ingestPads(lastPads);}sendControllers(true);return controllerState();});
+handle('controller-source',source=>{if(!['controller','keyboard'].includes(source))throw Error('Choose a controller or the keyboard.');keyboardSource=source==='keyboard';keyboardInput.reset();simulation?.practiceInput(null);try{fs.writeFileSync(sourceFile,JSON.stringify({controller1:source}),{mode:0o600});}catch{}ingestPads(lastPads);if(!keyboardSource){controllerHub.promote();ingestPads(lastPads);}sendControllers(true);return controllerState();});
 handle('controller-automatic',()=>{controllerHub.automatic();sendControllers(true);return controllerState();});
 handle('controller-calibration',({slot,zone})=>{if(![1,2].includes(slot))throw Error('Choose controller 1 or controller 2.');const pad=controllerHub.state().slots[slot-1];if(!pad||pad.mapping!=='standard')throw Error('Connect a mapped controller first.');const next=Object.assign(Object.create(null),calibrations,{[pad.id]:deadzone(zone)});fs.writeFileSync(calibrationFile+'.tmp',JSON.stringify(next),{mode:0o600});fs.renameSync(calibrationFile+'.tmp',calibrationFile);calibrations=next;controllerHub.blocked.add(`${pad.index}:${pad.id}`);sendControllers(true);return controllerState();});
 handle('auth',({id,username,password,cancel})=>{if(!auth||auth.id!==id)throw Error('This sign-in prompt expired.');const pending=auth;auth=null;if(cancel)pending.callback();else pending.callback(String(username||'').slice(0,256),String(password||'').slice(0,1024));fitView();});
@@ -362,7 +382,7 @@ app.whenReady().then(async()=>{
   simulation=new SimulationHost({utilityProcess,dataDir:app.getPath('userData'),emit:message=>emit('sim-event',message)});
   // Install and update checks launch the packaged app with DECK_SMOKE_FILE and read back what started.
   if(process.env.DECK_SMOKE_FILE)win.webContents.once('did-finish-load',()=>{fs.writeFileSync(process.env.DECK_SMOKE_FILE,JSON.stringify({version:meta.version,electron:process.versions.electron,base:build.base||'',appPath:app.getAppPath(),pid:process.pid}));setTimeout(()=>app.exit(0),200);});
-  keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.loadFile(path.join(__dirname,'../ui/index.html'));
+  keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.webContents.on('did-start-loading',()=>{terminalReady=false;});win.loadFile(path.join(__dirname,'../ui/index.html'));terminalSetup(process.argv);
   win.on('blur',releaseKeys);win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
   win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();

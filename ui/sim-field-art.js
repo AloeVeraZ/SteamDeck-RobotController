@@ -11,10 +11,21 @@ window.DeckFieldArt=(()=>{
     const ctx=canvas.getContext('2d');ctx.setTransform(ppi,0,0,-ppi,(72+pad)*ppi,(72+pad)*ppi);L.drawDsimField(ctx,game);
     const value={url:canvas.toDataURL('image/png'),pad};pictures.set(game,value);return value;
   }
+  // The planner's own top-down field: plain tiles (drawn by the page), each structure as its outline from
+  // above, tinted for its alliance, and the floor-level boundaries the planner keeps the robot out of.
   function draw2d(host,game,info,svg){
-    const group=svg('g',{class:'sim-field-detail'}),art=picture(game);host.replaceChildren(group);
-    if(art)group.append(svg('image',{href:art.url,x:-art.pad,y:-art.pad,width:144+2*art.pad,height:144+2*art.pad,transform:'translate(0 144) scale(1 -1)','data-field-art':game}));
-    for(const z of info?.fieldZones||[]){const points=window.DeckPlanner.polygon(z);group.append(svg('polygon',{class:'sim-physical-boundary',points:points.map(p=>`${p.x},${p.y}`).join(' '),'data-physical-boundary':z.id}));}
+    const group=svg('g',{class:'sim-field-detail','data-field-art':game}),P=window.DeckPlanner,list=p=>p.map(q=>`${q.x.toFixed(2)},${q.y.toFixed(2)}`).join(' ');host.replaceChildren(group);
+    // An alliance's tray is many solids; from above it reads as one outline.
+    const flat=part=>{const p=[];for(let i=0;i<part.points.length;i+=3)p.push({x:part.points[i],y:part.points[i+1]});return p;},trays={},parts=[];
+    for(const part of info?.structureParts||[])if(part.alliance)(trays[part.alliance]||=[]).push(...flat(part));else parts.push({part,outline:flat(part)});
+    for(const [alliance,points] of Object.entries(trays))parts.push({part:{alliance},outline:points});
+    for(const s of parts)s.outline=s.outline.length>2?P.hull(s.outline):[];
+    // Largest first, so small parts on top of a frame stay visible.
+    const area=p=>Math.abs(p.reduce((s,q,i)=>{const r=p[(i+1)%p.length];return s+q.x*r.y-r.x*q.y;},0))/2;parts.sort((a,b)=>area(b.outline)-area(a.outline));
+    for(const {part,outline} of parts)if(outline.length>2)group.append(svg('polygon',{class:'sim-field-structure'+(part.alliance?' '+part.alliance:''),points:list(outline)}));
+    for(const goal of info?.goals||[])group.append(svg('polygon',{class:'sim-field-structure '+goal.alliance,points:list(goal.triangle)}));
+    for(const flower of info?.flowers||[]){const r=flower.rings[0];if(r)group.append(svg('circle',{class:'sim-field-ring',cx:r.x,cy:r.y,r:r.hole+.85}));}
+    for(const z of info?.fieldZones||[])group.append(svg('polygon',{class:'sim-physical-boundary',points:list(P.polygon(z)),'data-physical-boundary':z.id}));
   }
   const cache=new Map();
   // Which licensed field models this build includes (personal local builds only; set by the window).

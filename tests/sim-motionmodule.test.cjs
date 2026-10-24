@@ -27,8 +27,8 @@ test('MotionModule export: a real autonomous.py with the route as a timed PLAN',
   const route=P.plan({start:{x:20,y:30,heading:0},zones:[],pins:[{x:90,y:30,wait:.5,action:'Score'},{x:90,y:100}],clearance:2,style:'sharp'},{front:8.5,rear:8.5,half:8.5});
   const source=M.autonomous(route,{power:.45,forwardSpeed:90,strafeSpeed:72,startup:0,stopping:.13,strafeStopping:.09},{name:'Check'});
   assert.match(source,/def create_autonomous\(module, drive\):/);assert.match(source,/IMU_TO_MIXER_SIGN = -1\.0/);assert.match(source,/from motion_module\.heading import HeadingController, Settle, TurnPID, wrap180/);
-  assert.match(source,/\("drive", 1\.0, 0\.0, /);assert.match(source,/\("action", "Score", 0\.5\)/);assert.match(source,/\("drive", 0\.0, -1\.0, /);
-  assert.deepEqual(M.plan(route,{power:.45}).steps.map(s=>s[0]),["power","drive","action","drive"]);
+  assert.match(source,/\("drive", 1\.0, 0\.0, /);assert.match(source,/\("hold", 0\.5\),\n    \("action", "Score", 0\.0\)/);assert.match(source,/\("drive", 0\.0, -1\.0, /);
+  assert.deepEqual(M.plan(route,{power:.45}).steps.map(s=>s[0]),["power","drive","hold","action","drive"]);
 });
 test('timed calibration fits speed and start/stop compensation from test drives',()=>{
   const fit=Timed.settings({stopping:.13});assert.equal(fit.strafeStopping,.13);

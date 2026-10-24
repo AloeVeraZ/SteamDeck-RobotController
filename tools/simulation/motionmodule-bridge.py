@@ -199,8 +199,61 @@ def init(message, state):
             state["finished"] = True
             clock.to_bridge.release()
 
-    state.update(module=module, imu=imu, routine=routine, stop=stop, failure=failure, finished=False, started=False, body=body, heading=None)
+    state.update(mech=spec.get("mechanisms"), module=module, imu=imu, routine=routine, stop=stop, failure=failure, finished=False, started=False, body=body, heading=None)
     return {"type": "ready", "program": f"MotionModule autonomous ({type(routine).__name__})"}
+
+
+def mechanism_outputs(state):
+    """The mechanism outputs the routine drives, on the channels the simulator wired them to."""
+
+    mech, module = state.get("mech"), state["module"]
+    if not mech or state["finished"]:
+        return {}
+    values, servos = module.motor_values, getattr(module, "_servos", None)
+
+    def strongest(items):
+        return max(items, key=abs, default=0.0)
+
+    out = {}
+    intake = [values.get(channel, 0.0) for channel in mech.get("intakes") or []]
+    # A kicker sent nearer its down angle than its up angle counts as the intake running.
+    for kicker in mech.get("kickers") or []:
+        angle = getattr(servos, "angles", {}).get((0, kicker["servo"]))
+        if angle is not None and abs(angle - kicker["down"]) < abs(angle - kicker["up"]):
+            intake.append(1.0)
+    if mech.get("intakes") or mech.get("kickers"):
+        out["intake"] = strongest(intake)
+    # A ramp sent nearer its down angle than its up angle folds down (its rollers are intake motors).
+    if mech.get("ramps"):
+        angles = getattr(servos, "angles", {})
+        out["ramp"] = 1.0 if any(
+            angles.get((0, ramp["servo"])) is not None and abs(angles[(0, ramp["servo"])] - ramp["down"]) < abs(angles[(0, ramp["servo"])] - ramp["up"])
+            for ramp in mech["ramps"]
+        ) else 0.0
+    # The simulator runs shooters together: the strongest command of each kind, the first aimed turret, and
+    # each turret's own angle (None for a fixed shooter or one not yet positioned).
+    shooters = mech.get("shooters") or []
+    if shooters:
+        indexers = []
+        for shooter in shooters:
+            indexer = shooter["indexer"]
+            if indexer.get("servo"):
+                pulse = getattr(servos, "pulses", {}).get((0, indexer["channel"]))
+                indexers.append(0.0 if pulse is None else (pulse - 1500.0) / 500.0)
+            else:
+                indexers.append(values.get(indexer["channel"], 0.0))
+        out["indexer"] = strongest(indexers)
+        out["flywheel"] = strongest([values.get(shooter["flywheel"], 0.0) for shooter in shooters])
+        degrees = []
+        for shooter in shooters:
+            turret = shooter.get("turret")
+            angle = turret and getattr(servos, "angles", {}).get((0, turret["servo"]))
+            degrees.append((angle - turret["center"]) / turret["perDegree"] if angle is not None and turret else None)
+        aimed = [d for d in degrees if d is not None]
+        if aimed:
+            out["turretDeg"] = aimed[0]
+            out["turretDegs"] = degrees
+    return out
 
 
 def tick(message, state):
@@ -227,7 +280,7 @@ def tick(message, state):
     progress = getattr(state["routine"], "progress", {}) or {}
     telemetry = {k: str(v)[:80] for k, v in progress.items() if k in ("step", "completed", "turn_phase", "target", "heading", "error", "action")}
     return {"type": "cmd", "seq": message["seq"], "drive": {"forward": forward, "strafe": strafe, "turn": turn, "float": False},
-            "telemetry": telemetry, "done": bool(state["finished"])}
+            "telemetry": telemetry, "mech": mechanism_outputs(state), "done": bool(state["finished"])}
 
 
 if __name__ == "__main__":

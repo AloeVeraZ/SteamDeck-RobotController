@@ -53,3 +53,13 @@ test('mass, gearing, wheel size and inertia produce finite traction-limited phys
  await e.load({field:'empty',start,tuning:{translationalP:999,headingP:999,correctionScale:999,maxPathSpeed:0},sensors:{noise:2,gyroDrift:100}});assert.ok(e.info.tuning.translationalP<2);assert.equal(e.info.tuning.maxPathSpeed,0);assert.ok(e.info.tuning.headingBrakeLinear<1);
  }finally{e.dispose();}
 });
+test('path correction is always on: sensor error and the retired 0–2 strength never change the exported gains',async()=>{
+ const e=new SimEngine({now:()=>0});try{const gains=async(sensors,tuning={})=>(await e.load({field:'empty',start,sensors,tuning})).tuning.translationalP;
+  const clean=await gains({localization:'odometry',noise:0,gyroDrift:0}),noisy=await gains({localization:'odometry',noise:2,gyroDrift:100});
+  assert.ok(clean>0);assert.equal(noisy,clean);assert.equal(await gains({localization:'odometry'},{correctionScale:2}),clean);assert.equal(await gains({localization:'odometry'},{correctionScale:0}),clean);
+  const out=F.files({route:P.plan({start,zones:[],pins:[{x:60,y:24}],defaultPower:.8},fp),layout:{start,zones:[],pins:[{x:60,y:24}]},tuning:(await e.load({field:'empty',start,sensors:{localization:'odometry'},tuning:{correctionScale:0}})).tuning,robot:e.info.robot,localization:'odometry',routeJava:''});
+  const java=Object.entries(out.files).find(([k])=>k.endsWith('Constants.java'))[1],positionP=Number(/config.positionP=([^;]+);/.exec(java)[1]);assert.ok(Math.abs(positionP-clean*.35)<1e-5,java);
+  // The exported controller is the simulated one: square-root position feedback with correction priority.
+  const follower=Object.values(out.files).join('\n');assert.match(follower,/Math\.sqrt\(2\*a\*\(error-knee\/2\)\)/);assert.match(follower,/bisect for the largest share that fits/);
+ }finally{e.dispose();}
+});

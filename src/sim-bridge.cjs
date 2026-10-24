@@ -28,8 +28,22 @@ class SimulationHost{
   }
   call(method,args=[]){
     if(typeof method!=='string'||!Array.isArray(args))return Promise.reject(Error('Invalid simulator call.'));
-    const proc=this.start(),id=this.nextId++,timeout={run:60000,practice:60000,load:30000,evaluate:180000,convertStep:300000}[method]||10000;
+    const proc=this.start(),id=this.nextId++,timeout={run:60000,practice:60000,load:30000,evaluate:180000,convertStep:1200000}[method]||10000;
     return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(Error('The simulator did not respond.'));},timeout);this.pending.set(id,{resolve,reject,timer});proc.postMessage({id,method,args});});
+  }
+  // A STEP file is read in its own utility process (sim-model-host.cjs, which reads pieces on worker threads) so a
+  // big assembly does not stall the simulator; progress goes to the window. Finished imports are cached by content.
+  // Bounded at 20 minutes.
+  convertStep(file){
+    return new Promise((resolve,reject)=>{
+      const proc=this.utilityProcess.fork(path.join(__dirname,'sim-model-host.cjs'),[],{serviceName:'Deck Driver Station CAD import',stdio:'pipe'});let stderr='',settled=false;
+      const done=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);try{proc.kill();}catch{}fn(value);};
+      const timer=setTimeout(()=>done(reject,Error('Reading the CAD took longer than 20 minutes. Export a smaller STEP (or a GLB/STL mesh).')),1200000);
+      proc.stderr?.on('data',d=>{stderr=(stderr+d).slice(-2000);});proc.stdout?.on('data',()=>{});
+      proc.on('message',m=>{if(m?.type==='progress')this.emit({type:'cad-progress',stage:m.stage,done:m.done,total:m.total});else if(m?.type==='step')m.ok?done(resolve,m.value):done(reject,Error(m.error));});
+      proc.on('exit',code=>done(reject,Error(`The CAD reader stopped (code ${code}). ${stderr.trim().split('\n').slice(-2).join(' ')}`.trim())));
+      proc.postMessage({file,cacheDir:path.join(this.dataDir,'simulation','cad-cache')});
+    });
   }
   stop(){const proc=this.proc;this.proc=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Error('Simulation closed.'));}this.pending.clear();if(proc)try{proc.kill();}catch{}}
   practiceInput(pad){if(this.proc)this.proc.postMessage({method:'practice-input',args:[pad||null]});}
@@ -38,7 +52,7 @@ class SimulationHost{
   async readModel(file){
     const ext=path.extname(file).toLowerCase(),size=fs.statSync(file).size;
     if(size>MODEL_LIMIT)throw Error(`${path.basename(file)} is larger than 200 MB.`);
-    if(STEP_TYPES.includes(ext))return {kind:'step',...await this.call('convertStep',[file])};
+    if(STEP_TYPES.includes(ext))return {kind:'step',...await this.convertStep(file)};
     if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), .glb, .gltf, .stl or .obj file.');
     return {kind:'mesh',name:path.basename(file),format:MESH_TYPES[ext],bytes:new Uint8Array(fs.readFileSync(file))};
   }
@@ -57,11 +71,19 @@ class SimulationHost{
       const r=await dialog.showSaveDialog(win,{title:'Save simulation project',defaultPath:'deck-simulation.json',filters:[{name:'Simulation project',extensions:['json']}]});
       if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,data);return {name:path.basename(r.filePath)};
     }
+    // A robot file: robot settings, mechanisms, sensors and its CAD, to load into any setup.
+    if(action==='robot-save'){
+      if(typeof data!=='string'||data.length>PROJECT_LIMIT)throw Error('Robot is too large to save.');
+      const r=await dialog.showSaveDialog(win,{title:'Save robot',defaultPath:'robot.deckrobot.json',filters:[{name:'Deck robot',extensions:['json']}]});
+      if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,data);return {name:path.basename(r.filePath)};
+    }
+    if(action==='robot-open'){const file=await open('Load a robot',[{name:'Deck robot',extensions:['json']}],PROJECT_LIMIT);return file&&{name:path.basename(file),text:fs.readFileSync(file,'utf8')};}
     if(action==='project-open'){const file=await open('Open simulation project',[{name:'Simulation project',extensions:['json']}],PROJECT_LIMIT);return file&&{name:path.basename(file),text:fs.readFileSync(file,'utf8')};}
     if(action==='java-open'){const file=await open('Choose a Java autonomous program',[{name:'Java source',extensions:['java']}],SOURCE_LIMIT);return file&&{name:path.basename(file),source:fs.readFileSync(file,'utf8')};}
-    if(action==='model-open'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&this.readModel(file);}
+    // Only picks the file: the window confirms it is the robot's starting position before model-drop reads it.
+    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
     // A file dropped on the window: the path comes from Electron's own File-to-path lookup.
-    if(action==='model-drop'){if(typeof data!=='string'||!path.isAbsolute(data)||!fs.existsSync(data))throw Error('That file could not be opened.');return this.readModel(data);}
+    if(action==='model-drop'){const file=typeof data==='string'?data:data?.file;if(typeof file!=='string'||!path.isAbsolute(file)||!fs.existsSync(file))throw Error('That file could not be opened.');return this.readModel(file);}
     if(action==='model-save'){
       if(!data||typeof data.name!=='string'||!(data.bytes instanceof Uint8Array)||data.bytes.length>STORED_LIMIT)throw Error('Invalid model data.');
       const bytes=Buffer.from(data.bytes),id=crypto.createHash('sha256').update(bytes).digest('hex').slice(0,32)+'.glb';
@@ -71,6 +93,12 @@ class SimulationHost{
     // Control Hub TeamCode: the OpMode, Deck controller, wiring and route, written at their package paths under
     // a folder the user picks (normally TeamCode/src/main/java). Names are checked so nothing escapes it.
     // Files listed in keep (the team's own RobotActions.java) are written only when they do not exist.
+    // A recorded run as a WPILOG, saved where the team chooses.
+    if(action==='log-save'){
+      if(!data||!(data.bytes instanceof Uint8Array)||data.bytes.length>64*1024*1024)throw Error('Invalid run log.');
+      const base=String(data.name||'deck-run').replace(/[^\w -]+/g,'').trim().slice(0,60)||'deck-run';
+      const r=await dialog.showSaveDialog(win,{title:'Save run log',defaultPath:`${base}.wpilog`,filters:[{name:'WPILOG',extensions:['wpilog']}]});if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,Buffer.from(data.bytes));return {name:path.basename(r.filePath),message:`Saved ${path.basename(r.filePath)}.`};
+    }
     if(action==='teamcode-save'){
       const files=data?.files;if(!files||typeof files!=='object')throw Error('Invalid TeamCode export.');
       const entries=Object.entries(files);if(!entries.length||entries.length>12||entries.some(([rel,text])=>typeof text!=='string'||!/^[A-Za-z0-9_]+(\/[A-Za-z0-9_]+)*\.java$/.test(rel))||entries.reduce((s,[,text])=>s+text.length,0)>EXPORT_LIMIT)throw Error('Invalid TeamCode export.');

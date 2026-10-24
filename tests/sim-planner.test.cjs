@@ -127,9 +127,9 @@ test('spline routes: cubic, tangent-continuous through waypoints, safe, and tens
   const tight=[rect(72,72,40,40)],t=planner.plan({start:{x:12,y:72,heading:0},zones:tight,pins:[{x:132,y:72}],clearance:.5,style:'spline'},square);assertSafe(t,tight);
 });
 test('pins with a pause end a leg; stops map to the segment that reaches each pin',()=>{
-  const pins=[{x:60,y:30,wait:1.5,action:'Intake'},{x:110,y:40},{x:120,y:110,wait:0}],r=planner.plan({start:{x:12,y:72,heading:0},zones:[rect(72,72,16,16)],pins,clearance:1,style:'spline'},square);
+  const pins=[{x:60,y:30,wait:1.5,action:'Score'},{x:110,y:40},{x:120,y:110,wait:0}],r=planner.plan({start:{x:12,y:72,heading:0},zones:[rect(72,72,16,16)],pins,clearance:1,style:'spline'},square);
   assert.equal(r.stops.length,3);r.stops.forEach((s,i)=>{assert.ok(planner.dist(r.segments[s.segment].points.at(-1),pins[i])<1e-6,`stop ${i}`);});
-  assert.equal(r.stops[0].wait,1.5);assert.equal(r.stops[0].action,'Intake');
+  assert.equal(r.stops[0].wait,1.5);assert.equal(r.stops[0].action,'Score');
   const into=r.segments[r.stops[0].segment],out=r.segments[r.stops[0].segment+1];
   // A full stop: the curve arrives and leaves along its own chord (no tangent carried through).
   const chordIn={x:into.points.at(-1).x-into.points[0].x,y:into.points.at(-1).y-into.points[0].y},arrive={x:into.points.at(-1).x-into.points.at(-2).x,y:into.points.at(-1).y-into.points.at(-2).y};

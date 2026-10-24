@@ -27,7 +27,7 @@ Wall and physical field-element contacts appear as runtime cautions, separately 
 - Power changes pass through the physical acceleration model. Paths with different limits are separated into follower legs, so the robot can settle at a power transition; this is not a user-defined continuous power-ramp editor.
 - Limits apply to mixed motor output, including turning and corrections, in the native follower and generated Control Hub code. Timed and MotionModule exports carry the settings too.
 - A zero-power path stays stopped. It does not silently substitute a positive minimum. Change the setting and restart to continue.
-- Correction response is a bounded multiplier of the robot's automatically selected gains. Old unrestricted raw PID entries migrate to automatic gains. High sensor-error settings produce calibration/repair guidance and reduced position feedback; no hidden ground-truth position corrects a broken sensor.
+- Path correction is always on with automatically selected gains; the old 0–2 correction strength and unrestricted raw PID entries are dropped on load. Position feedback is square-root shaped and takes priority over path speed when the motors saturate. High sensor-error settings produce calibration/repair guidance and reduced position feedback; no hidden ground-truth position corrects a broken sensor.
 - Angular braking calibration now accumulates wrapped heading changes correctly. Crossing ±180° previously could look like almost a full extra revolution, causing bad braking predictions and unstable turns.
 - The timed scheduler accounts for motor power shared with heading correction and for diagonal wheel mixing. The MotionModule test fixture was recalibrated for the revised dynamics.
 

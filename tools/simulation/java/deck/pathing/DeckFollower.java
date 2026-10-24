@@ -7,8 +7,9 @@ import java.util.Map;
 import java.util.function.LongSupplier;
 
 /** Deck's sensor-driven route controller. No robot SDK or external pathing dependency.
- * Uses arc-length samples of the exact Bezier geometry, velocity feedforward, position
- * feedback and heading PD. Coordinates are inches, +X right, +Y up; angles are radians.
+ * Uses arc-length samples of the exact Bezier geometry, velocity feedforward, always-on
+ * square-root position feedback and heading PD, with correction taking priority over path
+ * speed when the wheels saturate. Coordinates are inches, +X right, +Y up; angles are radians.
  */
 public final class DeckFollower {
     public static double angle(double v) { return Math.atan2(Math.sin(v), Math.cos(v)); }
@@ -127,6 +128,7 @@ public final class DeckFollower {
     private final Config config;
     private final LongSupplier clock;
     private final List<Sample> samples=new ArrayList<>();
+    private double[] limits=new double[0];
     private Mode mode=Mode.IDLE;
     private Pose target=Pose.zero();
     private double progress, total, reference, speed, lastTime=-1, settled;
@@ -147,6 +149,14 @@ public final class DeckFollower {
         samples.clear();List<Path> parts=new ArrayList<>();path.flatten(parts);double arc=0;Point previous=null;
         for(int k=0;k<parts.size();k++){Path p=parts.get(k);double polygon=0;for(int i=1;i<p.points.length;i++)polygon+=Math.hypot(p.points[i].x-p.points[i-1].x,p.points[i].y-p.points[i-1].y);
             int count=Math.max(32,(int)Math.ceil(polygon*4));for(int i=0;i<=count;i++){double t=(double)i/count;Point q=p.get(t);if(previous!=null)arc+=Math.hypot(q.x-previous.x,q.y-previous.y);samples.add(new Sample(arc,new Pose(q.x,q.y,p.heading.interpolate(p,t)),k));previous=q;}}
+        // Where the path bends (a curve, or a sharp corner at a pin it drives through) the robot cannot
+        // change direction at full speed: it slows to sqrt(acceleration/2 * radius) there, and brakes in
+        // time for each bend ahead, so it drives through the bend instead of sweeping wide of it.
+        int n=samples.size();limits=new double[n];Arrays.fill(limits,Double.POSITIVE_INFINITY);double inX=0,inY=0,inLength=0;
+        for(int i=1;i<n;i++){Pose a=samples.get(i-1).pose,b=samples.get(i).pose;double dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);if(length<1e-9)continue;
+            if(inLength>0){double bend=Math.abs(angle(Math.atan2(dy,dx)-Math.atan2(inY,inX)));if(bend>1e-4)limits[i-1]=Math.max(3,Math.sqrt(.5*config.acceleration*(length+inLength)/2/bend));}
+            inX=dx;inY=dy;inLength=length;}
+        for(int i=n-2;i>=0;i--)limits[i]=Math.min(limits[i],Math.sqrt(limits[i+1]*limits[i+1]+2*.7*config.acceleration*(samples.get(i+1).s-samples.get(i).s)));
         target=path.endPose();total=arc;progress=reference=settled=0;speed=velocity().linSpeed();nearest=0;lastTime=-1;mode=Mode.FOLLOWING;
     }
     public void hold(Pose p) { target=p;mode=Mode.HOLDING;speed=0;settled=0; }
@@ -169,6 +179,8 @@ public final class DeckFollower {
             Pose here=sample(reference),look=sample(Math.min(total,reference+.5));
             double angularPerInch=Math.abs(angle(look.heading-here.heading))/Math.max(.001,Math.min(.5,total-reference));
             if(angularPerInch>1e-6)wanted=Math.min(wanted,config.maxTurn*config.maxPathSpeed*.65/angularPerInch);
+            // The slowest bend between the robot and its reference point (the robot may trail it).
+            for(int j=nearest;j<samples.size()&&samples.get(j).s<=Math.max(progress,reference)+.5;j++)wanted=Math.min(wanted,limits[j]);
             speed+=clamp(wanted-speed,-config.acceleration*dt,config.acceleration*dt);
             reference=Math.min(total,Math.min(reference+speed*dt,progress+Math.max(2,speed*.12)));
             aim=sample(reference);Pose ahead=sample(Math.min(total,reference+.25));double dx=ahead.x-aim.x,dy=ahead.y-aim.y,len=Math.hypot(dx,dy);
@@ -176,17 +188,31 @@ public final class DeckFollower {
             if(total-progress<.6&&p.distance(target)<.8){settled+=dt;if(settled>.1){mode=Mode.HOLDING;aim=target;vx=vy=omega=0;}}else settled=0;
         }
         double ex=aim.x-p.x,ey=aim.y-p.y,c=Math.cos(p.heading),s=Math.sin(p.heading);
-        double forward=(vx*c+vy*s)/config.maxForward+config.positionP*(ex*c+ey*s)-config.positionD*((v.x-vx)*c+(v.y-vy)*s);
-        double strafe=(-vx*s+vy*c)/config.maxStrafe+config.positionP*(-ex*s+ey*c)-config.positionD*(-(v.x-vx)*s+(v.y-vy)*c);
+        // Position error becomes a correction speed: proportional near the path, square-root beyond
+        // it, so a large error is closed as fast as the robot can still brake for it instead of
+        // saturating the motors and overshooting. Continuous where the two meet.
+        double error=Math.hypot(ex,ey),k=config.positionP*config.maxForward,a=Math.max(1,config.acceleration),knee=a/Math.max(1e-6,k*k);
+        double correction=error<=knee?k*error:Math.sqrt(2*a*(error-knee/2)),cx=error>1e-9?ex/error*correction:0,cy=error>1e-9?ey/error*correction:0;
+        double ffForward=(vx*c+vy*s)/config.maxForward,ffStrafe=(-vx*s+vy*c)/config.maxStrafe,ffTurn=omega/config.maxTurn;
+        double forward=(cx*c+cy*s)/config.maxForward-config.positionD*((v.x-vx)*c+(v.y-vy)*s);
+        double strafe=(-cx*s+cy*c)/config.maxStrafe-config.positionD*(-(v.x-vx)*s+(v.y-vy)*c);
         double desiredHeading=aim.heading;
-        if(config.tank&&following()&&Math.abs(forward)>.02)desiredHeading+=Math.signum(forward)*clamp(Math.atan2(-ex*s+ey*c,4),-.35,.35);
+        if(config.tank&&following()&&Math.abs(forward+ffForward)>.02)desiredHeading+=Math.signum(forward+ffForward)*clamp(Math.atan2(-ex*s+ey*c,4),-.35,.35);
         double headingError=angle(desiredHeading-p.heading);
-        double turn=config.headingP*headingError-config.headingD*(v.heading-omega)+omega/config.maxTurn;
+        double turn=config.headingP*headingError-config.headingD*(v.heading-omega);
         // Overcome the motor deadband at a nearly stationary heading error. Without this,
         // a light/fast drivetrain can stop just outside the turn-settling tolerance.
-        if(Math.abs(headingError)>.015&&Math.abs(v.heading)<.1&&Math.abs(turn)<.045)turn=Math.copySign(.045,headingError);
-        if(config.tank)strafe=0;
-        double limit=config.maxPathSpeed,scale=Math.max(1,(Math.abs(forward)+Math.abs(strafe)+Math.abs(turn))/Math.max(.000001,limit));
-        drive.drive(new DrivePowers(forward/scale,strafe/scale,turn/scale),true);
+        if(Math.abs(headingError)>.015&&Math.abs(v.heading)<.1&&Math.abs(turn+ffTurn)<.045)turn=Math.copySign(.045,headingError)-ffTurn;
+        if(config.tank){strafe=0;ffStrafe=0;}
+        // Correction has priority over path speed: when the wheels saturate, the robot slows down
+        // along the path rather than drifting off it. Feedback alone is capped at the power limit.
+        double limit=Math.max(.000001,config.maxPathSpeed),feedback=Math.abs(forward)+Math.abs(strafe)+Math.abs(turn);
+        if(feedback>limit){forward*=limit/feedback;strafe*=limit/feedback;turn*=limit/feedback;}
+        double keep=1;
+        if(Math.abs(forward+ffForward)+Math.abs(strafe+ffStrafe)+Math.abs(turn+ffTurn)>limit){
+            // The mixed total is convex in the feedforward share; bisect for the largest share that fits.
+            double lo=0,hi=1;for(int i=0;i<20;i++){double m=(lo+hi)/2;if(Math.abs(forward+m*ffForward)+Math.abs(strafe+m*ffStrafe)+Math.abs(turn+m*ffTurn)>limit)hi=m;else lo=m;}keep=lo;
+        }
+        drive.drive(new DrivePowers(forward+keep*ffForward,strafe+keep*ffStrafe,turn+keep*ffTurn),true);
     }
 }

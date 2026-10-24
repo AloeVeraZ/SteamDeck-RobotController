@@ -12,19 +12,19 @@
   // A leg is what the robot drives without stopping. Legs end at the last pin; at pins with a pause,
   // an action or a turn; where an action path starts or ends; and, on turning routes, where the next
   // segment needs a heading the robot does not have yet (it stops and turns in place first).
-  // After leg i the robot settles, turns to legs[i].turn if set, then runs the pin's action and pause.
+  // After leg i the robot settles, turns to legs[i].turn if set, pauses, then runs the pin's action.
   function legs(route){
     const segs=route.segments,stops=route.stops||[],turning=!!(route.nonholonomic||route.turns||segs.some(s=>finite(s.heading)));
     const to=pathIndex(route),pathOf=k=>stops[k]?.path||{},powerOf=k=>finite(pathOf(k).power)?Math.max(0,Math.min(1,pathOf(k).power)):null,acting=k=>pathOf(k).kind==='action',out=[];let from=0;
     segs.forEach((s,i)=>{
       const here=stops.map((p,k)=>({...p,k})).filter(p=>p.segment===i),next=segs[i+1];
-      const wait=here.reduce((t,p)=>t+(finite(p.wait)?p.wait:0),0),action=here.map(p=>p.action).find(Boolean)||'',turn=[...here].reverse().find(p=>finite(p.turn))?.turn??null;
+      const wait=here.reduce((t,p)=>t+(finite(p.wait)?p.wait:0),0),acting_=here.find(p=>p.action),action=acting_?.action||'',actionSeconds=finite(acting_?.actionSeconds)?acting_.actionSeconds:null,cell=acting_?.cell==='other'?1:0,turn=[...here].reverse().find(p=>finite(p.turn))?.turn??null;
       const end=!next||wait>0||!!action||turn!==null||(turning&&Math.abs(norm(next.heading-endOf(s)))>1e-6)||(to[i+1]!==to[i]&&(acting(to[i])||acting(to[i+1])||powerOf(to[i])!==powerOf(to[i+1])));
       if(!end)return;
       const first=segs[from],path=pathOf(to[i]);
-      out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
+      out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,actionSeconds,cell,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
         power:powerOf(to[i]),heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
-        moving:path.kind==='action'?{action:path.action||'',note:path.note||''}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
+        moving:path.kind==='action'?{action:path.action||'',note:path.note||'',seconds:finite(path.actionSeconds)?path.actionSeconds:null,cell:path.cell==='other'?1:0}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
       from=i+1;
     });
     return out;
@@ -49,7 +49,7 @@
   function describe(l,i){
     const parts=[`Leg ${i+1}: ${l.moving?`ACTION PATH${l.moving.action?` "${comment(l.moving.action)}"`:''}`:'drive'} to ${l.pin?`pin ${l.pin}`:'a turn point'}`];
     if(l.rotate)parts.push(`the robot ${l.rotate} while driving`);if(l.moving?.note)parts.push(comment(l.moving.note));
-    if(l.turn!==null)parts.push(`then turn to ${n(l.turn)}°`);if(l.action)parts.push(`run "${comment(l.action)}"`);if(l.wait>0)parts.push(`pause ${n(l.wait)} s`);if(l.note)parts.push(comment(l.note));
+    if(l.turn!==null)parts.push(`then turn to ${n(l.turn)}°`);if(l.wait>0)parts.push(`pause ${n(l.wait)} s`);if(l.action)parts.push(`run "${comment(l.action)}"${finite(l.actionSeconds)?` for ${n(l.actionSeconds)} s`:" until done"}`);if(l.note)parts.push(comment(l.note));
     return parts.join('; ')+'.';
   }
   function validName(className,packageName){
@@ -78,7 +78,7 @@ import deck.pathing.DeckFollower.Interpolator;
  * ${route.nonholonomic?'TANK: stop and turn to START_HEADING[i] BEFORE each leg; wait for the IMU to settle.':route.turns?'TURNS: where START_HEADING[i] differs from the heading the robot already has, stop and turn in place to it BEFORE following the leg.':'Holonomic: keep the starting heading throughout.'}
  *
  * For each leg i: face START_HEADING[i], follow legs()[i] while running MOVING_ACTIONS[i] (if any),
- * settle, turn to TURN_AFTER[i] (if not NaN), then run ACTIONS[i] and pause WAIT_SECONDS[i].
+ * settle, turn to TURN_AFTER[i] (if not NaN), pause WAIT_SECONDS[i], then run ACTIONS[i] for ACTION_SECONDS[i].
 ${parts.map((l,i)=>` * ${describe(l,i)}`).join('\n')}
  * Generated file: change the route in the simulator and export again.
  */
@@ -92,17 +92,29 @@ public final class ${className} {
     public static final double FIELD_WIDTH = ${n(layout.width||144)};
     public static final double FIELD_HEIGHT = ${n(layout.height||144)};
 
-    /** Pause after each leg, in seconds. */
+    /** Pause at the pin after each leg, before its action, in seconds. */
     public static final double[] WAIT_SECONDS = {${parts.map(l=>n(l.wait)).join(', ')}};
 
     /** Motor power ceiling per leg, including setup defaults (0 disables that leg). */
-    public static final double[] MOTOR_POWER = {${parts.map(l=>n(l.power??route.defaultPower??options.defaultPower??.6)).join(', ')}};
+    public static final double[] MOTOR_POWER = {${parts.map(l=>n(l.power??route.defaultPower??options.defaultPower??.8)).join(', ')}};
 
     /** The action run at the pin after each leg, as named in the simulator ("" for none). */
     public static final String[] ACTIONS = {${parts.map(l=>javaString(l.action)).join(', ')}};
 
+    /** Which hive cell each pin action aims at: 0 the cell up at the start, 1 the other cell. */
+    public static final int[] ACTION_CELL = {${parts.map(l=>l.cell||0).join(', ')}};
+
+    /** How long each pin action runs, in seconds (0: until it reports done). */
+    public static final double[] ACTION_SECONDS = {${parts.map(l=>n(l.actionSeconds||0)).join(', ')}};
+
     /** The action run WHILE driving each leg: action paths ("" for regular paths). */
     public static final String[] MOVING_ACTIONS = {${parts.map(l=>javaString(l.moving?.action||'')).join(', ')}};
+
+    /** Which hive cell each action path's action aims at (0 start cell, 1 the other cell). */
+    public static final int[] MOVING_CELL = {${parts.map(l=>l.moving?.cell||0).join(', ')}};
+
+    /** How long each action path's action runs from the start of its path, in seconds (0: the whole path). */
+    public static final double[] MOVING_SECONDS = {${parts.map(l=>n(l.moving?.seconds||0)).join(', ')}};
 
     /** Which pin's path each leg drives (1 = the path from the start to pin 1). */
     public static final int[] PATH = {${parts.map(l=>l.path).join(', ')}};
@@ -151,7 +163,7 @@ ${parts.map(leg).join(',\n')}
       if(finite(s.endHeading))line.endPoint={x:+n(end.x),y:+n(end.y),heading:'linear',startDeg:+n(s.heading),endDeg:+n(s.endHeading)};
       if(s.target){line.endPoint.heading='target';line.targetTracking={x:+n(s.target.x),y:+n(s.target.y)};}
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(p=>({x:+n(p.x),y:+n(p.y)}));
-      const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.6;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
+      const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
       const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;}
       return line;});
     const shapes=(layout.zones||[]).map((z,i)=>({id:z.id,name:`No-go zone ${i+1}`,vertices:options.polygon(z).map(p=>({x:+n(p.x),y:+n(p.y)}))}));

@@ -1,0 +1,222 @@
+{
+  "deckSimulation": 2,
+  "version": 2,
+  "imuSource": "hub",
+  "timing": {
+    "power": 1
+  },
+  "orientations": {},
+  "hitboxes": false,
+  "robot": {
+    "drivetrain": "mecanum",
+    "length": 17,
+    "width": 17,
+    "heightIn": 14,
+    "driveRpm": 435,
+    "intakeIn": 0,
+    "driveStyle": "robot",
+    "appearance": "strafer"
+  },
+  "tuning": {
+    "maxPathSpeed": 1
+  },
+  "practice": {
+    "mode": "autonomous",
+    "autoSeconds": 30,
+    "transitionSeconds": 8,
+    "teleopSeconds": 120
+  },
+  "program": {
+    "kind": "route",
+    "name": "",
+    "source": ""
+  },
+  "model": null,
+  "view": "2d",
+  "export": {
+    "packageName": "org.firstinspires.ftc.teamcode",
+    "className": "PlannedRoute",
+    "keep": false
+  },
+  "controller": "ftc",
+  "sensors": {
+    "localization": "fused",
+    "gyroDrift": 0.5,
+    "noise": 0.05
+  },
+  "layouts": [
+    {
+      "id": "climvlef3uc",
+      "name": "BIOBUZZ dual red",
+      "field": "biobuzz",
+      "alliance": "red",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": {
+        "x": 9.85,
+        "y": 30,
+        "heading": -90
+      },
+      "zones": [],
+      "pins": [
+        {
+          "x": 13,
+          "y": 24,
+          "wait": 0,
+          "action": "Shoot",
+          "note": "Shoot the 4 preloads from beside the start: 3 tip the hive (its start cell holds 3 nectar)",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Off the wall, flywheels spinning up"
+          }
+        },
+        {
+          "x": 10,
+          "y": 13,
+          "wait": 0,
+          "action": "Intake",
+          "actionSeconds": 0.1,
+          "note": "Front intake holds the last garden pollen a moment",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Front intake sweeps the 4 garden pollen in the corner"
+          }
+        },
+        {
+          "x": 28,
+          "y": 104,
+          "wait": 0,
+          "action": "Shoot",
+          "cell": "other",
+          "note": "Shoot the garden pollen into the other cell (up after the tip)",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Up the left side to the rear of the hive"
+          }
+        },
+        {
+          "x": 11,
+          "y": 107,
+          "wait": 0,
+          "action": "Shoot",
+          "cell": "other",
+          "note": "PARK in the red loading zone and shoot its 4 pollen into the other cell",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Right-side intake sweeps the 4 loading-zone pollen"
+          }
+        }
+      ],
+      "clearance": 2,
+      "style": "spline",
+      "rotate": true,
+      "route": null,
+      "tested": null
+    }
+  ],
+  "active": "climvlef3uc",
+  "setupName": "biobuzz-dual-red",
+  "mechanisms": {
+    "enabled": true,
+    "intakes": [
+      {
+        "kind": "sweeper",
+        "sides": [
+          "front"
+        ],
+        "reach": 2,
+        "width": null,
+        "height": 4,
+        "motor": "intake",
+        "power": 1
+      },
+      {
+        "kind": "siderollers",
+        "sides": [
+          "right"
+        ],
+        "reach": 0,
+        "width": null,
+        "height": 4,
+        "motor": "intake2",
+        "power": 1
+      }
+    ],
+    "shooters": [
+      {
+        "type": "turret",
+        "pieces": "pollen",
+        "mount": "left",
+        "facing": "front",
+        "motor": "shooter",
+        "indexer": "indexer",
+        "indexerKind": "motor",
+        "turretMotor": "turret"
+      },
+      {
+        "type": "turret",
+        "pieces": "both",
+        "mount": "right",
+        "facing": "front",
+        "motor": "shooter2",
+        "indexer": "indexer2",
+        "indexerKind": "motor",
+        "turretMotor": "turret2"
+      }
+    ],
+    "capacity": {
+      "pollen": 4,
+      "nectar": 0
+    },
+    "preload": {
+      "pollen": 4
+    },
+    "storage": 4,
+    "transfer": {
+      "seconds": 0.8
+    },
+    "indexer": {
+      "seconds": 0.25,
+      "power": 1,
+      "kind": "motor",
+      "name": "indexer"
+    },
+    "shooter": {
+      "hood": 75,
+      "rpm": 3400,
+      "ticksPerRev": 28,
+      "spinUp": 0.6,
+      "type": "turret",
+      "mount": "left",
+      "motor": "shooter"
+    },
+    "turret": {
+      "speed": 240,
+      "min": -170,
+      "max": 170,
+      "ticksPerDegree": 4.6,
+      "motor": "turret"
+    },
+    "intake": {
+      "enabled": true,
+      "kind": "sweeper",
+      "sides": [
+        "front",
+        "right"
+      ],
+      "side": "custom",
+      "motor": "intake",
+      "power": 1
+    },
+    "target": null
+  }
+}

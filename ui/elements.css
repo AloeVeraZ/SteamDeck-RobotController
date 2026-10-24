@@ -119,8 +119,20 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station :is(input, select):hover, .driver-station .wifi-picker:hover { border-color: var(--input-hover); }
 .driver-station :is(input, select):focus, .driver-station .wifi-picker[aria-expanded=true] { border-color: var(--text); }
 .driver-station input::placeholder { color: var(--placeholder); }
-.driver-station input.num-slider { display: block; width: 100%; min-height: 32px; height: 32px; margin: 4px 0 0; padding: 0; background: transparent; border: 0; border-radius: 0; accent-color: var(--accent); cursor: pointer; touch-action: pan-y; }
+/* Number boxes and their bars. A real slider: a filled track and a handle you drag; clicking the
+   track moves the handle there. --fill is set by number-slider.js. */
+.driver-station .num-field { display: flex; flex-direction: column; min-width: 0; }
+.driver-station input.num-slider { --fill: 50%; display: block; width: 100%; min-height: 28px; height: 28px; margin: 6px 0 0; padding: 0; background: transparent; border: 0; border-radius: 0; cursor: pointer; touch-action: pan-y; -webkit-appearance: none; appearance: none; }
+.driver-station input.num-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent) var(--fill), var(--line-strong) var(--fill)); }
+.driver-station input.num-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg); box-shadow: 0 0 0 1px var(--accent), 0 1px 4px rgba(0,0,0,.4); cursor: grab; transition: transform .1s; }
+.driver-station input.num-slider:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.15); }
+.driver-station input.num-slider:focus-visible { outline: none; }
+.driver-station input.num-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--accent), 0 0 0 5px var(--line-strong); }
+.driver-station input.num-slider::-moz-range-track { height: 6px; border-radius: 3px; background: var(--line-strong); }
+.driver-station input.num-slider::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--accent); }
+.driver-station input.num-slider::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 3px solid var(--bg); }
 .driver-station input.num-slider:disabled { opacity: .45; cursor: default; }
+.driver-station input.num-slider:disabled::-webkit-slider-thumb { cursor: default; }
 .driver-station .wifi-popover { margin-top: 8px; padding: 4px; background: var(--well); border: 1px solid var(--line-strong); border-radius: var(--radius-control); }
 .driver-station .wifi-row { border: 0; border-radius: var(--radius-detail); }
 .driver-station .wifi-row:hover { background: var(--raised); }

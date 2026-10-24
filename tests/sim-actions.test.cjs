@@ -43,7 +43,7 @@ test('the leg plan splits at action paths, pin turns and actions; exports carry 
   const dir='org/firstinspires/ftc/teamcode/';assert.deepEqual(tc.keep,[dir+'RobotActions.java']);
   assert.match(tc.files[dir+'RouteActions.java'],/public boolean intake\(Step step\)[\s\S]*public boolean shoot\(Step step\)/);assert.match(tc.files[dir+'RouteActions.java'],/case "Shoot": return shoot\(step\);/);
   assert.match(tc.files[dir+'RobotActions.java'],/@Override\s+public boolean shoot\(Step step\)/);assert.match(tc.files[dir+'PlannedRouteAuto.java'],/actions\.run\(name, step\)/);
-  const py=M.autonomous(r,{},{name:'Effects'});assert.match(py,/def shoot\(step\)/);assert.match(py,/\("action", "Shoot", 1\.5\)/);assert.match(py,/robot_actions\.py/);
+  const py=M.autonomous(r,{},{name:'Effects'});assert.match(py,/def shoot\(step\)/);assert.match(py,/\("hold", 1\.5\),\n    \("action", "Shoot", 0\.0\)/,'pause, then shoot until done');assert.match(py,/robot_actions\.py/);
   assert.match(M.actionsFile(r,{name:'Effects'}),/def intake\(step\):/);
   const plan=Timed.compile(r);assert.ok(plan.steps.some(s=>s.moving==='Intake'));assert.ok(plan.steps.some(s=>s.kind==='turn'&&Math.abs(s.heading-Math.PI/2)<1e-9));
 });
@@ -68,8 +68,8 @@ test('the exported Control Hub OpMode runs the same effects on the virtual hub, 
     const routeJava=X.java(route,layout,{polygon:P.polygon}),out=F.files({route,layout,tuning:info.tuning,robot:info.robot,localization:'odometry',routeJava});
     assert.equal((await e.run({kind:'opmode',files:out.files,opMode:out.opMode})).ok,true,error);
     const phases=new Set(),actions=new Set();let pin=null;
-    for(let i=0;i<4000&&e.mode==='program';i++){await e.programTick();const t=e.telemetry||{};phases.add(t.Phase);if(t.Action)actions.add(t.Action);if(t.Phase==='Waiting'&&!pin)pin=e.truth();if(t.Phase==='Done')break;}
-    assert.ok(['Action path','Turning','Waiting','Done'].every(p=>phases.has(p)),[...phases].join());
+    for(let i=0;i<4000&&e.mode==='program';i++){await e.programTick();const t=e.telemetry||{};phases.add(t.Phase);if(t.Action)actions.add(t.Action);if(t.Phase==='Pause'&&!pin)pin=e.truth();if(t.Phase==='Done')break;}
+    assert.ok(['Action path','Turning','Pause','Done'].every(p=>phases.has(p)),[...phases].join());
     assert.ok([...actions].some(a=>/Intake/.test(a))&&[...actions].some(a=>/Shoot/.test(a)),[...actions].join());
     assert.ok(Math.hypot(pin.x-110,pin.y-72)<1.5&&Math.abs(norm(pin.heading*180/Math.PI-90))<4,JSON.stringify(pin));
     const t=e.truth();assert.ok(Math.hypot(t.x-40,t.y-72)<1.5&&Math.abs(norm(t.heading*180/Math.PI-180))<4,JSON.stringify(t));assert.equal(e.violations.size,0);

@@ -3,7 +3,7 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
   const $=selector=>document.querySelector(selector),dialog=$('#controller-dialog');
   const names=['A / Cross','B / Circle','X / Square','Y / Triangle','LB / L1','RB / R1','LT / L2','RT / R2','Back / View','Start / Menu','Left stick click','Right stick click','D-pad up','D-pad down','D-pad left','D-pad right','Guide / Home',...Array.from({length:7},(_,i)=>'Extra button '+(17+i))];
   const number=v=>Number.isFinite(v)?Math.max(-1,Math.min(1,v)):0;
-  let info={count:1,slots:[null,null],readings:[]},slot=1,lastCapture=null,lastAssignment=0,captureMessage='';
+  let info={count:1,slots:[null,null],readings:[]},slot=1,lastCapture=null,lastAssignment=0,captureMessage='',lastKeyboardInput='';
   // Keyboard as Controller 1: keys are read by physical position; the layout map names the keyboard and its keycaps.
   const K=window.DeckKeyboard;let layoutMap=null,layout=K.detect(null,navigator.language);
   const keyName=code=>K.label(code,layoutMap),isKeyboard=pad=>K.isKeyboard(pad);
@@ -28,8 +28,9 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     $('#controller-monitor-dot').className='dot'+(pad?(pad.mapping==='standard'?' live':' error'):'');
     $('#controller-role').textContent=keyboard?'Keyboard':optional?'Standby':slot===1?'Default':'Second operator';
     const raw=pad&&pad.mapping!=='standard',labels=window.DeckControllers.buttonLabels(pad).map((name,i)=>isKeyboard(pad)&&K.buttons[i]?.length?`${name.split(' · ')[0]} · ${K.buttons[i].map(keyName).join(' / ')}`:name);
-    $('.controller-buttons-panel>.hint').textContent=keyboard?'Hold keys to see the gamepad values the robot receives.':raw?'Unmapped layout: raw values are shown for diagnosis. Robot inputs are held neutral. Select XInput or a Steam Input Gamepad layout, then reconnect.':'Standard positions and button indices. Labels follow the reported controller family; the robot defines their actions.';
-    $('#controller-monitor-state').textContent=keyboard?(reading?.pressed||reading?.axesActive?'Receiving key input':'Keyboard ready · press keys to test'):raw?'Layout not mapped · robot inputs held neutral':pad?(reading?.pressed||reading?.axesActive?'Receiving stick or button input':captureMessage||'Connected · move the sticks and press buttons'):'Connect a controller, then press a button. Built-in controls must be in Gamepad Mode.';
+    $('.controller-buttons-panel>.hint').textContent=keyboard?'Hold keys to test raw gamepad values. Background robot and simulation controls stay neutral.':raw?'Unmapped layout: raw values are shown for diagnosis. Robot inputs are held neutral. Select XInput or a Steam Input Gamepad layout, then reconnect.':'Standard positions and button indices. Labels follow the reported controller family; the robot defines their actions.';
+    if(keyboard&&reading){const keys=[];K.axes.forEach(([negative,positive],i)=>{if(reading.axes?.[i]<-.08)keys.push(keyName(negative));if(reading.axes?.[i]>.08)keys.push(keyName(positive));});K.buttons.forEach((codes,i)=>{const b=reading.buttons?.[i];if((typeof b==='object'?b.value:b)>.2)keys.push(...codes.map(keyName));});if(keys.length)lastKeyboardInput=keys.join(' + ');}
+    $('#controller-monitor-state').textContent=keyboard?(reading?.pressed||reading?.axesActive?'Receiving key input · '+lastKeyboardInput:lastKeyboardInput?'Last input: '+lastKeyboardInput+' · press keys to test':'Keyboard ready · press keys to test'):raw?'Layout not mapped · robot inputs held neutral':pad?(reading?.pressed||reading?.axesActive?'Receiving stick or button input':captureMessage||'Connected · move the sticks and press buttons'):'Connect a controller, then press a button. Built-in controls must be in Gamepad Mode.';
     $('#controller-capture-status').hidden=!capturing;
     $('#controller-capture-status').textContent='Release buttons and center sticks, then press any button on the controller to assign it.';
     const axes=Array.from({length:4},(_,i)=>number(reading?.axes?.[i]));
@@ -68,12 +69,12 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
     if(dialog.open&&lastCapture&&!info.capture){const assigned=(info.assignment?.serial||0)>lastAssignment;captureMessage=assigned?'Assigned. Release buttons and center sticks, then test below.':'Assignment ended. Your previous selection is kept.';}
     lastCapture=info.capture;lastAssignment=info.assignment?.serial||0;renderMonitor();
   }
-  function show(selected=slot){if(!dialog.open||selected!==slot){captureMessage='';calibration.reset();$('#controller-mode-help').open=!info.slots?.[selected-1];$('#steamdeck-controls').open=false;}slot=selected;if(!dialog.open)dialog.showModal();renderMonitor();syncOverlay();}
+  function show(selected=slot){if(!dialog.open||selected!==slot){captureMessage='';lastKeyboardInput='';calibration.reset();$('#controller-mode-help').open=!info.slots?.[selected-1];$('#steamdeck-controls').open=false;}slot=selected;if(!dialog.open)dialog.showModal();renderMonitor();syncOverlay();}
   async function start(){if(!api.controllerCapture){toast('Use the installed app to assign controllers.');return;}if(info.capture){render(await api.controllerCancel());return;}render(await api.controllerCapture(slot));}
   async function close(){if(info.capture&&api.controllerCancel)render(await api.controllerCancel());dialog.close();syncOverlay();}
   const task=fn=>void Promise.resolve().then(fn).catch(error=>toast(error.message));
   for(const selected of [1,2]){const open=()=>task(async()=>{show(selected);if(!info.slots?.[selected-1])await start();});$('#controller-'+selected).onclick=open;$('#setup-controller-'+selected).onclick=open;}
-  for(const b of document.querySelectorAll('#input-source [data-source]'))b.onclick=()=>task(async()=>{if(info.capture&&api.controllerCancel)render(await api.controllerCancel());render(await api.controllerSource(b.dataset.source));captureMessage='';renderMonitor();});
+  for(const b of document.querySelectorAll('#input-source [data-source]'))b.onclick=()=>task(async()=>{if(info.capture&&api.controllerCancel)render(await api.controllerCancel());lastKeyboardInput='';render(await api.controllerSource(b.dataset.source));captureMessage='';renderMonitor();});
   $('#controller-assign').onclick=()=>task(start);$('#controller-auto').onclick=()=>task(async()=>{render(await api.controllerAutomatic());captureMessage='Automatic assignment selected. Built-in controls are preferred; center sticks and release buttons before driving.';renderMonitor();});
   $('#controller-cancel').onclick=()=>task(close);$('#controller-done').onclick=()=>task(close);dialog.addEventListener('cancel',event=>{event.preventDefault();task(close);});
   $('#input-notice-test').onclick=()=>show(1);

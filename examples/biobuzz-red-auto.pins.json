@@ -1,0 +1,14 @@
+[
+  {"x":24,"y":30,"wait":0,"action":"Shoot","note":"Shoot all 4 preloaded pollen into the red up cell (the turret aims itself)",
+   "path":{"kind":"action","action":"Spin up","style":"spline","note":"Leave the wall at full power while the flywheel spins up"}},
+  {"x":22,"y":20,"wait":0,"action":"",
+   "path":{"style":"spline","rotate":"turn","heading":-90,"note":"Turn the intake toward the audience wall"}},
+  {"x":16,"y":12.5,"wait":0.6,"action":"Intake","note":"Keep the intake running while the last pollen feeds in",
+   "path":{"kind":"action","action":"Intake","style":"sharp","note":"Drive the intake into the red GARDEN pollen"}},
+  {"x":24,"y":24,"wait":0,"action":"",
+   "path":{"style":"sharp","note":"Back out of the corner"}},
+  {"x":36,"y":28,"wait":0,"action":"Shoot","note":"Shoot the garden pollen",
+   "path":{"kind":"action","action":"Spin up","style":"spline","note":"Spin up on the way back"}},
+  {"x":16,"y":107,"wait":0,"action":"","note":"PARK: partly inside the red LOADING ZONE",
+   "path":{"style":"spline","rotate":"turn","heading":0,"note":"Around the hive frame to the red LOADING ZONE"}}
+]

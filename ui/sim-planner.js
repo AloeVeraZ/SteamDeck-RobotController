@@ -184,18 +184,23 @@
   const targetOf=t=>t&&finite(t.x)&&finite(t.y)?{x:t.x,y:t.y}:null;
   const bearing=(p,t)=>Math.atan2(t.y-p.y,t.x-p.x)*180/Math.PI;
   function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin','relative','start','track'].includes(r.rotate)?r.rotate:'keep';
-    return {kind:r.kind==='action'?'action':'regular',action:text(r.action,40),note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
-  function pinEffects(p){return {wait:finite(p.wait)?Math.max(0,p.wait):0,action:text(p.action,40),note:text(p.note,160),turn:finite(p.turn)?(p.turnMode==='relative'?p.turn:norm(p.turn)):null,turnMode:['relative','start','track'].includes(p.turnMode)?p.turnMode:'absolute',target:targetOf(p.target),path:pathEffects(p.path)};}
+    // actionSeconds: how long an action path's action runs from the start of the path (null: the whole path).
+    return {kind:r.kind==='action'?'action':'regular',cell:r.cell==='other'?'other':'start',action:text(r.action,40),actionSeconds:finite(r.actionSeconds)&&r.actionSeconds>0?Math.min(30,r.actionSeconds):null,note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?r.angle:90,target:targetOf(r.target),spins:finite(r.spins)?Math.round(r.spins)||1:1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
+  // At a pin the robot pauses for `wait`, then runs `action` for actionSeconds (null: until it finishes),
+  // then drives on. Older routes ran an intake for the pin's pause: that becomes the intake's own time.
+  function pinEffects(p){
+    if(p.actionSeconds===undefined&&/^\s*intake\s*$/i.test(String(p.action||''))&&finite(p.wait)&&p.wait>0)p={...p,actionSeconds:p.wait,wait:0};
+    return {wait:finite(p.wait)?Math.max(0,p.wait):0,action:text(p.action,40),cell:p.cell==='other'?'other':'start',actionSeconds:finite(p.actionSeconds)&&p.actionSeconds>0?Math.min(30,p.actionSeconds):null,note:text(p.note,160),turn:finite(p.turn)?(p.turnMode==='relative'?p.turn:norm(p.turn)):null,turnMode:['relative','start','track'].includes(p.turnMode)?p.turnMode:'absolute',target:targetOf(p.target),path:pathEffects(p.path)};}
   function pathEnd(path,heading,start,point){return path.rotate==='relative'?heading+path.angle:path.rotate==='start'?start:path.rotate==='track'&&path.target?bearing(point,path.target):path.rotate==='turn'?path.heading:heading;}
   function pinHeading(p,heading,start){return p.turn===null||!finite(p.turn)?null:p.turnMode==='relative'?norm(heading+p.turn):p.turnMode==='start'?norm(start):p.turnMode==='track'&&p.target?bearing(p,p.target):norm(p.turn);}
   // Shared by clearance checks and preview; target bearings follow the actual Bezier point.
   function headingAt(s,t){return s.target?bearing(bezier(s.points,t),s.target):finite(s.endHeading)?s.heading+(s.endHeading-s.heading)*t:s.heading;}
-  function pathDescription(raw,power=.6){const p=pathEffects(raw),bits=[`${Math.round((p.power??power)*100)}% motor power${p.power===null?' (setup)':''}`];
-    if(p.kind==='action')bits.push(`Action: ${p.action||'unnamed'}`);
+  function pathDescription(raw,power=.8){const p=pathEffects(raw),bits=[`${Math.round((p.power??power)*100)}% motor power${p.power===null?' (setup)':''}`];
+    if(p.kind==='action')bits.push(`${p.action||'Action'} while driving${finite(p.actionSeconds)?` for the first ${p.actionSeconds} s`:''}`);
     bits.push(p.rotate==='relative'?`Turn by ${p.angle>=0?'+':''}${p.angle}°`:p.rotate==='turn'?`Face field heading ${p.heading}°`:p.rotate==='spin'?`Spin ${Math.abs(p.spins)} ${p.spins<0?'clockwise':'counterclockwise'}`:p.rotate==='start'?'Return to starting heading':p.rotate==='track'?`Track target ${p.target?`(${p.target.x}, ${p.target.y}) in`:'not selected'}`:'Hold inherited heading');
     if(p.style)bits.push(p.style==='spline'?'Smooth spline':'Straight segments');if(p.note)bits.push(p.note);return bits;}
-  function pathAppearance(raw,power=.6){const p=pathEffects(raw),key=p.rotate==='track'?'track':p.rotate!=='keep'?'rotation':p.power!==null?'power':p.kind==='action'?'action':'normal';return {key,color:{track:'#49cbb3',rotation:'#b79bff',power:'#f2bc62',action:'#63c5ff',normal:'#aeb8c5'}[key],action:p.kind==='action',power:p.power??power};}
-  const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,note:p.note,turn:p.turn,path:p.path});
+  function pathAppearance(raw,power=.8){const p=pathEffects(raw),key=p.rotate==='track'?'track':p.rotate!=='keep'?'rotation':p.power!==null?'power':p.kind==='action'?'action':'normal';return {key,color:{track:'#49cbb3',rotation:'#b79bff',power:'#f2bc62',action:'#63c5ff',normal:'#aeb8c5'}[key],action:p.kind==='action',power:p.power??power};}
+  const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,actionSeconds:p.actionSeconds,cell:p.cell,note:p.note,turn:p.turn,path:p.path});
   const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||['relative','start','track'].includes(path.rotate)||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
   const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&['turn','spin','relative','start','track'].includes(p?.path?.rotate));
   // Each segment records which pin it leads to, so paths can be told apart (action or regular).

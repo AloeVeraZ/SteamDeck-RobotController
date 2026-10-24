@@ -7,7 +7,7 @@ if(window.top===window){
   let config={count:1,slots:[null,null],pads:[null,null],paused:true};const listeners=new Set();
   ipcRenderer.on('controller-config',(_event,value)=>{config=value;for(const listener of listeners)listener(value);});
   const bridge={state:()=>config,onState:fn=>{listeners.add(fn);return()=>listeners.delete(fn);}};
-  if(shell)bridge.report=pads=>ipcRenderer.send('controller-input',pads);
+  if(shell){bridge.report=pads=>ipcRenderer.send('controller-input',pads);bridge.editing=value=>ipcRenderer.send('controller-keyboard-editing',value);}
   contextBridge.exposeInMainWorld('__deckControllerInput',bridge);
   contextBridge.executeInMainWorld({func:(fixtures,shell)=>{
     const input=window.__deckControllerInput,original=navigator.getGamepads?.bind(navigator)||(()=>[]);
@@ -16,8 +16,14 @@ if(window.top===window){
     // even in the controller tester, where robot output is paused. Text fields
     // keep normal editing, and Ctrl/Command/Alt shortcuts still reach the app.
     const editable=target=>target instanceof HTMLElement&&(target.isContentEditable||target.matches('textarea,select,[role="textbox"]')||target instanceof HTMLInputElement&&!['checkbox','radio','button','submit','reset','image','hidden'].includes(target.type));
+    if(shell){
+      const editing=()=>input.editing(editable(document.activeElement));
+      for(const type of ['focusin','focusout'])document.addEventListener(type,()=>queueMicrotask(editing),true);
+      editing();
+    }
     for(const type of ['keydown','keyup'])window.addEventListener(type,event=>{
-      if(event.ctrlKey||event.metaKey||event.altKey||event.isComposing||!config.keyboardKeys?.includes(event.code))return;
+      const code=event.code||(/^[a-z]$/i.test(event.key||'')?'Key'+event.key.toUpperCase():({' ':'Space',Shift:'ShiftLeft','`':'Backquote'}[event.key]||event.key));
+      if(event.ctrlKey||event.metaKey||event.altKey||event.isComposing||!config.keyboardKeys?.includes(code))return;
       if(event.composedPath().some(editable))return;
       event.preventDefault();event.stopImmediatePropagation();
     },true);

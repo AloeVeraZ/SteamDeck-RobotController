@@ -2,6 +2,9 @@
 // Pairs every numeric field with a touch slider so values can be set without a keyboard. The number
 // box keeps exact entry; the slider updates it live and commits with a 'change' event on release.
 // Range comes from data-slider-min/max/step, falling back to the field's own min/max/step.
+// The box and its bar share a .num-field wrapper, so moving focus from one to the other keeps the
+// pair together (:focus-within) instead of hiding the bar under the pointer. Compact rows that lay
+// the bar out themselves (.sim-pin-row) and popovers keep them as plain siblings.
 window.DeckNumberSliders=(()=>{
  const pairs=new Map();
  const read=(input,key,fallback)=>{const v=parseFloat(input.dataset['slider'+key]??input.getAttribute(key.toLowerCase()));return Number.isFinite(v)?v:fallback;};
@@ -12,16 +15,21 @@ window.DeckNumberSliders=(()=>{
   const min=read(input,'Min',0),max=Math.max(min+1e-6,read(input,'Max',min+100)),own=input.dataset.sliderStep??input.getAttribute('step'),step=own&&own!=='any'&&+own>0?+own:nice((max-min)/200);
   range.min=String(min);range.max=String(max);range.step=String(step);range.disabled=input.disabled||input.readOnly;range.hidden=input.hidden;
   const value=input.valueAsNumber;if(Number.isFinite(value))range.value=String(Math.min(max,Math.max(min,value)));
+  fill(range);
  }
+ // The filled part of the track, drawn by CSS from --fill.
+ const fill=range=>range.style.setProperty('--fill',`${(+range.value-+range.min)/Math.max(1e-9,+range.max-+range.min)*100}%`);
  function pair(input){
   if(pairs.has(input)||input.dataset.slider==='off')return;
   const range=document.createElement('input');range.type='range';range.className='num-slider';if(input.id)range.id=input.id+'-slider';
   const label=(input.labels?.[0]?.textContent||input.getAttribute('aria-label')||input.title||'Value').trim();range.setAttribute('aria-label',label+' slider');
-  range.addEventListener('input',()=>{const v=+range.value;input.value=String(+v.toFixed(Math.min(6,decimals(range.step))));input.dispatchEvent(new Event('input',{bubbles:true}));});
+  range.addEventListener('input',()=>{fill(range);const v=+range.value;input.value=String(+v.toFixed(Math.min(6,decimals(range.step))));input.dispatchEvent(new Event('input',{bubbles:true}));});
   range.addEventListener('change',()=>{input.dispatchEvent(new Event('change',{bubbles:true}));if(input.dataset.sliderSubmit!==undefined)input.form?.requestSubmit();});
   range.addEventListener('pointerdown',()=>sync(input));
   input.addEventListener('input',()=>sync(input));input.addEventListener('change',()=>sync(input));
-  input.after(range);pairs.set(input,range);sync(input);
+  if(input.closest('.sim-pin-row,.sim-popover')||input.dataset.sliderWrap==='off'||input.parentElement?.classList.contains('num-field'))input.after(range);
+  else{const field=document.createElement('span');field.className='num-field';input.replaceWith(field);field.append(input,range);}
+  pairs.set(input,range);sync(input);
  }
  const scan=root=>{for(const input of root.querySelectorAll('input[type=number]'))pair(input);};
  function refresh(){for(const input of pairs.keys())if(input.isConnected)sync(input);else pairs.delete(input);}
