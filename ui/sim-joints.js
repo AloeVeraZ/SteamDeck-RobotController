@@ -34,7 +34,7 @@
     const leavesOf=j=>{const c=ctx();return c?c.parts.expand(j.parts||[]):new Set();};
     const joints=()=>kin().joints;
     // ---- changes
-    function change(id,fn,{note}={}){const next=structuredClone(kin()),j=next.joints.find(x=>x.id===id);if(!j)return;fn(j,next);if(j.source==='inferred')j.source='user';api.commit(next,note);}
+    function change(id,fn,{note}={}){const next=structuredClone(kin()),j=next.joints.find(x=>x.id===id);if(!j)return;fn(j,next);if(j.source==='inferred'||j.source==='metadata')j.source='user';api.commit(next,note);}
     // Finds the joints of this CAD. Joints the team set stay; found ones replace the old finds.
     // The finder and the clearance sweep run in a worker (sim-discovery-worker.js) so a big CAD does not stall the page;
     // the body's arrays go to it once per CAD. Without workers they run here.
@@ -267,6 +267,8 @@
       if(el.dataset.stateName!==undefined){const old=el.dataset.stateName,name=el.value.trim().slice(0,24);if(!name||name===old)return;change(id,x=>{const v=x.states[old];delete x.states[old];x.states[name]=v;});return;}
       if(el.dataset.stateValue!==undefined){if(finite(el.valueAsNumber))change(id,x=>{x.states[el.dataset.stateValue]=el.valueAsNumber;});return;}
       if(!f)return;const v=el.type==='number'?el.valueAsNumber:el.value;
+      // An empty limit box takes the limit away.
+      if((f==='lower'||f==='upper')&&el.value.trim()==='')return change(id,x=>{delete x[f];});
       if(f==='type')return change(id,x=>{x.type=v;});
       if(f==='name')return change(id,x=>{x.name=String(v).trim()||x.name;});
       if(f==='parent')return change(id,x=>{x.parent=v||null;});
