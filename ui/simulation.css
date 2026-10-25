@@ -92,6 +92,9 @@
 .driver-station .sim-tabs>button[aria-selected=true]{border-bottom-color:var(--accent);background:none;box-shadow:none;color:var(--text)}
 .sim-tabs button span{display:inline-grid;place-items:center;width:23px;height:23px;border:1px solid var(--line-strong);border-radius:50%;font-size:11px}
 .sim-tabs button[aria-selected=true] span{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+/* A stage's state after its name: ✓ done, ! needs attention (the reason is the tab's tooltip and description). */
+.sim-tabs .sim-tab-mark{display:none;place-items:center;width:16px;height:16px;border-radius:50%;font-size:10px;font-style:normal;font-weight:800;line-height:1;color:var(--bg)}
+.sim-tabs button[data-state=done] .sim-tab-mark{display:inline-grid;background:var(--connected)}.sim-tabs button[data-state=attention] .sim-tab-mark{display:inline-grid;background:var(--warning)}
 .sim-setup-bar{display:flex;align-items:center;gap:8px;margin-bottom:20px;flex-wrap:wrap}
 .sim-setup-bar>.sim-setup-label{font-size:12px;color:var(--muted);margin-right:4px}.sim-setup-picker{position:relative;min-width:0}.sim-setup-picker>input{width:260px;min-height:44px;margin:0}
 .sim-setup-current{display:flex;align-items:center;gap:10px;width:min(420px,60vw);min-height:44px;padding:5px 10px 5px 12px;text-align:left;background:var(--control);border:1px solid var(--line-strong);border-radius:var(--radius);color:var(--text)}.sim-setup-current:hover{background:var(--input-hover)}

@@ -151,7 +151,7 @@ public class MyAuto implements DeckAutonomous {
   root.innerHTML=`<div class="simulation-heading"><div><h1>Simulation</h1><p id="sim-subtitle"></p></div><span class="simulation-mode" id="sim-mode">Offline</span></div>
     <dialog id="sim-start-confirm" aria-labelledby="sim-start-confirm-title"><form method="dialog"><h2 id="sim-start-confirm-title">Is this your robot’s starting position?</h2><p id="sim-start-confirm-file" class="hint"></p><p>The simulation starts your robot exactly as this CAD is posed: slides down, arms and intakes stowed, everything inside the starting size the way it sits on the field before a match. Import it only if this is that starting configuration.</p><div class="button-row"><button type="submit" value="yes" class="primary" id="sim-start-yes">Yes, this is the starting position</button><button type="submit" value="no" class="secondary" id="sim-start-no">No, cancel</button></div></form></dialog>
     <dialog id="sim-setup-delete-confirm" aria-labelledby="sim-setup-delete-title"><form method="dialog"><h2 id="sim-setup-delete-title"></h2><p>This removes the setup with its fields, planned routes, robot, mechanisms and program. It cannot be undone, so save it to a file first if you might want it back.</p><div class="button-row"><button type="submit" value="yes" class="primary danger" id="sim-setup-delete-yes">Yes, delete this setup</button><button type="submit" value="no" class="secondary" id="sim-setup-delete-no">No, keep it</button></div></form></dialog>
-    <nav class="sim-navigation" aria-label="Autonomous setup"><div class="sim-tabs" role="tablist">${Object.entries({setup:'Setup',plan:'Path planning',run:'Run & review'}).map(([k,t],i)=>`<button type="button" role="tab" data-tab="${k}" id="sim-tab-${k}" aria-controls="sim-panel-${k}"><span>${i+1}</span>${t}</button>`).join('')}</div></nav>
+    <nav class="sim-navigation" aria-label="Autonomous setup"><div class="sim-tabs" role="tablist">${Object.entries({setup:'Setup',plan:'Path planning',run:'Run & review'}).map(([k,t],i)=>`<button type="button" role="tab" data-tab="${k}" id="sim-tab-${k}" aria-controls="sim-panel-${k}"><span>${i+1}</span>${t}<i class="sim-tab-mark" aria-hidden="true"></i></button>`).join('')}</div></nav>
     <div class="sim-setup-bar"><span class="sim-setup-label" id="sim-setup-label">Saved setup</span><div class="sim-setup-picker"><button id="sim-setup" type="button" class="sim-setup-current" aria-haspopup="listbox" aria-expanded="false" aria-controls="sim-setup-list" aria-labelledby="sim-setup-label sim-setup"><span class="sim-setup-text"><strong></strong><small></small></span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
       <div id="sim-setup-list" class="sim-setup-list" role="listbox" aria-labelledby="sim-setup-label" hidden></div></div>
       <div class="sim-setup-actions" role="group" aria-label="Manage setups"><button id="sim-setup-new" type="button" title="Start a new setup with default settings">${ICON.add}New</button><button id="sim-setup-rename" type="button" title="Rename this setup">${ICON.rename}Rename</button><button id="sim-setup-delete" type="button" class="danger" title="Delete this setup">${ICON.trash}Delete</button></div>
@@ -483,9 +483,15 @@ public class MyAuto implements DeckAutonomous {
     for(const id of ['#sim-play','#sim-stop','#sim-reset','#sim-speed'])$(id).disabled=!native;
     $('#sim-play').disabled=!native||(!frame?.practice&&runState!=='running')||frame?.practice?.phase==='finished';
     $('#sim-run').disabled=!native||runState==='starting'||optimizing;$('#sim-optimize').disabled=!native||optimizing;
+    runReadiness();
+  }
+  // What Run will do, under Run: the sensors it follows the route with, or what is missing first. Route checks call it too.
+  function runReadiness(){
     const canFollow=C.sensors[project.sensors.localization].translation,teleop=project.practice.mode==='teleop';$('#sim-run-readiness').textContent=teleop?'Controller practice uses this setup’s robot, field and physical game elements.':canFollow?'The Deck controller follows this route using your selected odometry and IMU. Press Escape to stop.':'Timed power + IMU heading hold. There is no X/Y feedback; compare the actual endpoint against your planned pins.';$('#sim-run-sensors').hidden=canFollow||teleop||project.program.kind==='route';
     // A route program with nothing to drive yet points back to Path planning instead of failing on Run.
-    const noRoute=!teleop&&['route','opmode'].includes(project.program.kind)&&!L().pins.length;$('#sim-run-plan').hidden=!noRoute;if(noRoute)$('#sim-run-readiness').textContent='No route yet. Add at least one path in Path planning, then press Run here.';
+    const noRoute=!teleop&&['route','opmode'].includes(project.program.kind)&&!L().pins.length,blocked=routeBlocked();$('#sim-run-plan').hidden=!noRoute&&!blocked;if(noRoute)$('#sim-run-readiness').textContent='No route yet. Add at least one path in Path planning, then press Run here.';
+    // ...and so does a route that cannot be driven yet, naming the path to fix.
+    else if(blocked)$('#sim-run-readiness').textContent=`The route cannot run yet: ${blocked.pin!==null?`path ${blocked.pin+1} has a problem`:'it has a problem'} to fix in Path planning.`;
     // What Run plays is chosen under Export, so the Run column says when it is not the planned route.
     if(!teleop&&project.program.kind!=='route')$('#sim-run-readiness').textContent+=` Run plays ${project.program.kind==='opmode'?'the OnBot Java export':'your Java program'}: change it under Export → What Run plays.`;
     resultsPanel();
@@ -502,6 +508,17 @@ public class MyAuto implements DeckAutonomous {
       selected:reviewLeg?.index??null,onSelect:leg=>{const changed=reviewLeg?.pin!==leg.pin;reviewLeg={index:leg.index,pin:leg.pin};if(changed)draw();}});
     // A new run's report: Results shows it from the top, or its tab is marked when another view is open.
     if(report&&reportShown!==runAttempt){reportShown=runAttempt;const results=runViews?.panes[0];if(runViews?.shown()===0)results.pane.scrollTop=0;else results?.button.classList.add('has-news');}
+    stageMarks();
+  }
+  // Route-check messages say "pin", the planner's word (and Run reads the number from it); the panels say path and end point.
+  const plainWords=m=>String(m).replace(/\b(The p|the p|P|p)ath to pin (\d+)/g,(_,a,n)=>(/^[TP]/.test(a)?'Path ':'path ')+n)
+    .replace(/\bpins? (\d+)/g,'end point $1').replace(/\bPin (\d+)/g,'End point $1').replace(/\bat a pin\b/g,'at an end point').replace(/\bpins\b/g,'end points');
+  // The first thing stopping Run from driving the planned route ({message, pin}), or null: a route check that failed
+  // or a plan error. Only when Run plays a route; teleop and Java programs do not need one.
+  function routeBlocked(){
+    if(project.practice.mode==='teleop'||!['route','opmode'].includes(project.program.kind)||!L().pins.length||analysisPending)return null;
+    const issue=diagnostics.find(d=>d.pin!==null)||diagnostics[0];
+    return issue?{message:plainWords(issue.message),pin:issue.pin??null}:planError?{message:plainWords(planError),pin:blockedPin>=0?blockedPin:null}:null;
   }
   function showRunView(i){if(!runViews)return;runViews.choose(i);runViews.panes[i].pane.scrollTop=0;}
   // Results before a run: what Run does in this practice mode and what this view will show. Once the run's clock
@@ -509,13 +526,26 @@ public class MyAuto implements DeckAutonomous {
   function resultsPanel(){
     if(!resultsReady)return;const frames=runData?.frames()||[],ran=runState!=='idle'||frames.length>1&&frames.at(-1).time-frames[0].time>.05;
     resultsReady.hidden=ran;replayBox.hidden=!ran;if(ran)return;
-    const mode=project.practice.mode,auto=project.practice.autoSeconds,est=routeEstimate(),kind=project.program.kind,noRoute=mode!=='teleop'&&['route','opmode'].includes(kind)&&!L().pins.length;
-    const title=mode==='teleop'?'Ready to practise teleop':mode==='match'?'Ready for a full match':'Ready to test your autonomous';
-    const text=mode==='teleop'?'Press Run and drive with your controller. Speed, heading and mechanisms are graphed here as you drive.':`Press Run. The robot drives ${kind==='route'?'your route':kind==='opmode'?'the OnBot Java export':'your Java program'} with physics, then this shows whether it finished, the points it scored and where its ${auto} seconds went.${mode==='match'?' Teleop follows, driven with your controller.':''}`;
-    const note=noRoute?'No route yet. Add at least one path in Path planning first.':est?.time&&mode!=='teleop'?`Path planning’s test drive took about ${est.time.toFixed(1)} s${est.time>auto?`, longer than the ${auto} s autonomous`:''}.`:'';
-    const key=JSON.stringify([title,text,note]);if(resultsReady.dataset.key===key)return;resultsReady.dataset.key=key;
-    const go=noRoute?[Object.assign(document.createElement('button'),{type:'button',className:'secondary',textContent:'Go to Path planning',onclick:()=>$('#sim-run-plan').click()})]:[];
+    const mode=project.practice.mode,auto=project.practice.autoSeconds,est=routeEstimate(),kind=project.program.kind,blocked=routeBlocked(),noRoute=mode!=='teleop'&&['route','opmode'].includes(kind)&&!L().pins.length;
+    const title=blocked?'Fix the route before running it':mode==='teleop'?'Ready to practise teleop':mode==='match'?'Ready for a full match':'Ready to test your autonomous';
+    const text=blocked?blocked.message:mode==='teleop'?'Press Run and drive with your controller. Speed, heading and mechanisms are graphed here as you drive.':`Press Run. The robot drives ${kind==='route'?'your route':kind==='opmode'?'the OnBot Java export':'your Java program'} with physics, then this shows whether it finished, the points it scored and where its ${auto} seconds went.${mode==='match'?' Teleop follows, driven with your controller.':''}`;
+    const note=blocked?'Run drives the planned route, so it cannot start until every path is clear. Diagnostics → Route checks lists every issue.':noRoute?'No route yet. Add at least one path in Path planning first.':est?.time&&mode!=='teleop'?`Path planning’s test drive took about ${est.time.toFixed(1)} s${est.time>auto?`, longer than the ${auto} s autonomous`:''}.`:'';
+    const key=JSON.stringify([title,text,note,blocked?.pin]);if(resultsReady.dataset.key===key)return;resultsReady.dataset.key=key;resultsReady.classList.toggle('blocked',!!blocked);
+    const go=blocked||noRoute?[Object.assign(document.createElement('button'),{type:'button',className:blocked?'primary':'secondary',textContent:blocked?.pin!=null?`Fix path ${blocked.pin+1} →`:'Go to Path planning',onclick:()=>blocked?.pin!=null?editPath(blocked.pin):$('#sim-run-plan').click()})]:[];
     resultsReady.replaceChildren(Object.assign(document.createElement('h3'),{textContent:title}),Object.assign(document.createElement('p'),{textContent:text}),...(note?[Object.assign(document.createElement('p'),{className:'hint',textContent:note})]:[]),...go);
+  }
+  // The stage tabs say what is done and what needs attention, so the next step is plain from any tab: Setup while
+  // the robot still needs measurements, Path planning when a path has a problem or the route will not fit the
+  // autonomous (done once it is planned and checked), Run & review after a run, from its report.
+  function stageMarks(){
+    const est=L().route&&!diagnostics.length?routeEstimate():null,auto=project.practice.autoSeconds;
+    const plan=diagnostics.length||planError?['attention',`${diagnostics.length||1} route issue${diagnostics.length>1?'s':''} to fix`]:
+      est?.time>auto?['attention',`The route takes about ${est.time.toFixed(1)} s, longer than the ${auto} s autonomous`]:est&&(est.violations>0||est.miss>1.5)?['attention','The test drive touched something or missed the end point']:
+      L().route&&!analysisPending?['done',`Route planned and checked${est?.time?` · about ${est.time.toFixed(1)} s`:''}`]:null;
+    const run=lastReport&&!$('#sim-run-analysis').hidden?[lastReport.level==='ok'?'done':'attention',`Last run: ${lastReport.title}`]:null;
+    const setup=$('#sim-needs-you')&&!$('#sim-needs-you').hidden?['attention','Your robot still needs some measurements']:null;
+    for(const [k,s] of Object.entries({setup,plan,run})){const b=$(`.sim-tabs [data-tab=${k}]`),[state,note]=s||['',''];if(!b||b.dataset.state===state&&b.title===note)continue;
+      b.dataset.state=state;b.title=note;note?b.setAttribute('aria-description',note):b.removeAttribute('aria-description');b.querySelector('.sim-tab-mark').textContent=state==='done'?'✓':state?'!':'';}
   }
   function diagnosticBox(id){const box=document.createElement('section');box.id=id;box.className='sim-diagnostics';return box;}
   const diagnosticPages={};
@@ -533,8 +563,9 @@ public class MyAuto implements DeckAutonomous {
     if(touching||events)warnings.push(`Chassis contact: ${touching?'currently touching a wall or no-go area':`${events} contact event(s) during this run`}. Increase clearance or reduce path power.`);
     // Diagnostics → Route checks counts what it lists, so issues show without opening it.
     const checks=$('[data-diagview=checks]'),count=diagnostics.length+warnings.length,label=count?`Route checks · ${count}`:'Route checks';if(checks&&checks.textContent!==label)checks.textContent=label;
+    stageMarks();runReadiness();
     for(const id of ['#sim-plan-diagnostics','#sim-run-diagnostics']){const box=$(id);if(!box)continue;const key=JSON.stringify([diagnostics,warnings,analysisPending,L().pins.length,!!L().route,diagnosticPages[id]||0]);if(box.dataset.content===key)continue;box.dataset.content=key;const head=document.createElement('h3');head.textContent=analysisPending?'Analyzing route…':diagnostics.length?`${diagnostics.length} route issue${diagnostics.length>1?"s":""}`:'Route checks';const legend=document.createElement('p');legend.className='hint';legend.textContent='Numbered markers on the field are path end points: red has a clearance or path issue, amber pauses or runs an action, plain only drives. Power is a limit, not a guaranteed speed.';
-      const list=document.createElement('ul'),size=innerHeight<650?1:2,entries=[...diagnostics,...warnings.map(message=>({pin:null,code:'warning',message}))],pages=Math.ceil(entries.length/size),page=Math.max(0,Math.min(pages-1,diagnosticPages[id]||0));for(const issue of entries.slice(page*size,(page+1)*size)){const item=document.createElement('li');item.className=issue.code==='warning'?'hint warn':'sim-issue';item.textContent=issue.message;if(issue.pin!==null){const jump=document.createElement('button');jump.type='button';jump.className='text-button';jump.textContent=`Edit path ${issue.pin+1}`;jump.onclick=()=>editPath(issue.pin);item.append(jump);}list.append(item);}
+      const list=document.createElement('ul'),size=innerHeight<650?1:2,entries=[...diagnostics,...warnings.map(message=>({pin:null,code:'warning',message}))],pages=Math.ceil(entries.length/size),page=Math.max(0,Math.min(pages-1,diagnosticPages[id]||0));for(const issue of entries.slice(page*size,(page+1)*size)){const item=document.createElement('li');item.className=issue.code==='warning'?'hint warn':'sim-issue';item.textContent=plainWords(issue.message);if(issue.pin!==null){const jump=document.createElement('button');jump.type='button';jump.className='text-button';jump.textContent=`Edit path ${issue.pin+1}`;jump.onclick=()=>editPath(issue.pin);item.append(jump);}list.append(item);}
       if(!diagnostics.length&&!analysisPending){const item=document.createElement('li');item.textContent=L().pins.length?L().route?'Every end point and planned movement keeps the robot clear.':'Pin footprints checked. Planning route movements…':'Add paths to check their movements.';list.append(item);}box.replaceChildren(head,legend,list);if(pages>1){const nav=document.createElement('div');nav.className='sim-pin-pages';const prev=document.createElement('button'),next=document.createElement('button'),label=document.createElement('span');prev.textContent='← Previous';next.textContent='Next →';prev.disabled=page===0;next.disabled=page===pages-1;prev.type=next.type='button';prev.className=next.className='secondary';label.textContent=`${page*size+1}–${Math.min(entries.length,(page+1)*size)} of ${entries.length}`;prev.onclick=()=>{diagnosticPages[id]=page-1;refreshDiagnostics();};next.onclick=()=>{diagnosticPages[id]=page+1;refreshDiagnostics();};nav.append(prev,label,next);box.append(nav);}
     }
   }
@@ -1567,7 +1598,7 @@ public class MyAuto implements DeckAutonomous {
   function entered(key){if(project.model?.entered&&!project.model.entered.includes(key)){project.model.entered.push(key);save();}needsYou();}
   function needsYou(){const left=project.model?.entered?Object.keys(NEEDS).filter(k=>!project.model.entered.includes(k)):[];
     for(const [k,[id]] of Object.entries(NEEDS))$(id).closest('div')?.classList.toggle('sim-needs-input',left.includes(k));
-    $('#sim-needs-you').hidden=!left.length;$('#sim-needs-you').textContent=left.length?`Your CAD set the rest. Enter the robot’s ${left.map(k=>NEEDS[k][1]).join(', ').replace(/, ([^,]*)$/,' and $1')} below (highlighted).`:'';}
+    $('#sim-needs-you').hidden=!left.length;queueMicrotask(stageMarks);$('#sim-needs-you').textContent=left.length?`Your CAD set the rest. Enter the robot’s ${left.map(k=>NEEDS[k][1]).join(', ').replace(/, ([^,]*)$/,' and $1')} below (highlighted).`:'';}
   const ROLES=[['chassis','Drivetrain / chassis'],['intake','Intake'],['kicker','Kicker'],['shooter:pollen','Pollen shooter'],['shooter:nectar','Nectar shooter'],['shooter:both','Pollen + nectar shooter'],['turret','Turret'],['indexer','Indexer'],['other','Not a mechanism']];
   let partSel=null,importProgress=null;
   const partsOf=()=>{if(!model?.geometry||model.geometry.isObject3D||!M())return null;if(model.tree===undefined)model.tree=M().partTree(model.geometry);return model.tree;};
@@ -1978,7 +2009,7 @@ public class MyAuto implements DeckAutonomous {
   setupStepPanel();
   $('#sim-setup-next').onclick=()=>{selectTab('plan');setStep('start');void setView('2d');};$('#sim-step-start').onclick=()=>setStep('start');$('#sim-step-zones').onclick=()=>setStep('zones');$('#sim-step-pins').onclick=()=>setStep('pins');$('#sim-zones-next').onclick=()=>setStep('pins');$('#sim-plan-next').onclick=()=>selectTab('run');
   $('#sim-start-next').onclick=()=>{try{commit(tool==='start'?preview:start);setStep(hasObstacleStep()?'zones':'pins');}catch(e){status('#start-status',e.message);}};
-  $('#sim-run-sensors').onclick=()=>{selectTab('setup');$('#sim-localization').focus();};$('#sim-run-plan').onclick=()=>{selectTab('plan');setStep(L().start?'pins':'start');};
+  $('#sim-run-sensors').onclick=()=>{selectTab('setup');$('#sim-localization').focus();};$('#sim-run-plan').onclick=()=>{const b=routeBlocked();if(b?.pin!=null)return editPath(b.pin);selectTab('plan');setStep(L().start?'pins':'start');};
   // + Add path ends a new path one tile from the last point, toward the middle of the field
   // (or across it, from the middle).
   $('#sim-add-path').onclick=()=>{const from=L().pins.at(-1)||start,b=geometry().bounds,c={x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2},d=Math.hypot(c.x-from.x,c.y-from.y),reach=24;
@@ -2017,7 +2048,7 @@ public class MyAuto implements DeckAutonomous {
   // workspace tabs share one field row and fixed-height footer, so the field is the same size.
   const runControls=document.createElement('div'),runDetails=document.createElement('div');runControls.className='sim-run-controls';runDetails.className='sim-run-details';
   runControls.append(clock,$('[data-practice]').parentElement,$('#sim-run').parentElement,$('#sim-run-status'),$('#sim-error'));
-  runDetails.append(Object.assign(document.createElement('h3'),{textContent:'Period lengths · seconds'}),timers,$('#sim-telemetry'),$('#sim-run-readiness'),$('#sim-run-sensors'),$('#sim-practice-help'));
+  runDetails.append(Object.assign(document.createElement('h3'),{textContent:'Period lengths · seconds'}),timers,$('#sim-telemetry'),$('#sim-run-readiness'),$('#sim-run-plan'),$('#sim-run-sensors'),$('#sim-practice-help'));
   timing.append(runControls,runDetails);
   const fieldRow=document.createElement('div'),fieldFooter=document.createElement('div');fieldRow.className='sim-field-row';fieldFooter.className='sim-field-footer';
   $('#sim-stage').before(fieldRow);fieldRow.append(timing,$('#sim-stage'));fieldRow.after(fieldFooter);fieldFooter.append($('#field-coordinates'),$('#field-help'));

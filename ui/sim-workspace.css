@@ -69,7 +69,7 @@ body.sim-workspace{overflow:hidden}
 .sim-run-timing [role=status]{margin:0;font-size:13px;line-height:1.4}.sim-run-timing [role=status]:empty{display:none}
 .sim-run-timing .sim-error{margin:0}
 .sim-run-timing .hint{font-size:11px;line-height:1.4;margin:10px 0 0}.sim-run-timing .hint:empty{display:none}
-.sim-run-timing #sim-run-sensors{width:100%;margin-top:8px}
+.sim-run-timing #sim-run-sensors,.sim-run-timing #sim-run-plan{width:100%;margin-top:8px}
 .driver-station .sim-run-timing h3{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
 .sim-run-timing .sim-grid3{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .driver-station .sim-run-timing label{display:block;font-size:11px;margin:0 0 3px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -289,6 +289,7 @@ body.sim-workspace{overflow:hidden}
 .sim-results-ready{padding:12px 14px;border:1px dashed var(--line-strong);border-radius:8px;font-size:13px;line-height:1.45}.sim-results-ready[hidden]{display:none!important}
 .sim-results-ready h3{margin:0 0 6px;font-size:14px}.sim-results-ready p{margin:0}.sim-results-ready p+p{margin-top:6px}
 #simulation-view .sim-results-ready button{margin:10px 0 0}
+.sim-results-ready.blocked{border-style:solid;border-color:var(--warning);background:var(--warning-bg)}
 .sim-replay[hidden]{display:none!important}.sim-replay>h3{margin:0 0 8px;font-size:13px}
 /* Folded sections under Results: a quiet row that opens in place. */
 .sim-fold{margin:14px 0 0;padding-top:10px;border-top:1px solid var(--line)}.sim-fold>summary{cursor:pointer;padding:4px 0;font-size:13px}
