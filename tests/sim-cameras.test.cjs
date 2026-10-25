@@ -134,6 +134,45 @@ test('Record films camera 1 live: the original camera where nothing is in the wa
   assert.ok(hidden<=3,`the post hides the robot in ${hidden} pictures`);
 });
 
+test('over a turret drawn on the robot’s top the turret camera stays out of it and sees past it',()=>{
+  // A stand-in turret (sim-robot-model.js kin.turrets) on a 14 in robot: 14 to 18.6 in high, its housing ±3.4 in round
+  // the pivot and its barrel out to 7.9 in.
+  const turrets=[{n:0,pivot:[0,0],z0:14,z1:18.6,x0:-3.4,x1:3.4,y:3.4,tip:7.9}],c={...base,turrets},R=K.rig(c);
+  assert.equal(R.height,14,'the robot’s own box stays the chassis');assert.equal(R.top,18.6,'it looks as tall as the turret');assert.deepEqual(R.shooters[0].point,[0,0,18.6]);
+  assert.equal(K.rig({...base,turrets:[{...turrets[0],hidden:true}]}).top,14,'a turret that is not drawn is not there');
+  const pov=K.path('turret',frames,{...c,rig:R},K.DEFAULTS.turret);
+  for(const t of [.5,2.5,5.5,6.5,6.8]){const i=index(t),r=frames[i].truth,cam=at(pov,i),turn=(frames[i].mechanisms.turret+r.heading)*Math.PI/180;
+    const frame=q=>{const dx=q[0]-r.x,dy=q[1]-r.y;return [dx*Math.cos(turn)+dy*Math.sin(turn),-dx*Math.sin(turn)+dy*Math.cos(turn),q[2]];};
+    const [along,,up]=frame(cam.p);assert.ok(along<-3.4&&up>18.6+2,`behind the housing and over it at ${t} s (${along.toFixed(1)}, ${up.toFixed(1)})`);
+    // The middle of the picture looks past the turret, not into it.
+    const v=[0,1,2].map(k=>cam.l[k]-cam.p[k]),n=Math.hypot(...v);
+    for(let s=0;s<=24;s+=.5){const [qa,qs,qz]=frame(v.map((x,k)=>cam.p[k]+x/n*s));assert.ok(!(qa>-3.4&&qa<7.9&&Math.abs(qs)<3.4&&qz>14&&qz<18.6),`the view goes into the turret at ${t} s`);}}
+});
+
+// Where the robot (a ball round its middle) is in camera 1's 16:9 picture: its reach past the nearest edge, 0 or less inside.
+function outOfPicture(pose,t,R){
+  const f=[0,1,2].map(k=>pose.l[k]-pose.p[k]),fl=Math.hypot(...f),F=f.map(v=>v/fl),side=[F[1],-F[0],0].map(v=>v/Math.hypot(F[0],F[1])),upv=[side[1]*F[2]-side[2]*F[1],side[2]*F[0]-side[0]*F[2],side[0]*F[1]-side[1]*F[0]];
+  const top=R.top??R.height,S=[t.x,t.y,top/2],d=S.map((v,k)=>v-pose.p[k]),z=d[0]*F[0]+d[1]*F[1]+d[2]*F[2],r=.8*Math.hypot(Math.max(R.footprint.front,R.footprint.rear),R.footprint.half,top/2);
+  const ty=Math.tan(pose.fov*Math.PI/360),tx=ty*16/9,x=Math.abs(d[0]*side[0]+d[1]*side[1])/z,y=Math.abs(d[0]*upv[0]+d[1]*upv[1]+d[2]*upv[2])/z,grow=r/z;
+  return z<=0?9:Math.max(x+grow-tx,y+grow-ty);
+}
+test('camera 1 keeps all of the robot in its picture, even driving fast out of a shot, and widens its view while shooting',()=>{
+  // After the volley the robot strafes off at 60 in/s while the camera still holds the goal in view.
+  const run=videoRun().filter(f=>f.time<17.2),last=run.at(-1);let y=last.truth.y;
+  for(let i=1;i<=45;i++){y+=2;run.push({...last,time:last.time+i/30,truth:{...last.truth,y,vx:0,vy:60},mechanisms:{...last.mechanisms,command:{},flywheel:Math.max(0,.9-i/20)}});}
+  const track=K.path('main',run,ctx);
+  run.forEach((f,i)=>assert.ok(outOfPicture(at(track,i),f.truth,ctx.rig)<=.02,`the robot is out of the picture at frame ${i}`));
+  assert.ok(at(track,index(6.8)).fov>at(track,index(2)).fov+5,'it widens while shooting');
+});
+
+test('cameras keep out of the wall while the robot strafes along it, facing it',()=>{
+  // The front 1.5 in from the +x wall, strafing along it: every mechanism camera is designed to be in or behind the wall.
+  const x=ctx.bounds.x1-ctx.footprint.front-1.5,run=[];for(let i=0;i<=150;i++){const t=i/30,vy=t>.5&&t<4.5?25:0;run.push({time:10+t,truth:{x,y:30+25*Math.max(0,Math.min(4,t-.5)),heading:0,vx:0,vy,omega:0,z:0},mechanisms:{turret:0,turrets:[0],ramps:[0],command:{}},fieldState:{game:'biobuzz',balls:[]}});}
+  const all=K.paths(run,ctx);
+  for(const id of K.IDS)for(let i=0;i<run.length;i++){const p=at(all[id],i).p;
+    assert.ok(p[0]<=ctx.bounds.x1||p[2]>=12+2,`${id} is in or behind the wall at ${p.map(v=>v.toFixed(1))} (frame ${i})`);}
+});
+
 test('the rig comes from the mechanisms and the CAD parts',()=>{
   const R=K.rig({...base,parts:[{role:'intake',kind:'ramp',box:{x0:7,x1:11,y0:-6,y1:6,z0:0,z1:4}}]});
   assert.deepEqual(R.ramp.point,[9,0,2]);assert.equal(R.intake.side,'front');assert.equal(R.shooters.length,1);

@@ -257,7 +257,9 @@
   // Shows or hides a rig's hitboxes. Clones share their materials, so every view of the same rig follows.
   function hitboxes(holder,on){const seen=new Set();holder?.traverse(o=>{if(o.userData?.deckHitbox&&!seen.has(o.material)){seen.add(o.material);o.material.visible=!!on;}});return seen.size;}
   // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own; on an imported
-  // CAD only the joint (w.drawn false).
+  // CAD only the joint (w.drawn false). A drawn turret's shape is kept in kin.turrets (inches from its pivot, turning
+  // with it: z0 to z1 high, x0 to x1 and ±y round the turntable and housing, the barrel out to tip) for the run-video
+  // cameras, which ride on it and keep out of it.
   function standIn(holder,kin,w,footprint,height){
     const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let geometry,joint;
     if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(1,height);
