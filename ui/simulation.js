@@ -1446,10 +1446,11 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-speed').onchange=e=>void call('speed',Number(e.target.value)).catch(()=>{});
   const clockText=seconds=>`${Math.floor(Math.ceil(seconds)/60)}:${String(Math.ceil(seconds)%60).padStart(2,'0')}`;
   function practicePanel(current=frame?.practice){pressed('practice',project.practice.mode);for(const [id,k] of [['#sim-auto-seconds','autoSeconds'],['#sim-transition-seconds','transitionSeconds'],['#sim-teleop-seconds','teleopSeconds']])if(document.activeElement!==$(id))$(id).value=project.practice[k];
+    const p=project.practice,sum=$('#sim-period-summary');if(sum)sum.textContent=p.mode==='autonomous'?`Autonomous period · ${p.autoSeconds} s`:p.mode==='teleop'?`Teleop period · ${p.teleopSeconds} s`:`Periods · ${p.autoSeconds} s auto, ${p.transitionSeconds} s transition, ${p.teleopSeconds} s teleop`;
     $('#sim-practice-phase').textContent=current?{auto:'Autonomous',transition:'Transition · controls locked',teleop:current.neutralRequired?'Teleop · centre sticks':'Teleop · Controller 1',finished:'Complete'}[current.phase]:'Ready';$('#sim-practice-time').textContent=clockText(current?.remaining??(project.practice.mode==='teleop'?project.practice.teleopSeconds:project.practice.autoSeconds));
     $('#sim-practice-help').textContent=project.practice.mode==='autonomous'?'Autonomous only. Controller driving stays disabled.':project.practice.mode==='match'?'Auto → transition → teleop. Early autonomous completion holds still until its timer ends. Controller 1 is enabled only in teleop.':'Controller 1: left stick moves, right stick turns, left bumper slows down. Release both sticks after starting or reconnecting.';
     if(project.mechanisms.enabled&&project.practice.mode!=='autonomous')$('#sim-practice-help').textContent+=' Mechanisms in teleop: right bumper intakes, left trigger spins up, right trigger shoots (keyboard: E, Shift, G).';
-    $('[data-program]').parentElement.hidden=project.practice.mode==='teleop'||project.controller==='motionmodule';$('#sim-source-box').hidden=project.practice.mode==='teleop'||project.controller==='motionmodule'||project.program.kind!=='source';
+    $('[data-program]').parentElement.hidden=project.practice.mode==='teleop'||project.controller==='motionmodule';if($('#sim-run-program'))$('#sim-run-program').hidden=$('[data-program]').parentElement.hidden;$('#sim-source-box').hidden=project.practice.mode==='teleop'||project.controller==='motionmodule'||project.program.kind!=='source';
   }
   for(const b of $$('[data-practice]'))b.onclick=()=>{if(native&&(frame?.playing||frame?.practice))void call('stop');project.practice.mode=b.dataset.practice;save();practicePanel(null);transport();};
   for(const [id,key] of [['#sim-auto-seconds','autoSeconds'],['#sim-transition-seconds','transitionSeconds'],['#sim-teleop-seconds','teleopSeconds']])$(id).onchange=e=>{const n=e.target.valueAsNumber;if(finite(n)){project.practice[key]=Math.max(key==='transitionSeconds'?0:.000001,n);save();}e.target.value=project.practice[key];window.DeckNumberSliders?.sync(e.target);practicePanel();};
@@ -2074,11 +2075,14 @@ public class MyAuto implements DeckAutonomous {
   // view, and the period lengths and live readout scroll under them on short screens. Both
   // workspace tabs share one field row and fixed-height footer, so the field is the same size.
   const runControls=document.createElement('div'),runDetails=document.createElement('div');runControls.className='sim-run-controls';runDetails.className='sim-run-details';
-  runControls.append(clock,$('[data-practice]').parentElement,$('#sim-run').parentElement,$('#sim-run-status'),$('#sim-error'));
-  runDetails.append(Object.assign(document.createElement('h3'),{textContent:'Period lengths · seconds'}),timers,$('#sim-telemetry'),$('#sim-run-readiness'),$('#sim-run-plan'),$('#sim-run-sensors'),$('#sim-practice-help'));
+  // What Run will do, or what to fix first, stays under Run. The controller help and the live readout scroll below,
+  // and the period lengths, the same every FTC match, fold into one line.
+  const periods=Object.assign(document.createElement('details'),{id:'sim-period-fold',className:'sim-fold sim-period-fold'});periods.append(Object.assign(document.createElement('summary'),{id:'sim-period-summary'}),timers);
+  runControls.append(clock,$('[data-practice]').parentElement,$('#sim-run').parentElement,$('#sim-run-status'),$('#sim-error'),$('#sim-run-readiness'),$('#sim-run-plan'),$('#sim-run-sensors'));
+  runDetails.append($('#sim-practice-help'),$('#sim-telemetry'),periods);
   timing.append(runControls,runDetails);
   const fieldRow=document.createElement('div'),fieldFooter=document.createElement('div');fieldRow.className='sim-field-row';fieldFooter.className='sim-field-footer';
-  $('#sim-stage').before(fieldRow);fieldRow.append(timing,$('#sim-stage'));fieldRow.after(fieldFooter);fieldFooter.append($('#field-coordinates'),$('#field-help'));
+  $('#sim-stage').before(fieldRow);fieldRow.append(timing,$('#sim-stage'));fieldRow.after(fieldFooter);fieldFooter.append($('#field-coordinates'),$('#field-help'));practicePanel(null);
   const dataBox=document.createElement('div');dataBox.className='sim-data';
   resultsReady=Object.assign(document.createElement('section'),{id:'sim-results-ready',className:'sim-results-ready'});replayBox=Object.assign(document.createElement('section'),{id:'sim-replay',className:'sim-replay',hidden:true});
   runData=window.DeckSimData.create({panelHost:dataBox,settings:()=>({mechanisms:project.mechanisms,robot:project.robot}),onScrub:f=>{frame=f||liveFrame;paint();telemetry();}});

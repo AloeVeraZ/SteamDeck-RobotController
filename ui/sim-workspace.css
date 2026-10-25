@@ -70,6 +70,13 @@ body.sim-workspace{overflow:hidden}
 .sim-run-timing .sim-error{margin:0}
 .sim-run-timing .hint{font-size:11px;line-height:1.4;margin:10px 0 0}.sim-run-timing .hint:empty{display:none}
 .sim-run-timing #sim-run-sensors,.sim-run-timing #sim-run-plan{width:100%;margin-top:8px}
+/* Under Run: what it will do, or what to fix first, spaced by the column's own gap. */
+.sim-run-controls>.hint,.sim-run-timing .sim-run-controls>#sim-run-sensors,.sim-run-timing .sim-run-controls>#sim-run-plan{margin:0}
+/* The controller help and live readout scroll; the period lengths fold into one line under them. */
+.sim-workspace .sim-run-timing .sim-run-details>#sim-telemetry{margin-top:10px;padding-top:0;border-top:0}
+.sim-workspace .sim-run-timing .sim-run-details>.hint:not(:empty)+#sim-telemetry{padding-top:10px;border-top:1px solid var(--line)}
+.sim-run-timing .sim-period-fold{margin:12px 0 0;padding-top:8px}.sim-run-timing .sim-period-fold>summary{font-size:12px}
+.sim-run-timing .sim-period-fold[open]>summary{margin-bottom:6px}
 .driver-station .sim-run-timing h3{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
 .sim-run-timing .sim-grid3{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .driver-station .sim-run-timing label{display:block;font-size:11px;margin:0 0 3px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
