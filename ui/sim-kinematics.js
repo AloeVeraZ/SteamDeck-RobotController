@@ -182,7 +182,7 @@
       if(!actuatorIds.has(s.actuator))continue;const c=s.command||{};
       const command=typeof c.state==='string'?{state:text(c.state,24)}:finite(c.target)?{target:c.target}:finite(c.velocity)?{velocity:c.velocity}:finite(c.effort)?{effort:clamp(c.effort,-1,1)}:null;if(!command)continue;
       steps.push({actuator:s.actuator,command,after:Number.isInteger(s.after)&&s.after>=0&&s.after<steps.length?s.after:null,delay:num(s.delay,0,0,600),...(finite(s.seconds)?{seconds:clamp(s.seconds,0,600)}:{})});}
-    return steps.length?{name:text(raw.name,40),steps}:null;};
+    return steps.length?{name:text(raw.name,40),steps,...(Number.isInteger(raw.repeat)&&raw.repeat>1?{repeat:Math.min(100,raw.repeat)}:{})}:null;};
   const EMPTY=()=>sanitize({});
   // Transmission stages from actuator to joint. A stage's factor is how far its input turns per unit of its output.
   function sanitizeStages(v){if(!Array.isArray(v))return null;
@@ -437,7 +437,7 @@
     }
     // An action run: when each step started and ended. A step that runs another action holds that run as `child`;
     // `names` are the actions above it, so an action that names itself (or an action above it) cannot run forever.
-    run(action,depth=0,names=[]){return {action,t0:this.time,depth,names:[...names,action.name.toLowerCase()],steps:action.steps.map(()=>({start:null,end:null}))};}
+    run(action,depth=0,names=[]){return {action,t0:this.time,depth,cycle:1,names:[...names,action.name.toLowerCase()],steps:action.steps.map(()=>({start:null,end:null}))};}
     stepAction(r){
       const steps=r.action.steps;
       steps.forEach((s,i)=>{const st=r.steps[i];
@@ -452,6 +452,7 @@
         if(s.wait!==undefined){if(this.met(s.wait)||finite(s.timeout)&&this.time-st.start>=s.timeout-1e-9)st.end=this.time;return;}
         const axis=this.axes.get(s.actuator)||this.axes.get('joint:'+s.actuator);if(!axis){st.end=this.time;return;}
         const timed=finite(s.seconds)||axis.velocity!==null||axis.effort!==null;if(timed?this.time-st.start>=(s.seconds??0)-1e-9:axis.done){st.end=this.time;if((axis.velocity!==null||axis.effort!==null)&&finite(s.seconds))axis.spin(0);}});
+      if(r.cycle<(r.action.repeat||1)&&r.steps.every(x=>x.end!==null)){r.cycle++;r.t0=this.time;r.steps=steps.map(()=>({start:null,end:null}));this.stepAction(r);}
     }
     // Sends every mover of a goal ({moverId: value}) to its value so all arrive together: each trapezoid is the slowest
     // one's, time-scaled (speed × k, acceleration × k²). Motor and pneumatic movers are sent as they are.
@@ -491,7 +492,8 @@
   function timeline(model,action,from={}){
     if(needsTicking(model,action,[]))return tickedTimeline(model,action,from);
     const at={...from},out=[];
-    const run=(act,t0,depth,names)=>{const local=[];
+    const run=(act,t0,depth,names)=>{let end=t0;for(let cycle=1;cycle<=(act.repeat||1);cycle++)end=once(act,end,depth,names,cycle);return end;};
+    const once=(act,t0,depth,names,cycle)=>{const local=[],from=out.length;
       act.steps.forEach(s=>{const begin=(s.after===null?t0:local[s.after].end)+s.delay;
         if(s.pose!==undefined||s.reach!==undefined){const now=id=>at[id]??mover(model,id)?.home,values={};for(const id of Object.keys(at))values[id]=at[id];
           const goal=s.pose!==undefined?findPose(model,s.pose):reachGoal(model,s.reach,values),plan=goal?coordinate(model,goal,now):[],T=plan[0]?.seconds||0,rec={[s.pose!==undefined?'pose':'reach']:s.pose??s.reach,start:begin,end:begin+T,velocity:null,...(depth?{depth}:{})};
@@ -505,7 +507,7 @@
         if(a.ends){target=velocity!==null?(velocity>=0?a.ends[1]:a.ends[0]):Math.abs(target-a.ends[0])<=Math.abs(target-a.ends[1])?a.ends[0]:a.ends[1];velocity=null;}
         if(velocity!==null)seconds=s.seconds??0;else seconds=Math.max(s.seconds??0,moveSeconds(target-at[a.id],a.speed,a.accel));
         const rec={actuator:a.id,start:begin,end:begin+seconds,from:at[a.id],to:target,velocity,...(depth?{depth}:{})};local.push(rec);out.push(rec);if(velocity===null)at[a.id]=target;});
-      return Math.max(t0,...local.map(x=>x.end));};
+      if(cycle>1)for(let k=from;k<out.length;k++)out[k].cycle=cycle;return Math.max(t0,...local.map(x=>x.end));};
     run(action,0,0,[action.name.toLowerCase()]);
     return {steps:out,duration:Math.max(0,...out.map(s=>s.end))};
   }

@@ -255,3 +255,38 @@ test('a ticked trapezoid ends on the first tick at or after its planned time, at
   // A new target while moving the other way: brake (0.5 s, to 25), then 35 back (1.2 s).
   const y=new K.Axis(0,{speed:50,accel:100});y.to(40);for(let i=0;i<60;i++)y.step(1/120);near([y.q,y.v],[12.5,50],1e-9);y.to(-10);let t=0;while(!y.done&&t<10){y.step(1/120);t+=1/120;}near(t,1.7,1.001/120);
 });
+
+test('Stewart platform: six legs set to the lengths a target pose needs put the platform in that pose',()=>{
+  // Inverse kinematics is closed form, L = |p + R·b − a|; the engine has to solve the forward problem (18 free values).
+  // The usual crossed layout: base pairs at 0°, 120°, 240° (±15°), platform pairs at 60°, 180°, 300°; each platform pair
+  // takes one leg from each neighbouring base pair.
+  const Rb=10,Rp=6,h=12,deg=[15,105,135,225,255,345],pdeg=[45,75,165,195,285,315];
+  const A=deg.map(t=>[Rb*Math.cos(t*R),Rb*Math.sin(t*R),0]),B=pdeg.map(t=>[Rp*Math.cos(t*R),Rp*Math.sin(t*R),0]),P0=B.map(b=>[b[0],b[1],h]);
+  const joints=[{id:'platform',type:'floating',origin:[0,0,h],axis:[0,0,1],axis2:[1,0,0]}],loops=[];
+  A.forEach((a,i)=>{const dir=K.math.unit(sub(P0[i],a)),u1=K.math.unit(K.math.cross(dir,[0,0,1])),u2=K.math.cross(dir,u1);
+    joints.push({id:'u'+i,type:'universal',origin:a,axis:u1,axis2:u2},{id:'leg'+i,type:'prismatic',parent:'u'+i,origin:a,axis:dir});
+    loops.push({a:{joint:'leg'+i,point:P0[i]},b:{joint:'platform',point:P0[i]}});});
+  const m=model({joints,loops});
+  for(const [p,axis,angle] of [[[1,-.5,1.5],[1,1,0],8],[[-2,1,-1],[0,0,1],15],[[.5,.5,2],[1,0,.3],-10]]){
+    // The target: platform centre at (0, 0, h) + p, turned by angle about axis through its centre.
+    const target=B.map(b=>K.math.add([0,0,h],K.math.add(p,turn(b,axis,angle))));
+    const given=Object.fromEntries(A.map((a,i)=>['leg'+i,len(sub(target[i],a))-len(sub(P0[i],a))]));
+    const pose=K.pose(m,given);assert.ok(pose.loopError<1e-6,`closed (${pose.loopError})`);
+    target.forEach((tp,i)=>near(apply(pose.W.get('platform'),P0[i]),tp,1e-5,`platform point ${i}`));
+    near(apply(pose.W.get('platform'),[0,0,h]),K.math.add([0,0,h],p),1e-5,'platform centre');}
+});
+
+test('a repeating action: a quadruped trots three cycles, diagonal legs together, the driver keeping the planned time',()=>{
+  const legs=['fl','fr','bl','br'],x={fl:6,fr:6,bl:-6,br:-6},y={fl:4,fr:-4,bl:4,br:-4},joints=[],actuators=[];
+  for(const l of legs){joints.push({id:l+'_hip',type:'revolute',origin:[x[l],y[l],0],axis:[0,1,0],lower:-60,upper:60},{id:l+'_knee',type:'revolute',parent:l+'_hip',origin:[x[l],y[l],-6],axis:[0,1,0],lower:-120,upper:0});
+    actuators.push({id:l+'H',joint:l+'_hip',speed:240,accel:2400},{id:l+'K',joint:l+'_knee',speed:360,accel:3600});}
+  // Pose A swings the front-left and back-right legs forward and lifts them; pose B the other pair.
+  const pose=(up,down)=>({...Object.fromEntries(up.flatMap(l=>[[l+'H',20],[l+'K',-50]])),...Object.fromEntries(down.flatMap(l=>[[l+'H',-15],[l+'K',-20]]))});
+  const m=model({joints,actuators,poses:[{name:'A',values:pose(['fl','br'],['fr','bl'])},{name:'B',values:pose(['fr','bl'],['fl','br'])}],actions:[{name:'Trot',repeat:3,steps:[{pose:'A'},{pose:'B',after:0}]}]});
+  assert.equal(m.actions[0].repeat,3);const tl=K.timeline(m,m.actions[0]),of=c=>tl.steps.filter(x=>(x.cycle||1)===c),span=c=>[Math.min(...of(c).map(x=>x.start)),Math.max(...of(c).map(x=>x.end))];
+  near(span(2)[0],span(1)[1],1e-12,'cycle 2 starts as cycle 1 ends');near(span(3)[0],span(2)[1],1e-12);near(tl.duration,span(3)[1],1e-12);
+  near(span(3)[1]-span(3)[0],span(2)[1]-span(2)[0],1e-12,'later cycles start from pose B, so they match each other (the first starts from home)');
+  const d=new K.Driver(m);assert.equal(d.start('Trot'),true);let t=0,flips=0,last=null;while(d.busy('Trot')&&t<20){d.tick(1/240,{});t+=1/240;const up=d.values().fl_hip>0;if(last!==null&&up!==last)flips++;last=up;}
+  near(t,tl.duration,6/240,'the driver keeps the planned time over every cycle');assert.ok(flips>=5,`the front-left leg swung back and forth each cycle (${flips} swings)`);
+  near(d.values().fl_hip,-15,1e-9,'ends in pose B');
+});

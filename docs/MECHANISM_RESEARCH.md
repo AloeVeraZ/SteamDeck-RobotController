@@ -146,7 +146,9 @@ Difficult cases covered:
 - **No rigid-body dynamics for CAD links.** Joints are kinematically constrained. The motor model is a one-DOF dynamic model at the actuator; it does not compute link inertia or gravity from CAD geometry, since a STEP mesh has no reliable mass. Loads and inertia are entered.
 - **Springs, dampers and counterweights are not simulated as forces.** A spring-return part is modelled as a position actuator whose released position is where the spring holds it.
 - **Inverse kinematics** reaches positions only (no orientation targets yet) and is not collision-aware.
-- **Loops** are point coincidences. A prismatic or screw joint that closes a loop in a file is kept as one point and noted.
+- **Loops** are point coincidences (or a point on a line). A prismatic or screw joint that closes a loop in a file is kept as one point and noted.
+  - The solver finds an assembly that closes. It stays on the branch the CAD was built in by following the inputs from the rest pose, or from the last pose for small moves.
+  - Through a singular position (a linkage at toggle, a near-singular parallel layout), it may continue on another branch.
 - **Formats not read:**
   - binary USD (.usdc, .usdz, binary .usd: save as .usda);
   - USD composition (references, payloads, variants);
@@ -240,3 +242,17 @@ Tests: a three-joint pose arriving together, with half-way positions; a reach ch
 Found and fixed (self-review):
 - The ideal trapezoid's integrator moved at each tick's new speed and snapped to the target while still moving (at 18 °/s for a 120 °/s, 480 °/s² move). Fast moves finished up to 7 ticks early, and a time-scaled move peaked at two thirds of its speed.
 - It now follows each phase exactly, switching inside a tick when a phase ends there. Ticked moves end on the first tick at or after the planned time, at full speed, landing exactly on the target.
+
+**Iteration 11.** Concept: parallel manipulators beyond the delta robot (the Stewart–Gough platform; cable-driven parallel robots share its leg model), and cyclic behaviour such as legged gaits.
+
+Gaps: the solver had not been checked on a 6-DOF parallel robot, and an action could not repeat.
+
+Changes: actions take `repeat` (up to 100 cycles). Each cycle starts as the last ends, in the driver and in the timeline, with cycles marked.
+
+Tests:
+- a 6-6 Stewart platform whose leg lengths come from three target poses by closed-form inverse kinematics. The engine solves 18 unknowns back to each pose, within 10⁻⁵ in.
+- a quadruped trotting three cycles from two poses.
+
+Found (self-review): with legs paired base-pair to platform-pair (a near-singular layout), the solver closed the loops in a different assembly than the target. The usual crossed layout matches.
+
+Limit (recorded in §6): the solver finds an assembly that closes, and stays on the built branch only along a path without singularities.
