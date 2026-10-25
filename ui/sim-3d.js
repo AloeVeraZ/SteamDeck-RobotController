@@ -5,12 +5,12 @@ window.DeckSim3D={create(host,options){
   const L=window.DeckThree,THREE=L.THREE,DEG=Math.PI/180;
   // `video: true` makes a run-video camera: a fixed-size picture with its own copy of the field, drawn only when
   // shoot() asks, either straight down at the whole field (2D, 'top') or following the robot (3D, 'chase').
-  options=options||{};const video=!!options.video,W=options.width||1280,H=options.height||720;
+  options=options||{};const video=!!options.video;let W=options.width||1280,H=options.height||720;
   host.innerHTML='<div class="sim-3d-canvas"></div><div class="sim-field-cube view-cube" aria-label="Field view cube"></div><p class="sim-3d-note hint" id="sim-3d-note"></p>';
   const box=host.querySelector('.sim-3d-canvas'),note=host.querySelector('#sim-3d-note');
   let renderer;try{renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:!!video});}catch{if(video)throw Error('Run videos need WebGL, which this device did not provide.');note.textContent='3D needs WebGL, which this device did not provide.';return {setField(){},setModel(){},update(){},resize(){},dispose(){}};}
   renderer.setPixelRatio(video?1:Math.min(2,devicePixelRatio||1));box.append(renderer.domElement);if(video)renderer.setSize(W,H,false);
-  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;if(video)renderer.shadowMap.autoUpdate=false;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1,1,3000);camera.up.set(0,0,1);camera.position.set(72,-95,150);
   const top=new THREE.OrthographicCamera(-1,1,1,-1,1,3000);top.up.set(0,1,0);if(video){camera.fov=50;camera.aspect=W/H;camera.updateProjectionMatrix();}
   const controls=video?null:new L.OrbitControls(camera,renderer.domElement);if(controls){controls.target.set(72,72,0);controls.minPolarAngle=.001;controls.maxPolarAngle=Math.PI-.001;controls.enablePan=false;controls.update();}
@@ -71,7 +71,7 @@ window.DeckSim3D={create(host,options){
   }
   // Puts the robot, pieces and overlays where the frame shown now has them.
   function prepare(){
-    overlays();
+    overlays();if(video)renderer.shadowMap.needsUpdate=true;
     const t=frame?.truth,p=t||state?.start;if(!robotGroup.children.length)robotModel();
     if(p){robotGroup.position.set(p.x,p.y,t?.z||0);robotGroup.rotation.set(0,0,p.heading*DEG);window.DeckRobotModel?.animate(robotGroup,frame);if(markers){markers.robot.position.copy(robotGroup.position);markers.robot.rotation.copy(robotGroup.rotation);}}
     markersHost.visible=!!state?.hitboxes;
@@ -143,17 +143,10 @@ window.DeckSim3D={create(host,options){
       if(a.kind==='shoot')for(let n=0;n<3;n++){const ball=mesh(fx.piece,fx.solid);ball.position.copy(arc((k*3+n/3)%1));}}
   }
   // ---------------------------------------------------------------- run video cameras
-  const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a)),follow={ready:false,yaw:0,shot:0,hold:0,goal:null,still:0,wide:0,pos:new THREE.Vector3(),look:new THREE.Vector3()};
+  const follow={};
   // Where each shooter points while the robot spins up, aims or shoots: from its spot on the robot along its
-  // turret (or fixed facing) to the goal it points at, if one is within 25° of that line.
-  function aims(){
-    const a=state?.aim,m=frame?.mechanisms,t=frame?.truth,c=m?.command||{};if(!a||!m||!t||!(c.feed||c.spin||c.aim||m.flywheel>.05))return [];
-    const M=window.DeckMechanisms,h=t.heading*DEG;
-    return a.shooters.map((s,n)=>{const [ox,oy]=M.mountOffset(s.mount,a.dims),x=t.x+ox*Math.cos(h)-oy*Math.sin(h),y=t.y+ox*Math.sin(h)+oy*Math.cos(h);
-      const dir=h+(s.type==='turret'?(m.turrets?.[n]??m.turret??0):M.FACING[s.facing]||0)*DEG;let len=48,goal=null;
-      for(const g of a.targets){const d=Math.hypot(g.x-x,g.y-y);if(Math.abs(wrap(Math.atan2(g.y-y,g.x-x)-dir))<25*DEG&&(!goal||d<len)){len=d;goal=g;}}
-      return {x,y,dir,len,goal,on:!!(m.ready&&m.aligned)};});
-  }
+  // turret (or fixed facing) to the goal it points at, if one is within 25° of that line (sim-cameras.js).
+  const aims=()=>window.DeckCameras.aims(frame,state?.aim);
   // A beam along each shooter's aim: amber while it spins up or turns, green once it is ready and on target.
   const beamGroup=new THREE.Group(),beamParts=[];scene.add(beamGroup);
   function beams(){
@@ -170,33 +163,35 @@ window.DeckSim3D={create(host,options){
   // whip the picture round). While the robot spins up, aims or shoots, and for 2 s after, the camera swings
   // behind the robot towards the goal and pulls up, so the robot, its aim and where the pieces land are all in view.
   // A robot that has stood still for 1.5 s (parked, or waiting) is seen from further back and higher up.
+  // (sim-cameras.js has the follow camera's own description: it is camera 1 of the Video workspace.)
   function chase(dt){
-    const t=frame?.truth||state?.start;if(!t)return;if(!dt)follow.ready=false;
-    const k=tau=>follow.ready?1-Math.exp(-Math.max(0,dt)/tau):1,f=info?.footprint||{front:9,rear:9},size=Math.max(14,f.front+f.rear),h=t.heading*DEG;
-    follow.yaw+=wrap(h-follow.yaw)*k(.7);
-    const goal=aims().find(b=>b.goal)?.goal;if(goal){follow.goal=goal;follow.hold=2;}else follow.hold=Math.max(0,follow.hold-dt);
-    follow.shot+=((follow.hold>0&&follow.goal?1:0)-follow.shot)*k(.6);
-    follow.still=Math.hypot(t.vx||0,t.vy||0)>2||Math.abs(t.omega||0)>10?0:follow.still+Math.max(0,dt);follow.wide+=((follow.still>1.5?1:0)-follow.wide)*k(1.2);
-    const r=new THREE.Vector3(t.x,t.y,0),dir=new THREE.Vector3(Math.cos(follow.yaw),Math.sin(follow.yaw),0);
-    const far=1+.7*follow.wide,pos=r.clone().addScaledVector(dir,-size*2.4*far).setZ(size*2.3*(1+.9*follow.wide)),look=r.clone().addScaledVector(dir,size*1.8).setZ(0);
-    if(follow.shot>.001&&follow.goal){const g=new THREE.Vector3(follow.goal.x,follow.goal.y,0),to=g.clone().sub(r),d=to.length()>1?to.clone().normalize():dir;
-      pos.lerp(r.clone().addScaledVector(d,-size*2.4).setZ(size*2.6),follow.shot);look.lerp(r.clone().addScaledVector(to,.4).setZ(16),follow.shot);}
-    // Not far outside the field, where the camera would look through the perimeter.
-    const b=info?.bounds;if(b){pos.x=Math.max(b.x0-18,Math.min(b.x1+18,pos.x));pos.y=Math.max(b.y0-18,Math.min(b.y1+18,pos.y));}
-    follow.pos.lerp(pos,k(.3));follow.look.lerp(look,k(.3));if(!follow.ready){follow.pos.copy(pos);follow.look.copy(look);}follow.ready=true;
-    camera.position.copy(follow.pos);camera.lookAt(follow.look);
+    const p=window.DeckCameras.mainStep(follow,{frame,start:state?.start,aim:state?.aim,footprint:info?.footprint,bounds:info?.bounds},dt);if(!p)return;
+    camera.position.set(...p.p);camera.lookAt(...p.l);
   }
   // Draws the next picture of a run video `dt` seconds after the last, from above ('top') or following the robot
   // ('chase'). The follow camera has the whole field from above in its corner; `inset` says where, to frame it.
   function shoot(nextFrame,nextState,dt,view='chase'){
     frame=nextFrame;state=nextState||state;prepare();renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
     if(view==='top'){fitTop(W/H,1.06);renderer.render(scene,top);return {canvas:renderer.domElement,inset:null};}
-    chase(dt);renderer.render(scene,camera);
+    camera.fov=50;camera.aspect=W/H;camera.updateProjectionMatrix();chase(dt);renderer.render(scene,camera);
     const s=Math.round(H*.3),pad=Math.round(H*.03);fitTop(1,1.04);renderer.setScissorTest(true);renderer.setScissor(W-s-pad,pad,s,s);renderer.setViewport(W-s-pad,pad,s,s);renderer.render(scene,top);renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
     return {canvas:renderer.domElement,inset:{x:W-s-pad,y:H-s-pad,size:s}};
   }
+  // The Video workspace: one picture of the run seen by several cameras, each in its own rectangle of the canvas
+  // ([x, y, w, h] from the top left). A shot is a camera pose ({p, l, fov}), or top: true for the whole field from
+  // above; inset: true adds that top view in the corner, as the follow camera's videos have it.
+  function picture(nextFrame,nextState,shots){
+    frame=nextFrame;state=nextState||state;prepare();renderer.setScissorTest(true);
+    for(const s of shots){const [x,y,w,h]=s.rect,yb=H-y-h;renderer.setViewport(x,yb,w,h);renderer.setScissor(x,yb,w,h);
+      if(s.top){fitTop(w/h,1.06);renderer.render(scene,top);continue;}
+      camera.fov=s.pose.fov;camera.aspect=w/h;camera.updateProjectionMatrix();camera.position.set(...s.pose.p);camera.lookAt(...s.pose.l);renderer.render(scene,camera);
+      if(s.inset){const size=Math.round(h*.3),pad=Math.round(h*.03),ix=x+w-size-pad,iy=yb+pad;fitTop(1,1.04);renderer.setViewport(ix,iy,size,size);renderer.setScissor(ix,iy,size,size);renderer.render(scene,top);s.insetRect={x:ix,y:y+h-pad-size,size};}}
+    renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);return renderer.domElement;
+  }
+  // A video camera's picture size.
+  function size(w,h){if(!video||(w===W&&h===H))return;W=w;H=h;renderer.setSize(W,H,false);}
   function resize(){const w=Math.max(1,box.clientWidth),h=Math.max(1,box.clientHeight),size=renderer.getSize(new THREE.Vector2());if(size.x!==w||size.y!==h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
   controls?.addEventListener('change',schedule);
   const themeObserver=new MutationObserver(()=>{if(info)setField(info);});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});const scheme=matchMedia('(prefers-color-scheme: dark)'),themeChanged=()=>{if(info)setField(info);};scheme.addEventListener('change',themeChanged);
-  return {setField,setModel,update,shoot,resize:()=>{resize();schedule();},dispose(){disposed=true;fieldSequence++;cancelAnimationFrame(raf);themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);navigator?.dispose();controls?.dispose();clear(scene);renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
+  return {setField,setModel,update,shoot,picture,size,canvas:()=>renderer.domElement,resize:()=>{resize();schedule();},dispose(){disposed=true;fieldSequence++;cancelAnimationFrame(raf);themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);navigator?.dispose();controls?.dispose();clear(scene);renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
 }};

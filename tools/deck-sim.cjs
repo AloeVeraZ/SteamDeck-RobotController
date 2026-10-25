@@ -284,9 +284,10 @@ Route
       --curve X1,Y1,X2,Y2 a custom Bezier curve with these control points (1-3 points), driven exactly
   pin <setup.json> clear                   Remove every pin
   plan <setup.json> [--json]               Plan the route; report length, pauses and any blocked pin
-  test <setup.json> [--json] [--code onbot|teamcode|pedro|motionmodule] [--log run.wpilog]
+  test <setup.json> [--json] [--code onbot|teamcode|pedro|motionmodule] [--log run.wpilog] [--frames run.json]
                                            Test-drive the route in the simulator physics (or run its exported code);
-                                           --log saves the run as a WPILOG file
+                                           --log saves the run as a WPILOG file; --frames saves every recorded
+                                           frame (as the app's Record keeps them, for the Video workspace)
   optimize <setup.json>                    Test-drive spline/straight shapes per path; keep the fastest safe one
   import-pp <setup.json> <file.pp>        Replace the start and paths with a Pedro Pathing visualizer (or Deck) .pp file
   compare <setup.json> <log.wpilog|log.csv> [--origin center] [--json]
@@ -399,9 +400,9 @@ From the CAD assembly names: ${cadFound.join('; ')}.`:''}`);}
       try{let route;try{route=planRoute(setup,l,info);}catch(err){const issues=err.issues?.length?err.issues:P.analyze(request(setup,l,info),info.footprint,info.fieldZones,info.bounds);throw Error(`${err.message}${issues.length?'\n'+issues.map(i=>`  - ${i.pin!=null?`pin ${i.pin+1}: `:''}${i.message}`).join('\n'):''}`);}
         return say(json?{length:route.length,stops:route.stops,segments:route.segments.length}:describe(setup,l,route));}finally{e.dispose();}}
     case'test':{const setup=readSetup(file),{e,info,l}=await load(setup);
-      try{const route=planRoute(setup,l,info),code=flags.code===true?'onbot':flags.code,frames=[],logFile=flags.log===true?path.basename(file,'.json')+'.wpilog':flags.log;let r;
+      try{const route=planRoute(setup,l,info),code=flags.code===true?'onbot':flags.code,frames=[],logFile=flags.log===true?path.basename(file,'.json')+'.wpilog':flags.log,framesFile=flags.frames===true?path.basename(file,'.json')+'.frames.json':flags.frames;let r;
         // --log records the run (about 30 frames a second) as a WPILOG.
-        if(logFile){const tick=e.tick.bind(e);e.tick=c=>{const out=tick(c);if(e.world.tick%2===0)frames.push(e.frame());return out;};}
+        if(logFile||framesFile){const tick=e.tick.bind(e);e.tick=c=>{const out=tick(c);if(e.world.tick%2===0)frames.push(e.frame());return out;};}
         // --code runs the exported Control Hub Java on the virtual Control Hub, or the exported autonomous.py
         // on MotionModule's own runtime, instead of the planner's follower.
         if(code==='motionmodule'){
@@ -424,6 +425,7 @@ From the CAD assembly names: ${cadFound.join('; ')}.`:''}`);}
         const ended=e.mechanismState();for(let i=0;i<150||e.world.time<30;i++)e.tick({forward:0,strafe:0,turn:0});const after=e.mechanismState();if(r.mechanisms&&after)r.mechanisms={...after,shots:ended.shots};
         const last=l.pins.at(-1),miss=Math.hypot(r.truth.x-last.x,r.truth.y-last.y),auto=setup.practice?.autoSeconds??30;
         let logged='';if(logFile){const out=path.resolve(logFile);fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,Wpilog.fromFrames(frames,{alliance:l.alliance,mechanisms:info.mechanisms,robot:info.robot,name:l.name}));logged=` Log: ${out}.`;}
+        if(framesFile){const out=path.resolve(framesFile);fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,JSON.stringify({field:l.field,alliance:l.alliance,name:l.name,frames}));logged+=` Frames: ${out} (${frames.length}).`;}
         const ran=code==='motionmodule'?"the exported autonomous.py on MotionModule's runtime":code?`the exported ${code} Java on the virtual Control Hub`:'',report={ran:ran||'route follower',time:round(r.time),fitsAuto:r.time<=auto,zoneTouches:r.violations.length,finalMissIn:round(miss),end:{x:round(r.truth.x),y:round(r.truth.y),heading:round(r.truth.heading,1)},...(r.mechanisms?{mechanisms:{pickedUp:r.mechanisms.pickedUp,shots:r.mechanisms.shots,landed:r.mechanisms.landed,accuracy:r.mechanisms.shots?Math.round(100*r.mechanisms.landed/r.mechanisms.shots):null,held:r.mechanisms.held,score:r.mechanisms.score,tips:r.mechanisms.tips}}:{})};
         return say(json?report:`${ran?`Ran ${ran}`:'Drove the route'}: ${l.pins.length} pins in ${report.time} s (${report.fitsAuto?'fits':'does NOT fit'} the ${auto} s autonomous period). Zone touches: ${report.zoneTouches}. Ended ${report.finalMissIn} in from the last pin.${report.mechanisms?`
 Analysis: picked up ${report.mechanisms.pickedUp}, shot ${report.mechanisms.shots}, landed in the hive ${report.mechanisms.landed}${report.mechanisms.accuracy!==null?` (${report.mechanisms.accuracy}% accurate)`:''}, still holding ${report.mechanisms.held}, ${report.mechanisms.tips??0} hive tip${report.mechanisms.tips===1?'':'s'}, ${report.mechanisms.score??0} points.`:""}${logged}`);}finally{e.dispose();}}
