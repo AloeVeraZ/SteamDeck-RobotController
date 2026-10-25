@@ -75,14 +75,27 @@
   // grow sets flex-grow through the CSSOM: the app's content security policy ignores style attributes.
   const el=(tag,attrs={},children=[])=>{const e=document.createElement(tag);for(const [k,v] of Object.entries(attrs))k==='text'?e.textContent=v:k==='grow'?e.style.flexGrow=String(v):k.startsWith('on')?e[k]=v:e.setAttribute(k,v);e.append(...children);return e;};
   const editButton=(pin,label,onEdit)=>el('button',{type:'button',class:'text-button sim-report-edit',onclick:()=>onEdit(pin),text:`Edit ${label} →`});
-  // report: from build(). onEdit(pinIndex) opens that path in Path planning; onSeek(seconds) replays a moment.
-  function render(host,report,{onEdit,onSeek}={}){
+  // What to do after this run, most likely first: fix the path where something went wrong, or take a clean
+  // run to the robot. Each action is {id, label, run}; the page supplies what they do.
+  function nextSteps(report,{onEdit,onExport,onOutput}={}){
+    const fix=report.issues.find(i=>i.pin!==null)||(report.timedOut&&report.tips.find(t=>t.pin!==null));
+    const steps=[];
+    if(report.level!=='ok'&&fix&&onEdit)steps.push({id:'fix',label:`Fix path ${fix.pin+1} →`,primary:true,run:()=>onEdit(fix.pin)});
+    if(onExport)steps.push({id:'export',label:'Export to your robot →',primary:report.level==='ok',run:onExport});
+    if(onOutput)steps.push({id:'output',label:'See each step',primary:false,run:onOutput});
+    return steps;
+  }
+  // report: from build(). onEdit(pinIndex) opens that path in Path planning; onSeek(seconds) replays a moment;
+  // onExport and onOutput open the Export view and the run's step-by-step output.
+  function render(host,report,{onEdit,onSeek,onExport,onOutput}={}){
     if(!report){host.replaceChildren();return;}
     const icon={ok:'✓',warn:'!',bad:'×'}[report.level];
     const head=el('div',{class:'sim-report-verdict '+report.level},[el('span',{class:'sim-report-icon','aria-hidden':'true',text:icon}),el('strong',{text:report.title})]);
     const facts=el('dl',{class:'sim-analysis-list sim-report-facts'},report.facts.flatMap(([k,v,l])=>[el('dt',{text:k}),el('dd',{text:v,class:l||''})]));
-    const parts=[head,facts];
-    if(report.issues.length)parts.push(el('ul',{class:'sim-report-issues'},report.issues.map(i=>el('li',{class:i.level},[el('span',{text:i.text}),...(i.pin!==null&&onEdit?[editButton(i.pin,`path ${i.pin+1}`,onEdit)]:[])]))));
+    const parts=[head,facts],steps=nextSteps(report,{onEdit,onExport,onOutput}),fixPin=steps.find(s=>s.id==='fix')?report.issues.find(i=>i.pin!==null)?.pin:null;
+    // An issue's own Edit link is left out when the Fix button below already opens that path.
+    if(report.issues.length)parts.push(el('ul',{class:'sim-report-issues'},report.issues.map(i=>el('li',{class:i.level},[el('span',{text:i.text}),...(i.pin!==null&&i.pin!==fixPin&&onEdit?[editButton(i.pin,`path ${i.pin+1}`,onEdit)]:[])]))));
+    if(steps.length)parts.push(el('div',{class:'sim-report-next',role:'group','aria-label':'Next step'},steps.map(s=>el('button',{type:'button',class:s.primary?'primary':'secondary','data-next':s.id,onclick:s.run,text:s.label}))));
     // Where the time went: one bar per path, its width its share of the run, split into driving,
     // turning in place, pausing and stopped. Clicking a path replays its start on the field.
     if(report.legs.length&&report.total>0){
@@ -96,5 +109,5 @@
     parts.push(el('p',{class:'hint sim-report-note',text:'Simulated estimate. Battery charge, wheel traction, tuning and field differences change real results, so test on your robot before a match.'}));
     host.replaceChildren(...parts);
   }
-  return {build,render,legOf,activity,action};
+  return {build,render,nextSteps,legOf,activity,action};
 });

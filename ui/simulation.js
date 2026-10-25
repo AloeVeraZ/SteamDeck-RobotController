@@ -121,6 +121,8 @@ public class MyAuto implements DeckAutonomous {
   }
   let project;try{project=sanitize(JSON.parse(localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY)));}catch{project=defaults();}
   let runData=null,liveFrame=null,reportKey='',lastReport=null,estimateTimer=0,estimateSeq=0;const estimates=new Map();
+  // Run & review's side views (Results, Export, Diagnostics) and the Results parts shown before and after a run.
+  let runViews=null,resultsReady=null,replayBox=null,reportShown=-1;
   let tab='setup',planningStep='start',setupStep='field',runAttempt=0,loadError='';
   const L=()=>project.layouts.find(l=>l.id===project.active)||project.layouts[0];
   if(!L().start){try{const legacy=field.restore(localStorage.getItem(field.KEY));if(legacy&&L().field==='empty')L().start=legacy;}catch{}}
@@ -483,6 +485,7 @@ public class MyAuto implements DeckAutonomous {
     const noRoute=!teleop&&['route','opmode'].includes(project.program.kind)&&!L().pins.length;$('#sim-run-plan').hidden=!noRoute;if(noRoute)$('#sim-run-readiness').textContent='No route yet. Add at least one path in Path planning, then press Run here.';
     // What Run plays is chosen under Export, so the Run column says when it is not the planned route.
     if(!teleop&&project.program.kind!=='route')$('#sim-run-readiness').textContent+=` Run plays ${project.program.kind==='opmode'?'the OnBot Java export':'your Java program'}: change it under Export → What Run plays.`;
+    resultsPanel();
   }
 
   // Open one path in Path planning's list, from a run report or diagnostic.
@@ -491,7 +494,23 @@ public class MyAuto implements DeckAutonomous {
     function runReport(){
     const frames=runData.frames(),end=[...frames].reverse().find(f=>f.result)?.result,m=frames.at(-1)?.mechanisms,key=JSON.stringify([runAttempt,frames[0]?.time,end?.time,end?.reason,m?.score,m?.landed,m?.shots]);if(key===reportKey)return;reportKey=key;
     const report=lastReport=window.DeckSimReport.build(frames,{pins:L().pins,defaultPower:project.tuning.maxPathSpeed,autoSeconds:project.practice.mode==='teleop'?null:project.practice.autoSeconds,optimized:!!L().tested?.length});
-    window.DeckSimReport.render($('#sim-run-report'),report,{onEdit:editPath,onSeek:t=>runData.seek(t)});
+    window.DeckSimReport.render($('#sim-run-report'),report,{onEdit:editPath,onSeek:t=>runData.seek(t),onExport:()=>showRunView(1),onOutput:()=>{showDiag('output');showRunView(2);}});
+    // A new run's report: Results shows it from the top, or its tab is marked when another view is open.
+    if(report&&reportShown!==runAttempt){reportShown=runAttempt;const results=runViews?.panes[0];if(runViews?.shown()===0)results.pane.scrollTop=0;else results?.button.classList.add('has-news');}
+  }
+  function showRunView(i){if(!runViews)return;runViews.choose(i);runViews.panes[i].pane.scrollTop=0;}
+  // Results before a run: what Run does in this practice mode and what this view will show. Once the run's clock
+  // moves, the replay and graphs take its place, and the report joins them when the route ends.
+  function resultsPanel(){
+    if(!resultsReady)return;const frames=runData?.frames()||[],ran=runState!=='idle'||frames.length>1&&frames.at(-1).time-frames[0].time>.05;
+    resultsReady.hidden=ran;replayBox.hidden=!ran;if(ran)return;
+    const mode=project.practice.mode,auto=project.practice.autoSeconds,est=routeEstimate(),kind=project.program.kind,noRoute=mode!=='teleop'&&['route','opmode'].includes(kind)&&!L().pins.length;
+    const title=mode==='teleop'?'Ready to practise teleop':mode==='match'?'Ready for a full match':'Ready to test your autonomous';
+    const text=mode==='teleop'?'Press Run and drive with your controller. Speed, heading and mechanisms are graphed here as you drive.':`Press Run. The robot drives ${kind==='route'?'your route':kind==='opmode'?'the OnBot Java export':'your Java program'} with physics, then this shows whether it finished, the points it scored and where its ${auto} seconds went.${mode==='match'?' Teleop follows, driven with your controller.':''}`;
+    const note=noRoute?'No route yet. Add at least one path in Path planning first.':est?.time&&mode!=='teleop'?`Path planning’s test drive took about ${est.time.toFixed(1)} s${est.time>auto?`, longer than the ${auto} s autonomous`:''}.`:'';
+    const key=JSON.stringify([title,text,note]);if(resultsReady.dataset.key===key)return;resultsReady.dataset.key=key;
+    const go=noRoute?[Object.assign(document.createElement('button'),{type:'button',className:'secondary',textContent:'Go to Path planning',onclick:()=>$('#sim-run-plan').click()})]:[];
+    resultsReady.replaceChildren(Object.assign(document.createElement('h3'),{textContent:title}),Object.assign(document.createElement('p'),{textContent:text}),...(note?[Object.assign(document.createElement('p'),{className:'hint',textContent:note})]:[]),...go);
   }
   function diagnosticBox(id){const box=document.createElement('section');box.id=id;box.className='sim-diagnostics';return box;}
   const diagnosticPages={};
@@ -1070,7 +1089,7 @@ public class MyAuto implements DeckAutonomous {
     const seq=++estimateSeq;estimates.set(l.id,{route,pending:true});refreshDiagnostics();
     try{const [r]=await call('evaluate',[route]),last=l.pins.at(-1);if(seq!==estimateSeq)return;estimates.set(l.id,r?.ok?{route,time:r.time,violations:r.violations,miss:last?Math.hypot(r.truth.x-last.x,r.truth.y-last.y):0}:{route,error:r?.error||'The test drive stopped early.'});}
     catch(e){if(seq===estimateSeq)estimates.set(l.id,{route,error:e.message});}
-    if(seq===estimateSeq)refreshDiagnostics();
+    if(seq===estimateSeq){refreshDiagnostics();resultsPanel();}
   }
   // Plan each route shape, test-drive them all with the real follower and physics, keep the fastest
   // one that touched no zone and ended on target.
@@ -1344,6 +1363,8 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-java-example').onclick=()=>{project.program={kind:'source',name:'MyAuto.java',source:EXAMPLE};save();programPanel();};
   $('#sim-java-open').onclick=async()=>{try{const file=await api.simFile('java-open');if(file){project.program={kind:'source',name:file.name,source:file.source};save();programPanel();}}catch(e){status('#sim-run-status',e.message);}};
   $('#sim-run').onclick=async()=>{
+    // Run shows Results, where the run is graphed and then reported; a Java program being edited under Export stays open.
+    if(!(project.program.kind==='source'&&runViews?.shown()===1))showRunView(0);
     const attempt=++runAttempt;$('#sim-error').hidden=true;status('#sim-run-status','Starting…');runState='starting';transport();
     try{
       await ready();if(attempt!==runAttempt)return;schedulePlan.cancel();const teleop=project.practice.mode==='teleop',needsRoute=['route','opmode'].includes(project.program.kind)&&!teleop;let route=L().route;if(needsRoute)route=await plan();
@@ -1960,8 +1981,9 @@ public class MyAuto implements DeckAutonomous {
     const nav=document.createElement('div');nav.className='sim-settings-tabs';nav.setAttribute('role','tablist');nav.setAttribute('aria-label','Settings view');
     const panes=[];for(const [label,nodes] of groups){const pane=document.createElement('section');pane.className='sim-settings-page';pane.id='sim-settings-'+Math.random().toString(36).slice(2);pane.setAttribute('role','tabpanel');
       for(const node of nodes)if(node)pane.append(node);const button=document.createElement('button');button.type='button';button.textContent=label;button.className='secondary';button.setAttribute('role','tab');button.setAttribute('aria-controls',pane.id);button.onclick=()=>choose(panes.findIndex(p=>p.pane===pane));nav.append(button);parent.append(pane);panes.push({pane,button});}
-    function choose(index){panes.forEach(({pane,button},i)=>{pane.hidden=i!==index;button.setAttribute('aria-selected',String(i===index));button.tabIndex=i===index?0:-1;});}
+    function choose(index){panes.forEach(({pane,button},i)=>{pane.hidden=i!==index;button.setAttribute('aria-selected',String(i===index));button.tabIndex=i===index?0:-1;if(i===index)button.classList.remove('has-news');});}
     nav.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.key))return;event.preventDefault();const i=panes.findIndex(p=>p.button===document.activeElement),next=(i+(event.key==='ArrowRight'?1:-1)+panes.length)%panes.length;choose(next);panes[next].button.focus();});parent.prepend(nav);choose(0);
+    return {choose,shown:()=>panes.findIndex(p=>!p.pane.hidden),panes};
   }
   for(const [id,tools] of [['#sim-obstacle-step',['rect','circle','triangle','shape']],['#sim-route-step',['pin','draw']]]){const group=document.createElement('div');group.className='segmented sim-seg sim-edit-tools';group.setAttribute('role','group');group.setAttribute('aria-label',id.includes('obstacle')?'Add obstacle':'Add paths');for(const tool of tools)group.append($(`[data-tool=${tool}]`));if(id==='#sim-route-step')$('.sim-path-bar').prepend(group);else $(id).insertBefore(group,$(id).children[1]);}
   const routeStep=$('#sim-route-step'),routeChildren=[...routeStep.children],routeSettings=routeChildren.indexOf($('[data-style]').parentElement.previousElementSibling),routeExport=routeChildren.findIndex(n=>n.tagName==='H3');
@@ -1993,14 +2015,16 @@ public class MyAuto implements DeckAutonomous {
   const fieldRow=document.createElement('div'),fieldFooter=document.createElement('div');fieldRow.className='sim-field-row';fieldFooter.className='sim-field-footer';
   $('#sim-stage').before(fieldRow);fieldRow.append(timing,$('#sim-stage'));fieldRow.after(fieldFooter);fieldFooter.append($('#field-coordinates'),$('#field-help'));
   const dataBox=document.createElement('div');dataBox.className='sim-data';
+  resultsReady=Object.assign(document.createElement('section'),{id:'sim-results-ready',className:'sim-results-ready'});replayBox=Object.assign(document.createElement('section'),{id:'sim-replay',className:'sim-replay',hidden:true});
   runData=window.DeckSimData.create({panelHost:dataBox,settings:()=>({mechanisms:project.mechanisms,robot:project.robot}),onScrub:f=>{frame=f||liveFrame;paint();telemetry();}});
   // The recorded run as a WPILOG file, for sharing or comparing with logs from the real robot.
   const logButton=document.createElement('button'),logStatus=document.createElement('p');logButton.type='button';logButton.className='secondary';logButton.textContent='Save run log (.wpilog)…';logStatus.className='hint';logStatus.setAttribute('role','status');
   logButton.onclick=async()=>{const frames=runData.frames();if(!frames.length){logStatus.textContent='Run the route first; the run is recorded while it plays.';return;}if(!native){logStatus.textContent='Saving run logs needs the installed app.';return;}
     try{const bytes=window.DeckWpilog.fromFrames(frames,{alliance:L().alliance,mechanisms:project.mechanisms,robot:project.robot,name:L().name});logStatus.textContent=(await api.simFile('log-save',{name:L().name,bytes}))?.message||'';}catch(e){logStatus.textContent=e.message;}};
   // A real robot's log on the field beside the plan: where it actually drove and how far it strayed.
-  const robotLog={data:null,name:''},compareBox=document.createElement('div');compareBox.className='sim-log-compare';
-  compareBox.innerHTML=`<h3>Compare with a robot log</h3><p class="hint">Open a log from your real robot to draw where it drove (orange) next to the plan and see how far it strayed. WPILOG: a Pose2d entry such as /RealOutputs/Odometry/Robot (FTC field frame, like Deck’s own run logs). CSV: x, y and heading columns.</p>
+  // It folds away under Results until it is wanted; it works before any simulated run.
+  const robotLog={data:null,name:''},compareBox=document.createElement('details');compareBox.className='sim-log-compare sim-fold';compareBox.id='sim-log-compare';
+  compareBox.innerHTML=`<summary>Compare with a robot log</summary><p class="hint">Open a log from your real robot to draw where it drove (orange) next to the plan and see how far it strayed. WPILOG: a Pose2d entry such as /RealOutputs/Odometry/Robot (FTC field frame, like Deck’s own run logs). CSV: x, y and heading columns.</p>
     <label for="sim-log-origin">CSV coordinates</label><select id="sim-log-origin"><option value="corner">Inches from the bottom-left corner (Deck, Pedro Pathing)</option><option value="center">Inches from the field centre (FTC SDK)</option></select>
     <div class="button-row"><button type="button" class="secondary" id="sim-log-open">Open robot log…</button><button type="button" class="text-button" id="sim-log-clear" hidden>Hide</button></div><dl id="sim-log-result" class="sim-telemetry"></dl><p id="sim-log-status" class="hint" role="status"></p>`;
   const drawRobotLog=()=>{const g=$('#sim-log-path');if(!robotLog.data){g.replaceChildren();return;}g.replaceChildren(svg('polyline',{class:'sim-log-path',points:pts(robotLog.data.poses)}));
@@ -2126,8 +2150,11 @@ public class MyAuto implements DeckAutonomous {
   const diagPick=Object.assign(document.createElement('div'),{innerHTML:segmented('diagview',{checks:'Route checks',output:'Run output'},'Diagnostics view')}).firstElementChild,diagNote=Object.assign(document.createElement('p'),{className:'hint sim-diag-note'});
   const showDiag=view=>{pressedIn(diagPick,'diagview',view);diagNote.textContent=diagViews[view].text;for(const [key,{nodes}] of Object.entries(diagViews))for(const n of nodes)n.hidden=key!==view;};
   for(const b of diagPick.querySelectorAll('[data-diagview]'))b.onclick=()=>showDiag(b.dataset.diagview);showDiag('checks');
-  // The run's data first; then the code to export, with what Run plays; then the checks and the run's output.
-  settingsViews(runPanel,[['Data',[$('#sim-run-analysis'),dataBox,compareBox]],['Export',[...exportNodes,...programNodes,...logNodes,...videoNodes]],['Diagnostics',[diagPick,diagNote,...diagViews.checks.nodes,...diagViews.output.nodes]]]);
+  // Results first: before any run it says what Run will show, after one the run report leads with what to do next,
+  // then the replay and graphs; the robot-log comparison folds away below. Then the code to export, with what Run
+  // plays; then the checks and the run's output.
+  replayBox.append(Object.assign(document.createElement('h3'),{textContent:'Replay the run'}),dataBox);
+  runViews=settingsViews(runPanel,[['Results',[resultsReady,$('#sim-run-analysis'),replayBox,compareBox]],['Export',[...exportNodes,...programNodes,...logNodes,...videoNodes]],['Diagnostics',[diagPick,diagNote,...diagViews.checks.nodes,...diagViews.output.nodes]]]);
   const obstacleStep=$('#sim-obstacle-step');$('#sim-zone-editor').hidden=true;const obstacleHelp=document.createElement('p');obstacleHelp.className='hint';obstacleHelp.textContent='Drag an existing obstacle to move it. Double-click it to edit its dimensions and corners, then press Done to save.';obstacleStep.append(obstacleHelp);
   // Paginate settings blocks when a short viewport cannot fit a whole settings view.
   // No fields are discarded, and the field itself stays in the same viewport.

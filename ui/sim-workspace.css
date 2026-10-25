@@ -270,6 +270,20 @@ body.sim-workspace{overflow:hidden}
 .sim-report-key span{display:inline-flex;align-items:center;gap:5px}.sim-report-key i{width:9px;height:9px;border-radius:2px}
 .sim-report-tips{margin:0;padding-left:18px;font-size:12px;line-height:1.45}.sim-report-tips li+li{margin-top:6px}
 .sim-report-note{margin:12px 0 0;font-size:11px}
+/* What to do after the run: one primary action, the rest quieter. */
+.sim-report-next{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 2px}
+#simulation-view .sim-report-next button{flex:1 1 auto;min-height:34px;margin:0;padding:6px 12px;font-size:12px}
+#simulation-view .sim-report-next button.secondary{flex:0 1 auto}
+/* Results before the first run: what Run will do and what appears here. */
+.sim-results-ready{padding:12px 14px;border:1px dashed var(--line-strong);border-radius:8px;font-size:13px;line-height:1.45}.sim-results-ready[hidden]{display:none!important}
+.sim-results-ready h3{margin:0 0 6px;font-size:14px}.sim-results-ready p{margin:0}.sim-results-ready p+p{margin-top:6px}
+#simulation-view .sim-results-ready button{margin:10px 0 0}
+.sim-replay[hidden]{display:none!important}.sim-replay>h3{margin:0 0 8px;font-size:13px}
+/* Folded sections under Results: a quiet row that opens in place. */
+.sim-fold{margin:14px 0 0;padding-top:10px;border-top:1px solid var(--line)}.sim-fold>summary{cursor:pointer;padding:4px 0;font-size:13px}
+.sim-fold[open]>summary{margin-bottom:8px}.sim-fold>summary:hover{color:var(--accent-text,var(--text))}
+/* A view tab with something new in it, such as Results when a run ends while Export is open. */
+.sim-settings-tabs>button.has-news::after{content:'';display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:var(--accent);vertical-align:middle}
 /* Pin and path editor: the order at a pin, and actions as buttons. */
 .sim-popover .sim-pop-steps{display:flex;flex-wrap:wrap;gap:2px 0;margin:4px 0 6px;padding:0;list-style:none;counter-reset:step;font-size:10px;color:var(--muted)}
 .sim-popover .sim-pop-steps li{counter-increment:step}.sim-popover .sim-pop-steps li::before{content:counter(step) ' ';font-weight:700;color:var(--text)}.sim-popover .sim-pop-steps li+li::before{content:'→ ' counter(step) ' '}

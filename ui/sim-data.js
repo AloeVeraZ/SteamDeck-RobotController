@@ -90,7 +90,10 @@
       el('h3',{text:'Summary'}),summary]);
     const mechView=svg('svg',{viewBox:'-70 -70 140 140',class:'sim-data-mech',role:'img','aria-label':'Mechanisms at the selected time'}),mechText=el('p',{class:'hint sim-data-caption'});
     const wheelView=svg('svg',{viewBox:'-70 -70 140 140',class:'sim-data-wheels',role:'img','aria-label':'Wheel motion at the selected time'}),wheelTitle=el('h4',{text:'Chassis motion'}),wheelText=el('p',{class:'hint sim-data-caption'});
-    panelHost.append(empty,recorded,el('h3',{text:'Robot at this moment'}),el('div',{class:'sim-data-views'},[el('div',{},[el('h4',{text:'Mechanisms'}),mechView,mechText]),el('div',{},[wheelTitle,wheelView,wheelText])]));
+    // The mechanism and wheel drawings fold away; they are drawn only while open.
+    const moment=el('details',{class:'sim-fold sim-data-moment'},[el('summary',{text:'Robot at this moment'}),el('div',{class:'sim-data-views'},[el('div',{},[el('h4',{text:'Mechanisms'}),mechView,mechText]),el('div',{},[wheelTitle,wheelView,wheelText])])]);
+    moment.ontoggle=()=>{if(moment.open)render();};
+    panelHost.append(empty,recorded,moment);
     range.oninput=()=>{live=false;cursor=Number(range.value);scrub();};
     liveButton.onclick=()=>{live=true;cursor=null;onScrub(null);render();};
     // Dragging across a graph scrubs the timeline.
@@ -131,7 +134,7 @@
       if(frames.length&&span){const stops=[];let phase=frames[0].practice?.phase,from=0;for(let i=1;i<=frames.length;i++){const p=frames[i]?.practice?.phase;if(i===frames.length||p!==phase){const a=(frames[from].time-t0())/span*100,b=(frames[i-1].time-t0())/span*100,c=PHASES[phase]?PHASES[phase]+'66':'transparent';stops.push(`${c} ${a}%`,`${c} ${b}%`);from=i;phase=p;}}track.style.background=`linear-gradient(90deg,${stops.join(',')})`;}else track.style.background='';
       empty.hidden=!!frames.length;recorded.hidden=!frames.length;
       if(frames.length){summary.replaceChildren(list(analysis(frames)));graphs(f);}
-      views(f);
+      if(moment.open)views(f);
     }
     let renderTimer=0;
     return {
