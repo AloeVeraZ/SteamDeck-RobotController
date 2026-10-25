@@ -75,7 +75,7 @@ public class MyAuto implements DeckAutonomous {
   const newId=()=>'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   const layout=(game,name)=>({id:newId(),name,field:game,alliance:'red',width:144,height:144,elements:true,start:null,zones:[],pins:[],clearance:2,style:'spline',rotate:true,route:null,tested:null});
   function defaults(){const layouts=[layout('biobuzz','BIOBUZZ'),layout('empty','Empty field 1')];
-    return {version:2,setupId:newId(),setupName:'Setup 1',setups:[],controller:'ftc',imuSource:'hub',ftcSensors:null,motionSensors:null,timing:window.DeckTimed.settings(),orientations:{},hitboxes:false,robot:{...ROBOT},sensors:{localization:'encoders'},tuning:{maxPathSpeed:.8},practice:{mode:'autonomous',autoSeconds:30,transitionSeconds:8,teleopSeconds:120},program:{kind:'route',name:'',source:EXAMPLE},model:null,view:'2d',mechanisms:window.DeckMechanisms.sanitize({}),layouts,active:layouts[0].id,export:{packageName:'org.firstinspires.ftc.teamcode',className:'PlannedRoute',keep:false}};}
+    return {version:2,setupId:newId(),setupName:'Setup 1',setups:[],controller:'ftc',imuSource:'hub',ftcSensors:null,motionSensors:null,timing:window.DeckTimed.settings(),orientations:{},hitboxes:false,robot:{...ROBOT},sensors:{localization:'encoders'},tuning:{maxPathSpeed:.8},practice:{mode:'autonomous',autoSeconds:30,transitionSeconds:8,teleopSeconds:120},program:{kind:'route',name:'',source:EXAMPLE},model:null,view:'2d',mechanisms:window.DeckMechanisms.sanitize({}),kinematics:window.DeckKinematics.sanitize({}),layouts,active:layouts[0].id,export:{packageName:'org.firstinspires.ftc.teamcode',className:'PlannedRoute',keep:false}};}
   function cleanLayout(raw){
     // Last season's DECODE layouts are no longer offered; their zones and pins stay, on an empty field.
     const l=layout(Object.hasOwn(GAMES,raw?.field)?raw.field:'empty',(String(raw?.name||'Field')+(raw?.field==='decode'?' (was DECODE)':'')).slice(0,40));if(typeof raw?.id==='string'&&/^[\w-]{1,40}$/.test(raw.id))l.id=raw.id;
@@ -102,7 +102,7 @@ public class MyAuto implements DeckAutonomous {
     // Path correction is automatic: retire the old 0–2 strength and raw gain overrides.
     delete p.tuning.correctionScale;delete p.tuning.translationalP;delete p.tuning.headingP;
     const g=raw.program||{};p.program={kind:g.kind==='opmode'?'opmode':g.kind==='source'?'source':'route',name:typeof g.name==='string'?g.name.slice(0,120):'',source:typeof g.source==='string'&&g.source.length<=200000?(g.source===LEGACY_EXAMPLE?EXAMPLE:g.source):EXAMPLE};
-    p.model=modelMeta(raw.model);p.mechanisms=window.DeckMechanisms.sanitize(raw.mechanisms);p.sensors.driveEncoders=raw.sensors?.driveEncoders===true;p.robotPreset=Object.hasOwn(window.DeckMechanisms.PRESETS,raw.robotPreset)?raw.robotPreset:null;
+    p.model=modelMeta(raw.model);p.mechanisms=window.DeckMechanisms.sanitize(raw.mechanisms);p.kinematics=window.DeckKinematics.sanitize(raw.kinematics);p.sensors.driveEncoders=raw.sensors?.driveEncoders===true;p.robotPreset=Object.hasOwn(window.DeckMechanisms.PRESETS,raw.robotPreset)?raw.robotPreset:null;
     const e=raw.export||{};p.export={packageName:typeof e.packageName==='string'?e.packageName.slice(0,120):p.export.packageName,className:typeof e.className==='string'?e.className.slice(0,64):p.export.className,keep:!!e.keep};
     p.setupId=typeof raw.setupId==='string'?raw.setupId:p.setupId;p.setupName=String(raw.setupName||'Setup 1').slice(0,40);
     p.setups=Array.isArray(raw.setups)?raw.setups.slice(0,20).filter(s=>s&&typeof s.id==='string'&&typeof s.name==='string'&&s.data&&typeof s.data==='object').map(s=>({id:s.id,name:s.name.slice(0,40),data:s.data})):[];
@@ -229,9 +229,7 @@ public class MyAuto implements DeckAutonomous {
         <div id="mech-shooters"></div><button type="button" class="secondary sim-mech-add" data-mech-add="shooter">+ Add shooter</button>
         <section id="mech-timing"><h3>Shooter timing</h3>
         <label for="mech-spinup">Spin-up time · s</label><input id="mech-spinup" type="number" min="0" max="10" step="any" data-slider-max="3" data-slider-step="0.05">        <div class="start-xy"><div><label for="mech-transfer">Transfer time · s</label><input id="mech-transfer" type="number" min="0" max="10" step="any" data-slider-max="4" data-slider-step="0.05"></div><div><label for="mech-index">Indexing time · s</label><input id="mech-index" type="number" min="0" max="5" step="any" data-slider-max="2" data-slider-step="0.05"></div></div>
-        <details class="sim-more"><summary>What these times mean</summary><p class="hint"><b>Spin-up time</b>: how long the flywheels take to reach shooting speed.</p><p class="hint"><b>Transfer time</b>: from a piece touching the intake to sitting in the shooter, ready, when the robot is empty. Pieces behind it stop sooner (with 4 slots and 2 s: 2, 1.5, 1, then 0.5 s).</p><p class="hint"><b>Indexing time</b>: after a shot, how long the next piece takes to move up into the shooter. A piece in the shooter fires as soon as the flywheel is at speed and the shooter points at the hive.</p></details>
         <div id="mech-turret-timing" class="start-xy"><div><label for="mech-turret-speed">Turret turn speed · °/s</label><input id="mech-turret-speed" type="number" min="5" max="2000" step="any" data-slider-max="720" data-slider-step="5"></div><div><label for="mech-turret-range">Turret turns up to · ± °</label><input id="mech-turret-range" type="number" min="5" max="180" step="1"></div></div>
-        <details class="sim-more"><summary>How the robot runs Intake, Spin up and Shoot</summary><p class="hint">The path decides when each action runs. The exported robot code calls it every loop, so the robot keeps following its path (or holds its pin) while it runs. Nothing in it waits.</p><p class="hint"><b>Intake</b> runs the rollers at their power and lowers kickers and ramps; when it ends they stop and go back up. <b>Spin up</b> starts the flywheels and moves on. <b>Shoot</b> spins up and aims, then waits until every flywheel is at speed (or the spin-up time plus half a second has passed), the turret has arrived and the last pieces picked up have had the transfer time. Then it feeds once per shot: the first piece is already in the shooter, and each next one needs the indexing time. Then the feeder and flywheels stop.</p><p class="hint">There is no piece sensor, so shooting is timed. To do any action your own way, replace it in RobotActions; the rest keep working.</p></details>
         <details class="sim-mech-code"><summary>Flywheel and turret on the robot</summary><label for="mech-fly-control">Flywheel speed</label><select id="mech-fly-control">${options(MECH.FLYWHEELS,'velocity')}</select>
         <div id="mech-fly-velocity"><div class="start-xy"><div><label for="mech-rpm">Flywheel speed · RPM</label><input id="mech-rpm" type="number" min="100" max="6000" step="any" data-slider-step="50"></div><div><label for="mech-tpr">Flywheel encoder ticks per revolution</label><input id="mech-tpr" type="number" min="1" max="10000" step="any" data-slider-max="2000"></div></div>
           <label for="mech-tolerance">At speed within · ±%</label><input id="mech-tolerance" type="number" min="1" max="50" step="any" data-slider-max="20">
@@ -248,7 +246,7 @@ public class MyAuto implements DeckAutonomous {
         <p id="mech-nectar-note" class="hint"></p>
         <label for="mech-preload">Pollen it starts with</label><input id="mech-preload" type="number" min="0" max="4" step="1"></section>
         </div><aside class="sim-mech-aside">
-          <div id="mech-model-box" class="sim-mech-model" hidden><div id="mech-model-preview" class="sim-model-preview"></div><ul id="mech-model-key" class="sim-mech-key"></ul><div id="mech-cad" class="sim-mech-cad" hidden><button type="button" class="secondary" id="mech-from-cad">Set up from your CAD</button><p class="hint" id="mech-cad-note"></p></div><p id="mech-model-help" class="hint">Each part is marked. Choose “Place on model” on a part, then click it here. Set the front in step 2.</p></div>
+          <div id="mech-model-box" class="sim-mech-model" hidden><div id="mech-model-preview" class="sim-model-preview"></div><ul id="mech-model-key" class="sim-mech-key"></ul><div id="mech-cad" class="sim-mech-cad" hidden><button type="button" class="secondary" id="mech-from-cad">Set up from your CAD</button><p class="hint" id="mech-cad-note"></p></div><p id="mech-model-help" class="hint">Each part is marked. Choose “Place on model” on a part, then click it here. Set the front in step 2.</p><section id="mech-joints" class="sim-joints" aria-label="Moving parts" hidden></section></div>
         </aside></div>
         <div class="sim-setup-nav"><button type="button" class="secondary" data-setup-go="robot">← Back</button><button type="button" class="primary" data-setup-go="controller">Next: robot controller →</button></div></section></div>
       <div data-panel="plan" id="sim-panel-plan" role="tabpanel" aria-labelledby="sim-tab-plan" hidden>
@@ -354,7 +352,7 @@ public class MyAuto implements DeckAutonomous {
       if(d<bestD&&planner.safePose(p,info.fieldZones,info.footprint,info.bounds)){best=p;bestD=d;}}
     return best;
   }
-  const engineConfig=()=>({mechanisms:L().field==='biobuzz'?project.mechanisms:{...project.mechanisms,enabled:false},alliance:L().alliance,field:L().field,width:L().width,height:L().height,elements:L().elements,start,controller:project.controller,timing:{...project.timing,power:project.tuning.maxPathSpeed??.8},robot:project.robot,zones:L().zones,sensors:{localization:project.sensors.localization},tuning:project.tuning});
+  const engineConfig=()=>({mechanisms:L().field==='biobuzz'?project.mechanisms:{...project.mechanisms,enabled:false},kinematics:project.kinematics,alliance:L().alliance,field:L().field,width:L().width,height:L().height,elements:L().elements,start,controller:project.controller,timing:{...project.timing,power:project.tuning.maxPathSpeed??.8},robot:project.robot,zones:L().zones,sensors:{localization:project.sensors.localization},tuning:project.tuning});
   function load(){
     if(!native){info=null;draw();return Promise.resolve();}
     const seq=(load.seq=(load.seq||0)+1);loadError='';
@@ -458,9 +456,11 @@ public class MyAuto implements DeckAutonomous {
   function between(a,b,u){
     const pose=(p,q)=>p&&q?{...q,x:lerp(p.x,q.x,u),y:lerp(p.y,q.y,u),heading:lerpAngle(p.heading,q.heading,u)}:q;
     const truth={...pose(a.truth,b.truth),z:lerp(a.truth.z||0,b.truth.z||0,u),vx:lerp(a.truth.vx,b.truth.vx,u),vy:lerp(a.truth.vy,b.truth.vy,u),omega:lerp(a.truth.omega,b.truth.omega,u)};
-    const m=a.mechanisms,n=b.mechanisms,mechanisms=m&&n?{...n,...(finite(n.turret)?{turret:lerpAngle(m.turret??n.turret,n.turret,u)}:{}),...(n.turrets?{turrets:n.turrets.map((v,i)=>finite(v)?lerpAngle(m.turrets?.[i]??v,v,u):v)}:{}),...(n.ramps?{ramps:n.ramps.map((v,i)=>finite(v)?lerp(m.ramps?.[i]??v,v,u):v)}:{})}:n;
+    const m=a.mechanisms,n=b.mechanisms,mechanisms=m&&n?{...n,...(finite(n.turret)?{turret:lerpAngle(m.turret??n.turret,n.turret,u)}:{}),...(n.turrets?{turrets:n.turrets.map((v,i)=>finite(v)?lerpAngle(m.turrets?.[i]??v,v,u):v)}:{}),...(n.ramps?{ramps:n.ramps.map((v,i)=>finite(v)?lerp(m.ramps?.[i]??v,v,u):v)}:{}),...(n.deploy?{deploy:n.deploy.map((v,i)=>finite(v)?lerp(m.deploy?.[i]??v,v,u):v)}:{})}:n;
+    // Joint angles and slides; a spinning part's angle wraps, so each takes the short way round.
+    const joints=a.joints&&b.joints?Object.fromEntries(Object.entries(b.joints).map(([k,v])=>{const w=a.joints[k];return [k,finite(v)&&finite(w)?lerpAngle(w,v,u):Array.isArray(v)&&Array.isArray(w)?v.map((x,i)=>finite(x)&&finite(w[i])?lerpAngle(w[i],x,u):x):v];})):b.joints;
     const was=new Map((a.fieldState?.balls||[]).map(x=>[x.id,x])),balls=b.fieldState?.balls?.map(x=>{const y=was.get(x.id);return !y||y.state?.kind!==x.state?.kind?x:{...x,pos:{...x.pos,x:lerp(y.pos.x,x.pos.x,u),y:lerp(y.pos.y,x.pos.y,u)},z:lerp(y.z||0,x.z||0,u)};});
-    return {...b,time:lerp(a.time,b.time,u),truth,estimate:pose(a.estimate,b.estimate),mechanisms,...(b.fieldState?{fieldState:{...b.fieldState,balls}}:{})};
+    return {...b,time:lerp(a.time,b.time,u),truth,estimate:pose(a.estimate,b.estimate),mechanisms,joints,...(b.fieldState?{fieldState:{...b.fieldState,balls}}:{})};
   }
 
   // ------------------------------------------------------------------ drawing
@@ -1560,14 +1560,14 @@ public class MyAuto implements DeckAutonomous {
   for(const b of $$('[data-robot-source]'))b.onclick=()=>{if(b.dataset.robotSource==='preset'){usePreset(project.robotPreset||'sprinter');return;}project.robotPreset=null;project.robot.appearance=project.model?'custom':'plain';$('#sim-appearance').value=project.robot.appearance;save();presetPanel();mechanismsPanel();robotPanel();void placeModel();reload();};
   // Robot files: the robot (settings, CAD, sensors, mechanisms) saved apart from setups and loaded into any of them.
   $('#sim-robot-save').onclick=async()=>{
-    try{save();const data={deckRobot:1,controller:project.controller,robot:project.robot,sensors:project.sensors,imuSource:project.imuSource,timing:project.timing,mechanisms:project.mechanisms,model:project.model};
+    try{save();const data={deckRobot:1,controller:project.controller,robot:project.robot,sensors:project.sensors,imuSource:project.imuSource,timing:project.timing,mechanisms:project.mechanisms,kinematics:project.kinematics,model:project.model};
       if(project.model&&model){const glb=await M().toGlb(model.geometry);let s='';for(let i=0;i<glb.length;i+=32768)s+=String.fromCharCode(...glb.subarray(i,i+32768));data.modelData=btoa(s);}
       const r=await api.simFile('robot-save',JSON.stringify(data));if(r)status('#start-status',`Saved the robot to ${r.name}.`);}catch(e){status('#start-status',e.message);}};
   $('#sim-robot-load').onclick=async()=>{
     try{const file=await api.simFile('robot-open');if(!file)return;const raw=JSON.parse(file.text);if(raw?.deckRobot!==1)throw Error('That file is not a Deck robot.');
-      const next=sanitize({...snapshot(),controller:raw.controller,robot:raw.robot,sensors:raw.sensors,imuSource:raw.imuSource,timing:raw.timing,mechanisms:raw.mechanisms,model:raw.model,robotPreset:null});
-      for(const k of ['controller','robot','sensors','imuSource','timing','mechanisms'])project[k]=next[k];project.robotPreset=null;project.model=null;model=null;
-      if(raw.modelData&&raw.model){const bin=atob(raw.modelData),bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);const stored=await api.simFile('model-save',{name:raw.model.name||'robot.glb',bytes});project.model=modelMeta({...raw.model,id:stored.id});}
+      const next=sanitize({...snapshot(),controller:raw.controller,robot:raw.robot,sensors:raw.sensors,imuSource:raw.imuSource,timing:raw.timing,mechanisms:raw.mechanisms,kinematics:raw.kinematics,model:raw.model,robotPreset:null});
+      for(const k of ['controller','robot','sensors','imuSource','timing','mechanisms','kinematics'])project[k]=next[k];project.robotPreset=null;project.model=null;model=null;
+      if(raw.modelData&&raw.model){const bin=atob(raw.modelData),bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);const stored=await api.simFile('model-save',{name:raw.model.name||'robot.glb',bytes});project.model=modelMeta({...raw.model,id:stored.id});if(project.kinematics.model===raw.model.id)project.kinematics={...project.kinematics,model:stored.id};}
       save();refreshAll();await placeModel();reload();status('#start-status',`Loaded the robot from ${file.name}.`);}catch(e){status('#start-status',e.message);}};
   function robotPanel(committed=false){
     const r=project.robot;for(const [id,value] of Object.entries({'#sim-drivetrain':r.drivetrain,'#sim-length':r.length,'#sim-width':r.width,'#sim-height':r.heightIn,'#sim-mass':r.massLb,'#sim-rpm':r.driveRpm,'#sim-wheel':r.wheelDiameterMm,'#sim-drive-style':r.driveStyle,'#sim-appearance':r.appearance,'#sim-localization':project.sensors.localization,'#sim-maxspeed':project.tuning.maxPathSpeed??.8}))inputValue(id,value,committed);
@@ -1692,7 +1692,7 @@ public class MyAuto implements DeckAutonomous {
       // The top-down picture is drawn again only when the model turns; a new size stretches the one there is.
       if(key!==model.placeKey){model.holder=M().place(model.geometry,meta||{front:'+x',top:'+z',units:'in'},chassis);model.picture=M().silhouette(model.holder,model.look===look?model.picture:null);model.look=look;model.placeKey=key;}
     }catch(e){model=null;status('#start-status',e.message);}
-    modelUi();draw();view3d?.setModel(fieldBody());
+    modelUi();draw();view3d?.setModel(fieldRig());
   }
   // The field views (3D, run videos) draw a lighter copy of a heavy CAD body (DeckRobotModel.lighten), made once per
   // model in the background; until it is ready they show the plain robot. The Setup previews keep every triangle,
@@ -1700,14 +1700,22 @@ public class MyAuto implements DeckAutonomous {
   function fieldBody(){
     const m=model;if(!m?.holder)return null;
     if(m.lite===undefined){m.lite=null;const g=m.geometry,tris=g?.isObject3D?0:(g?.index?.count??g?.attributes?.position?.count??0)/3;
-      if(tris>LIGHT_TRIANGLES){m.lighten=M().lighten(g,{target:LIGHT_TRIANGLES}).catch(()=>g).then(lite=>{m.lite=lite;if(model===m)view3d?.setModel(fieldBody());});}else m.lite=g;}
+      if(tris>LIGHT_TRIANGLES){m.lighten=M().lighten(g,{target:LIGHT_TRIANGLES}).catch(()=>g).then(lite=>{m.lite=lite;if(model===m)view3d?.setModel(fieldRig());});}else m.lite=g;}
     if(!m.lite)return null;if(m.lite===m.geometry)return m.holder;
     if(m.liteOf!==m.holder){m.liteOf=m.holder;m.liteHolder=m.holder.clone();m.liteHolder.traverse(o=>{if(o.isMesh&&o.geometry===m.geometry)o.geometry=m.lite;});}
     return m.liteHolder;
   }
+  // The body with its joints: split into moving links (DeckRobotModel.rig) for the 3D field, run videos (from the
+  // lighter copy) and the Mechanisms preview (every triangle, for picking). Made again only when the body, its joints or
+  // the mechanisms change.
+  function rigOf(base,slot){
+    if(!base||!model)return base;const key=JSON.stringify([base.uuid,project.model?.id,project.kinematics,L().field==='biobuzz'&&project.mechanisms,chassisFootprint(),project.robot.heightIn]);if(model[slot+'Key']===key)return model[slot];
+    model[slot]=M().rig(base.clone(),{meta:project.model,mechanisms:L().field==='biobuzz'?project.mechanisms:null,kinematics:project.kinematics,footprint:chassisFootprint(),height:project.robot.heightIn});model[slot+'Key']=key;return model[slot];
+  }
+  const fieldRig=()=>rigOf(fieldBody(),'fieldRig'),mechRig=()=>rigOf(model?.holder,'mechRig');
   function modelUi(){
     const meta=project.model,builtin=model?.builtin;$('#sim-model-box').hidden=!meta&&!builtin;$('#sim-model-drop').classList.toggle('compact',!!meta||!!builtin);
-    $('#sim-model-credit').textContent=builtin?model.meta?.credit||'':meta?'Your CAD is shown as one rigid body.':'Choose a bundled chassis or import your own.';
+    $('#sim-model-credit').textContent=builtin?model.meta?.credit||'':meta?'Its moving parts (turrets, hoods, rollers, ramps) are found and checked under Mechanisms.':'Choose a bundled chassis or import your own.';
     // The Mechanisms page shows the same model with its parts marked.
     queueMicrotask(()=>mechModel());
     if(!meta&&!builtin){modelPreview?.dispose();modelPreview=null;return;}
@@ -1968,7 +1976,7 @@ public class MyAuto implements DeckAutonomous {
     project.view=next;save();pressed('view',next);const three3=next==='3d';$('#sim-3d').hidden=!three3;graph.style.display=three3?'none':'';applyZoom();
     // −/Fit/+ zoom the 2D field only, so 3D shows Hitboxes in their place.
     $('[data-tool]').parentElement.classList.toggle('three',three3);$('#sim-hitboxes').hidden=!three3;$('.sim-zoom').hidden=three3;$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));videoRefresh?.();
-    if(three3){tool='select';try{await three();await script('sim-3d.js');view3d=view3d||window.DeckSim3D.create($('#sim-3d'));view3d.setField(info,L());view3d.setModel(fieldBody());view3d.update(frame,state3d());}catch(e){status('#sim-run-status',e.message);}}
+    if(three3){tool='select';try{await three();await script('sim-3d.js');view3d=view3d||window.DeckSim3D.create($('#sim-3d'));view3d.setField(info,L());view3d.setModel(fieldRig());view3d.update(frame,state3d());}catch(e){status('#sim-run-status',e.message);}}
     draw();
   }
   for(const b of $$('[data-view]'))b.onclick=()=>void setView(b.dataset.view);
@@ -2008,7 +2016,6 @@ public class MyAuto implements DeckAutonomous {
       <span class="sim-mech-label">Size</span><div class="sim-grid3"><div><label for="mech-intake-reach-${n}">Sticks out past the frame · in</label><input id="mech-intake-reach-${n}" data-field="reach" type="number" min="0" max="18" step="any" data-slider-max="8" data-slider-step="0.25" value="${intake.reach}"></div><div><label for="mech-intake-width-${n}">Mouth width · in</label><input id="mech-intake-width-${n}" data-field="width" type="number" min="1" max="48" step="any" data-slider-max="${Math.max(project.robot.width,project.robot.length)}" data-slider-step="0.25" value="${+(intake.width??(intake.sides.some(e=>e==='front'||e==='back')?project.robot.width:project.robot.length)).toFixed(2)}"></div><div><label for="mech-intake-height-${n}">Opening height · in</label><input id="mech-intake-height-${n}" data-field="height" type="number" min="1" max="24" step="any" data-slider-max="12" data-slider-step="0.25" value="${intake.height}"></div></div>
       <span class="sim-mech-label">Picks up from</span><div class="sim-chips">${MECH.EDGES.map(e=>chip('side',e,title(e),intake.sides.includes(e),used.has(e)&&!intake.sides.includes(e))).join('')}</div>${placeButton('intake:'+n)}
       ${swing?`<span class="sim-mech-label">${swing.label}</span><div class="start-xy"><div><label for="mech-deploy-down-${n}">${swing.down}</label><input id="mech-deploy-down-${n}" data-field="down" type="number" min="0" max="3" step="any" data-slider-max="1.5" data-slider-step="0.05" value="${intake.down}"></div><div><label for="mech-deploy-up-${n}">${swing.up}</label><input id="mech-deploy-up-${n}" data-field="up" type="number" min="0" max="3" step="any" data-slider-max="1.5" data-slider-step="0.05" value="${intake.up}"></div></div>`:''}
-      <details class="sim-more"><summary>How this intake works</summary><p class="hint">${MECH.INTAKE_NOTES[intake.kind]}</p>${swing?`<p class="hint">${swing.hint}</p>`:''}<p class="hint">It runs while an Intake action runs (or the right bumper in teleop). A piece it takes moves up into storage over the transfer time.</p><p class="hint">A piece is taken when it touches the outer face of the green box and fits under the opening (pollen is 2.8 in tall, nectar 3.6 in). Pieces near the ends of the mouth take a moment longer to funnel in. The box is solid, so a longer intake reaches pieces sooner but needs more room to drive.</p></details>
       <details class="sim-mech-code"><summary>Robot hardware</summary>${intake.kind!=='kicker'?`<div class="start-xy"><div><label for="mech-intake-device-${n}">${swing?'Rollers run on a':'Roller runs on a'}</label><select id="mech-intake-device-${n}" data-field="device">${options(MECH.ROLLERS,intake.device||'motor')}</select></div><div><label for="mech-intake-power-${n}">${swing?'Roller power':'Intake power'} · 0–1</label><input id="mech-intake-power-${n}" data-field="power" type="number" min="0.05" max="1" step="any" value="${intake.power}"></div></div>
         <div class="start-xy"><div><label for="mech-intake-motor-${n}">${swing?'Roller name':'Intake roller name'}</label><input id="mech-intake-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${intake.motor}"></div>${reverseBox(`mech-intake-rev-${n}`,'reversed',intake.reversed)}</div>
         <div class="start-xy"><div><label for="mech-intake-motor2-${n}">Second roller name (optional)</label><input id="mech-intake-motor2-${n}" data-field="motor2" maxlength="40" autocomplete="off" spellcheck="false" placeholder="None" value="${intake.motor2||''}"></div>${intake.motor2?reverseBox(`mech-intake-rev2-${n}`,'reversed2',intake.reversed2):''}</div>`:''}${swing?`<div class="start-xy"><div><label for="mech-deploy-servo-${n}">${swing.servo}</label><input id="mech-deploy-servo-${n}" data-field="servo" maxlength="40" autocomplete="off" value="${intake.servo}"></div></div><div class="start-xy"><div><label for="mech-deploy-downpos-${n}">Servo position down · 0–1</label><input id="mech-deploy-downpos-${n}" data-field="downPos" type="number" min="0" max="1" step="any" value="${intake.downPos}"></div><div><label for="mech-deploy-uppos-${n}">Servo position up · 0–1</label><input id="mech-deploy-uppos-${n}" data-field="upPos" type="number" min="0" max="1" step="any" value="${intake.upPos}"></div></div>`:''}${configNote}</details></section>`;
@@ -2030,7 +2037,6 @@ public class MyAuto implements DeckAutonomous {
       ${choiceCards('type',{turret:'Turret',fixed:'Fixed shooter'},SHOOTER_SHORT,s.type)}${pieces}${turretChoice}
       ${riding?'':`<span class="sim-mech-label">Position on the robot</span>${mountGrid(s.mount,blocked)}${placeButton('shooter:'+n)}`}
       ${s.type==='fixed'?`<span class="sim-mech-label">Fires toward</span><div class="sim-chips">${Object.keys(MECH.FACING).map(f=>chip('facing',f,title(f),s.facing===f)).join('')}</div>`:''}
-      <details class="sim-more"><summary>How this shooter works</summary><p class="hint">${MECH.SHOOTER_NOTES[s.type]}</p></details>
       <details class="sim-mech-code"><summary>Robot hardware</summary><div class="start-xy"><div><label for="mech-shooter-motor-${n}">Flywheel motor name</label><input id="mech-shooter-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.motor}"></div>${reverseBox(`mech-shooter-rev-${n}`,'reversed',s.reversed)}</div>
       <div class="start-xy"><div><label for="mech-shooter-motor2-${n}">Second flywheel motor (optional)</label><input id="mech-shooter-motor2-${n}" data-field="motor2" maxlength="40" autocomplete="off" spellcheck="false" placeholder="None" value="${s.motor2||''}"></div>${s.motor2?reverseBox(`mech-shooter-rev2-${n}`,'reversed2',s.reversed2):''}</div>
       <div class="start-xy"><div><label for="mech-indexer-kind-${n}">Feeder is a</label><select id="mech-indexer-kind-${n}" data-field="indexerKind">${options(MECH.INDEXERS,s.indexerKind)}</select></div><div><label for="mech-indexer-name-${n}">Feeder name</label><input id="mech-indexer-name-${n}" data-field="indexer" maxlength="40" autocomplete="off" spellcheck="false" value="${s.indexer}"></div></div>
@@ -2040,7 +2046,7 @@ public class MyAuto implements DeckAutonomous {
   }
   function mechanismsPanel(){
     const m=project.mechanisms,l=L(),on=m.enabled,intakes=on?m.intakes:[],shooters=on?m.shooters:[],used=new Set(intakes.flatMap(i=>i.sides));
-    $('#mech-field-note').textContent=l.field!=='biobuzz'?'Mechanisms act on BIOBUZZ pieces. On an empty field the robot drives the route but has nothing to pick up or shoot.':shooters.length?`Shots aim at the ${l.alliance||'red'} hive's up-facing cell (set the alliance in step 1).`:'';
+    $('#mech-field-note').textContent=l.field!=='biobuzz'?'':shooters.length?`Shots aim at the ${l.alliance||'red'} hive's up-facing cell (set the alliance in step 1).`:'';
     // Rebuilt from settings; keep focus on a text field the user is typing in.
     const typing=document.activeElement?.closest?.('#mech-intakes,#mech-shooters')&&document.activeElement.matches('input:not([type=number]):not([type=checkbox])');
     if(!typing){const parts='#mech-intakes details,#mech-shooters details',key=d=>d.closest('[data-part]').dataset.part+' '+d.className,open=new Set([...$$(parts)].filter(d=>d.open).map(key));
@@ -2062,12 +2068,12 @@ public class MyAuto implements DeckAutonomous {
   }
   // The robot model with each part marked; "Place on model" picks a part's position by clicking it.
   function mechModel(){
-    const show=!!model?.holder&&setupStep==='mechanisms'&&project.mechanisms.enabled;$('#mech-model-box').hidden=!show;
-    if(!show){mechPreview?.pick(null);return;}
+    const game=L().field==='biobuzz',show=!!model?.holder&&setupStep==='mechanisms'&&(!game||project.mechanisms.enabled);$('#mech-model-box').hidden=!show;
+    if(!show){mechPreview?.pick(null);joints.hide();return;}
     if(!mechPreview)mechPreview=M().preview($('#mech-model-preview'));
     // The model is fitted to the chassis (not the intakes), so parts are placed from the chassis edges.
-    const f=chassisFootprint(),m=project.mechanisms,r=project.robot,cx=(f.front-f.rear)/2,hl=r.length/2,hw=r.width/2,h=(model.holder.userData.size?.height||12)*.7;
-    mechPreview.update(model.holder,chassisFootprint());
+    const f=chassisFootprint(),m=game?project.mechanisms:{intakes:[],shooters:[]},r=project.robot,cx=(f.front-f.rear)/2,hl=r.length/2,hw=r.width/2,h=(model.holder.userData.size?.height||12)*.7;
+    mechPreview.update(mechRig(),chassisFootprint());
     // Intakes: see-through green boxes at their real size. Shooters: dots (yellow pollen, red nectar, orange both).
     const normal={front:[1,0],back:[-1,0],left:[0,1],right:[0,-1]},marks=[],colors={pollen:0xf2d14b,nectar:0xe5484d,both:0xf2994a};
     for(const i of m.intakes)for(const e of i.sides){const [nx,ny]=normal[e],dist=nx?hl:hw,edgeLen=nx?r.width:r.length,depth=Math.max(i.reach,1),span=Math.min(i.width??edgeLen,edgeLen),c=dist+i.reach-depth/2;
@@ -2078,14 +2084,15 @@ public class MyAuto implements DeckAutonomous {
       .map(([color,name,text])=>{const li=document.createElement('li'),dot=document.createElement('i'),b=document.createElement('b');dot.style.background='#'+color.toString(16).padStart(6,'0');b.textContent=name;li.append(dot,b,' · '+text);return li;}));
     mechPreview.markers(marks);
     // Parts named in the CAD (Chassis, Intake, Shooter, Turret, Indexer...) can set these up again, after a new front for example.
-    const named=(project.model?.parts||[]).filter(p=>p.role!=='other');$('#mech-cad').hidden=!named.length;
+    const named=(project.model?.parts||[]).filter(p=>p.role!=='other');$('#mech-cad').hidden=!game||!named.length;$('#mech-model-help').hidden=!game;
     $('#mech-cad-note').textContent=named.length?`Your CAD names ${named.map(p=>`“${p.name}” (${p.role}${p.pieces?', '+p.pieces:''}${p.type==='turret'?', turret':''})`).join(', ')}. This replaces the intakes, shooters and chassis size with them.`:'';
     mechPreview.pick(mechPlacing?point=>{if(!point)return;const [kind,n]=mechPlacing.split(':'),loc=MECH.locate({x:point.x-cx,y:point.y},2*hl,2*hw);mechPlacing=null;
       setMech(m=>{const part=m[kind==='intake'?'intakes':'shooters'][+n];if(!part)return;
         if(kind==='intake'){if(m.intakes.some((o,k)=>k!==+n&&o.sides.includes(loc.edge)))return status('#mech-model-help',`Another intake already covers the ${loc.edge}.`);part.sides=[loc.edge];part.at=point;status('#mech-model-help',`Intake ${+n+1}: ${loc.edge} of the robot.`);}
-        else{part.mount=loc.mount;part.at=point;status('#mech-model-help',`Shooter ${+n+1}: ${MECH.MOUNTS[loc.mount].toLowerCase()} of the robot.`);}});}:null);
+        else{part.mount=loc.mount;part.at=point;status('#mech-model-help',`Shooter ${+n+1}: ${MECH.MOUNTS[loc.mount].toLowerCase()} of the robot.`);}});}:joints.picker());
+    joints.render();
   }
-  $('#mech-from-cad').onclick=()=>{const out=setUpFromCad();save();robotPanel();mechanismsPanel();void placeModel();reload();status('#mech-model-help',out?.found.length?'Set up from your CAD: '+out.found.join('; ')+'.':'No intake, shooter or chassis parts were named in this CAD.');};
+  $('#mech-from-cad').onclick=()=>{const out=setUpFromCad();save();robotPanel();mechanismsPanel();void placeModel().then(()=>joints.discover({quiet:true}));reload();status('#mech-model-help',out?.found.length?'Set up from your CAD: '+out.found.join('; ')+'.':'No intake, shooter or chassis parts were named in this CAD.');};
   // Mechanisms are on while the robot has any part; adding the first part starts from that part alone.
   function setMech(change){const m=structuredClone(project.mechanisms);if(!m.enabled){m.intakes=[];m.shooters=[];}change(m);m.enabled=m.intakes.length>0||m.shooters.length>0;project.mechanisms=MECH.sanitize(m);save();mechanismsPanel();reload();}
   $('[data-mech-add=intake]').onclick=()=>setMech(m=>{const free=MECH.EDGES.find(e=>!m.intakes.some(i=>i.sides.includes(e)));if(free)m.intakes.push({kind:m.intakes[0]?.kind||'sweeper',sides:[free]});});
@@ -2093,7 +2100,7 @@ public class MyAuto implements DeckAutonomous {
   for(const host of ['#mech-intakes','#mech-shooters']){
     const box=$(host),partOf=el=>{const [kind,n]=el.closest('[data-part]').dataset.part.split(':');return {kind,n:+n};};
     box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;
-      if(b.dataset.mechRemove){const [kind,n]=b.dataset.mechRemove.split(':');if(mechPlacing?.startsWith(kind))mechPlacing=null;return setMech(m=>m[kind==='intake'?'intakes':'shooters'].splice(+n,1));}
+      if(b.dataset.mechRemove){const [kind,n]=b.dataset.mechRemove.split(':');if(mechPlacing?.startsWith(kind))mechPlacing=null;project.kinematics=window.DeckKinematics.reindex(project.kinematics,kind,+n);return setMech(m=>m[kind==='intake'?'intakes':'shooters'].splice(+n,1));}
       if(b.dataset.place){mechPlacing=mechPlacing===b.dataset.place?null:b.dataset.place;status('#mech-model-help',mechPlacing?'Click where that part is on the model. Drag to turn the view.':'');mechanismsPanel();return;}
       const field=b.dataset.field,value=b.dataset.value;if(!field||value===undefined)return;const {kind,n}=partOf(b);
       setMech(m=>{const part=m[kind==='intake'?'intakes':'shooters'][n];if(!part)return;
@@ -2122,13 +2129,20 @@ public class MyAuto implements DeckAutonomous {
     const route=l.field==='biobuzz'&&(l.start||l.pins.length||l.zones.length);if(route){Object.assign(l,planner.allianceRoute(l,{mode:'rotate',width:l.width,height:l.height}));if(l.start){start=l.start;preview={...start};if(native&&info)void api.sim('start',start).catch(()=>{});}}
     l.alliance=next;$('#sim-alliance-note').textContent=route?`Moved the starting pose${l.pins.length?`, ${l.pins.length} path${l.pins.length>1?'s':''}`:''}${l.zones.length?' and obstacles':''} to the ${next} side. Press ${next==='red'?'Blue':'Red'} to move them back.`:`Shots aim at the ${next} hive.`;
     changed('zones');layoutPanel();mechanismsPanel();reload();};
+  // Moving parts: the CAD's joints, found and checked on the preview (sim-joints.js).
+  const joints=window.DeckJointsPanel.create({host:$('#mech-joints'),api:{
+    kinematics:()=>project.kinematics,mechanisms:()=>L().field==='biobuzz'?project.mechanisms:window.DeckMechanisms.sanitize({}),model:()=>model,meta:()=>project.model,preview:()=>mechPreview,
+    commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechModel();view3d?.setModel(fieldRig());reload();},
+    setIntake(n,patch){setMech(m=>{if(m.intakes[n])Object.assign(m.intakes[n],patch);});},refreshPicker(){mechModel();}}});
   mechanismsPanel();presetPanel();
   // Setup runs in order like Path planning: 1 Field, 2 Robot controller (and its sensing), 3 Robot.
   // Mechanisms are part of the BIOBUZZ game; on an empty field the robot is a chassis that drives the route, so Setup skips them.
-  function setupSteps(){const game=L().field==='biobuzz';if(!game&&setupStep==='mechanisms')setupStep='controller';$('#sim-setup-step-mechanisms').hidden=!game;$('#sim-setup-step-controller').textContent=(game?'4':'3')+' · Robot controller';
-    const next=document.querySelector('[data-setup-page=robot] .sim-setup-nav .primary'),back=document.querySelector('[data-setup-page=controller] .sim-setup-nav [data-setup-go]');
-    if(next){next.dataset.setupGo=game?'mechanisms':'controller';next.textContent=`Next: ${game?'mechanisms':'robot controller'} →`;}if(back)back.dataset.setupGo=game?'mechanisms':'robot';}
-  function setupStepPanel(){setupSteps();for(const p of $$('[data-setup-page]'))p.hidden=p.dataset.setupPage!==setupStep;queueMicrotask(()=>{presetPanel();setupStep==='mechanisms'?mechanismsPanel():mechModel();});for(const b of $$('[data-setup-step]')){const on=b.dataset.setupStep===setupStep;b.setAttribute('aria-selected',String(on));b.setAttribute('aria-pressed',String(on));b.tabIndex=on?0:-1;}}
+  // Off BIOBUZZ the step is the robot's moving parts alone: picking up and shooting pieces belong to the game.
+  function setupSteps(){const game=L().field==='biobuzz',page=document.querySelector('[data-setup-page=mechanisms]');$('#sim-setup-step-mechanisms').textContent=game?'3 · Mechanisms':'3 · Moving parts';
+    page.querySelector('h2').textContent=game?'Mechanisms':'Moving parts';page.querySelector('h2+.hint').textContent=game?'What your robot does with game pieces. Routes run them with Intake, Spin up, Aim and Shoot.':'What turns, slides and swings on your robot, found in its CAD. A route action named after a part and one of its positions (for example “Lift up”) moves it.';
+    $('.sim-mech-main').hidden=!game;page.dataset.game=String(game);
+    const next=document.querySelector('[data-setup-page=robot] .sim-setup-nav .primary');if(next)next.textContent=`Next: ${game?'mechanisms':'moving parts'} →`;}
+  function setupStepPanel(){setupSteps();for(const p of $$('[data-setup-page]'))p.hidden=p.dataset.setupPage!==setupStep;queueMicrotask(()=>{presetPanel();setupStep==='mechanisms'?mechanismsPanel():mechModel();if(setupStep==='mechanisms')joints.shown();});for(const b of $$('[data-setup-step]')){const on=b.dataset.setupStep===setupStep;b.setAttribute('aria-selected',String(on));b.setAttribute('aria-pressed',String(on));b.tabIndex=on?0:-1;}}
   function showSetupStep(step){setupStep=step;setupStepPanel();window.scrollTo(0,0);}
   for(const b of $$('[data-setup-step]'))b.onclick=()=>showSetupStep(b.dataset.setupStep);
   for(const b of $$('[data-setup-go]'))b.onclick=()=>showSetupStep(b.dataset.setupGo);
@@ -2220,7 +2234,7 @@ public class MyAuto implements DeckAutonomous {
   async function videoCamera(){
     await three();await script('sim-3d.js');const key=JSON.stringify([info?.field,info?.bounds]);
     if(videoCam?.key!==key){videoCam?.cam.dispose();videoCam={key,cam:window.DeckSim3D.create(document.createElement('div'),{video:true,style:$('#sim-stage')})};}
-    await videoCam.cam.setField(info,L());videoCam.cam.setModel(fieldBody());videoCam.cam.size(1280,720);return videoCam.cam;
+    await videoCam.cam.setField(info,L());videoCam.cam.setModel(fieldRig());videoCam.cam.size(1280,720);return videoCam.cam;
   }
   // Where each shooter is and the goals it can aim at, so the video can draw its aim.
   function videoAim(){const m=MECH.sanitize(project.mechanisms);if(L().field!=='biobuzz'||!m.enabled||!m.shooters.length)return null;

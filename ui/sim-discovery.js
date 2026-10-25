@@ -1,0 +1,371 @@
+(function(root,factory){const value=factory(root);if(typeof module==='object'&&module.exports)module.exports=value;else root.DeckDiscovery=value;})(typeof globalThis==='object'?globalThis:this,root=>{
+  'use strict';
+  // Finding what moves in a CAD robot. A STEP file from Onshape, SolidWorks or Fusion keeps its assembly tree and part
+  // names but not its mates, so joints are inferred from geometry and names, never assumed. Every proposal says how sure
+  // it is and why: "metadata" (the file defined the joint), "inferred" with a confidence, and what still needs the team.
+  // The evidence used:
+  //   * round parts (gears, bearings, shafts, wheels, hubs): a part whose surface is a body of revolution has an axis;
+  //     its principal axes give candidates and the outline around each is checked for roundness;
+  //   * parts that share an axis (coaxial) turn together or carry a shaft: a pivot is where hinge hardware lines up;
+  //   * names ("Rhino wheel", "Servo Hub Shaft", "Hood", "Turntable gear");
+  //   * contact between parts' boxes, to tell a swinging arm from the frame that holds it;
+  //   * the floor, to find how far a ramp folds before it touches down.
+  // Works on plain arrays (positions, index, the part of each vertex, the assembly tree), so it runs in tests and in the
+  // page alike. Frames: the CAD file's own frame and units; `rows` (robot front, left and top as CAD axes) and `unit`
+  // (inches per CAD unit) say how the robot sits.
+  const M=()=>root.DeckKinematics||(typeof require==='function'?require('./sim-kinematics.js'):null);
+  const finite=Number.isFinite,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],add=(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],scale=(a,s)=>[a[0]*s,a[1]*s,a[2]*s],dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],len=a=>Math.hypot(a[0],a[1],a[2]),unit=a=>{const l=len(a);return l>1e-12?scale(a,1/l):[0,0,1];};
+  const perpendicular=a=>{const u=unit(a),w=Math.abs(u[0])<.6?[1,0,0]:Math.abs(u[1])<.6?[0,1,0]:[0,0,1];return unit(cross(u,w));};
+  // Distance from point p to the line through o along unit a.
+  const lineDistance=(p,o,a)=>{const d=sub(p,o);return len(sub(d,scale(a,dot(d,a))));};
+  // ---------------------------------------------------------------- the body, part by part
+  // Triangles and vertices of each part (leaf), in compressed lists.
+  function prepare({positions,index,part,normals,tree}){
+    const n=positions.length/3,tris=index?index.length/3:n/3,leafOf=v=>Math.round(part[v]);let leaves=0;for(let v=0;v<n;v++)if(leafOf(v)+1>leaves)leaves=leafOf(v)+1;
+    leaves=Math.max(leaves,(tree?.leaf||[]).length);
+    const tStart=new Int32Array(leaves+1),vStart=new Int32Array(leaves+1),corner=t=>index?index[3*t]:3*t;
+    for(let t=0;t<tris;t++)tStart[leafOf(corner(t))+1]++;for(let v=0;v<n;v++)vStart[leafOf(v)+1]++;
+    for(let k=0;k<leaves;k++){tStart[k+1]+=tStart[k];vStart[k+1]+=vStart[k];}
+    const tList=new Int32Array(tris),vList=new Int32Array(n),tFill=tStart.slice(0,leaves),vFill=vStart.slice(0,leaves);
+    for(let t=0;t<tris;t++)tList[tFill[leafOf(corner(t))]++]=t;for(let v=0;v<n;v++)vList[vFill[leafOf(v)]++]=v;
+    const index3=t=>index?[index[3*t],index[3*t+1],index[3*t+2]]:[3*t,3*t+1,3*t+2],P=v=>[positions[3*v],positions[3*v+1],positions[3*v+2]];
+    const ctx={positions,index,part,normals,tree,leaves,P,index3,cache:new Map(),
+      trisOf:k=>tList.subarray(tStart[k],tStart[k+1]),vertsOf:k=>vList.subarray(vStart[k],vStart[k+1]),
+      parts:M().partIndex(tree||{nodes:[],leaf:[]})};
+    // Whole-body bounds.
+    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let v=0;v<n;v++)for(let c=0;c<3;c++){const x=positions[3*v+c];if(x<lo[c])lo[c]=x;if(x>hi[c])hi[c]=x;}ctx.lo=lo;ctx.hi=hi;
+    return ctx;
+  }
+  const nameOf=(ctx,k)=>ctx.parts.name(k),pathOf=(ctx,k)=>ctx.parts.key(k);
+  // ---------------------------------------------------------------- one part's shape
+  // Area, centre, principal axes and box; and, when its surface turns about an axis, that axis (a "revolve" feature:
+  // axis, centre on it, radius, length along it, roundness 0-1).
+  function feature(ctx,k){
+    if(ctx.cache.has(k))return ctx.cache.get(k);const tris=ctx.trisOf(k),verts=ctx.vertsOf(k);if(!tris.length){ctx.cache.set(k,null);return null;}
+    let A=0;const c=[0,0,0],S=[0,0,0,0,0,0];// S: xx xy xz yy yz zz second moments
+    for(const t of tris){const [i,j,l]=ctx.index3(t),a=ctx.P(i),b=ctx.P(j),d=ctx.P(l),area=len(cross(sub(b,a),sub(d,a)))/2;if(!area)continue;A+=area;
+      const s=add(add(a,b),d);for(let q=0;q<3;q++)c[q]+=area*s[q]/3;
+      // ∫ x xᵀ dA over a triangle = A/12 (Σ vᵢvᵢᵀ + s sᵀ)
+      const pts=[a,b,d],m=(p,q)=>pts.reduce((t,v)=>t+v[p]*v[q],0)+s[p]*s[q];S[0]+=area/12*m(0,0);S[1]+=area/12*m(0,1);S[2]+=area/12*m(0,2);S[3]+=area/12*m(1,1);S[4]+=area/12*m(1,2);S[5]+=area/12*m(2,2);}
+    if(!A){ctx.cache.set(k,null);return null;}
+    const g=scale(c,1/A),C=[[S[0]/A-g[0]*g[0],S[1]/A-g[0]*g[1],S[2]/A-g[0]*g[2]],[0,S[3]/A-g[1]*g[1],S[4]/A-g[1]*g[2]],[0,0,S[5]/A-g[2]*g[2]]];C[1][0]=C[0][1];C[2][0]=C[0][2];C[2][1]=C[1][2];
+    const {values,vectors}=eigen(C);
+    const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(const v of verts)for(let q=0;q<3;q++){const x=ctx.positions[3*v+q];if(x<lo[q])lo[q]=x;if(x>hi[q])hi[q]=x;}
+    const f={leaf:k,area:A,center:g,lo,hi,size:len(sub(hi,lo)),axes:vectors,spread:values,revolve:null};
+    // A part round about an axis spreads equally in the two directions across it, so only an axis whose other two
+    // spreads match is a candidate (a plate or bar has none and is skipped); of those, the roundest outline wins.
+    const same=(p,q)=>Math.abs(p-q)<=.15*Math.max(p,q,1e-12),[l1,l2,l3]=values,candidates=vectors.filter((_,i)=>i===0?same(l2,l3):i===2?same(l1,l2):same(l1,l3));
+    let best=null;for(const axis of candidates){const r=roundAbout(ctx,tris,g,axis);if(r&&(!best||r.roundness>best.roundness))best=r;}
+    if(best&&best.roundness>=.8)f.revolve=best;
+    ctx.cache.set(k,f);return f;
+  }
+  // How round a part's outline is about an axis through g: the farthest point in each of 24 directions around it, a
+  // circle fitted to those, and the nearest/farthest ratio. Needs points all the way round (no gap wider than 75°).
+  // Triangle corners and edge midpoints are both used, so a coarse outer polygon still reaches every direction (a
+  // tube's inner ring would otherwise fill the directions between its outer corners).
+  function roundAbout(ctx,tris,g,axis){
+    const a=unit(axis),u=perpendicular(a),w=cross(a,u),bins=new Array(24).fill(null),step=Math.max(1,Math.floor(tris.length/6000));let lo=Infinity,hi=-Infinity;
+    const put=q=>{const p=sub(q,g),x=dot(p,u),y=dot(p,w),h=dot(p,a),r=Math.hypot(x,y);if(h<lo)lo=h;if(h>hi)hi=h;if(r<1e-9)return;
+      const b=Math.min(23,Math.floor((Math.atan2(y,x)+Math.PI)/(2*Math.PI)*24));if(!bins[b]||r>bins[b].r)bins[b]={x,y,r};};
+    for(let i=0;i<tris.length;i+=step){const [i0,i1,i2]=ctx.index3(tris[i]),A=ctx.P(i0),B=ctx.P(i1),C=ctx.P(i2);put(A);put(B);put(C);put(scale(add(A,B),.5));put(scale(add(B,C),.5));put(scale(add(C,A),.5));}
+    const pts=bins.filter(Boolean);if(pts.length<6)return null;
+    let gap=0,last=null,first=null;bins.forEach((b,i)=>{if(!b)return;if(last!==null)gap=Math.max(gap,i-last);else first=i;last=i;});gap=Math.max(gap,first+24-last);if(gap*15>75)return null;
+    const fit=fitCircle(pts);if(!fit)return null;const ds=pts.map(p=>Math.hypot(p.x-fit.x,p.y-fit.y));
+    const center=add(add(g,scale(u,fit.x)),scale(w,fit.y));
+    return {axis:a,center:add(center,scale(a,(lo+hi)/2)),radius:fit.r,length:hi-lo,roundness:Math.min(...ds)/Math.max(...ds)};
+  }
+  // Algebraic (Kåsa) circle fit through 2-D points {x,y}: centre and radius, or null when they lie on a line.
+  function fitCircle(pts){
+    const n=pts.length;if(n<3)return null;let mx=0,my=0;for(const p of pts){mx+=p.x;my+=p.y;}mx/=n;my/=n;
+    let suu=0,svv=0,suv=0,suuu=0,svvv=0,suvv=0,svuu=0;for(const p of pts){const u=p.x-mx,v=p.y-my;suu+=u*u;svv+=v*v;suv+=u*v;suuu+=u*u*u;svvv+=v*v*v;suvv+=u*v*v;svuu+=v*u*u;}
+    const det=suu*svv-suv*suv;if(Math.abs(det)<1e-18)return null;const b1=(suuu+suvv)/2,b2=(svvv+svuu)/2,uc=(b1*svv-b2*suv)/det,vc=(suu*b2-suv*b1)/det;
+    return {x:uc+mx,y:vc+my,r:Math.sqrt(uc*uc+vc*vc+(suu+svv)/n)};
+  }
+  // Circle through many points that tolerates outliers: random triples, the one most points agree with, then refitted.
+  function ransacCircle(pts,tol,{tries=300,minR=0,maxR=Infinity}={}){
+    if(pts.length<3)return null;let best=null,seed=12345;const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;};
+    for(let t=0;t<tries;t++){const a=pts[Math.floor(rnd()*pts.length)],b=pts[Math.floor(rnd()*pts.length)],c=pts[Math.floor(rnd()*pts.length)],f=fitCircle([a,b,c]);if(!f||f.r<minR||f.r>maxR)continue;
+      let n=0;for(const p of pts)if(Math.abs(Math.hypot(p.x-f.x,p.y-f.y)-f.r)<tol)n++;if(!best||n>best.n)best={...f,n};}
+    if(!best)return null;const inliers=pts.filter(p=>Math.abs(Math.hypot(p.x-best.x,p.y-best.y)-best.r)<tol),f=fitCircle(inliers)||best;return {...f,inliers:inliers.length,share:inliers.length/pts.length};
+  }
+  // Symmetric 3×3 eigen decomposition (Jacobi): values ascending with their unit vectors.
+  function eigen(A){
+    const a=A.map(r=>r.slice()),v=[[1,0,0],[0,1,0],[0,0,1]];
+    for(let sweep=0;sweep<50;sweep++){let off=Math.abs(a[0][1])+Math.abs(a[0][2])+Math.abs(a[1][2]);if(off<1e-15)break;
+      for(const [p,q] of [[0,1],[0,2],[1,2]]){if(Math.abs(a[p][q])<1e-18)continue;const th=(a[q][q]-a[p][p])/(2*a[p][q]),t=Math.sign(th||1)/(Math.abs(th)+Math.sqrt(th*th+1)),c=1/Math.sqrt(t*t+1),s=t*c;
+        for(let k=0;k<3;k++){const akp=a[k][p],akq=a[k][q];a[k][p]=c*akp-s*akq;a[k][q]=s*akp+c*akq;}for(let k=0;k<3;k++){const apk=a[p][k],aqk=a[q][k];a[p][k]=c*apk-s*aqk;a[q][k]=s*apk+c*aqk;}
+        for(let k=0;k<3;k++){const vkp=v[k][p],vkq=v[k][q];v[k][p]=c*vkp-s*vkq;v[k][q]=s*vkp+c*vkq;}}}
+    const order=[0,1,2].sort((i,j)=>a[i][i]-a[j][j]);return {values:order.map(i=>a[i][i]),vectors:order.map(i=>unit([v[0][i],v[1][i],v[2][i]]))};
+  }
+  const coaxial=(f,g,tol)=>f&&g&&Math.abs(dot(f.axis,g.axis))>Math.cos(5*Math.PI/180)&&lineDistance(g.center,f.center,f.axis)<tol;
+  const parallel=(a,b,deg=8)=>Math.abs(dot(unit(a),unit(b)))>Math.cos(deg*Math.PI/180);
+  // ---------------------------------------------------------------- picking a circle on the model (as a slicer measures one)
+  // Clicked on a part: a round part gives its own axis. Otherwise the surface around the click decides: a curved patch
+  // is fitted as a cylinder; on a flat face, the edge loop nearest the click (a hole, or the face's rim) is fitted as a
+  // circle. Returns {origin, axis, radius, kind, error} in the CAD frame, or null with a reason.
+  function fitAt(ctx,{leaf,point,face}){
+    const f=feature(ctx,leaf);
+    const tris=ctx.trisOf(leaf);if(!tris.length)return {error:'That part has no surface to measure.'};
+    // Weld the part's vertices by position so neighbouring triangles find each other.
+    const span=f?f.size:1,q=Math.max(1e-6,span*1e-5),keyOf=v=>`${Math.round(ctx.positions[3*v]/q)},${Math.round(ctx.positions[3*v+1]/q)},${Math.round(ctx.positions[3*v+2]/q)}`;
+    const weld=new Map(),wid=v=>{const k=keyOf(v);let id=weld.get(k);if(id===undefined){id=weld.size;weld.set(k,id);}return id;};
+    const T=[...tris].map(t=>{const [a,b,c]=ctx.index3(t),pa=ctx.P(a),pb=ctx.P(b),pc=ctx.P(c),n=cross(sub(pb,pa),sub(pc,pa)),area=len(n)/2;return {t,w:[wid(a),wid(b),wid(c)],p:[pa,pb,pc],n:area?scale(n,1/(2*area)):[0,0,0],area,c:scale(add(add(pa,pb),pc),1/3)};});
+    const edges=new Map(),ek=(a,b)=>a<b?a+'_'+b:b+'_'+a;T.forEach((tr,i)=>{for(let e=0;e<3;e++){const k=ek(tr.w[e],tr.w[(e+1)%3]);let l=edges.get(k);if(!l)edges.set(k,l=[]);l.push(i);}});
+    const neighbours=i=>{const out=[];const tr=T[i];for(let e=0;e<3;e++)for(const j of edges.get(ek(tr.w[e],tr.w[(e+1)%3])))if(j!==i)out.push(j);return out;};
+    let start=-1;if(face){const want=new Set(face.map(wid));start=T.findIndex(tr=>tr.w.every(x=>want.has(x)));}
+    if(start<0){let d=Infinity;T.forEach((tr,i)=>{const e=len(sub(tr.c,point));if(e<d){d=e;start=i;}});}
+    const n0=T[start].n;
+    // Flat: grow the coplanar face; its boundary loops are edges used once.
+    const flat=new Set([start]),queue=[start],plane=dot(n0,T[start].c),tol=Math.max(q*20,span*.002);
+    while(queue.length){const i=queue.pop();for(const j of neighbours(i))if(!flat.has(j)&&dot(T[j].n,n0)>Math.cos(4*Math.PI/180)&&Math.abs(dot(n0,T[j].c)-plane)<tol){flat.add(j);queue.push(j);}}
+    const surface=[...flat].reduce((s,i)=>s+T[i].area,0);
+    const curved=()=>{
+      // A curved patch: the smooth neighbourhood of the click (normals changing little from triangle to triangle, up to a
+      // third of the part's size away), its axis the direction its normals avoid.
+      const reach=Math.max(span*.35,q*100),patch=new Set([start]),qq=[start];
+      while(qq.length){const i=qq.pop();for(const j of neighbours(i))if(!patch.has(j)&&dot(T[j].n,T[i].n)>Math.cos(50*Math.PI/180)&&len(sub(T[j].c,point))<reach){patch.add(j);qq.push(j);}}
+      const N=[[0,0,0],[0,0,0],[0,0,0]];for(const i of patch){const {n,area}=T[i];for(let r=0;r<3;r++)for(let c=0;c<3;c++)N[r][c]+=area*n[r]*n[c];}
+      const {values,vectors}=eigen(N);if(values[2]<=0||values[1]/values[2]<.02)return null;const axis=vectors[0],u=perpendicular(axis),w=cross(axis,u);
+      const pts=[];for(const i of patch)for(const p of T[i].p)pts.push({x:dot(p,u),y:dot(p,w),h:dot(p,axis)});
+      const fit=fitCircle(pts);if(!fit)return null;const err=Math.sqrt(pts.reduce((s,p)=>s+(Math.hypot(p.x-fit.x,p.y-fit.y)-fit.r)**2,0)/pts.length);
+      const h=dot(point,axis),origin=add(add(scale(u,fit.x),scale(w,fit.y)),scale(axis,h));return {origin,axis,radius:fit.r,kind:'cylinder',fitError:err/fit.r};};
+    let result=null;
+    if(surface>0&&flat.size>2){
+      const once=[];for(const i of flat){const tr=T[i];for(let e=0;e<3;e++){const a=tr.w[e],b=tr.w[(e+1)%3],l=edges.get(ek(a,b));if(l.filter(j=>flat.has(j)).length===1)once.push([a,b,tr.p[e],tr.p[(e+1)%3]]);}}
+      // Chain edges into loops.
+      const next=new Map();for(const [a,b,pa,pb] of once){if(!next.has(a))next.set(a,[]);if(!next.has(b))next.set(b,[]);next.get(a).push({to:b,p:pb,from:pa});next.get(b).push({to:a,p:pa,from:pb});}
+      const used=new Set(),loops=[];for(const [a,b] of once){const k=ek(a,b);if(used.has(k))continue;const loop=[];let cur=a,prev=-1;
+        for(let guard=0;guard<100000;guard++){const opts=next.get(cur).filter(o=>!used.has(ek(cur,o.to)));const o=opts.find(x=>x.to!==prev)||opts[0];if(!o)break;used.add(ek(cur,o.to));loop.push(o.p);prev=cur;cur=o.to;if(cur===a)break;}
+        if(loop.length>=6)loops.push(loop);}
+      const u=perpendicular(n0),w=cross(n0,u),fitted=loops.map(loop=>{const pts=loop.map(p=>({x:dot(p,u),y:dot(p,w)})),fit=fitCircle(pts);if(!fit)return null;
+        const err=Math.sqrt(pts.reduce((s,p)=>s+(Math.hypot(p.x-fit.x,p.y-fit.y)-fit.r)**2,0)/pts.length)/fit.r,near=Math.min(...loop.map(p=>len(sub(p,point))));
+        // A circle's outline is many short edges: any four corners of a rectangle also lie on a circle.
+        const longest=Math.max(...pts.map((p,i)=>{const q=pts[(i+1)%pts.length];return Math.hypot(p.x-q.x,p.y-q.y);}));return {fit,err,near,loop,round:pts.length>=8&&longest<=.65*fit.r};}).filter(x=>x&&x.round&&x.err<.06);
+      fitted.sort((a,b)=>a.near-b.near);const best=fitted[0];
+      if(best){const origin=add(add(scale(u,best.fit.x),scale(w,best.fit.y)),scale(n0,plane));result={origin,axis:n0,radius:best.fit.r,kind:best.fit.r<span*.3?'hole':'edge',fitError:best.err};}}
+    if(!result&&f?.revolve)result={origin:f.revolve.center,axis:f.revolve.axis,radius:f.revolve.radius,kind:'part',fitError:1-f.revolve.roundness};
+    if(!result)result=curved();
+    if(!result||result.fitError>.08)return {error:'No circle there. Click a round part (a gear, bearing, shaft or wheel), a hole, or a round edge.'};
+    // A round part's own axis beats a loose fit of a patch on it.
+    if(result.kind==='cylinder'&&f?.revolve&&coaxial(f.revolve,{axis:result.axis,center:result.origin},Math.max(f.revolve.radius*.15,q*50)))result={origin:f.revolve.center,axis:f.revolve.axis,radius:f.revolve.radius,kind:'part',fitError:1-f.revolve.roundness};
+    return {...result,leaf,name:nameOf(ctx,leaf)};
+  }
+  // ---------------------------------------------------------------- how far a link swings before it touches the floor
+  // Turning `leaves` about the axis through origin (positive = the right-hand way about axis), the first angle at which
+  // their lowest point reaches the floor (or `limit` degrees). up: robot up as a CAD direction; floor: its height there.
+  function swingToFloor(ctx,leaves,origin,axis,{up,floor,clearance=0,limit=150,sign=1}){
+    const pts=[];for(const k of leaves){const v=ctx.vertsOf(k),step=Math.max(1,Math.floor(v.length/1500));for(let i=0;i<v.length;i+=step)pts.push(ctx.P(v[i]));}if(!pts.length)return null;
+    const K=M(),low=deg=>{const R=K.math.about(origin,axis,sign*deg);let m=Infinity;for(const p of pts){const h=dot(K.math.apply(R,p),up);if(h<m)m=h;}return m-floor-clearance;};
+    if(low(0)<=0)return 0;let prev=0;for(let a=1;a<=limit;a++){if(low(a)<=0){let lo=prev,hi=a;for(let i=0;i<20;i++){const mid=(lo+hi)/2;if(low(mid)<=0)hi=mid;else lo=mid;}return +hi.toFixed(2);}prev=a;}
+    return null;
+  }
+  // ---------------------------------------------------------------- what moves on a robot
+  const WORDS={
+    flywheel:/fly ?wheel|rhino|stealth|compliant|shooter wheel|launcher wheel|\bwheel\b/i,
+    roller:/gecko|compliant|roller|\bwheel\b|star|flex|squish|surgical|intake wheel|mecanum|omni/i,
+    hood:/\bhood/i,turntable:/turn ?table|lazy ?susan|slew|ring gear|turret|\bgear\b|bearing|\bring\b|\d{2,3} ?t(ooth)?\b/i,
+    hinge:/servo ?hub|hub ?shaft|hinge|pivot|axle|spline|horn/i,hinged:/\barm\b|claw|grip|wrist|elbow|shoulder|pivot|flip|bucket|outtake|deposit|scoop|kicker|deploy|linkage|four ?bar|4 ?bar|jaw|finger|lid|door|flap/i,slide:/slide|\blift\b|elevator|viper|linear|extension|extend|telescop|cascade|carriage|\brail|mast/i,hub:/sonic hub|\bhub\b/i,shaft:/shaft|axle|standoff|spacer|bearing|bushing|collar/i,
+    drive:/servo|motor/i,servo:/\bservo\b(?!\s*(hub|horn|gear|arm))|motor/i,gear:/gear|pinion|pulley|sprocket/i,arm:/\barm\b|ramp|bump|scoop|kicker|flap|deflector|plate|guard/i,
+    wheel:/wheel|mecanum|omni|traction/i};
+  // discover({rows, unit, meta, mechanisms}): proposals for the game's own mechanisms (each intake and shooter, with
+  // the CAD assemblies it was set up from) and for the drive wheels. Each proposal is a kinematics joint plus `report`.
+  function discover(ctx,{rows,unit:unitIn=1,meta,mechanisms,debug}={}){
+    const [F,L,T]=rows||[[1,0,0],[0,1,0],[0,0,1]],up=unit3(T),inch=1/(unitIn||1),joints=[],report=[],claimed=new Set(),K=M();
+    let floor=Infinity;for(let v=0;v<ctx.positions.length/3;v+=Math.max(1,Math.floor(ctx.positions.length/3/200000)))floor=Math.min(floor,dot(ctx.P(v),up));
+    const metaParts=Array.isArray(meta?.parts)?meta.parts:[],byName=name=>{const clean=s=>String(s||'').replace(/\s*<\d+>$/,'').trim().toLowerCase();return metaParts.find(p=>clean(p.name)===clean(name));};
+    const leavesOf=names=>{const out=new Set();for(const n of names||[]){const p=byName(n),node=p?.key&&ctx.parts.byKey.get(p.key);if(node)for(const k of ctx.parts.leavesUnder(node))out.add(k);}return out;};
+    const feat=k=>feature(ctx,k),rev=k=>feat(k)?.revolve,boxCenter=f=>scale(add(f.lo,f.hi),.5);
+    const horiz=v=>{const h=sub(v,scale(up,dot(v,up)));return len(h)>1e-9?unit(h):null;};
+    const add_=j=>{joints.push(j);return j;},refs=set=>ctx.parts.compress(set);
+    const coaxGroup=(seed,pool,tol)=>{const s=rev(seed),out=new Set([seed]);for(const k of pool){const r=rev(k);if(r&&coaxial(s,r,tol))out.add(k);}return out;};
+    // Without the game's mechanisms (another field, or none set up), intakes and shooters come from the part names, and
+    // what they would drive is moved by route actions instead (named positions).
+    const fromNames=!mechanisms?.enabled,m=!fromNames?mechanisms:{intakes:metaParts.filter(p=>p.role==='intake').slice(0,4).map((p,i)=>({kind:p.kind==='kicker'?'kicker':'ramp',sides:[sideOf(p)],parts:[p.name]})),
+      shooters:metaParts.filter(p=>p.role==='shooter'&&!(p.type==='turret'&&/turret/i.test(p.name)&&!/shoot|launch|flywheel|pollen|nectar/i.test(p.name))).slice(0,2).map(p=>({type:p.type==='turret'||metaParts.some(q=>q.type==='turret'&&/turret/i.test(q.name))?'turret':'fixed',parts:[p.name,...metaParts.filter(q=>q!==p&&q.type==='turret'&&/turret/i.test(q.name)&&!/shoot|launch|flywheel|pollen|nectar/i.test(q.name)).map(q=>q.name)]}))};
+    // The side an intake assembly sticks out of (robot frame, from its box).
+    function sideOf(p){if(!Array.isArray(p.box))return 'front';const c=scale(add(p.box.slice(0,3),p.box.slice(3)),.5),b=ctx.lo.map((v,i)=>(v+ctx.hi[i])/2),d=sub(c,b),x=dot(d,unit3(F)),y=dot(d,unit3(L));return Math.abs(x)>=Math.abs(y)?(x>=0?'front':'back'):(y>=0?'left':'right');}
+    // ---- shooters
+    const turretOnly=name=>/turret/i.test(name)&&!/shoot|launch|flywheel|cannon|outtake|pollen|nectar/i.test(name);
+    const shared=new Map();m.shooters.forEach(s=>(s.parts||[]).forEach(n=>shared.set(n,(shared.get(n)||0)+1)));
+    m.shooters.forEach((s,n)=>{
+      const own=new Set(),turretPool=new Set();for(const name of s.parts||[]){const set=leavesOf([name]);for(const k of set)(turretOnly(name)||shared.get(name)>1?turretPool:own).add(k);}
+      const label=`Shooter ${n+1}`;if(!own.size&&!turretPool.size){report.push(`${label}: no CAD parts named for it, so it is drawn as a stand-in.`);return;}
+      const ownList=[...own].filter(k=>feat(k));
+      // Flywheel: the biggest round part in the shooter whose axis lies flat, named like a wheel when one is.
+      const wheels=ownList.filter(k=>{const r=rev(k);return r&&r.radius*inch>=.5&&Math.abs(dot(r.axis,up))<.5;}).sort((a,b)=>score(b)-score(a));
+      function score(k){const r=rev(k);return r.radius*inch+(WORDS.flywheel.test(nameOf(ctx,k))?2:0)+(r.length<r.radius*1.6?.3:0);}
+      let fly=null;const flyKey=wheels[0];
+      if(flyKey!==undefined){const r=rev(flyKey),group=coaxGroup(flyKey,ownList,Math.max(.06*inch,r.radius*.06));
+        fly={key:flyKey,r,group};report.push(`${label}: flywheel “${nameOf(ctx,flyKey)}” (${(2*r.radius*inch).toFixed(2)} in), ${group.size} parts on its axle.`);}
+      // Hood: parts named hood; it pivots about the flywheel axle when its arc is concentric with it, else about the round
+      // part at its end that lines up with the flywheel's axis direction.
+      const hoodSeed=ownList.filter(k=>WORDS.hood.test(nameOf(ctx,k)));let hood=null;
+      if(hoodSeed.length){
+        const hb=boxOf(hoodSeed.map(feat)),grow=.15*inch,size=len(sub(hb.hi,hb.lo));
+        const drives=ownList.filter(k=>WORDS.drive.test(nameOf(ctx,k))),driveAxles=drives.map(rev).filter(Boolean);
+        const set=new Set(hoodSeed);for(const k of ownList){if(set.has(k)||fly?.group.has(k))continue;const f=feat(k),c=boxCenter(f);
+          if(len(sub(f.hi,f.lo))>size*1.3)continue;if(![0,1,2].every(i=>c[i]>=hb.lo[i]-grow&&c[i]<=hb.hi[i]+grow))continue;
+          // A gear on a servo or motor drives the hood but stays with the frame.
+          const r=rev(k);if(r&&driveAxles.some(d=>coaxial(d,r,.15*inch)))continue;set.add(k);}
+        let pivot=null,why='',confidence=.35;
+        if(fly){// Points of the hood's parts, seen along the flywheel axis: is their outline an arc about the axle?
+          const a=fly.r.axis,u=perpendicular(a),w=cross(a,u),pts=[];for(const k of hoodSeed){const v=ctx.vertsOf(k),step=Math.max(1,Math.floor(v.length/1500));for(let i=0;i<v.length;i+=step){const p=ctx.P(v[i]);pts.push({x:dot(p,u),y:dot(p,w)});}}
+          const fc={x:dot(fly.r.center,u),y:dot(fly.r.center,w)},arc=ransacCircle(pts,.04*inch,{minR:fly.r.radius*1.2,maxR:fly.r.radius*6});
+          if(arc&&arc.share>.12&&Math.hypot(arc.x-fc.x,arc.y-fc.y)<Math.max(.35*inch,arc.r*.12)){pivot={origin:fly.r.center,axis:a};why=`its arc (${(arc.r*inch).toFixed(1)} in) is centred on the flywheel axle`;confidence=.8;}
+          else{const candidates=ownList.filter(k=>{const r=rev(k);return r&&!fly.group.has(k)&&parallel(r.axis,a)&&set.has(k)&&WORDS.shaft.test(nameOf(ctx,k));});
+            const bottom=candidates.sort((x,y)=>dot(rev(x).center,up)-dot(rev(y).center,up))[0];
+            if(bottom!==undefined){pivot={origin:rev(bottom).center,axis:a};why=`it turns on “${nameOf(ctx,bottom)}”`;confidence=.45;}
+            else{pivot={origin:fly.r.center,axis:a};why='no hinge found on it; it is set to turn about the flywheel axle';confidence=.3;}}}
+        if(pivot){hood={set,pivot,why,confidence};for(const k of set)claimed.add(k);}
+      }
+      // Turret: a large round part with an upright axis (a turntable gear or bearing) under this shooter.
+      let turret=null;
+      if(s.type==='turret'&&!s.sharesTurret){
+        const pool=[...turretPool,...ownList].filter(k=>{const r=rev(k);return r&&parallel(r.axis,up,6)&&r.radius*inch>=1.1;});
+        const ownCenter=own.size?centroidOf([...own].map(feat).filter(Boolean)):null;
+        const rank=k=>{const r=rev(k),d=ownCenter?lineDistance(ownCenter,r.center,unit3(r.axis))*inch:0;return r.radius*inch*.6+(WORDS.turntable.test(nameOf(ctx,k))?1.5:0)+(turretPool.has(k)?.5:0)-d*1.2+r.roundness;};
+        pool.sort((a,b)=>rank(b)-rank(a));const pick=pool[0];
+        if(pick!==undefined){const r=rev(pick),axis=dot(r.axis,up)>=0?r.axis:scale(r.axis,-1);
+          const set=new Set(own);for(const k of turretPool){const f=feat(k);if(!f)continue;const c=boxCenter(f);if(lineDistance(c,r.center,axis)<=r.radius*.85&&Math.max(dot(f.hi,up),dot(f.lo,up))>=dot(r.center,up)-r.length)set.add(k);}
+          set.add(pick);turret={set,origin:r.center,axis,why:`it turns on “${nameOf(ctx,pick)}” (${(2*r.radius*inch).toFixed(1)} in across)`,confidence:WORDS.turntable.test(nameOf(ctx,pick))?.85:.6};}
+        else if(own.size){const f=boxOf([...own].map(feat).filter(Boolean)),c=boxCenter(f);turret={set:new Set([...own]),origin:c,axis:up,why:'no round turntable part was found; it turns about the middle of the shooter',confidence:.3};}
+      }
+      // Which way it fires in the CAD: across the flywheel, from the hood over the wheel, at right angles to the axle.
+      let zero=0,aimWhy='which way it fires in your CAD is not known; check the arrow';
+      if(fly&&hood){const d=horiz(sub(fly.r.center,centroidOf([...hood.set].map(feat).filter(Boolean)))),across=d&&horiz(sub(d,scale(fly.r.axis,dot(d,fly.r.axis))));
+        if(across){zero=Math.atan2(dot(across,unit3(L)),dot(across,unit3(F)))*180/Math.PI;aimWhy='it fires over the flywheel, away from the hood';}}
+      const tid=`turret${n+1}`;
+      if(turret){add_({id:tid,name:`Turret · ${label.toLowerCase()}`,type:'continuous',parts:refs(turret.set),origin:turret.origin,axis:turret.axis,zero:+zero.toFixed(1),drive:{signal:'turret',of:'shooter:'+n},source:'inferred',confidence:turret.confidence,radius:rev([...turret.set].find(k=>rev(k)&&coaxial(rev(k),{axis:turret.axis,center:turret.origin},.1*inch)))?.radius,
+        note:`Turns about this axis because ${turret.why}. Faces ${Math.round(zero)}° in the CAD because ${aimWhy}.`});for(const k of turret.set)claimed.add(k);}
+      if(fly){// It spins so the side facing the hood (or the robot's middle) moves up, carrying the piece.
+        const toward=hood?sub(centroidOf([...hood.set].map(feat).filter(Boolean)),fly.r.center):scale(up,-1),side=unit(sub(toward,scale(fly.r.axis,dot(toward,fly.r.axis)))),spinUp=dot(cross(fly.r.axis,side),up)>=0;
+        add_({id:`flywheel${n+1}`,name:`Flywheel · ${label.toLowerCase()}`,type:'continuous',parent:turret?tid:null,parts:refs(fly.group),origin:fly.r.center,axis:spinUp?fly.r.axis:scale(fly.r.axis,-1),radius:fly.r.radius,drive:{signal:'flywheel',of:'shooter:'+n},source:'inferred',confidence:WORDS.flywheel.test(nameOf(ctx,fly.key))?.85:.6,
+          note:`“${nameOf(ctx,fly.key)}” is the largest round part with a level axle in this shooter. It is drawn turning slower than it really spins.`});for(const k of fly.group)claimed.add(k);}
+      if(hood)add_({id:`hood${n+1}`,name:`Hood · ${label.toLowerCase()}`,type:'revolute',parent:turret?tid:null,parts:refs(hood.set),origin:hood.pivot.origin,axis:hood.pivot.axis,states:{rest:0,shoot:0},speed:120,drive:{signal:'hood',of:'shooter:'+n},source:'inferred',confidence:hood.confidence,
+        note:`Pivots here because ${hood.why}. Set how far it tilts to shoot.`});
+    });
+    // ---- intakes
+    m.intakes.forEach((intake,n)=>{
+      const label=`Intake ${n+1}`,own=[...leavesOf(intake.parts)].filter(k=>!claimed.has(k)&&feat(k));if(!own.length){report.push(`${label}: no CAD parts named for it, so it is drawn as a stand-in.`);return;}
+      const side=(intake.sides||['front'])[0],out=unit3({front:F,back:scale(F,-1),left:L,right:scale(L,-1)}[side]||F),edge=unit(cross(up,out));
+      // Rollers: groups of round parts on one axle with a roller or wheel among them.
+      const round=own.filter(k=>rev(k));const groups=[];
+      for(const k of round.filter(k=>WORDS.roller.test(nameOf(ctx,k))&&rev(k).radius*inch>=.3)){if(groups.some(g=>g.has(k)))continue;groups.push(coaxGroup(k,round,Math.max(.06*inch,rev(k).radius*.08)));}
+      // Pivot: hinge hardware (a servo hub, hub shaft, axle...) lined up along the intake's edge, above its rollers.
+      let deploy=null;
+      if(intake.kind==='ramp'||intake.kind==='kicker'){
+        const lines=[];for(const k of round){const r=rev(k);if(!parallel(r.axis,edge,10))continue;let line=lines.find(l=>coaxial(l.r,r,.12*inch));if(!line)lines.push(line={r,members:[]});line.members.push(k);}
+        // A hinge line: hinge hardware on it, a servo whose output sits on it, an arm or ramp it passes through. Pulleys,
+        // gears and rollers on a line mark an axle that drives something instead; plain spacers and bearings say little.
+        const servos=own.filter(k=>WORDS.servo.test(nameOf(ctx,k))),arms=own.filter(k=>WORDS.arm.test(nameOf(ctx,k))&&!rev(k));
+        const through=(l,k,pad)=>{const f=feat(k),a=l.r.axis,u=perpendicular(a),w=cross(a,u);let ulo=Infinity,uhi=-Infinity,wlo=Infinity,whi=-Infinity;
+          for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const p=sub([x,y,z],l.r.center),s=dot(p,u),t=dot(p,w);ulo=Math.min(ulo,s);uhi=Math.max(uhi,s);wlo=Math.min(wlo,t);whi=Math.max(whi,t);}
+          return ulo<=pad&&uhi>=-pad&&wlo<=pad&&whi>=-pad;};
+        for(const l of lines){const names=l.members.map(k=>nameOf(ctx,k));let plain=0;
+          l.score=names.reduce((s,x)=>{if(WORDS.hinge.test(x))return s+4;if(WORDS.hub.test(x))return s+1.5;if(WORDS.roller.test(x))return s-2.5;if(WORDS.gear.test(x))return s-1.5;if(WORDS.shaft.test(x))plain++;return s;},0)+Math.min(1,plain*.2);
+          if(servos.some(k=>through(l,k,.3*inch)))l.score+=3;if(arms.some(k=>through(l,k,.05*inch)))l.score+=2;}
+        lines.sort((a,b)=>b.score-a.score);const best=lines[0];debug?.push({intake:n,lines:lines.map(l=>({score:+l.score.toFixed(2),center:l.r.center.map(v=>+v.toFixed(2)),names:l.members.map(k=>nameOf(ctx,k))}))});
+        if(best&&best.score>0){const origin=best.r.center;let axis=best.r.axis;
+          // What swings: parts beyond the hinge (away from the robot) that are not held by parts reaching back across it.
+          const ext=k=>{const f=feat(k);let lo=Infinity,hi=-Infinity;for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const d=dot(sub([x,y,z],origin),out);if(d<lo)lo=d;if(d>hi)hi=d;}return [lo,hi];};
+          // Hinge hardware: the round parts on the line, and any small part the line passes straight through (a hub
+          // with flats, a clamp, a horn).
+          const hinge=new Set(best.members),margin=.4*inch,beyond=new Set(),fixed=new Set(),u=perpendicular(axis),w=cross(axis,u);
+          for(const k of own){if(hinge.has(k))continue;const f=feat(k);let ulo=Infinity,uhi=-Infinity,wlo=Infinity,whi=-Infinity;
+            for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const p=sub([x,y,z],origin),a=dot(p,u),b=dot(p,w);ulo=Math.min(ulo,a);uhi=Math.max(uhi,a);wlo=Math.min(wlo,b);whi=Math.max(whi,b);}
+            if(ulo<=0&&uhi>=0&&wlo<=0&&whi>=0&&Math.max(uhi-ulo,whi-wlo)<1.6*inch)hinge.add(k);}
+          // Beyond the hinge, or an arm on it: the hinge line runs through it and it reaches much further out than back
+          // (an arm wraps a little way round its own pivot hole). A plate holding the hinge reaches back as far or further.
+          const onLine=k=>{const f=feat(k);let ulo=Infinity,uhi=-Infinity,wlo=Infinity,whi=-Infinity;for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const p=sub([x,y,z],origin),a=dot(p,u),b=dot(p,w);ulo=Math.min(ulo,a);uhi=Math.max(uhi,a);wlo=Math.min(wlo,b);whi=Math.max(whi,b);}return ulo<=0&&uhi>=0&&wlo<=0&&whi>=0;};
+          for(const k of own){if(hinge.has(k))continue;const [lo,hi]=ext(k);if(lo>=-margin||onLine(k)&&hi>=2*-lo&&hi>inch)beyond.add(k);else fixed.add(k);}
+          const touching=(a,b)=>{const f=feat(a),g=feat(b),t=.02*inch;return [0,1,2].every(i=>f.lo[i]<=g.hi[i]+t&&g.lo[i]<=f.hi[i]+t);};
+          // Clusters of touching parts beyond the hinge; one that touches the fixed frame is fixed too.
+          const seen=new Set(),moving=new Set();for(const k of beyond){if(seen.has(k))continue;const cluster=[],q=[k];seen.add(k);
+            while(q.length){const x=q.pop();cluster.push(x);for(const y of beyond)if(!seen.has(y)&&touching(x,y)){seen.add(y);q.push(y);}}
+            const held=cluster.some(x=>[...fixed].some(y=>touching(x,y)));if(!held)for(const x of cluster)moving.add(x);}
+          for(const k of hinge)moving.add(k);
+          debug?.push({hinge:[...hinge].map(k=>nameOf(ctx,k)),beyond:[...beyond].map(k=>nameOf(ctx,k)),moving:[...moving].map(k=>nameOf(ctx,k))});if(moving.size>hinge.size){
+            // Positive turns lower it: the swinging parts' centre goes down.
+            const c=centroidOf([...moving].map(feat)),turned=K.math.apply(K.math.about(origin,axis,10),c);if(dot(turned,up)>dot(c,up))axis=scale(axis,-1);
+            const lowered=swingToFloor(ctx,[...moving],origin,axis,{up,floor,clearance:.02*inch});
+            deploy={moving,origin,axis,lowered,why:`it hinges on ${[...new Set(best.members.map(k=>`“${nameOf(ctx,k)}”`))].slice(0,3).join(', ')}`,confidence:best.score>=3?.75:.5};}}
+        if(!deploy)report.push(`${label}: no hinge was found in “${(intake.parts||[]).join(', ')}”, so it stays still: add it with + Add (choose its parts, then pick the hinge).`);
+      }
+      const did=`deploy${n+1}`;
+      if(deploy){add_({id:did,name:`${intake.kind==='kicker'?'Kicker':'Ramp'} · ${label.toLowerCase()}`,type:'revolute',parts:refs(deploy.moving),origin:deploy.origin,axis:deploy.axis,states:{raised:0,lowered:deploy.lowered??60},drive:{signal:'deploy',of:'intake:'+n},source:'inferred',confidence:deploy.confidence,
+        note:`Swings here because ${deploy.why}. ${deploy.lowered!==null?`Down is where it touches the floor (${deploy.lowered}°).`:'It did not reach the floor within 150°; set how far it goes down.'} Up is how it sits in the CAD.`});for(const k of deploy.moving)claimed.add(k);}
+      groups.forEach((g,i)=>{if([...g].some(k=>claimed.has(k)&&!deploy?.moving.has(k)))return;const seed=[...g].sort((a,b)=>rev(b).radius-rev(a).radius)[0],r=rev(seed);
+        // Rollers turn so their underside sweeps pieces in, toward the robot.
+        const bottom=scale(up,-1),inward=scale(out,-1),axis=dot(cross(r.axis,bottom),inward)>=0?r.axis:scale(r.axis,-1);
+        add_({id:`roller${n+1}${groups.length>1?String.fromCharCode(97+i):''}`,name:`Roller${groups.length>1?' '+(i+1):''} · ${label.toLowerCase()}`,type:'continuous',parent:deploy&&[...g].some(k=>deploy.moving.has(k))?did:null,parts:refs(g),origin:r.center,axis,radius:r.radius,drive:{signal:'roller',of:'intake:'+n},source:'inferred',confidence:.75,
+          note:`${g.size} round parts on one axle with “${nameOf(ctx,seed)}”.`});for(const k of g)claimed.add(k);});
+    });
+    // ---- other assemblies: arms, claws and wrists on a hinge; lifts and slides along their rails
+    const used=new Set([...m.intakes,...m.shooters].flatMap(x=>x.parts||[]).map(n=>String(n).replace(/\s*<\d+>$/,'').trim().toLowerCase()));
+    for(const p of metaParts){const clean=String(p.name||'').replace(/\s*<\d+>$/,'').trim().toLowerCase();if(used.has(clean)||p.role==='chassis'||p.role==='indexer')continue;
+      const own=[...leavesOf([p.name])].filter(k=>!claimed.has(k)&&feat(k));if(!own.length)continue;const words=pathWords(p.name);
+      if(WORDS.slide.test(words)){const j=slideOf(p,own);if(j){add_(j);for(const k of ctx.parts.expand(j.parts))claimed.add(k);}continue;}
+      if(WORDS.hinged.test(words)){const j=hingeOf(p,own);if(j){add_(j);for(const k of ctx.parts.expand(j.parts))claimed.add(k);}}}
+    function pathWords(name){return String(name||'');}
+    // The hinge an assembly turns on: a line of round parts (hinge hardware, a servo's output, an axle) that joins it to
+    // the rest of the robot. The whole assembly turns.
+    function hingeOf(p,own){
+      const mine=new Set(own),ob=boxOf(own.map(feat)),pad=.1*inch,near=[];
+      for(let k=0;k<ctx.leaves;k++){if(mine.has(k)||claimed.has(k))continue;const f=feat(k);if(f&&[0,1,2].every(i=>f.lo[i]<=ob.hi[i]+pad&&f.hi[i]>=ob.lo[i]-pad))near.push(k);}
+      const round=[...own,...near].filter(k=>rev(k)),lines=[];
+      for(const k of round){const r=rev(k);let line=lines.find(l=>coaxial(l.r,r,.12*inch));if(!line)lines.push(line={r,members:[]});line.members.push(k);}
+      const drives=[...own,...near].filter(k=>WORDS.servo.test(nameOf(ctx,k)));
+      for(const l of lines){let plain=0;l.score=l.members.reduce((t,k)=>{const x=nameOf(ctx,k);if(WORDS.hinge.test(x))return t+4;if(WORDS.hub.test(x))return t+1.5;if(WORDS.roller.test(x))return t-2;if(WORDS.gear.test(x))return t-1;if(WORDS.shaft.test(x))plain++;return t;},0)+Math.min(1,plain*.25);
+        if(l.members.some(k=>mine.has(k))&&l.members.some(k=>!mine.has(k)))l.score+=2;if(drives.some(k=>lineThrough(l.r,k,.3*inch)))l.score+=3;}
+      lines.sort((a,b)=>b.score-a.score);const best=lines[0];if(!best||best.score<2)return null;
+      const id=uniqueId(slug(p.name));return {id,name:String(p.name).replace(/\s*<\d+>$/,''),type:'revolute',parts:refs(new Set(own)),origin:best.r.center,axis:best.r.axis,states:{rest:0},speed:90,drive:{signal:'action'},source:'inferred',confidence:best.score>=6?.6:.45,
+        note:`Turns on ${[...new Set(best.members.map(k=>`“${nameOf(ctx,k)}”`))].slice(0,3).join(', ')}, the line of round parts that joins it to the robot. Add the positions it moves to.`};
+    }
+    // A slide along its rails: the long parts' shared direction. The parts that do not reach the robot's own parts move.
+    function slideOf(p,own){
+      const rails=own.filter(k=>{const f=feat(k),s2=f.spread;return Math.sqrt(s2[2])*Math.sqrt(12)>=3*inch&&s2[2]>=12*s2[1];});if(!rails.length)return null;
+      const dirs=[];for(const k of rails){const a=feat(k).axes[2],lenK=Math.sqrt(feat(k).spread[2]*12);let d=dirs.find(x=>parallel(x.a,a,8));if(!d)dirs.push(d={a,total:0,rails:[]});d.total+=lenK;d.rails.push(k);}
+      dirs.sort((x,y)=>y.total-x.total);let axis=dirs[0].a;if(dot(axis,up)<0)axis=scale(axis,-1);
+      // The rails touching the frame stay; everything else in the assembly rides.
+      const base=new Set(),others=[];for(let k=0;k<ctx.leaves;k++)if(!own.includes(k)&&feat(k))others.push(k);
+      for(const k of dirs[0].rails){const f=feat(k);if(others.some(o=>{const g=feat(o),t=.02*inch;return [0,1,2].every(i=>f.lo[i]<=g.hi[i]+t&&g.lo[i]<=f.hi[i]+t);}))base.add(k);}
+      const moving=new Set(own.filter(k=>!base.has(k)));if(!moving.size||moving.size===own.length&&!base.size)return null;
+      const extent=k=>{const f=feat(k);let lo=Infinity,hi=-Infinity;for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const d=dot([x,y,z],axis);lo=Math.min(lo,d);hi=Math.max(hi,d);}return hi-lo;};
+      const travel=Math.max(...dirs[0].rails.map(extent))*.8/inch,id=uniqueId(slug(p.name));
+      return {id,name:String(p.name).replace(/\s*<\d+>$/,''),type:'prismatic',parts:refs(moving),origin:feat(dirs[0].rails[0]).center,axis,lower:0,upper:+travel.toFixed(2),states:{down:0,up:+travel.toFixed(2)},speed:20,drive:{signal:'action'},source:'inferred',confidence:base.size?.45:.3,
+        note:`Slides along its ${dirs[0].rails.length} rails; ${base.size?'the ones fixed to the robot stay':'check which parts stay'}. Up is 80% of the rails' length.`};
+    }
+    function lineThrough(r,k,pad){const f=feat(k),a=r.axis,u=perpendicular(a),w=cross(a,u);let ulo=Infinity,uhi=-Infinity,wlo=Infinity,whi=-Infinity;
+      for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const q=sub([x,y,z],r.center),s1=dot(q,u),t1=dot(q,w);ulo=Math.min(ulo,s1);uhi=Math.max(uhi,s1);wlo=Math.min(wlo,t1);whi=Math.max(whi,t1);}
+      return ulo<=pad&&uhi>=-pad&&wlo<=pad&&whi>=-pad;}
+    function slug(name){const s1=String(name||'part').replace(/\s*<\d+>$/,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24);return /^[a-z]/.test(s1)?s1:'part-'+s1;}
+    function uniqueId(base){let id=base,n=2;while(joints.some(j=>j.id===id))id=base.slice(0,20)+'-'+n++;return id;}
+    // ---- feeders: wheels in an indexer assembly
+    const indexers=metaParts.filter(p=>p.role==='indexer');let fed=0;
+    for(const p of indexers){const own=[...leavesOf([p.name])].filter(k=>!claimed.has(k)&&rev(k));const groups=[];
+      for(const k of own.filter(k=>WORDS.roller.test(nameOf(ctx,k))&&rev(k).radius*inch>=.3)){if(groups.some(g=>g.has(k)))continue;groups.push(coaxGroup(k,own,Math.max(.06*inch,rev(k).radius*.08)));}
+      for(const g of groups){fed++;const seed=[...g][0],r=rev(seed);add_({id:`feeder${fed}`,name:`Feeder wheels ${fed}`,type:'continuous',parts:refs(g),origin:r.center,axis:r.axis,radius:r.radius,drive:{signal:'feeder',of:'any'},source:'inferred',confidence:.6,note:`Wheels on one axle in “${p.name}”. They turn while the robot feeds a shot.`});for(const k of g)claimed.add(k);}}
+    // ---- drive wheels: round parts named like wheels touching the floor
+    let w=0;for(let k=0;k<ctx.leaves;k++){if(claimed.has(k)||!WORDS.wheel.test(nameOf(ctx,k)))continue;const r=rev(k);if(!r||r.radius*inch<.8||Math.abs(dot(r.axis,up))>.3)continue;
+      if(Math.abs(dot(r.center,up)-r.radius-floor)>.25*inch)continue;w++;
+      add_({id:`wheel${w}`,name:`Drive wheel ${w}`,type:'continuous',parts:[`#${k}`],origin:r.center,axis:dot(r.axis,unit3(L))>=0?r.axis:scale(r.axis,-1),radius:r.radius,drive:{signal:'wheel'},...(/mecanum/i.test(nameOf(ctx,k))?{roll:'mecanum'}:/omni/i.test(nameOf(ctx,k))?{roll:'omni'}:{}),source:'inferred',confidence:.8,note:`“${nameOf(ctx,k)}” touches the floor; it turns as the robot drives.`});claimed.add(k);}
+    if(w)report.push(`${w} drive wheel${w>1?'s':''} found; they turn as the robot drives.`);
+    // From part names alone, a game mechanism's ramp, kicker or hood is moved by route actions: "Ramp down", "Hood shoot".
+    if(fromNames)for(const j of joints){const d=j.drive?.signal;
+      if(d==='deploy'){j.drive={signal:'action'};j.states={up:j.states.raised,down:j.states.lowered};j.speed=Math.abs(j.states.down-j.states.up)/.3||90;j.name=j.name.split(' · ')[0];}
+      else if(d==='hood'){j.drive={signal:'action'};j.name=j.name.replace(' · shooter','');}
+      else if(d==='turret'){j.drive={signal:'action'};j.states={front:-(j.zero||0)};j.name=j.name.replace(' · shooter','');}
+      else if(d&&d!=='wheel'&&d!=='action')delete j.drive;
+      j.name=j.name.replace(/ · (shooter|intake) /,' ');}
+    // Route actions find parts by name, so names are unique.
+    for(const j of joints){const same=joints.filter(x=>x.name===j.name);if(same.length>1)same.forEach((x,i)=>{if(i)x.name+=' '+(i+1);});}
+    for(const j of joints){j.origin=j.origin.map(v=>+v.toFixed(4));j.axis=unit(j.axis).map(v=>+v.toFixed(6));if(j.radius)j.radius=+j.radius.toFixed(4);}
+    return {joints,report};
+  }
+  const unit3=v=>unit(Array.isArray(v)?v:[0,0,1]);
+  function boxOf(fs){const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(const f of fs)for(let i=0;i<3;i++){lo[i]=Math.min(lo[i],f.lo[i]);hi[i]=Math.max(hi[i],f.hi[i]);}return {lo,hi};}
+  function centroidOf(fs){let A=0;const c=[0,0,0];for(const f of fs){A+=f.area;for(let i=0;i<3;i++)c[i]+=f.area*f.center[i];}return A?scale(c,1/A):c;}
+  return {prepare,feature,roundAbout,fitAt,fitCircle,ransacCircle,eigen,swingToFloor,discover,coaxial,WORDS};
+});

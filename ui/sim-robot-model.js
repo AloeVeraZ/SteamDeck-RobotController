@@ -188,49 +188,70 @@
     scene.userData.builtin=meta?.id;return scene;
   }
   // ---- mechanisms that move -----------------------------------------------------------------
-  // For the Video workspace's cameras, the parts the simulation moves turn on the robot: each turret by its recorded
-  // angle, and a ramp by how far it is down. A placed body is split by the CAD parts the mechanisms name (one rigid
-  // body otherwise); a mechanism the model has no part for gets a plain stand-in shape. Joints are pivots tagged
-  // userData.deckJoint, in the robot frame (inches: x forward, y left, z up), which animate() turns.
+  // A placed body is split into links by the robot's joints (DeckKinematics): each joint's parts become their own mesh
+  // (same vertex buffers, own triangle list, so nothing is copied), in a group whose matrix pose() sets from the
+  // joint values. The groups sit straight under the holder: P · W(joint) carries a link from the CAD's rest frame to
+  // the robot frame (P is the body's placement, W the joint's motion in the CAD frame). Joints are kept only for the
+  // CAD they were made for. A game mechanism with no CAD parts gets a plain stand-in shape on a joint of its own (in
+  // the robot frame: inches, x forward, y left, z up). userData.kin holds what posing needs, JSON-safe so clones keep it.
   const SIDE_DIR={front:[1,0],back:[-1,0],left:[0,1],right:[0,-1]};
-  const cleanName=n=>String(n||'').replace(/\s*<\d+>$/,'').trim().toLowerCase();
-  function rig(holder,{geometry,meta,mechanisms,footprint,height=12}={}){
-    const {THREE:T}=three(),m=mechanisms?.enabled?mechanisms:null;if(!m)return {joints:[]};
-    const tree=geometry&&!geometry.isObject3D?partTree(geometry):null,claimed=new Set(),joints=[];let mesh=null;holder.traverse(o=>{if(o.isMesh&&!mesh&&o.geometry?.attributes?._part)mesh=o;});
-    // The meshes of the named CAD parts (each mesh goes to the first mechanism that names it).
-    const meshesOf=names=>{if(!tree||!meta?.parts)return new Set();const out=new Set();for(const name of names||[]){const part=meta.parts.find(p=>cleanName(p.name)===cleanName(name));const node=part&&tree.byKey.get(part.key);if(!node)continue;for(const id of tree.under(node))if(!claimed.has(id)){claimed.add(id);out.add(id);}}return out;};
-    const wanted=[];
-    m.shooters.forEach((sh,n)=>{if(sh.type==='turret'&&!sh.sharesTurret)wanted.push({kind:'turret',index:n,ids:meshesOf(sh.parts),shooter:sh});});
-    m.intakes.forEach((i,k)=>{if(i.kind==='ramp')wanted.push({kind:'ramp',index:m.intakes.filter((x,j)=>j<k&&x.kind==='ramp').length,ids:meshesOf(i.parts),intake:i});});
-    // Split the body's triangles: those of each joint's parts into their own mesh, in the robot frame.
-    if(mesh&&wanted.some(w=>w.ids.size)){
-      holder.updateMatrixWorld(true);const toRobot=new T.Matrix4().copy(holder.matrixWorld).invert().multiply(mesh.matrixWorld),g=mesh.geometry.index?mesh.geometry.toNonIndexed():mesh.geometry,part=g.attributes._part,count=g.attributes.position.count;
-      const owner=new Int32Array(count).fill(-1);wanted.forEach((w,wi)=>{if(!w.ids.size)return;for(let v=0;v<count;v+=3)if(w.ids.has(Math.round(part.getX(v))))owner[v]=owner[v+1]=owner[v+2]=wi;});
-      const take=pick=>{const idx=[];for(let v=0;v<count;v++)if(pick(owner[v]))idx.push(v);const out=new T.BufferGeometry();for(const [name,attr] of Object.entries(g.attributes)){const a=new attr.array.constructor(idx.length*attr.itemSize);idx.forEach((v,i)=>{for(let c=0;c<attr.itemSize;c++)a[i*attr.itemSize+c]=attr.array[v*attr.itemSize+c];});out.setAttribute(name,new T.BufferAttribute(a,attr.itemSize,attr.normalized));}return out;};
-      mesh.geometry=take(o=>o<0);
-      wanted.forEach((w,wi)=>{if(!w.ids.size)return;const piece=take(o=>o===wi);piece.applyMatrix4(toRobot);piece.computeBoundingBox();w.geometry=piece;});
-    }
-    for(const w of wanted){
-      let piece=w.geometry,stand=false;
-      if(!piece){stand=true;piece=standIn(w,footprint,height);}
-      piece.computeBoundingBox();const b=piece.boundingBox,pivot=new T.Group();pivot.name=w.kind==='turret'?'DeckTurret':'DeckRamp';
-      let at;if(w.kind==='turret'){at=[(b.min.x+b.max.x)/2,(b.min.y+b.max.y)/2,0];pivot.userData.deckJoint={kind:'turret',index:w.index};}
-      else{const side=(w.intake.sides||['front'])[0],[dx,dy]=SIDE_DIR[side]||SIDE_DIR.front,inner=dx>0?b.min.x:dx<0?b.max.x:dy>0?b.min.y:b.max.y,h=b.max.z-b.min.z,d=Math.abs(dx)?b.max.x-b.min.x:b.max.y-b.min.y;
-        // Hinged along its inner bottom edge, it folds out and down: about 80° for an upright ramp, less for a flat one.
-        at=[dx?inner:(b.min.x+b.max.x)/2,dy?inner:(b.min.y+b.max.y)/2,b.min.z];pivot.userData.deckJoint={kind:'ramp',index:w.index,axis:[-dy,dx,0],angle:(h>d?80:25)*Math.PI/180};}
-      piece.translate(-at[0],-at[1],-at[2]);const part=new T.Mesh(piece,stand?new T.MeshStandardMaterial({color:w.kind==='turret'?0x5b6472:0x8a6d3b,roughness:.55,metalness:.2}):mesh.material);part.castShadow=part.receiveShadow=true;
-      pivot.position.set(...at);pivot.add(part);holder.add(pivot);joints.push({kind:w.kind,index:w.index,standIn:stand,name:pivot.name});
-    }
-    return {joints};
+  const Kin=()=>globalThis.DeckKinematics||(typeof require==='function'?require('./sim-kinematics.js'):null);
+  function rig(holder,{meta,mechanisms,kinematics,footprint,height=12}={}){
+    const {THREE:T}=three(),K=Kin();if(!K)return holder;
+    const model=K.sanitize(kinematics),m=mechanisms?.enabled?mechanisms:null;let mesh=null;holder.traverse(o=>{if(o.isMesh&&!mesh&&o.geometry?.attributes?._part)mesh=o;});
+    const cad=mesh&&meta?.id&&model.model===meta.id?model.joints:[],kin={model:{...model,joints:[]},P:null,standIns:[]};
+    holder.updateMatrixWorld(true);const P=mesh?new T.Matrix4().copy(holder.matrixWorld).invert().multiply(mesh.matrixWorld):null;if(P)kin.P=P.toArray();
+    if(cad.length){
+      const g=mesh.geometry,parts=K.partIndex(g.userData.parts),list=K.order({...model,joints:cad}),owner=new Int16Array(Math.max(1,parts.leafCount)).fill(-1);
+      // Each part goes to the deepest joint that names it (a flywheel inside a turret goes to the flywheel).
+      list.forEach((j,i)=>{for(const k of parts.expand(j.parts))owner[k]=i;});
+      const ids=g.attributes._part,src=g.index,n=src?src.count:ids.count,corner=src?i=>src.getX(i):i=>i;
+      const count=new Uint32Array(list.length+1);for(let i=0;i<n;i+=3)count[owner[Math.round(ids.getX(corner(i)))]+1]++;
+      const big=g.attributes.position.count>65535,lists=[...count].map(c=>big?new Uint32Array(c*3):new Uint16Array(c*3)),fill=new Uint32Array(list.length+1);
+      for(let i=0;i<n;i+=3){const o=owner[Math.round(ids.getX(corner(i)))]+1,l=lists[o],at=fill[o];l[at]=corner(i);l[at+1]=corner(i+1);l[at+2]=corner(i+2);fill[o]=at+3;}
+      const piece=index=>{const out=new T.BufferGeometry();for(const [name,a] of Object.entries(g.attributes))out.setAttribute(name,a);out.setIndex(new T.BufferAttribute(index,1));out.userData=g.userData;
+        out.boundingSphere=g.boundingSphere||(g.computeBoundingSphere(),g.boundingSphere);out.boundingBox=g.boundingBox;return out;};
+      mesh.geometry=piece(lists[0]);
+      list.forEach((j,i)=>{const group=new T.Group();group.name='DeckLink:'+j.id;group.matrixAutoUpdate=false;group.matrix.copy(P);group.userData.deckLink=j.id;
+        if(lists[i+1].length){const part=new T.Mesh(piece(lists[i+1]),mesh.material);part.castShadow=mesh.castShadow;part.receiveShadow=mesh.receiveShadow;group.add(part);}
+        holder.add(group);});
+      kin.model.joints.push(...list.map(({parts,alternatives,note,...j})=>j));}
+    // Stand-ins for game mechanisms the CAD has no parts (or joint) for.
+    if(m){const driven=new Set(kin.model.joints.map(j=>j.drive&&j.drive.signal+':'+(j.drive.of||'')));
+      m.shooters.forEach((s,n)=>{if(s.type!=='turret'||s.sharesTurret||s.parts?.length||driven.has('turret:shooter:'+n))return;standIn(holder,kin,{kind:'turret',n,shooter:s},footprint,height);});
+      m.intakes.forEach((i,n)=>{if(!['ramp','kicker'].includes(i.kind)||i.parts?.length||driven.has('deploy:intake:'+n))return;standIn(holder,kin,{kind:'deploy',n,intake:i},footprint,height);});}
+    holder.userData.kin=kin;linkCache.delete(holder);return holder;
   }
-  // A plain turret (turntable, shooter housing and barrel facing forward) or ramp plate where the model has none.
-  function standIn(w,footprint,height){
-    const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9};
+  // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own.
+  function standIn(holder,kin,w,footprint,height){
+    const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let geometry,joint;
     if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(6,height);
       const base=new T.CylinderGeometry(3.4,3.4,1.4,24);base.rotateX(Math.PI/2);base.translate(ox,oy,top+.7);const body=new T.BoxGeometry(6,4.6,3.2);body.translate(ox+.4,oy,top+3);
-      const barrel=new T.CylinderGeometry(1.1,1.1,5,16);barrel.rotateZ(-Math.PI/2);barrel.translate(ox+5.4,oy,top+3.4);return mergeGeometries([base,body,barrel].map(g=>g.toNonIndexed()));}
-    const side=(w.intake.sides||['front'])[0],[dx,dy]=SIDE_DIR[side]||SIDE_DIR.front,e=dx>0?f.front:dx<0?f.rear:f.half,width=Math.min(14,(dx?2*f.half:f.front+f.rear)-2),plate=new T.BoxGeometry(dx?.7:width,dx?width:.7,6.5);
-    plate.translate(dx*(e+.35),dy*(e+.35),3.6);return plate.toNonIndexed();
+      const barrel=new T.CylinderGeometry(1.1,1.1,5,16);barrel.rotateZ(-Math.PI/2);barrel.translate(ox+5.4,oy,top+3.4);geometry=mergeGeometries([base,body,barrel].map(g=>g.toNonIndexed()));
+      joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};}
+    else{const side=(w.intake.sides||['front'])[0],[dx,dy]=SIDE_DIR[side]||SIDE_DIR.front,e=dx>0?f.front:dx<0?f.rear:f.half,width=Math.min(14,(dx?2*f.half:f.front+f.rear)-2);
+      geometry=new T.BoxGeometry(dx?.7:width,dx?width:.7,6.5);geometry.translate(dx*(e+.35),dy*(e+.35),3.6);geometry=geometry.toNonIndexed();
+      // Hinged along its inner bottom edge, it folds out and down.
+      joint={id,name:`${w.intake.kind==='kicker'?'Kicker':'Ramp'} · intake ${w.n+1}`,type:'revolute',origin:[dx*e,dy*e,.35],axis:[-dy,dx,0],states:{raised:0,lowered:80},drive:{signal:'deploy',of:'intake:'+w.n},source:'standin'};}
+    const group=new T.Group();group.name='DeckLink:'+id;group.matrixAutoUpdate=false;group.userData.deckLink=id;
+    const part=new T.Mesh(geometry,new T.MeshStandardMaterial({color:w.kind==='turret'?0x5b6472:0x8a6d3b,roughness:.55,metalness:.2}));part.castShadow=part.receiveShadow=true;group.add(part);holder.add(group);
+    kin.model.joints.push(joint);kin.standIns.push(id);
+  }
+  // The link groups under a holder (found again on each clone).
+  const linkCache=new WeakMap();
+  function linksOf(holder){let c=linkCache.get(holder);if(!c){c=new Map();holder.traverse(o=>{if(o.userData.deckLink)c.set(o.userData.deckLink,o);});linkCache.set(holder,c);}return c;}
+  // Values for joints a game drives, from a frame's mechanism state (for stand-ins, and recordings made before the
+  // engine sent joint values): turrets by their angle, ramps and kickers by how far down they are.
+  function gameValues(model,m){const out={};if(!m)return out;
+    for(const j of model.joints){const d=j.drive;if(!d)continue;const n=+String(d.of||'').split(':')[1]||0;
+      if(d.signal==='turret')out[j.id]=(m.turrets?.[n]??m.turret??0)-(j.zero||0);
+      else if(d.signal==='deploy'){const f=Array.isArray(m.deploy)?m.deploy[n]:null,v=Number.isFinite(f)?f:0,up=j.states?.raised??0,down=j.states?.lowered??0;out[j.id]=up+(down-up)*v;}}
+    return out;}
+  // Puts every link where the joint values say (degrees and inches; missing ones at home).
+  function pose(holder,values={}){
+    const kin=holder?.userData?.kin;if(!kin)return null;const K=Kin(),p=K.pose(kin.model,values),links=linksOf(holder),stand=new Set(kin.standIns);
+    for(const [id,group] of links){const w=p.W.get(id);if(!w)continue;group.matrix.fromArray(kin.P&&!stand.has(id)?K.math.mul(kin.P,w):w);group.matrixWorldNeedsUpdate=true;}
+    return p;
   }
   // Only the two curated CAD assets carry deckWheel metadata. User imports have none. Wheel
   // speeds come from actual chassis velocity at each wheel, including the yaw contribution.
@@ -239,15 +260,20 @@
     const previous=holder.userData.animationTime,dt=previous===undefined?0:Math.max(0,Math.min(.1,frame.time-previous));holder.userData.animationTime=frame.time;
     let scale=holder.userData.modelScale;holder.traverse(o=>{if(o.userData.modelScale)scale=o.userData.modelScale;});scale=scale||{x:1,y:1};
     const F=scale.F||[1,0,0],L=scale.L||[0,1,0],centre=scale.c||{x:0,y:0},velocity=w=>{const x=(F[0]*w.x+F[1]*w.y-centre.x)*scale.x,y=(L[0]*w.x+L[1]*w.y-centre.y)*scale.y,vx=(f-omega*y)/scale.x,vy=(left+omega*x)/scale.y;return {vx:vx*F[0]+vy*L[0],vy:vx*F[1]+vy*L[1]};};
-    holder.traverse(o=>{const s=o.userData.deckSteer;if(s){const {vx,vy}=velocity(s);if(Math.hypot(vx,vy)>.1)o.rotation.z=Math.atan2(vy,vx)-Math.PI/2;}
+    let rigged=null;
+    holder.traverse(o=>{if(o.userData.kin&&!rigged)rigged=o;const s=o.userData.deckSteer;if(s){const {vx,vy}=velocity(s);if(Math.hypot(vx,vy)>.1)o.rotation.z=Math.atan2(vy,vx)-Math.PI/2;}
       const w=o.userData.deckWheel;if(!w||w.driven===false)return;const {vx,vy}=velocity(w),power=w.kind==='swerve'?Math.hypot(vx,vy):vx-Math.sign(w.x*w.y)*vy;
       w.angle=(w.angle+power*dt/w.radius)%(Math.PI*2);o.quaternion.setFromAxisAngle(new T.Vector3(...w.axis),w.angle);
     });
-    // Mechanism joints (rig): turrets by their recorded angle, ramps by how far down they are.
-    const m=frame.mechanisms;if(!m)return;
-    holder.traverse(o=>{const j=o.userData.deckJoint;if(!j)return;
-      if(j.kind==='turret')o.rotation.set(0,0,(m.turrets?.[j.index]??m.turret??0)*Math.PI/180);
-      else if(j.kind==='ramp')o.quaternion.setFromAxisAngle(new T.Vector3(...j.axis),(m.ramps?.[j.index]??0)*j.angle);});
+    if(!rigged)return;const kin=rigged.userData.kin,values={...gameValues(kin.model,frame.mechanisms),...(frame.joints||{})};
+    // CAD drive wheels turn with the chassis speed where they touch the floor (robot frame, through the placement).
+    const wheels=kin.model.joints.filter(j=>j.drive?.signal==='wheel');
+    if(wheels.length&&kin.P){const K=Kin(),turned=rigged.userData.wheelTurns||(rigged.userData.wheelTurns={});
+      for(const j of wheels){const c=K.math.apply(kin.P,j.origin),a=K.math.unit(K.math.applyDir(kin.P,j.axis)),v=[f-omega*c[1],left+omega*c[0],0],r=(j.radius||1)*(kin.model.unit||1);
+        // Rolling: the rim speed matches the floor's along the way the wheel rolls. A mecanum wheel's rollers turn sideways
+        // motion into rolling too: one diagonal pair forward, the other back (rollers in an X seen from above).
+        const along=K.math.dot(K.math.cross([0,0,-1],a),v),side=j.roll==='mecanum'?-Math.sign(c[0]*c[1])*K.math.dot(a,v):0,spin=(along+side)/Math.max(.1,r);turned[j.id]=((turned[j.id]||0)+spin*dt*180/Math.PI)%360;values[j.id]=turned[j.id];}}
+    pose(rigged,values);
   }
   // Top-down picture of the placed body for the 2D field, with its extent in robot inches. A `previous` picture of
   // the same model and orientation is reused: a new chassis size only stretches it, so it is not drawn again.
@@ -363,17 +389,36 @@
     renderer.domElement.addEventListener('pointerup',e=>{
       if(!picker||!down||!body||Math.hypot(e.clientX-down.x,e.clientY-down.y)>5)return;const r=renderer.domElement.getBoundingClientRect();
       ray.setFromCamera(new T.Vector2((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1),camera);const hit=ray.intersectObject(body,true)[0],ids=hit?.object.geometry?.attributes._part;
-      picker(hit?{x:hit.point.x,y:hit.point.y,z:hit.point.z,part:ids&&hit.face?ids.getX(hit.face.a):null}:null);});
+      // local: the point in the CAD's own frame (the hit mesh's), for measuring the part there; face: its triangle's vertices.
+      const local=hit?hit.object.worldToLocal(hit.point.clone()):null;picker(hit?{x:hit.point.x,y:hit.point.y,z:hit.point.z,part:ids&&hit.face?ids.getX(hit.face.a):null,local:[local.x,local.y,local.z],face:hit.face?[hit.face.a,hit.face.b,hit.face.c]:null,shift:e.shiftKey}:null);});
     function pick(fn){picker=fn||null;box.classList.toggle('picking',!!picker);}
-    let glow=null,glowKey=null;
+    // The chosen parts glow; a body split into links glows in each link's mesh, so the glow moves with it.
+    let glow=[],glowKey=null;
     function highlight(meshes,color=0xffb224){
-      const mesh=[];body?.traverse(o=>{if(o.isMesh&&o.geometry.attributes._part)mesh.push(o);});const target=mesh[0],key=target&&meshes?.size?target.uuid+':'+[...meshes].join(','):null;
-      if(key===glowKey)return;glowKey=key;if(glow){glow.parent?.remove(glow);glow.geometry.dispose();glow.material.dispose();glow=null;}
+      const list=[];body?.traverse(o=>{if(o.isMesh&&o.geometry.attributes._part&&o.geometry.index)list.push(o);});const key=list.length&&meshes?.size?list.map(o=>o.uuid).join()+':'+color+':'+[...meshes].join(','):null;
+      if(key===glowKey)return;glowKey=key;for(const g of glow){g.parent?.remove(g);g.geometry.dispose();g.material.dispose();}glow=[];
       if(!key){draw();return;}
-      const g=target.geometry,ids=g.attributes._part,src=g.index,out=[];for(let t=0;t<src.count;t+=3)if(meshes.has(ids.getX(src.getX(t))))out.push(src.getX(t),src.getX(t+1),src.getX(t+2));
-      const geometry=new T.BufferGeometry();geometry.setAttribute('position',g.attributes.position);geometry.setIndex(out);
-      glow=new T.Mesh(geometry,new T.MeshBasicMaterial({color,transparent:true,opacity:.55,depthTest:true,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));glow.renderOrder=5;target.add(glow);draw();
+      for(const target of list){const g=target.geometry,ids=g.attributes._part,src=g.index,out=[];for(let t=0;t<src.count;t+=3)if(meshes.has(Math.round(ids.getX(src.getX(t)))))out.push(src.getX(t),src.getX(t+1),src.getX(t+2));if(!out.length)continue;
+        const geometry=new T.BufferGeometry();geometry.setAttribute('position',g.attributes.position);geometry.setIndex(out);
+        const mark=new T.Mesh(geometry,new T.MeshBasicMaterial({color,transparent:true,opacity:.55,depthTest:true,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));mark.renderOrder=5;target.add(mark);glow.push(mark);}draw();
     }
+    // Pivot marks: an axis through each origin, a ring of the pivot's radius and, for a turret, an arrow the way it
+    // fires (robot frame). Drawn over the model so they show through it.
+    const gizmoGroup=new T.Group();scene.add(gizmoGroup);
+    function gizmos(list=[]){
+      for(const child of [...gizmoGroup.children]){gizmoGroup.remove(child);child.traverse(o=>{o.geometry?.dispose();o.material?.dispose();});}
+      for(const g of list){const color=g.color??0x4ea1ff,mat=()=>new T.MeshBasicMaterial({color,depthTest:false,transparent:true,opacity:g.dim?.35:.95}),o=new T.Vector3(...g.origin),a=new T.Vector3(...g.axis).normalize(),r=Math.max(.3,g.radius||1),q=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,1,0),a);
+        const length=g.length||Math.max(3,2*r+2),rod=new T.Mesh(new T.CylinderGeometry(.06,.06,length,8),mat());rod.quaternion.copy(q);rod.position.copy(o);
+        const tip=new T.Mesh(new T.ConeGeometry(.22,.6,12),mat());tip.quaternion.copy(q);tip.position.copy(o).addScaledVector(a,length/2+.3);
+        const ring=new T.Mesh(new T.TorusGeometry(r,.05,8,48),mat());ring.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),a);ring.position.copy(o);
+        const set=new T.Group();set.add(rod,tip,ring);
+        if(g.arrow){const d=new T.Vector3(...g.arrow).normalize(),len=Math.max(3,r+2.5),shaft=new T.Mesh(new T.CylinderGeometry(.09,.09,len,8),mat()),head=new T.Mesh(new T.ConeGeometry(.35,.9,12),mat()),qa=new T.Quaternion().setFromUnitVectors(new T.Vector3(0,1,0),d),from=o.clone().addScaledVector(a,g.lift||0);
+          shaft.quaternion.copy(qa);shaft.position.copy(from).addScaledVector(d,len/2);head.quaternion.copy(qa);head.position.copy(from).addScaledVector(d,len+.45);set.add(shaft,head);}
+        set.traverse(m=>{m.renderOrder=20;});gizmoGroup.add(set);}
+      draw();
+    }
+    // Poses the shown body's links (joint values in degrees and inches).
+    function posed(values){const p=pose(body,values||{});draw();return p;}
     function markers(list=[]){
       for(const child of [...markerGroup.children]){markerGroup.remove(child);child.geometry.dispose();child.material.dispose();}
       // A marker is a dot, or a see-through box when it has a size (an intake's hitbox).
@@ -382,7 +427,7 @@
         if(m.size){const edges=new T.LineSegments(new T.EdgesGeometry(shape),new T.LineBasicMaterial({color:m.color||0xffffff}));edges.position.copy(mark.position);edges.renderOrder=11;markerGroup.add(edges);}}
       draw();
     }
-    return {update(...a){glowKey=null;glow=null;return update(...a);},look,pick,highlight,markers,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
+    return {update(...a){glowKey=null;glow=[];return update(...a);},look,pick,highlight,markers,gizmos,posed,body:()=>body,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
   }
-  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig};
+  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig,pose,gameValues,linksOf};
 });

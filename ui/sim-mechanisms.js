@@ -248,7 +248,7 @@
     // Where shooter n points, in degrees from the robot's front.
     aim(n){const s=this.m.shooters[n];return !s?0:s.type==='turret'?this.turrets[n]:FACING[s.facing];}
     state(){const q=this.queue,front=q[0];return {flywheel:this.flywheel,turret:this.turret,turrets:this.turrets.slice(),aligned:!!this.aligned,ready:!!this.ready,shots:this.shots,held:this.held,
-      kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
+      deploy:this.kick.slice(),kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
   }
   // Runs route actions the way the generated robot code does, with no piece sensor. At a pin the action
   // is busy until it finishes; on an action path it runs while the path is driven. "Shoot N" spins up

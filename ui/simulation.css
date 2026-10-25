@@ -372,3 +372,29 @@
 #simulation-view .sim-record-result-text .hint{margin:4px 0 0}
 .sim-record-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
 #simulation-view .sim-record-actions button{min-height:34px;margin:0;white-space:nowrap}
+
+/* Moving parts (sim-joints.js): the CAD's joints under the Mechanisms preview. */
+.sim-joints{margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line)}.sim-joints[hidden]{display:none}
+.sim-joints-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.driver-station .sim-joints-head h3{margin:0;font-size:14px}
+.sim-joint-buttons{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.driver-station .sim-joint-buttons button{min-height:32px;padding:3px 12px;font-size:12px}
+.driver-station .sim-joint-buttons button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.sim-joints-status:empty{display:none}
+.sim-joint-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
+.sim-joint{border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow:hidden}
+.driver-station .sim-joint-row{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;padding:6px 10px;border:0;border-radius:0;background:transparent;color:var(--text);text-align:left;font-size:13px}
+.sim-joint-row i{flex:none;width:12px;height:12px;border-radius:3px}.sim-joint-row span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.sim-joint-row[aria-expanded=true]{border-bottom:1px solid var(--line)}
+.sim-joint-badge{flex:none;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line-strong);color:var(--muted)}
+.sim-joint-badge[data-level=likely],.sim-joint-badge[data-level=sure]{border-color:color-mix(in srgb,var(--connected) 60%,transparent);color:var(--connected)}
+.sim-joint-badge[data-level=check]{border-color:color-mix(in srgb,var(--warning,#d4a72c) 70%,transparent);color:var(--warning,#d4a72c)}
+.sim-joint-badge[data-level=user]{border-color:var(--accent);color:var(--accent)}
+.sim-joint-body{padding:6px 12px 12px;font-size:13px}.sim-joint-body .hint{margin:6px 0}.sim-joint-body label{font-size:12px}
+.sim-joint-where{margin:4px 0;font-size:12px;color:var(--text)}
+.sim-joint-needs{color:var(--warning,#d4a72c)}
+.sim-joint-try{display:flex;align-items:center;gap:10px;margin:10px 0 4px}.sim-joint-try input{flex:1}
+.sim-joint-state{display:grid;grid-template-columns:minmax(0,1fr) 90px auto auto;gap:6px;align-items:center;margin:4px 0}
+.sim-joint-alts{margin:4px 0;padding-left:18px;font-size:12px;color:var(--muted)}
+.sim-joint-parent{display:flex;align-items:center;gap:6px}.sim-joint-parent select{min-height:32px}
+.driver-station .sim-joint-remove{margin-top:10px;color:var(--danger)}
+/* Off BIOBUZZ the step is the moving parts alone: the model and its list take the page. */
+.sim-mech-layout:has(.sim-mech-main[hidden]){display:block}.sim-mech-layout:has(.sim-mech-main[hidden]) .sim-mech-aside{position:static;max-height:none;overflow:visible}

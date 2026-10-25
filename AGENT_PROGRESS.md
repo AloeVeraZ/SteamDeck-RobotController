@@ -207,6 +207,16 @@ Measured on the user's lunala setup and robot CAD (a 28 s autonomous, 848 frames
 
 While feeding, the turret camera moved 9.6 in/s and turned 40.7°/s before; now 0.2 in/s and 11°/s (only the turret's own turning). Paths take 5–110 ms per camera (best of five runs), about 0.4 s for all five, worked out in quiet moments once the editor opens. In the app: record → Pick cameras for me (4 cameras, 11 cuts) → Save video gave an 18.9 MB MP4 in 11 s with no page errors, and its frames show no camera inside a wall, flower or the hive.
 
+### Moving parts: articulated CAD mechanisms (25 October)
+
+The user asked for the CAD's mechanisms to move in the simulator (turrets turning on their gears, hoods tilting, rollers and flywheels spinning, ramps and kickers folding between two set positions in set times), for pivots to be found automatically from the CAD and picked on the model (circles, as a slicer measures them), and for the text-only folds on the Mechanisms page to go. Then a brief for a general mechanism engine (joints, actuators, transmissions, actions; discovery with confidence; not FTC-only). Design, sources and limits: `docs/MECHANISM_ENGINE.md`.
+- `ui/sim-kinematics.js`: joints (fixed, revolute, continuous, prismatic, cylindrical, screw, universal, ball, planar, floating, pin-slot) in the CAD's rest frame; couplings (`q = ratio·q + offset`); closed loops solved by damped least squares from the rest pose (four-bar and slider-crank match their formulas); inverse kinematics; trapezoid actuators; action timelines; a `Driver` the engine ticks.
+- `ui/sim-discovery.js` (+ `sim-discovery-worker.js`): finds turrets, flywheels, hoods, ramp/kicker hinges (with the floor-contact angle), rollers, feeder wheels and drive wheels from round parts, coaxial lines, names and contact; each with a confidence and a reason. Pick-a-circle and two-point pivots.
+- `DeckRobotModel.rig/pose/animate`: the body split into link meshes by index subsets over the shared vertex buffers (the lite field copy too); stand-ins for mechanisms with no CAD parts.
+- Engine: joint values every tick in `frame.joints` (and `mechanisms.deploy`); `between()` interpolates them; route actions naming a part and a position ("Lift up") move it, and a pin waits for it on any field.
+- Setup → Mechanisms: **Moving parts** panel under the preview (`ui/sim-joints.js`), found automatically the first time a CAD is shown; the four text-only folds are gone.
+- On the user's lunala CAD: 14 moving parts in ~0.5 s (Node) / ~2 s in the worker; renders of each posed (ramp down to the floor at 71°, turrets on their gears, hoods on the flywheel axles) and a 3D run whose frames carry the joint values.
+
 ### lunala red auto (the user's request)
 
 - One custom curve replaces the back-off pin.

@@ -13,7 +13,7 @@ const {PracticeClock}=require('./sim-practice.cjs');
 const Timed=require('../ui/sim-timed.js');
 const Ftc=require('../ui/sim-ftc.js');
 const Export=require('../ui/sim-export.js');
-const Mech=require('../ui/sim-mechanisms.js');
+const Mech=require('../ui/sim-mechanisms.js'),Kin=require('../ui/sim-kinematics.js');
 const MotionModule=require('../ui/sim-motionmodule.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
 // How long the game physics takes to swing its ramp down or up (DSIM's BB_RAMP_DEPLOY_S).
@@ -76,7 +76,9 @@ class SimEngine{
     const start=raw.start&&[raw.start.x,raw.start.y,raw.start.heading].every(finite)?{x:raw.start.x,y:raw.start.y,heading:raw.start.heading}:{x:9,y:72,heading:0};
     // Mechanisms (intake, storage, indexer, shooter) use the game's own piece physics, so they act on BIOBUZZ.
     const mechanisms=Mech.sanitize(raw.mechanisms);mechanisms.enabled=mechanisms.enabled&&field==='biobuzz';
-    this.config={field,physics,start,mechanisms,alliance:raw.alliance==='blue'?'blue':'red',controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:config.robot(raw.robot,raw.controller==='motionmodule'?'motionmodule':'ftc'),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:config.localization('motionmodule',raw.sensors?.localization)}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
+    // How the robot's parts move (joints, actuators, actions): drawn from the joint values each frame carries.
+    const kinematics=Kin.forEngine(raw.kinematics);
+    this.config={field,physics,start,mechanisms,kinematics,alliance:raw.alliance==='blue'?'blue':'red',controller:raw.controller==='motionmodule'?'motionmodule':'ftc',timing:Timed.settings(raw.timing),elements:field!=='empty'&&raw.elements!==false,robot:config.robot(raw.robot,raw.controller==='motionmodule'?'motionmodule':'ftc'),bounds:config.bounds({...raw,field}),sensors:sensorConfig(raw.controller==='motionmodule'?{...raw.sensors,localization:config.localization('motionmodule',raw.sensors?.localization)}:raw.sensors),tuning:raw.tuning&&typeof raw.tuning==='object'?raw.tuning:{}};this._empty=null;
     this.origin=field==='empty'?{x:this.config.bounds.x1/2,y:this.config.bounds.y1/2}:{x:OFFSET,y:OFFSET};
     this.zones=Array.isArray(raw.zones)?raw.zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];
     this.build();
@@ -116,7 +118,7 @@ class SimEngine{
     const robot=this.world.robots[0],keep=m.enabled&&c.elements?m.preload.pollen:0;let held=0;
     this.world.balls=c.elements?this.world.balls.filter(b=>b.state?.kind!=='held'||held++<keep):[];if(Array.isArray(robot.hopper))robot.hopper=robot.hopper.slice(0,Math.min(keep,held));
     this.spreadStaged();
-    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m);this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;
+    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m);this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;this.kin=new Kin.Driver(c.kinematics||Kin.EMPTY());this.jointTick(0);
     this.applyBarriers();
     const r=this.world.robots[0],p={x:c.start.x-this.origin.x,y:c.start.y-this.origin.y};
     // The game engine's competition limits do not apply to an offline pushbot. Override after
@@ -254,6 +256,14 @@ class SimEngine{
     const shooters=this.config.mechanisms.shooters;r.aimAssist=false;
     if(shooters[0])r.turretHeading=r.heading+this.mech.aim(0)/DEG;if(shooters[1])r.bbTurret2Heading=r.heading+this.mech.aim(1)/DEG;
   }
+  // A route action that names a moving part's action, or a part and one of its positions, starts it once each time the
+  // route reaches it; a pin holds while it moves.
+  routeJoints(act){const key=act?(act.moving?'path'+(act.path??act.leg):'pin'+act.leg)+':'+act.name:'';if(key!==this.kinKey){this.kinKey=key;if(act?.name)this.kin.start(act.name);}return !!(act&&!act.moving&&this.kin.busy(act.name));}
+  // Joint values for this tick from the mechanism model's signals (turrets, flywheels, intakes, ramps, feeders).
+  jointTick(dt=this.dsim.SIM_DT){
+    if(!this.kin)return;const m=this.mech,c=this.mechCmd||{},on=this.config.mechanisms.enabled;
+    this.kin.tick(dt,on?{turrets:m.turrets,flywheel:m.flywheel,kick:m.kick,intake:!!c.intake,spin:!!c.spin,aim:!!c.aim,feed:!!c.feed,rpm:this.config.mechanisms.shooter.rpm}:{});
+  }
   // Where shooters aim: the cell the route's action names (the hive cell up at the start, or the other one);
   // in teleop, whichever cell faces up right now, as a driver would.
   aimTarget(){
@@ -274,7 +284,7 @@ class SimEngine{
     for(const id of w.biobuzz.hives?.[this.config.alliance]?.contents||[])if(st.launched.has(id))st.landed.add(id);
   }
   tick(cmd){
-    this.mechanismTick();this.command=cmd;this.physicsStep(this.world,cmd);this.trackPieces();const t=this.truth(),reading=this.sensors.read(t,this.dsim.SIM_DT);
+    this.mechanismTick();this.jointTick();this.command=cmd;this.physicsStep(this.world,cmd);this.trackPieces();const t=this.truth(),reading=this.sensors.read(t,this.dsim.SIM_DT);
     if(this.world.tick%3===0){this.trail.push({x:t.x,y:t.y,e:this.estimate?{x:this.estimate.x,y:this.estimate.y}:null});if(this.trail.length>2400)this.trail.splice(0,600);}
     const corners=planner.body({x:t.x,y:t.y,heading:t.heading*DEG},this.info.footprint);
     const hit=this.zones.filter(z=>planner.zoneHits(corners,z)).map(z=>z.id);
@@ -381,6 +391,7 @@ class SimEngine{
   }
   async programTick(){
     const bridge=this.child;if(!bridge||bridge.seq!==this.runSeq){this.mode='idle';return;}
+    const jointBusy=this.routeJoints(this.mechAct);
     // Mechanisms: a route names its active action; exported code drives its mechanism motors and servos.
     if(this.config.mechanisms.enabled){
       if(bridge.kind==='opmode'||bridge.kind==='motionmodule'){
@@ -390,10 +401,10 @@ class SimEngine{
         // Commands are signed after each device's mounting: a roller or feeder running backwards spits pieces out, so only
         // a forward command takes pieces in or feeds the shooter.
         this.mechCmd={intake:on('intake',(d.intake||0)>.2),spin:on('spin',(d.flywheel||0)>.2),feed:on('feed',(d.indexer||0)>.2),aim:finite(d.turretDeg)||Array.isArray(d.turretDegs),turretDeg:finite(d.turretDeg)?d.turretDeg:undefined,turretDegs:Array.isArray(d.turretDegs)?d.turretDegs:undefined,...(typeof d.ramp==='number'?{ramp:d.ramp>.5}:{})};this.mechBusy=false;}
-      else{this.mechCell=this.mechAct&&this.legCells?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']?'other':'start';const next=this.mechRunner.commands(this.mechAct&&{...this.mechAct,path:this.legPaths?.[this.mechAct.leg],seconds:this.legSeconds?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy;}
+      else{this.mechCell=this.mechAct&&this.legCells?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']?'other':'start';const next=this.mechRunner.commands(this.mechAct&&{...this.mechAct,path:this.legPaths?.[this.mechAct.leg],seconds:this.legSeconds?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy||jointBusy;}
     }
     const reading=this.tick(this.command),seq=bridge.seq;bridge.ticks++;
-    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState(),...(bridge.kind==='opmode'&&this.gamepads?{gamepad1:this.gamepads[1]||{},gamepad2:this.gamepads[2]||{}}:{})};
+    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState()??(jointBusy?{busy:true}:null),...(bridge.kind==='opmode'&&this.gamepads?{gamepad1:this.gamepads[1]||{},gamepad2:this.gamepads[2]||{}}:{})};
     // The first ticks include JIT warm-up; later ticks must return promptly.
     let reply;try{reply=await this.request(bridge,msg,bridge.ticks<30?5000:750,'One loop() call');}catch(e){this.fail(e.message,seq);return;}
     if(seq!==this.runSeq)return; // stopped while waiting: discard the stale reply
@@ -417,8 +428,9 @@ class SimEngine{
   }
   timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),mech=this.config.mechanisms.enabled;let held=false;
     // A pin's mechanism action holds the timed robot until it finishes, like the exported MotionModule code.
-    const hold=mech?(step,index)=>{this.mechCell=step.cell==='other'?'other':'start';const next=this.mechRunner.commands({name:step.action,leg:index,moving:false},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy;held=true;return next.busy;}:null;
+    const hold=(step,index)=>{const act={name:step.action,leg:index,moving:false},joints=this.routeJoints(act);held=true;if(!mech)return joints;this.mechCell=step.cell==='other'?'other':'start';const next=this.mechRunner.commands(act,this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy||joints;return this.mechBusy;};
     const next=runner.advance(this.dsim.SIM_DT,reading.imu,hold);
+    if(!held)this.routeJoints(next.acting?{name:next.acting,leg:next.segment,path:'timed:'+next.acting,moving:true}:null);
     if(mech&&!held){this.mechCell=next.acting&&next.actingCell==='other'?'other':'start';const r=this.mechRunner.commands(next.acting?{name:next.acting,leg:next.segment,path:'timed:'+next.acting,moving:true}:null,this.mech.state(),this.world.time);this.mechCmd=r.cmd;this.mechBusy=false;}this.command=next.drive;this.waiting=next.wait;this.acting=next.acting||null;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
   describe(reply){const where={compile:'Compile error',load:'Could not load the program',init:'init() failed',loop:'loop() failed',bridge:'Deck bridge error'}[reply.stage]||'Program error';return `${where}: ${reply.message}`;}
   fail(message,seq=this.runSeq,reply){
@@ -462,7 +474,7 @@ class SimEngine{
     return {type:'frame',time:this.world.time,tick:this.world.tick,mode:this.mode,playing:this.playing,speed:this.speed,
       truth:{x:t.x,y:t.y,heading:t.heading*DEG,vx:t.vx,vy:t.vy,omega:t.omega*DEG,z:t.z},command:this.command,
       estimate:this.estimate?{x:this.estimate.x,y:this.estimate.y,heading:this.estimate.heading*DEG}:null,
-      follower:this.follower||null,telemetry:this.telemetry||null,contacts:this.contacts||[],contactEvents:this.contactEvents?.size||0,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,acting:this.acting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'deck':null,mechanisms:this.mechanismState(),
+      follower:this.follower||null,telemetry:this.telemetry||null,contacts:this.contacts||[],contactEvents:this.contactEvents?.size||0,hit:this.hit||[],violations:[...(this.violations||[])],result:this.result,wait:this.waiting||null,acting:this.acting||null,practice:this.practice?.snapshot()||null,execution:this.timed?'timed':this.child?'deck':null,mechanisms:this.mechanismState(),joints:this.kin?.model.joints.length?this.kin.values():null,
       modules:config.drives[this.config.robot.drivetrain]?.engine==='swerve'&&Array.isArray(this.world.robots[0].moduleAngles)?this.world.robots[0].moduleAngles.slice(0,4):null,
       fieldState:{game:this.config.field,time:this.world.time,tick:this.world.tick,balls:this.world.balls.map(b=>({...b,pos:{...b.pos},state:{...b.state}})),robots:[],biobuzz:this.world.biobuzz?structuredClone(this.world.biobuzz):undefined}};
   }
