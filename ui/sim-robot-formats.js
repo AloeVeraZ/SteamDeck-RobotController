@@ -13,6 +13,9 @@
   //             joints in one body (applied in order), geoms (fromto too) and meshes (meshdir, scale, refpos/refquat),
   //             equality connect and weld (loops), joint equality with polycoef and fixed-tendon equality (couplings),
   //             actuators with their gear.
+  //   USD       text USD (.usda): UsdPhysics revolute, prismatic, spherical and fixed joints between rigid bodies,
+  //             transform ops, metersPerUnit and upAxis, Cube/Sphere/Cylinder/Capsule/Cone/Mesh shapes, drives
+  //             (actuators) and PhysX mimic joints (couplings). Binary USD and composition (references) are not read.
   // What cannot be read is said in `notes`, never guessed.
   const K=()=>root.DeckKinematics||(typeof require==='function'?require('./sim-kinematics.js'):null);
   const IN_PER_M=39.3700787,DEG=180/Math.PI,finite=Number.isFinite;
@@ -236,6 +239,119 @@
       actuators.push({name:safe(at.name)||`${a.name}_${safe(at.joint)}`,joint:safe(at.joint),kind:kind[0],mode:kind[1],gear:(nums(at.gear)||[1])[0]||1});}
     return tree({format:'mjcf',name:safe(mj.attrs.model||'robot'),links,joints,loops,couplings,actuators,notes});
   }
+  // ---------------------------------------------------------------- OpenUSD (text .usda) with UsdPhysics joints
+  // USDA, the text form of USD (Isaac Sim and Omniverse robots): prims, their attributes and relationships, read
+  // without composition. References, payloads and variants name other files or alternatives, and are reported.
+  const STOP=new Set([' ','\t','\n','\r','(',')','[',']','{','}','=',',',';','"',"'",'@','<','#']);
+  function tokensUsda(s){
+    const out=[];let i=0;const n=s.length;if(s.startsWith('#usda'))i=s.indexOf('\n')+1||n;
+    while(i<n){const c=s[i];
+      if(c===' '||c==='\t'||c==='\n'||c==='\r'){i++;continue;}
+      if(c==='#'){const e=s.indexOf('\n',i);i=e<0?n:e+1;continue;}
+      if('()[]{}=,;'.includes(c)){out.push(c);i++;continue;}
+      if(c==='"'||c==="'"){const q=s.startsWith(c+c+c,i)?c+c+c:c;let j=i+q.length,v='';while(j<n&&!s.startsWith(q,j)){if(s[j]==='\\'&&q.length===1){v+=s[j+1];j+=2;}else v+=s[j++];}out.push({str:v});i=j+q.length;continue;}
+      if(c==='@'){const q=s.startsWith('@@@',i)?'@@@':'@',e=s.indexOf(q,i+q.length);out.push({asset:s.slice(i+q.length,e<0?n:e)});i=e<0?n:e+q.length;continue;}
+      if(c==='<'){const e=s.indexOf('>',i);out.push({path:s.slice(i+1,e<0?n:e)});i=e<0?n:e+1;continue;}
+      let j=i;while(j<n&&!STOP.has(s[j]))j++;const w=s.slice(i,j);i=j;
+      const x=w==='inf'||w==='+inf'?Infinity:w==='-inf'?-Infinity:Number(w);out.push(w!==''&&/^[-+.\d]/.test(w)&&!Number.isNaN(x)?x:w);}
+    return out;
+  }
+  function parseUsda(text){
+    const M=X(),t=tokensUsda(String(text)),notes=[];let k=0;
+    const peek=()=>t[k],next=()=>t[k++],skip=(open,close)=>{let depth=0;do{const x=next();if(x===open)depth++;else if(x===close)depth--;}while(depth>0&&k<t.length);};
+    const value=()=>{const x=next();if(x==='('||x==='['){const close=x==='('?')':']',list=[];while(k<t.length&&peek()!==close){if(peek()===','){k++;continue;}list.push(value());}k++;return list;}
+      if(x==='{'){k--;skip('{','}');return {};}return x&&typeof x==='object'&&'str' in x?x.str:x;};
+    // Metadata in parentheses: key = value, list edits (prepend, append, add, delete, reorder), or a doc string.
+    const EDITS=['prepend','append','add','delete','reorder'];
+    const metadata=()=>{const out={};k++;while(k<t.length&&peek()!==')'){let x=next();if(typeof x==='object'||x===';'||x===',')continue;
+      if(EDITS.includes(x)){const edit=x;x=next();if(peek()==='='){k++;const v=value();if(edit!=='delete')out[x]=[...(out[x]||[]),...[].concat(v)];}continue;}
+      if(peek()==='='){k++;out[x]=value();}}k++;return out;};
+    const prim=(spec,parent)=>{let type='';if(typeof peek()==='string')type=next();const nm=next(),name=nm&&typeof nm==='object'?nm.str:String(nm);
+      const p={spec,type,name,path:(parent?parent.path:'')+'/'+name,attrs:{},rels:{},meta:peek()==='('?metadata():{},children:[],parent};
+      if(peek()!=='{')return p;k++;
+      while(k<t.length&&peek()!=='}'){const x=next();
+        if(x==='def'||x==='over'||x==='class'){const c=prim(x,p);if(x==='def')p.children.push(c);continue;}
+        if(x==='variantSet'){next();if(peek()==='=')k++;if(peek()==='{')skip('{','}');notes.push(`Variants of ${p.path} are not read (the default is used).`);continue;}
+        if(x===';'||typeof x==='object')continue;
+        let w=x;while(['custom','uniform','varying','config',...EDITS].includes(w))w=next();
+        if(w==='rel'){const name=next();let v=null;if(peek()==='='){k++;v=value();}if(peek()==='(')metadata();p.rels[name]=[].concat(v).filter(e=>e&&typeof e==='object'&&e.path).map(e=>e.path);continue;}
+        // An attribute: a type (an array type ends in []), a name, perhaps = value, perhaps (metadata).
+        if(peek()==='['){k+=2;}const name=next();if(typeof name!=='string')continue;
+        let v;if(peek()==='='){k++;v=value();}if(peek()==='(')metadata();if(!/\.(timeSamples|connect|spline)$/.test(name))p.attrs[name]=v;}
+      k++;return p;};
+    const layer=peek()==='('?metadata():{},roots=[];
+    while(k<t.length){const x=next();if(x==='def'||x==='over'||x==='class'){const p=prim(x,null);if(x==='def')roots.push(p);}}
+    if(!roots.length)throw Error('That USD file defines no prims.');
+    const all=[];const walk=p=>{all.push(p);p.children.forEach(walk);};roots.forEach(walk);
+    for(const p of all){const m=p.meta;if(m.references||m.payload)notes.push(`${p.path} refers to another file (${[].concat(m.references||m.payload).map(r=>r&&typeof r==='object'?r.asset||r.path:r).join(', ')}), which is not read.`);}
+    // The robot is the default prim when the layer names one.
+    const top=roots.find(r=>r.name===layer.defaultPrim)||null,inside=p=>!top||p===top||p.path.startsWith(top.path+'/');
+    // Scene units to metres (USD's fallback is centimetres), and a Y-up scene turned to Z up.
+    const mpu=finite(layer.metersPerUnit)?layer.metersPerUnit:.01,yUp=(layer.upAxis??'Y')==='Y';
+    if(!finite(layer.metersPerUnit))notes.push('The file does not give its unit (metersPerUnit); USD’s default, centimetres, is used.');
+    const base=M.mul([mpu,0,0,0,0,mpu,0,0,0,0,mpu,0,0,0,0,1],yUp?M.rot([1,0,0],90):M.I4());
+    // xformOpOrder lists ops outermost first: [translate, rotateXYZ, scale] scales, then turns about X, Y, Z, then moves.
+    const AX={X:[1,0,0],Y:[0,1,0],Z:[0,0,1]};
+    const op=(p,name)=>{const inv=name.startsWith('!invert!'),key=inv?name.slice(8):name,v=p.attrs[key],kind=key.split(':')[1]||'';let m=M.I4();
+      if(kind==='translate')m=M.trans((v||[0,0,0]).map(Number));
+      else if(kind==='scale'){const s=Array.isArray(v)?v.map(Number):[+(v??1),+(v??1),+(v??1)];m=[s[0],0,0,0,0,s[1],0,0,0,0,s[2],0,0,0,0,1];}
+      else if(kind==='orient'){const q=(v||[1,0,0,0]).map(Number);m=quat(q[0],q[1],q[2],q[3]);}
+      else if(kind==='transform'&&Array.isArray(v))m=v.flat().map(Number);
+      else if(/^rotate[XYZ]$/.test(kind))m=M.rot(AX[kind[6]],+v||0);
+      else if(/^rotate[XYZ]{3}$/.test(kind)){const a=(v||[0,0,0]).map(Number);[...kind.slice(6)].forEach((ax,i)=>{m=M.mul(M.rot(AX[ax],a[i]||0),m);});}
+      return inv?M.invert(m):m;};
+    const worlds=new Map(),world=p=>{if(!p)return base;if(worlds.has(p))return worlds.get(p);const order=[].concat(p.attrs.xformOpOrder||[]);let m=order[0]==='!resetXformStack!'?base:world(p.parent);
+      for(const name of order)if(name!=='!resetXformStack!')m=M.mul(m,op(p,name));worlds.set(p,m);return m;};
+    const apis=p=>[].concat(p.meta.apiSchemas||[]).map(String),byPath=new Map(all.map(p=>[p.path,p]));
+    const JOINTS=new Set(['PhysicsRevoluteJoint','PhysicsPrismaticJoint','PhysicsSphericalJoint','PhysicsFixedJoint','PhysicsDistanceJoint','PhysicsJoint']);
+    const jointPrims=all.filter(p=>JOINTS.has(p.type)&&inside(p)&&p.attrs['physics:jointEnabled']!==false);
+    const bodyPaths=new Set(all.filter(p=>inside(p)&&apis(p).includes('PhysicsRigidBodyAPI')).map(p=>p.path));
+    for(const j of jointPrims)for(const r of ['physics:body0','physics:body1'])if(j.rels[r]?.[0]&&byPath.has(j.rels[r][0]))bodyPaths.add(j.rels[r][0]);
+    // Links: each body, and the robot itself for shapes that belong to no body. Names stay short where they are unique.
+    const counts=new Map();for(const p of bodyPaths){const nm=p.split('/').pop();counts.set(nm,(counts.get(nm)||0)+1);}
+    const linkName=path=>{const nm=path.split('/').pop();return safe(counts.get(nm)>1?path.slice(1).replace(/\//g,'_'):nm);};
+    const rootName=safe(top?.name||'stage'),links=[{name:rootName,frame:base,visuals:[],collisions:[]}],linkBy=new Map();
+    for(const path of bodyPaths){const L={name:linkName(path),frame:world(byPath.get(path)),visuals:[],collisions:[]};links.push(L);linkBy.set(path,L);}
+    const ownerOf=p=>{for(let x=p;x;x=x.parent)if(bodyPaths.has(x.path))return linkBy.get(x.path);return links[0];};
+    // Shapes: Cube, Sphere, Cylinder, Capsule, Cone and Mesh with their schema defaults. Guides, and shapes under a scope
+    // named for collisions, are collision shapes.
+    const along=a=>a==='X'?M.rot([0,1,0],90):a==='Y'?M.rot([1,0,0],-90):M.I4();
+    for(const p of all){if(!inside(p)||p.attrs.visibility==='invisible')continue;const a=p.attrs;let g=null,local=M.I4();
+      if(p.type==='Cube'){const s=+(a.size??2);g={type:'box',size:[s,s,s]};}
+      else if(p.type==='Sphere')g={type:'sphere',radius:+(a.radius??1)};
+      else if(p.type==='Cylinder'){g={type:'cylinder',radius:+(a.radius??1),length:+(a.height??2)};local=along(a.axis);}
+      else if(p.type==='Capsule'){g={type:'capsule',radius:+(a.radius??.5),length:+(a.height??1)};local=along(a.axis);}
+      else if(p.type==='Cone'){g={type:'cone',radius:+(a.radius??1),length:+(a.height??2)};local=along(a.axis);}
+      else if(p.type==='Mesh'&&Array.isArray(a.points)&&Array.isArray(a.faceVertexIndices)){const sizes=[].concat(a.faceVertexCounts||[]),idx=a.faceVertexIndices,tri=[];let at=0;
+        for(const c of sizes){for(let f=1;f+1<c;f++)tri.push(idx[at],idx[at+f],idx[at+f+1]);at+=c;}g={type:'triangles',positions:a.points.flat().map(Number),indices:tri};}
+      if(!g)continue;const L=ownerOf(p),dc=a['primvars:displayColor'],colour=Array.isArray(dc)?(Array.isArray(dc[0])?dc[0]:dc).map(Number):null;
+      const shape={matrix:relative(L.frame,M.mul(world(p),local)),geometry:g,colour:colour&&colour.length===3?colour:null};
+      let collision=a.purpose==='guide';for(let x=p.parent;x&&!collision;x=x.parent)if(/collision/i.test(x.name))collision=true;(collision?L.collisions:L.visuals).push(shape);}
+    // Joints: the frame is localPos0/localRot0 in body0's frame (no body0: the world), the axis X, Y or Z of that frame.
+    // Revolute limits are degrees, prismatic ones scene units; a low limit above the high one locks the joint.
+    const joints=[],couplings=[],actuators=[];
+    const ordered=[...jointPrims.filter(j=>j.attrs['physics:excludeFromArticulation']!==true),...jointPrims.filter(j=>j.attrs['physics:excludeFromArticulation']===true)];
+    for(const j of ordered){const a=j.attrs,b0=j.rels['physics:body0']?.[0]||null,b1=j.rels['physics:body1']?.[0]||null,name=safe(j.name);
+      if(!b1||!linkBy.has(b1)||b0&&!linkBy.has(b0)){notes.push(`Joint “${name}” has no body to move; it was left out.`);continue;}
+      const frameOn=(b,pos,rot)=>{const W=b?world(byPath.get(b)):base,q=(rot||[1,0,0,0]).map(Number);return M.mul(W,M.mul(M.trans((pos||[0,0,0]).map(Number)),quat(q[0],q[1],q[2],q[3])));};
+      const F=frameOn(b0,a['physics:localPos0'],a['physics:localRot0']),F1=frameOn(b1,a['physics:localPos1'],a['physics:localRot1']),origin=M.apply(F,[0,0,0]);
+      if(j.type!=='PhysicsDistanceJoint'&&j.type!=='PhysicsJoint'&&M.len(M.sub(origin,M.apply(F1,[0,0,0])))>1e-4)notes.push(`Joint “${name}”: its two body frames do not meet in this pose; body0’s is used.`);
+      const axis=M.unit(M.applyDir(F,AX[a['physics:axis']]||[1,0,0])),lo=a['physics:lowerLimit'],hi=a['physics:upperLimit'],limited=finite(lo)&&finite(hi);
+      const at={name,parent:b0?linkBy.get(b0).name:null,child:linkBy.get(b1).name,origin,usd:j.type.replace(/^Physics|Joint$/g,'').toLowerCase()||'generic'};
+      if(j.type==='PhysicsRevoluteJoint'){if(limited&&lo>hi)joints.push({...at,type:'fixed',axis});else joints.push({...at,type:limited?'revolute':'continuous',axis,...(limited?{lower:lo/DEG,upper:hi/DEG}:{})});}
+      else if(j.type==='PhysicsPrismaticJoint'){if(limited&&lo>hi)joints.push({...at,type:'fixed',axis});else joints.push({...at,type:'prismatic',axis,...(limited?{lower:lo*mpu,upper:hi*mpu}:{})});}
+      else if(j.type==='PhysicsSphericalJoint'){const cone=[a['physics:coneAngle0Limit'],a['physics:coneAngle1Limit']].filter(v=>finite(v)&&v>=0),c=cone.length?Math.max(...cone)/DEG:null;
+        joints.push({...at,type:'ball',axis,axis2:M.unit(M.applyDir(F,AX[{X:'Y',Y:'Z',Z:'X'}[a['physics:axis']]||'Y'])),...(c!==null?{limits:[[-c,c],[-c,c],[-c,c]]}:{})});
+        if(c!==null)notes.push(`Spherical joint “${name}” has a cone limit; it is kept as the same limit on each of its three angles.`);}
+      else if(j.type==='PhysicsFixedJoint')joints.push({...at,type:'fixed',axis});
+      else{notes.push(`Joint “${name}” is a ${j.type==='PhysicsDistanceJoint'?'distance':'generic (D6)'} joint, which is not read; it was left out.`);continue;}
+      // Drives: a stiffness holds a target position (a servo); damping alone holds a speed.
+      for(const d of ['angular','linear'])if(apis(j).includes('PhysicsDriveAPI:'+d)){const st=a[`drive:${d}:physics:stiffness`];actuators.push({name:`${name}_drive`,joint:name,kind:st>0?'servo':'dcmotor',mode:st>0?'position':'velocity',gear:1});}
+      // PhysX mimic joints: q + gearing·q_reference + offset = 0 (PxArticulationReducedCoordinate::createMimicJoint).
+      for(const api of apis(j).filter(x=>x.startsWith('PhysxMimicJointAPI:'))){const ax=api.split(':')[1],ref=j.rels[`physxMimicJoint:${ax}:referenceJoint`]?.[0],g=a[`physxMimicJoint:${ax}:gearing`],off=+(a[`physxMimicJoint:${ax}:offset`]||0);
+        if(ref&&byPath.has(ref)&&finite(g)){couplings.push({kind:'mimic',from:safe(byPath.get(ref).name),to:name,ratio:-g,offset:j.type==='PhysicsPrismaticJoint'?-off*mpu:-off/DEG});if(off)notes.push(`Mimic joint “${name}”: its offset is read in degrees (scene units for a slide), USD’s units.`);}}}
+    return tree({format:'usd',name:rootName,links,joints,couplings,actuators,notes});
+  }
   // ---------------------------------------------------------------- from the description
   const unitsOf=type=>K().dofOf({type});
   // The description's joints as DeckKinematics joints (CAD frame in metres), confirmed. A link with several joints
@@ -253,7 +369,7 @@
           ...(j.limits?{limits:j.limits.map((x,i)=>x?lim(x[0],x[1],u[i]):null)}:{}),...(j.type==='screw'?{lead:+(j.lead*IN_PER_M).toPrecision(10)}:{}),
           ...(j.velocity?{speed:+(j.velocity*s).toFixed(3)}:{}),...(finite(j.lockedAt)?{home:[+(j.lockedAt*s).toFixed(4)]}:{}),
           ...(u.length===1&&!coupled.has(j.name)&&!finite(j.lockedAt)?{drive:{signal:'action'}}:{}),source:'metadata',confidence:1,
-          note:`From the ${d.format==='sdf'?'SDFormat':'MJCF'} file: ${j.sdf||j.mj||j.type} joint “${j.name}” (${j.parent||'base'} → ${j.child}).`});parent=id;});
+          note:`From the ${({sdf:'SDFormat',mjcf:'MJCF',usd:'USD'})[d.format]} file: ${j.sdf||j.mj||j.usd||j.type} joint “${j.name}” (${j.parent||'base'} → ${j.child}).`});parent=id;});
       carrier.set(l.name,parent);}
     const jointOf=link=>link?carrier.get(link)??null:null,byId=new Map(joints.map(j=>[j.id,j]));
     const loops=d.loops.map(l=>({a:{joint:jointOf(l.a.link),point:l.a.point},b:{joint:jointOf(l.b.link),point:l.b.point}})).filter(l=>l.a.joint!==l.b.joint);
@@ -284,6 +400,9 @@
         else if(g.type==='capsule'){const c=new T.CapsuleGeometry(g.radius,g.length,8,24);c.rotateX(Math.PI/2);object=make(c);}
         else if(g.type==='sphere')object=make(new T.SphereGeometry(g.radius,24,16));
         else if(g.type==='ellipsoid'){const s=new T.SphereGeometry(1,24,16);s.scale(...g.radii);object=make(s);}
+        else if(g.type==='cone'){const c=new T.ConeGeometry(g.radius,g.length,32);c.rotateX(Math.PI/2);object=make(c);}
+        // A mesh written in the file itself (USD): its points and triangles.
+        else if(g.type==='triangles'){const b=new T.BufferGeometry();b.setAttribute('position',new T.Float32BufferAttribute(g.positions,3));b.setIndex(g.indices);b.computeVertexNormals();object=make(b);}
         else{const read=meshes[resolve(g.filename)];if(!read)continue;object=read.isObject3D?read.clone(true):make(read);object.scale.set(...g.scale);}
         const holder=new T.Group();holder.matrixAutoUpdate=false;holder.matrix.fromArray(v.matrix);holder.add(object);node.add(holder);}}
     group.updateMatrixWorld(true);return {group,missing};
@@ -292,7 +411,8 @@
   const meshFiles=d=>[...new Set(d.links.flatMap(l=>[...l.visuals,...l.collisions]).filter(v=>v.geometry.type==='mesh').map(v=>v.geometry.filename))];
   // Which reader a file needs: by extension, and for .xml by its root element.
   function kindOf(name,text){const ext=String(name).toLowerCase().replace(/^.*\./,'.');if(ext==='.sdf'||ext==='.world')return 'sdf';if(ext==='.mjcf')return 'mjcf';
+    if(ext==='.usda'||ext==='.usd')return String(text||'').startsWith('#usda')?'usd':'usd-binary';if(ext==='.usdc'||ext==='.usdz')return 'usd-binary';
     if(ext==='.xml'){const head=String(text||'').replace(/<\?[\s\S]*?\?>|<!--[\s\S]*?-->/g,'').trimStart();return head.startsWith('<mujoco')?'mjcf':head.startsWith('<sdf')?'sdf':head.startsWith('<robot')?'urdf':null;}return null;}
-  const parse=(kind,text)=>kind==='sdf'?parseSdf(text):parseMjcf(text);
-  return {parse,parseSdf,parseMjcf,parseXml,toKinematics,buildScene,meshFiles,kindOf,IN_PER_M};
+  const parse=(kind,text)=>kind==='sdf'?parseSdf(text):kind==='usd'?parseUsda(text):parseMjcf(text);
+  return {parse,parseSdf,parseMjcf,parseUsda,parseXml,toKinematics,buildScene,meshFiles,kindOf,IN_PER_M};
 });

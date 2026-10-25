@@ -101,7 +101,7 @@ test('MJCF details: radians, eulerseq, xyaxes, zaxis, axisangle, ball limits, fr
 });
 
 test('formats survive saving, and the body nests links as the joints nest them',{skip},()=>{
-  const T=require(threePath);for(const [name,kind] of [['scara.sdf','sdf'],['arm_mjcf.xml','mjcf'],['fourbar_mjcf.xml','mjcf']]){const {d,m}=load(name,kind);assert.deepEqual(K.sanitize(JSON.parse(JSON.stringify(m))),m,`${name} stable`);
+  const T=require(threePath);for(const [name,kind] of [['scara.sdf','sdf'],['arm_mjcf.xml','mjcf'],['fourbar_mjcf.xml','mjcf'],['gripper_arm.usda','usd']]){const {d,m}=load(name,kind);assert.deepEqual(K.sanitize(JSON.parse(JSON.stringify(m))),m,`${name} stable`);
     const {group,missing}=F.buildScene(d,T);group.updateMatrixWorld(true);if(name==='arm_mjcf.xml')assert.deepEqual(missing,['hand: meshes/hand.stl'],'an unread mesh is reported');
     // Every link node's world matrix is the link's frame, and keys match the joints' parts.
     for(const l of d.links){const node=group.getObjectByName(l.name);near(node.matrixWorld.toArray(),l.frame,1e-9,`${name}: ${l.name} placed`);}
@@ -119,4 +119,60 @@ test('the app reads SDFormat and MuJoCo files from disk with their meshes: meshd
   fs.writeFileSync(path.join(root,'models/scara/model.sdf'),read('scara.sdf').replace('<sphere><radius>0.02</radius></sphere>','<mesh><uri>model://scara_parts/meshes/tip.stl</uri></mesh>').replace('<box><size>0.3 0.05 0.05</size></box>','<mesh><uri>model://scara_parts/meshes/arm.dae</uri></mesh>'));
   const s=host.readDescription(path.join(root,'models/scara/model.sdf'));assert.equal(s.kind,'sdf');assert.deepEqual(s.files.map(f=>f.ref),['model://scara_parts/meshes/tip.stl']);assert.deepEqual(s.missing,['model://scara_parts/meshes/arm.dae (not found)']);
   fs.writeFileSync(path.join(root,'page.xml'),'<html/>');assert.throws(()=>host.readDescription(path.join(root,'page.xml')),/not a URDF, SDFormat or MuJoCo robot/);
+});
+
+test('USD arm: bodies placed by transform ops, joint frames on body0, a driven shoulder, a PhysX mimic finger; the table is not the robot',()=>{
+  const {d,m}=load('gripper_arm.usda','usd'),j=n=>byName(m,n);assert.equal(d.name,'arm');
+  assert.ok(!d.links.some(l=>/table|top/.test(l.name)),'only the default prim is read');
+  assert.deepEqual(m.joints.map(x=>x.id).sort(),['camera_mount','elbow','finger_left','finger_right','shoulder']);assert.ok(d.notes.some(n=>/tether.*distance/.test(n)),'the distance joint is said to be unread');
+  near(j('shoulder').origin,[0,0,.1],1e-9);near(j('shoulder').axis,[0,0,1],1e-9);near([j('shoulder').lower,j('shoulder').upper],[-120,120],1e-6,'degrees, as USD writes them');
+  near(j('elbow').origin,[0,.3,.1],1e-6,'0.3 along link1, which rotateXYZ turned to +y');near(j('elbow').axis,[0,0,1],1e-6,'Y of a joint frame turned 90° about x, on a link turned 90° about z');
+  near(j('finger_left').origin,[0,.5,.1],1e-6);assert.equal(j('camera_mount').type,'fixed');assert.equal(j('camera_mount').parent,'elbow');
+  const c=m.couplings.find(x=>x.to==='finger_right');assert.equal(c.from,'finger_left');near([c.ratio,c.offset],[-1,0],1e-12,'q + 1·q_ref = 0: mirrored');
+  assert.deepEqual(m.actuators.map(a=>[a.id,a.kind,a.mode,a.joint]),[['shoulder_drive','servo','position','shoulder']],'a drive with stiffness holds a position');
+  assert.ok(!d.notes.some(n=>/do not meet/.test(n)),'both bodies agree on every joint frame');
+  // Independent: the tip (0, 0.5, 0.1) turned by the elbow about (0, 0.3, 0.1), then by the shoulder about (0, 0, 0.1), both about z.
+  for(const [s,e] of [[30,40],[-90,120]]){const want=about(about([0,.5,.1],[0,.3,.1],[0,0,1],e),[0,0,.1],[0,0,1],s);near(M.apply(K.pose(m,{shoulder:s,elbow:e}).W.get('elbow'),[0,.5,.1]),want,1e-6,`tip at ${s}, ${e}`);}
+  // Shapes: a guide is a collision shape; a scaled cube keeps its scale; the quad mesh is two triangles.
+  const base=d.links.find(l=>l.name==='base_link');assert.equal(base.visuals.length,1);assert.equal(base.collisions.length,1);near(base.visuals[0].colour,[.2,.2,.25],1e-9);
+  const arm=d.links.find(l=>l.name==='link1').visuals[0];near(M.apply(arm.matrix,[.5,0,0]),[.3,0,0],1e-9,'the cube’s far face at 0.3 along the link');
+  assert.deepEqual(d.links.find(l=>l.name==='link2').visuals[0].geometry.indices,[0,1,3,0,3,2]);
+  near(M.applyDir(d.links.find(l=>l.name==='finger_l').visuals[0].matrix,[0,0,1]),[1,0,0],1e-9,'a capsule along X');
+});
+
+test('USD units and up axis: a Y-up stage in centimetres comes in Z up and in metres; binary USD is said to be unread',()=>{
+  const usda=`#usda 1.0
+(
+    upAxis = "Y"
+)
+def Xform "bot" {
+    def Xform "base" (prepend apiSchemas = ["PhysicsRigidBodyAPI"]) {}
+    def Xform "lid" (prepend apiSchemas = ["PhysicsRigidBodyAPI"]) {
+        double3 xformOp:translate = (0, 100, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+    def PhysicsPrismaticJoint "lift" {
+        rel physics:body0 = </bot/base>
+        rel physics:body1 = </bot/lid>
+        point3f physics:localPos0 = (0, 100, 0)
+        uniform token physics:axis = "Y"
+        float physics:lowerLimit = 0
+        float physics:upperLimit = 25.4
+    }
+    def PhysicsRevoluteJoint "locked" {
+        rel physics:body1 = </bot/base>
+        float physics:lowerLimit = 10
+        float physics:upperLimit = -10
+    }
+}`;
+  const d=F.parseUsda(usda),m=K.sanitize(F.toKinematics(d)),lift=byName(m,'lift');
+  assert.ok(d.notes.some(n=>/centimetres/.test(n)),'the missing unit is said');near(lift.origin,[0,0,1],1e-9,'100 cm up Y is 1 m up Z');near(lift.axis,[0,0,1],1e-9);
+  near([lift.lower,lift.upper],[0,10],1e-3,'25.4 cm is 10 in');assert.equal(byName(m,'locked').type,'fixed','a low limit above the high one locks it');
+  assert.equal(F.kindOf('robot.usd','PXR-USDC'),'usd-binary');assert.equal(F.kindOf('robot.usd','#usda 1.0'),'usd');assert.equal(F.kindOf('robot.usdz',''),'usd-binary');
+});
+
+test('the app reads a text USD robot and turns away binary USD with what to do instead',()=>{
+  const os=require('node:os'),{SimulationHost}=require('../src/sim-bridge.cjs'),root=fs.mkdtempSync(path.join(os.tmpdir(),'deck-usd-')),host=new SimulationHost({dataDir:root,emit:()=>{}});
+  fs.writeFileSync(path.join(root,'arm.usda'),read('gripper_arm.usda'));const r=host.readDescription(path.join(root,'arm.usda'));assert.equal(r.kind,'usd');assert.deepEqual(r.files,[]);
+  fs.writeFileSync(path.join(root,'arm.usdc'),'PXR-USDC\u0000\u0000');assert.throws(()=>host.readDescription(path.join(root,'arm.usdc')),/binary USD.*\.usda/);
 });

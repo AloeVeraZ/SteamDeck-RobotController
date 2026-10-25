@@ -54,8 +54,8 @@ class SimulationHost{
     if(size>MODEL_LIMIT)throw Error(`${path.basename(file)} is larger than 200 MB.`);
     if(STEP_TYPES.includes(ext))return {kind:'step',...await this.convertStep(file)};
     if(ext==='.urdf')return this.readUrdf(file);
-    if(['.sdf','.world','.mjcf','.xml'].includes(ext))return this.readDescription(file);
-    if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), URDF (.urdf), SDFormat (.sdf), MuJoCo (.xml), .glb, .gltf, .stl or .obj file.');
+    if(['.sdf','.world','.mjcf','.xml','.usda','.usd','.usdc','.usdz'].includes(ext))return this.readDescription(file);
+    if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), URDF (.urdf), SDFormat (.sdf), MuJoCo (.xml), USD (.usda), .glb, .gltf, .stl or .obj file.');
     return {kind:'mesh',name:path.basename(file),format:MESH_TYPES[ext],bytes:new Uint8Array(fs.readFileSync(file))};
   }
   // A URDF and the mesh files it names.
@@ -63,10 +63,11 @@ class SimulationHost{
     const U=require('../ui/sim-urdf.js'),xml=fs.readFileSync(file,'utf8'),u=U.parse(xml);
     return {kind:'urdf',name:path.basename(file),xml,...this.meshesFor(U.meshFiles(u),path.dirname(file),Buffer.byteLength(xml))};
   }
-  // An SDFormat or MuJoCo robot (an .xml file is told apart by its root element) and the mesh files it names.
+  // An SDFormat, MuJoCo or text USD robot (an .xml file is told apart by its root element) and the mesh files it names.
   readDescription(file){
     const F=require('../ui/sim-robot-formats.js'),xml=fs.readFileSync(file,'utf8'),kind=F.kindOf(file,xml);
     if(kind==='urdf')return this.readUrdf(file);if(!kind)throw Error(`${path.basename(file)} is not a URDF, SDFormat or MuJoCo robot.`);
+    if(kind==='usd-binary')throw Error(`${path.basename(file)} is binary USD, which is not read. Save the stage as text (.usda) and import that.`);
     return {kind,name:path.basename(file),xml,...this.meshesFor(F.meshFiles(F.parse(kind,xml)),path.dirname(file),Buffer.byteLength(xml))};
   }
   // Reads the mesh files a robot file names: package://name/... and model://name/... are looked for in the folders above
@@ -109,7 +110,7 @@ class SimulationHost{
     if(action==='robot-log-open'){const file=await open('Compare with a robot log',[{name:'Robot log',extensions:['wpilog','csv','txt']}],64*1024*1024);return file&&{name:path.basename(file),bytes:new Uint8Array(fs.readFileSync(file))};}
     if(action==='java-open'){const file=await open('Choose a Java autonomous program',[{name:'Java source',extensions:['java']}],SOURCE_LIMIT);return file&&{name:path.basename(file),source:fs.readFileSync(file,'utf8')};}
     // Only picks the file: the window confirms it is the robot's starting position before model-drop reads it.
-    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','urdf','sdf','world','xml','mjcf','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
+    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','urdf','sdf','world','xml','mjcf','usda','usd','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
     // A file dropped on the window: the path comes from Electron's own File-to-path lookup.
     if(action==='model-drop'){const file=typeof data==='string'?data:data?.file;if(typeof file!=='string'||!path.isAbsolute(file)||!fs.existsSync(file))throw Error('That file could not be opened.');return this.readModel(file);}
     if(action==='model-save'){

@@ -1,0 +1,168 @@
+#usda 1.0
+(
+    defaultPrim = "arm"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+# An arm as Isaac Sim writes one: rigid bodies placed by transform ops, UsdPhysics joints whose frames are given on
+# both bodies, an elbow axis named in a turned joint frame, a driven shoulder, mirrored fingers tied by a PhysX mimic
+# joint, a fixed camera, and a distance joint that is not read. A table outside the default prim is not the robot.
+def Xform "arm" (
+    prepend apiSchemas = ["PhysicsArticulationRootAPI"]
+)
+{
+    def Xform "base_link" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        def Cylinder "visual"
+        {
+            uniform token axis = "Z"
+            double radius = 0.08
+            double height = 0.1
+            double3 xformOp:translate = (0, 0, 0.05)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+            color3f[] primvars:displayColor = [(0.2, 0.2, 0.25)]
+        }
+        def Scope "collisions"
+        {
+            def Cube "box"
+            {
+                double size = 0.16
+                uniform token purpose = "guide"
+            }
+        }
+    }
+
+    def Xform "link1" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        double3 xformOp:translate = (0, 0, 0.1)
+        float3 xformOp:rotateXYZ = (0, 0, 90)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+        def Cube "arm"
+        {
+            double size = 1
+            double3 xformOp:translate = (0.15, 0, 0)
+            float3 xformOp:scale = (0.3, 0.04, 0.04)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]
+        }
+    }
+
+    def Xform "link2" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        double3 xformOp:translate = (0, 0.3, 0.1)
+        quatf xformOp:orient = (0.70710678, 0, 0, 0.70710678)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+        def Mesh "plate"
+        {
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 3, 2]
+            point3f[] points = [(0, -0.01, 0), (0.2, -0.01, 0), (0, 0.01, 0), (0.2, 0.01, 0)]
+        }
+    }
+
+    def Xform "finger_l" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        double3 xformOp:translate = (0, 0.5, 0.1)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Capsule "pad" { double radius = 0.005  double height = 0.04  uniform token axis = "X" }
+    }
+
+    def Xform "finger_r" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        double3 xformOp:translate = (0, 0.5, 0.1)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Xform "camera" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI"]
+    )
+    {
+        double3 xformOp:translate = (0, 0.3, 0.15)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+        def Sphere "lens" { double radius = 0.01 }
+    }
+
+    def PhysicsRevoluteJoint "shoulder" (
+        prepend apiSchemas = ["PhysicsDriveAPI:angular"]
+    )
+    {
+        rel physics:body0 = </arm/base_link>
+        rel physics:body1 = </arm/link1>
+        point3f physics:localPos0 = (0, 0, 0.1)
+        quatf physics:localRot0 = (1, 0, 0, 0)
+        point3f physics:localPos1 = (0, 0, 0)
+        quatf physics:localRot1 = (0.70710678, 0, 0, -0.70710678)
+        uniform token physics:axis = "Z"
+        float physics:lowerLimit = -120
+        float physics:upperLimit = 120
+        float drive:angular:physics:stiffness = 1000
+        float drive:angular:physics:damping = 10
+    }
+
+    def PhysicsRevoluteJoint "elbow"
+    {
+        rel physics:body0 = </arm/link1>
+        rel physics:body1 = </arm/link2>
+        point3f physics:localPos0 = (0.3, 0, 0)
+        quatf physics:localRot0 = (0.70710678, 0.70710678, 0, 0)
+        point3f physics:localPos1 = (0, 0, 0)
+        quatf physics:localRot1 = (0.70710678, 0.70710678, 0, 0)
+        uniform token physics:axis = "Y"
+        float physics:lowerLimit = -150
+        float physics:upperLimit = 150
+    }
+
+    def PhysicsRevoluteJoint "finger_left"
+    {
+        rel physics:body0 = </arm/link2>
+        rel physics:body1 = </arm/finger_l>
+        point3f physics:localPos0 = (0.2, 0, 0)
+        quatf physics:localRot0 = (0.70710678, 0, 0, -0.70710678)
+        point3f physics:localPos1 = (0, 0, 0)
+        uniform token physics:axis = "Z"
+        float physics:lowerLimit = 0
+        float physics:upperLimit = 30
+    }
+
+    def PhysicsRevoluteJoint "finger_right" (
+        prepend apiSchemas = ["PhysxMimicJointAPI:rotZ"]
+    )
+    {
+        rel physics:body0 = </arm/link2>
+        rel physics:body1 = </arm/finger_r>
+        point3f physics:localPos0 = (0.2, 0, 0)
+        quatf physics:localRot0 = (0.70710678, 0, 0, -0.70710678)
+        uniform token physics:axis = "Z"
+        rel physxMimicJoint:rotZ:referenceJoint = </arm/finger_left>
+        float physxMimicJoint:rotZ:gearing = 1
+    }
+
+    def PhysicsFixedJoint "camera_mount"
+    {
+        rel physics:body0 = </arm/link2>
+        rel physics:body1 = </arm/camera>
+        point3f physics:localPos0 = (0, 0, 0.05)
+    }
+
+    def PhysicsDistanceJoint "tether"
+    {
+        rel physics:body0 = </arm/base_link>
+        rel physics:body1 = </arm/camera>
+        float physics:maxDistance = 1
+    }
+}
+
+def Xform "table"
+{
+    def Cube "top" { double size = 2 }
+}

@@ -83,7 +83,13 @@ Status key: **Tested** means checked against an independent answer in `tests/`. 
 
   https://mujoco.readthedocs.io/en/stable/XMLreference.html, https://mujoco.readthedocs.io/en/stable/modeling.html
 - **Drake.** `MultibodyPlant::AddCouplerConstraint(joint0, joint1, gear_ratio, offset)` is the same linear coupling. https://drake.mit.edu/doxygen_cxx/classdrake_1_1multibody_1_1_multibody_plant.html
-- **OpenUSD / Isaac Sim.** UsdPhysics defines revolute, prismatic, spherical, distance and fixed joints, with a generic D6 joint as the base. PhysX adds gear and rack-and-pinion joints. These confirm that gears and racks belong beside joints as relations, not as joint types. USD import is not implemented (§6). https://docs.omniverse.nvidia.com/kit/docs/pxr-usd-api/latest/pxr/UsdPhysics.html
+- **OpenUSD / Isaac Sim.** Read from Pixar's `usdPhysics/schema.usda` and `usdGeom/schema.usda`, and from PhysX's `PxArticulationReducedCoordinate.h`.
+  - Joints: UsdPhysics has revolute, prismatic, spherical, distance and fixed joints, on a generic D6 base. A joint's frame is `localPos0`/`localRot0` relative to body0 (an unset body is the world), and `physics:axis` is X, Y or Z of that frame.
+  - Limits: revolute limits are degrees, prismatic limits scene units. A low limit above the high one locks the joint. A spherical cone limit runs from the axis toward the next axes.
+  - Transforms: `xformOpOrder` lists ops outermost first, so [translate, rotateXYZ, scale] scales, then turns about X, Y and Z, then moves. `metersPerUnit` falls back to 0.01, and `upAxis` is Y or Z.
+  - PhysX: a mimic joint enforces qA + gearRatio·qB + offset = 0, and PhysX adds gear and rack-and-pinion joints. Both confirm that gears and racks belong beside joints as relations, not as joint types.
+
+  https://github.com/PixarAnimationStudios/OpenUSD/tree/release/pxr/usd/usdPhysics, https://github.com/NVIDIA-Omniverse/PhysX/blob/main/physx/include/PxArticulationReducedCoordinate.h
 - **Onshape, SolidWorks, Fusion.** Mates map to the joint types: fastened, revolute, slider, cylindrical, pin slot, planar, ball. Mate relations (gear, rack and pinion, screw) map to couplings. STEP exports from these tools do not carry mates, so STEP joints are inferred and labelled as such.
 - **WPILib DCMotor.** R = V/I_stall, Kv = ω_free/(V − R·I_free), Kt = τ_stall/I_stall, giving a linear torque–speed line scaled by voltage. This is the **motor response model**. https://github.wpilib.org/allwpilib/docs/release/cpp/_d_c_motor_8h_source.html
 - **gm0 (FTC).** Continuous rigging extends the last stage first, then the next-to-last, and so on; cascade moves all stages together. https://gm0.org/en/latest/docs/common-mechanisms/linear-motion-guide/rigging.html
@@ -141,7 +147,14 @@ Difficult cases covered:
 - **Springs, dampers and counterweights are not simulated as forces.** A spring-return part is modelled as a position actuator whose released position is where the spring holds it.
 - **Inverse kinematics** reaches positions only (no orientation targets yet) and is not collision-aware.
 - **Loops** are point coincidences. A prismatic or screw joint that closes a loop in a file is kept as one point and noted.
-- **Formats not read:** OpenUSD, Collada meshes (collision shapes are drawn instead), xacro (expand it first), SDFormat `<include>`, MJCF `<include>`, spatial tendons, muscles, flex.
+- **Formats not read:**
+  - binary USD (.usdc, .usdz, binary .usd: save as .usda);
+  - USD composition (references, payloads, variants);
+  - UsdPhysics distance and D6 joints;
+  - Collada meshes (collision shapes are drawn instead);
+  - xacro (expand it first);
+  - SDFormat `<include>` and MJCF `<include>`;
+  - spatial tendons, muscles and flex.
 - **Continuum (soft) robots and snake robots** are approximated by joint chains; continuum bending mechanics is not modelled.
 - **STEP files carry no mates**, so their joints are inferred and always marked "Found" (see `MECHANISM_ENGINE.md`).
 
@@ -197,3 +210,18 @@ Benchmarks (Electron's Node, this laptop), µs per pose:
 | Delta robot, moving | 1446 | 438 |
 
 A driver tick with 30 actuators takes 14 µs; a ticked motor-model timeline takes 0.17 ms.
+
+**Iteration 9.** Concept: OpenUSD, the format Isaac Sim and Omniverse robots come in. Gap: USD was the one structured robot format the brief names that could not be read.
+
+Changes:
+- a text USD (.usda) reader in `sim-robot-formats.js`: prims, transform ops, units and up axis, UsdPhysics joints, shapes and inline meshes, drives as actuators, PhysX mimic joints as couplings;
+- the bridge turns binary USD away and says to save as .usda.
+
+Tests:
+- an Isaac-style arm checked against hand-worked kinematics (joint frames given on both bodies and checked against each other, an axis named in a turned joint frame, a mirrored finger);
+- a Y-up stage in centimetres;
+- locked limits;
+- the body nesting;
+- reading from disk.
+
+Found and fixed: unread joint types (distance, D6) at first held their bodies together; they are now left out, so they cannot lock a linkage that moves.
