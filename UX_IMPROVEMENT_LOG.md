@@ -89,3 +89,62 @@ The 4.5 targets for beginner categories are not yet met. The next iteration is b
 **Files:** `ui/simulation.js` (pinPanel, refreshDiagnostics, run status), `ui/sim-workspace.css`.
 
 **Acceptance:** Electron probe of the example route shows consistent wording in Paths, Diagnostics, Run status and the report. Unit suite unchanged. E2E selectors untouched.
+
+# Pass 2 (24–25 October): Run & review by intent
+
+Committed on `testing`, not pushed. Other sessions worked in this folder throughout. This pass waited for them, built on their commits (`73b54f7` three Run & review tabs, `bd7e618` Record, `bee8ad7` stage rings, `9d5e9ed` 3D preview), and committed only its own hunks. The video-layout session's uncommitted Run-column changes were left in the working tree as that session left them.
+
+## Iterations
+
+| # | Commit | Problem seen (Electron, BIOBUZZ red example) | Change |
+|---|---|---|---|
+| 1 | `a4b782d` | Before a run, Data showed an empty timeline and blank graphs; after a run nothing pointed to the next step. | Data became **Results**: a "Ready to test" card before the first run, the report's next-step row (Fix path N, or Export to your robot, plus See each step), and Run opens Results. Robot-at-this-moment and robot-log compare fold away. |
+| 2 | `f83d421` | The time bar filled the width with 10.5 s of a 30 s period. Leg breakdowns were only in hover tooltips. Clicking a leg hid the whole report (pre-existing bug). | The bar is drawn on the period's scale with spare time and second ticks. The chosen leg (longest by default) shows its breakdown in words and is marked on the field. The report-hiding bug and a stuck replay slider are fixed. |
+| 3 | `1518f78` | Stage tabs said nothing about state. A route that could not run still said "Press Run". | Stage state marks (later turned into rings by `bee8ad7`). A blocked route shows "Fix the route before running it" with Fix path N in Results and the Run column. Route-check text says path/end point instead of pin. |
+| 4 | `632dba2` | Export opened with six format buttons and a 60-word note; Send to robot was below them. | **Put it on your robot**: Send to robot (Guided check folded, opens after a successful build), then the one file to save. Other formats, What Run plays and Save this run fold away. |
+| 5 | `164f706` | Readiness text sat below the live readout (cut off at 800 px). Three period inputs were always shown. | Readiness under Run, controller help and readout scroll, period lengths fold into one line. What Run plays hides when there is no choice. |
+| 6 | `792294b` | Two tips pointed to "Path planning → Paths → Route", which does not exist. | Tips say Route options and carry Open Optimize / Open Space around obstacles, which turns Route options' page on short screens and focuses the setting. |
+| 7 | `5b23306` | "Sensor estimate" was jargon in the report. | "Position tracking: the robot's own estimate was 0.2 in off at the end", with the technical meaning as the label's tooltip. |
+
+A first full-match attempt in iteration 5 moved the controller help under Run too. Review showed it squeezed the readout to ~120 px in full-match mode, so the help went back to the scrolling part before committing.
+
+## Measured: what a user sees by default
+
+Rendered controls (buttons, inputs, selects, summaries) and words, closed folds excluded, 1280×800, before any run. Baseline is `bd7e618` loaded without its physics runtime; with physics, the old Data view also shows empty graphs before a run, so its real count is higher.
+
+| View | `bd7e618` | `5b23306` |
+|---|---|---|
+| Results (was Data) | 5 controls · 124 words | 1 · 43 |
+| Export | 20 · 402 | 10 · 131 |
+| Diagnostics | 2 · 64 | 2 · 68 |
+| Run column | 9 · 49 | 7 · 75 (readiness now in view) |
+
+Navigation (counted from the code paths, not user testing):
+- Seeing the report after a run: one view click if Results was not open → none (Run opens Results).
+- From a clean run to the robot export: Export tab, then scan six formats → Export to your robot → lands on Send to robot / the one file.
+- Fixing a blocked route: Run fails, then find the path in Path planning → Fix path N opens it.
+- Following the Optimize tip: two or three clicks to a place the tip misnamed → one click, focused.
+
+## Where everything is now
+
+- **Results:** run report (verdict, facts, next step, time bar, leg breakdown, tips), Replay the run (timeline, graphs, Choose graphs, summary), Robot at this moment (folded), Compare with a robot log (folded).
+- **Export:** Send to robot (description and Guided check folded), the main file (OnBot Java / MotionModule / timed) with its note, Before you run it on the robot (with the device-name reminder), Other formats and file options (Route Java, .pp, TeamCode, Pedro Pathing 3, keep updated, Java names), What Run plays (route / OnBot export / Java program, steps, Java editor), Save this run (WPILOG, run video).
+- **Diagnostics:** Route checks and Run output, as `73b54f7` left them.
+- **Run column:** clock, mode, Run, speed, Record, status, readiness, controller help, live readout, period lengths (folded).
+
+No element id was removed. No engine, planner, follower, exporter or saved-file change. The BIOBUZZ example still finishes in 10.53 s and Lunala in 9.77 s, as before.
+
+## Verification
+
+- Unit suite: 360/360 at `5b23306` (357/357 before this pass). `tests/sim-report.test.cjs` gained the next-step and tip-link tests.
+- `tests/simulation-ui.cjs` (Electron E2E): 16/16 after iteration 4 (that run overlapped other sessions' edits to the same files), and 16/16 again at `5b23306`, with the video-layout session's uncommitted Run-column changes in the working tree.
+- `tests/robot-setup-app.cjs` (Send to robot + Guided check with the folded check): pass.
+- Electron probes for every iteration, with screenshots: clean run, a blocked route (path 6 moved into a structure), a not-optimized plain route, saved examples (Lunala, dual-red), 1366×768 dark, 1024×640, 1024×600 (Route options paged).
+- Not done: no real students, no touchscreen (tooltips do not appear on touch), no physical Steam Deck or Mac.
+
+## Remaining opportunities
+
+- Setup → Mechanisms shows about 57 controls. Most change simulated results, so folding them needs care; left for a focused pass.
+- The live readout in the Run column and the Results graphs overlap in content.
+- Route-check messages are translated from "pin" for display; the planner's own messages could say path/end point directly, but Run parses the pin number from them.
+- Tooltips (Position tracking, stage reasons) are not reachable by touch.
