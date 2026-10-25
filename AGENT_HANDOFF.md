@@ -84,6 +84,20 @@ Done and committed (`examples/lunala-red-auto.json` plus exports in `examples/lu
 - **`tests/robot-setup-app.cjs`** is the app test for Send to robot and the Guided check (about 1 minute). It uses robot 127.0.0.6, station 127.0.0.7 and CDP port 9337, so it can run beside the other app tests.
 - **The SimTelemetry value limit** was raised to 4000 characters, because a results line is longer than the old 200.
 
+## Mechanism engine (universal)
+
+- **Read these first.** `docs/MECHANISM_ENGINE.md` is the design. `docs/MECHANISM_RESEARCH.md` has the sources, the decisions, the test coverage, the limits, and the iteration log from 7 on.
+- **Actuator values are in joint units.** `ratio` (from `transmission` stages) is used only for motor-model conversion and for encoder counts. A motor's free speed and stall torque are the datasheet figures at the motor shaft; load and inertia are entered at the joint.
+- **`Driver.values()` returns only driven joints.** Pass them to `pose()`, which sets coupled joints and solves loop joints. Giving `pose()` a value for every joint holds loops open.
+- **Robot files:**
+  - `ui/sim-robot-formats.js` reads SDFormat, MJCF and text USD into one description (`links`, `joints`, `loops`, `couplings`, `actuators`, `notes`), then builds the body and the joints. URDF stays in `sim-urdf.js`.
+  - Fixtures: `tests/fixtures/scara.sdf`, `fourbar.sdf`, `arm_mjcf.xml`, `fourbar_mjcf.xml`, `gripper_arm.usda`.
+- **Checking in the app:**
+  - Use Playwright `_electron` with a temporary `DECK_DATA_DIR`.
+  - Choose the empty layout via `#sim-field`. On BIOBUZZ, Moving parts shows only when game mechanisms are on.
+  - Stub `dialog.showOpenDialog`, click `#sim-model-open` then `#sim-start-yes`, and wait for `#sim-model-import-status` to change.
+  - Open the `mechanisms` setup step; the panel host is `#mech-joints`.
+
 ## Next steps
 
 AGENT_BACKLOG.md is in priority order.
