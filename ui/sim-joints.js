@@ -55,7 +55,7 @@
       const n=kept.length+fresh.length;status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${found.report.filter(r=>/stand-in|not set up|no hinge/i.test(r)).join(' ')} Check each one on the model.`:'No moving parts were found. Add one with + Add.');
       return true;
     }
-    // ---- drawing the panel
+    // ---- drawing the panel (a number box gets a slider only when it has a lower bound: angles may be negative)
     const driveOptions=j=>{const m=api.mechanisms(),out=[['none','Nothing: it follows other joints'],['action','Route actions (named positions)']];
       (m.enabled?m.shooters:[]).forEach((s,n)=>{if(s.type==='turret'&&!s.sharesTurret)out.push([`turret:shooter:${n}`,`Turret of shooter ${n+1}`]);out.push([`hood:shooter:${n}`,`Hood of shooter ${n+1}`],[`flywheel:shooter:${n}`,`Flywheel of shooter ${n+1}`]);});
       (m.enabled?m.intakes:[]).forEach((i,n)=>{out.push([`roller:intake:${n}`,`Rollers of intake ${n+1}`]);if(i.kind==='ramp'||i.kind==='kicker')out.push([`deploy:intake:${n}`,`${i.kind==='kicker'?'Kicker':'Ramp'} of intake ${n+1}`]);});
@@ -65,7 +65,7 @@
       // Along an axis the position means nothing, so a level or upright axis leaves that coordinate out.
       const big=a.map(Math.abs),k=big.indexOf(Math.max(...big)),straight=big[k]>.97,along=straight?['front–back','left–right','up–down'][k]:`(${a.map(v=>fix(v,2)).join(', ')})`;
       return `Pivot ${o.map(part).filter((_,i)=>!straight||i!==k).join(', ')} of the robot’s centre · axis ${along}`;};
-    const num=(f,v,{min='',max='',step='any',label,unit:u=''}={})=>`<div><label>${label}${u?' · '+u:''}<input type="number" data-f="${f}" value="${esc(finite(v)?fix(v,2):'')}" min="${min}" max="${max}" step="${step}"></label></div>`;
+    const num=(f,v,{min='',max='',step='any',label,unit:u='',slider=true}={})=>`<div><label>${label}${u?' · '+u:''}<input type="number"${slider&&min!==''?'':' data-slider="off"'} data-f="${f}" value="${esc(finite(v)?fix(v,2):'')}" min="${min}" max="${max}" step="${step}"></label></div>`;
     function body(j){
       const d=j.drive?.signal,n=+String(j.drive?.of||'').split(':')[1]||0,m=api.mechanisms(),intake=d==='deploy'?m.intakes[n]:null,[lv]=level(j),parts=leavesOf(j).size;
       const others=joints().filter(x=>x.id!==j.id);let roleBits='';
@@ -80,7 +80,7 @@
       else if(d==='roller'||d==='feeder')roleBits=`<div class="start-xy">${num('rpm',j.rpm??(d==='roller'?300:200),{label:'Spins at',unit:'rpm',min:1,max:60000})}</div>`;
       else if(d==='wheel')roleBits='<p class="hint">Turns as the robot drives, rolling on the floor.</p>';
       else if(d==='action'||!d){const st=Object.entries(j.states||{});
-        roleBits=`<span class="sim-mech-label">Named positions</span>${st.map(([k,v])=>`<div class="sim-joint-state"><input aria-label="Position name" data-state-name="${esc(k)}" value="${esc(k)}"><input type="number" aria-label="${esc(k)} value" data-state-value="${esc(k)}" value="${fix(v,2)}" step="any"><button type="button" class="secondary" data-j="show" data-v="${esc(k)}">Show</button><button type="button" class="icon-button" data-j="unstate" data-v="${esc(k)}" aria-label="Remove ${esc(k)}">×</button></div>`).join('')}
+        roleBits=`<span class="sim-mech-label">Named positions</span>${st.map(([k,v])=>`<div class="sim-joint-state"><input aria-label="Position name" data-state-name="${esc(k)}" value="${esc(k)}"><input type="number" data-slider="off" aria-label="${esc(k)} value" data-state-value="${esc(k)}" value="${fix(v,2)}" step="any"><button type="button" class="secondary" data-j="show" data-v="${esc(k)}">Show</button><button type="button" class="icon-button" data-j="unstate" data-v="${esc(k)}" aria-label="Remove ${esc(k)}">×</button></div>`).join('')}
           <button type="button" class="secondary" data-j="state">+ Position</button>${j.type==='revolute'||j.type==='prismatic'?`<div class="start-xy">${num('lower',j.lower,{label:'Lowest',unit:j.type==='prismatic'?'in':'°'})}${num('upper',j.upper,{label:'Highest',unit:j.type==='prismatic'?'in':'°'})}</div>`:''}
           ${num('speed',j.speed??90,{label:'Moves at',unit:j.type==='prismatic'?'in/s':'°/s',min:.01})}<p class="hint">A route action with this joint’s name and a position (for example “${esc(j.name)} ${esc(st[0]?.[0]||'up')}”) moves it there.</p>`;}
       const range=j.type==='prismatic'?[j.lower??-6,j.upper??6]:j.type==='revolute'?[j.lower??-180,j.upper??180]:[-180,180],dof=K().dofOf(j).length;
@@ -99,12 +99,39 @@
         <span class="sim-mech-label">Parts</span><p class="hint">Moves ${parts} part${parts===1?'':'s'}${j.parent?` and rides on ${esc(joints().find(x=>x.id===j.parent)?.name||j.parent)}`:''}.</p>
         <div class="sim-joint-buttons"><button type="button" class="secondary" data-j="parts" aria-pressed="${mode?.kind==='parts'&&mode.joint===j.id}">${mode?.kind==='parts'&&mode.joint===j.id?'Click parts to add or remove · Done':'Choose parts'}</button>
           <label class="sim-joint-parent">Rides on<select data-f="parent"><option value="">The robot</option>${others.map(x=>`<option value="${esc(x.id)}"${x.id===j.parent?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>
+        ${links(j)}
         <details class="sim-mech-code"><summary>Exact pivot</summary><p class="hint">Robot inches: x forward, y left, z up from the robot’s centre on the floor.</p>
-          <div class="sim-grid3">${toRobot(j.origin).map((v,i)=>num('origin:'+i,v,{label:'Pivot '+'xyz'[i],unit:'in'})).join('')}</div>
-          <div class="sim-grid3">${dirToRobot(j.axis).map((v,i)=>num('axis:'+i,v,{label:'Axis '+'xyz'[i],step:'any'})).join('')}</div>
+          <div class="sim-grid3">${toRobot(j.origin).map((v,i)=>num('origin:'+i,v,{label:'Pivot '+'xyz'[i],unit:'in',slider:false})).join('')}</div>
+          <div class="sim-grid3">${dirToRobot(j.axis).map((v,i)=>num('axis:'+i,v,{label:'Axis '+'xyz'[i],step:'any',slider:false})).join('')}</div>
           <label>Name<input data-f="name" maxlength="80" value="${esc(j.name)}"></label>
           <button type="button" class="secondary sim-joint-remove" data-j="remove">Remove this moving part</button></details>
       </div>`;
+    }
+    // Moving with other parts: following one by a ratio (gears, belts, a mirrored finger, a cascade stage), or pinned to
+    // one at a shared pin, closing a loop (a four-bar's coupler and rocker), the free joints being solved to keep it shut.
+    function links(j){
+      const k=kin(),one=K().dofOf(j).length===1,others=joints().filter(x=>x.id!==j.id&&K().dofOf(x).length===1),c=k.couplings.find(x=>x.to===j.id),loops=k.loops.map((l,i)=>({l,i})).filter(({l})=>l.a.joint===j.id||l.b.joint===j.id),open=c||loops.length;
+      const pin=mode?.kind==='loop'&&mode.joint===j.id;
+      return `<details class="sim-mech-code"${open?' open':''}><summary>Linked to other parts</summary>
+        ${one?`<div class="start-xy"><div><label>Follows<select data-link="from"><option value="">Nothing</option>${others.map(x=>`<option value="${esc(x.id)}"${c?.from===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>${c?num('link:ratio',c.ratio,{label:'Times',slider:false})+num('link:offset',c.offset,{label:'Plus',slider:false}):''}</div>
+        <p class="hint">Its ${j.type==='prismatic'?'travel':'angle'} is the other part’s times this: −1 mirrors it, a gear pair is minus the tooth ratio, a belt plus the pulley ratio, a cascade stage 1.</p>`:''}
+        ${loops.map(({l,i})=>{const other=l.a.joint===j.id?l.b.joint:l.a.joint;return `<p class="hint">Pinned to ${esc(other?joints().find(x=>x.id===other)?.name||other:'the robot')} at a shared pin. <button type="button" class="text-button" data-j="unloop" data-v="${i}">Remove</button></p>`;}).join('')}
+        <div class="sim-joint-buttons"><label class="sim-joint-parent">Pin it to<select data-loop-other><option value="">The robot</option>${joints().filter(x=>x.id!==j.id).map(x=>`<option value="${esc(x.id)}"${pin&&mode.other===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+          <button type="button" class="secondary" data-j="loop" aria-pressed="${pin}">${pin?'Click the shared pin on the model…':'Pick the shared pin'}</button></div>
+        ${loops.length?'<p class="hint">Set Driven by to Nothing on the parts the loop moves; they are worked out to keep it closed.</p>':''}</details>`;
+    }
+    // Saved actions: steps that move parts together, one after another or after a wait. A route action with the name runs it.
+    function actionsSection(){
+      const k=kin(),movers=[...k.joints.filter(j=>j.drive?.signal==='action'&&K().dofOf(j).length===1).map(j=>({id:j.id,name:j.name,states:Object.keys(j.states||{})})),...k.actuators.map(a=>({id:a.id,name:a.name,states:Object.keys(a.states||{})}))];
+      if(!movers.length)return '';
+      return `<div class="sim-joint-actions"><div class="sim-joints-head"><h4>Actions</h4><button type="button" class="secondary" data-j="action-add">+ Action</button></div>
+        <p class="hint">Steps that move parts together, one after another or after a wait. A route action with the action’s name runs it; at a pin the robot waits until it is done.</p>
+        ${k.actions.map((a,i)=>`<section class="sim-joint-action" data-action="${i}"><div class="sim-joint-action-head"><input aria-label="Action name" data-act="name" maxlength="40" value="${esc(a.name)}"><button type="button" class="secondary" data-j="action-play">Play</button><button type="button" class="icon-button" data-j="action-remove" aria-label="Remove ${esc(a.name)}">×</button></div>
+          <ol>${a.steps.map((st,n)=>{const mv=movers.find(x=>x.id===st.actuator);return `<li data-step="${n}"><select aria-label="Part" data-step-f="actuator">${movers.map(x=>`<option value="${esc(x.id)}"${x.id===st.actuator?' selected':''}>${esc(x.name)}</option>`).join('')}</select>
+            <select aria-label="Position" data-step-f="state">${(mv?.states||[]).map(x=>`<option${x===st.command.state?' selected':''}>${esc(x)}</option>`).join('')}</select>
+            <select aria-label="Starts" data-step-f="after"><option value="">at the start</option>${a.steps.slice(0,n).map((_,m)=>`<option value="${m}"${st.after===m?' selected':''}>after step ${m+1}</option>`).join('')}</select>
+            <label>+<input type="number" data-slider="off" aria-label="Wait first, seconds" data-step-f="delay" min="0" max="60" step="any" value="${fix(st.delay,2)}"> s</label><button type="button" class="icon-button" data-j="step-remove" aria-label="Remove step ${n+1}">×</button></li>`;}).join('')}</ol>
+          <button type="button" class="secondary" data-j="step-add">+ Step</button></section>`).join('')}</div>`;
     }
     function render(){
       const k=kin(),m=meta(),cadOk=!!arrays()&&!!m?.id,list=k.model===m?.id?k.joints:[];
@@ -113,7 +140,7 @@
       host.hidden=!cadOk&&!list.length;
       host.innerHTML=`<div class="sim-joints-head"><h3>Moving parts</h3><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="find">${list.length?'Find again':'Find moving parts'}</button><button type="button" class="secondary" data-j="add">+ Add</button>${list.length?`<button type="button" class="secondary" data-j="demo" aria-pressed="${!!demo}">${demo?'Stop':'Play'}</button>`:''}</div></div>
         <p class="hint sim-joints-status" role="status"></p>
-        ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id;return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}`;
+        ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id;return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}${list.length?actionsSection():''}`;
       // Colours go in through the style object (the page allows no inline style attributes).
       for(const dot of host.querySelectorAll("[data-color]"))dot.style.background=dot.dataset.color;
       highlight();gizmos();
@@ -140,6 +167,8 @@
         else if(mode.kind==='points'){const p=fromRobot([hit.x,hit.y,hit.z]);if(!mode.first){mode.first=p;status('Now click a second point along the same axis.');render();return;}
           const a=math().sub(p,mode.first);if(math().len(a)<1e-3)return status('Pick a point further from the first.');const first=mode.first,id=j.id;mode=null;
           change(id,x=>{x.origin=first;x.axis=orient(x,math().unit(a),first);x.note='Pivot set from two points on the model.';delete x.alternatives;});status('Pivot set through the two points.');}
+        else if(mode.kind==='loop'){const p=fromRobot([hit.x,hit.y,hit.z]),other=mode.other||null,id=j.id;mode=null;const next=structuredClone(kin());next.loops.push({a:{joint:id,point:p},b:{joint:other,point:p}});api.commit(next);
+          status(`Pinned at that point. ${joints().find(x=>x.id===other)?.name||'The robot'} and ${j.name} now stay joined there.`);}
         else if(mode.kind==='parts'){const c=ctx();if(!c||!Number.isFinite(hit.part))return;const leaf=Math.round(hit.part),set=leavesOf(j),name=c.parts.name(leaf);
           // Shift-click takes the whole assembly the part sits in.
           const group=hit.shift?[...c.parts.leavesUnder(c.parts.nodes[c.tree.leaf[leaf]])]:[leaf],adding=!set.has(leaf);for(const k of group)adding?set.add(k):set.delete(k);
@@ -152,6 +181,12 @@
       if(j.drive?.signal==='deploy'){const c=centroid(j);if(c){const t=M.apply(M.about(origin,axis,10),c);if(M.dot(t,u)>M.dot(c,u))return M.scale(axis,-1);}}
       return axis;}
     function centroid(j){const c=ctx();if(!c)return null;let A=0;const s=[0,0,0];for(const k of leavesOf(j)){const f=D().feature(c,k);if(!f)continue;A+=f.area;for(let i=0;i<3;i++)s[i]+=f.area*f.center[i];}return A?s.map(v=>v/A):null;}
+    // Plays a saved action on the preview, along its timeline.
+    function playAction(i){
+      const k=kin(),a=k.actions[i];if(!a)return;if(demo){cancelAnimationFrame(demo);demo=0;}const tl=K().timeline(k,a),t0=performance.now();
+      const step=now=>{const t=(now-t0)/1000,v=K().sampleTimeline(k,tl,Math.min(t,tl.duration)),out={...values};for(const [id,x] of Object.entries(v)){const act=k.actuators.find(y=>y.id===id);out[act?act.joint:id]=act?x/act.ratio:x;}
+        values=out;showPose();if(t<tl.duration+.4)demo=requestAnimationFrame(step);else demo=0;};demo=requestAnimationFrame(step);status(`Playing “${a.name}” (${fix(tl.duration,2)} s).`);
+    }
     // ---- the demo: every joint through its motion in a loop
     function play(){
       if(demo){cancelAnimationFrame(demo);demo=0;values={};showPose();render();return;}
@@ -166,6 +201,13 @@
     host.addEventListener('click',e=>{
       const b=e.target.closest('[data-j]');if(!b)return;const what=b.dataset.j,li=b.closest('[data-id]'),id=li?.dataset.id,j=joints().find(x=>x.id===id);
       if(what==='find'){discover();return;}
+      const ai=+b.closest('[data-action]')?.dataset.action;
+      if(what==='action-add'){const next=structuredClone(kin()),first=next.joints.find(x=>x.drive?.signal==='action'&&Object.keys(x.states||{}).length)||next.actuators[0];if(!first)return;
+        let name='Action '+(next.actions.length+1);next.actions.push({name,steps:[{actuator:first.id,command:{state:Object.keys(first.states||{})[0]||''}}]});api.commit(next);return;}
+      if(what==='action-remove'){const next=structuredClone(kin());next.actions.splice(ai,1);api.commit(next);return;}
+      if(what==='action-play'){playAction(ai);return;}
+      if(what==='step-add'){const next=structuredClone(kin()),a=next.actions[ai],last=a.steps.at(-1);a.steps.push({...structuredClone(last),after:a.steps.length-1,delay:0});api.commit(next);return;}
+      if(what==='step-remove'){const next=structuredClone(kin()),a=next.actions[ai],n=+b.closest('[data-step]').dataset.step;a.steps.splice(n,1);for(const st of a.steps)if(st.after!==null&&st.after>=n)st.after=st.after>n?st.after-1:null;if(!a.steps.length)next.actions.splice(ai,1);api.commit(next);return;}
       if(what==='demo'){play();return;}
       if(what==='add'){const next=structuredClone(kin()),m=meta(),n=next.joints.length+1;let id2='joint'+n;while(next.joints.some(x=>x.id===id2))id2+='b';
         const c=ctx(),center=c?[(c.lo[0]+c.hi[0])/2,(c.lo[1]+c.hi[1])/2,(c.lo[2]+c.hi[2])/2]:[0,0,0];
@@ -184,10 +226,21 @@
       if(what==='alt'){const a=j.alternatives?.[+b.dataset.v];if(a)change(id,x=>{x.origin=a.origin;x.axis=a.axis;x.note=a.note;x.alternatives=(j.alternatives||[]).filter((_,i)=>i!==+b.dataset.v).concat([{origin:j.origin,axis:j.axis,note:'The pivot it had before'}]);});return;}
       if(what==='state'){change(id,x=>{const s=x.states||{};let name='position '+(Object.keys(s).length+1);s[name]=0;x.states=s;});return;}
       if(what==='unstate'){change(id,x=>{delete x.states[b.dataset.v];});return;}
+      if(what==='loop'){const other=li.querySelector('[data-loop-other]')?.value||'';mode=mode?.kind==='loop'&&mode.joint===id?null:{kind:'loop',joint:id,other};status(mode?'Click the pin the two parts share on the model.':'');api.refreshPicker();render();return;}
+      if(what==='unloop'){const next=structuredClone(kin());next.loops.splice(+b.dataset.v,1);api.commit(next);return;}
       if(what==='remove'){const next=structuredClone(kin());next.joints=next.joints.filter(x=>x.id!==id);for(const x of next.joints)if(x.parent===id)x.parent=null;open=null;mode=null;api.commit(next);return;}
     });
     host.addEventListener('change',e=>{
-      const el=e.target,li=el.closest('[data-id]'),id=li?.dataset.id,j=joints().find(x=>x.id===id);if(!j)return;const f=el.dataset.f;
+      const el=e.target,act=el.closest('[data-action]');
+      if(act&&!el.closest('[data-id]')){const i=+act.dataset.action,next=structuredClone(kin()),a=next.actions[i];if(!a)return;
+        if(el.dataset.act==='name'){const name=el.value.trim();if(name)a.name=name;}
+        else{const st=a.steps[+el.closest('[data-step]').dataset.step],f2=el.dataset.stepF;
+          if(f2==='actuator'){st.actuator=el.value;const mv=next.joints.find(x=>x.id===el.value)||next.actuators.find(x=>x.id===el.value);st.command={state:Object.keys(mv?.states||{})[0]||''};}
+          else if(f2==='state')st.command={state:el.value};else if(f2==='after')st.after=el.value===''?null:+el.value;else if(f2==='delay'&&finite(el.valueAsNumber))st.delay=el.valueAsNumber;}
+        api.commit(next);return;}
+      const li=el.closest('[data-id]'),id=li?.dataset.id,j=joints().find(x=>x.id===id);if(!j)return;const f=el.dataset.f;
+      if(el.dataset.link==='from'){const next=structuredClone(kin());next.couplings=next.couplings.filter(c=>c.to!==id);if(el.value)next.couplings.push({kind:'mimic',from:el.value,to:id,ratio:1,offset:0});api.commit(next);return;}
+      if(el.matches('[data-loop-other]')){if(mode?.kind==='loop'&&mode.joint===id)mode.other=el.value;return;}
       if(el.dataset.stateName!==undefined){const old=el.dataset.stateName,name=el.value.trim().slice(0,24);if(!name||name===old)return;change(id,x=>{const v=x.states[old];delete x.states[old];x.states[name]=v;});return;}
       if(el.dataset.stateValue!==undefined){if(finite(el.valueAsNumber))change(id,x=>{x.states[el.dataset.stateValue]=el.valueAsNumber;});return;}
       if(!f)return;const v=el.type==='number'?el.valueAsNumber:el.value;
@@ -197,6 +250,7 @@
       if(f==='drive')return change(id,x=>{if(v==='none')delete x.drive;else{const [signal,...of]=v.split(':');x.drive={signal,...(of.length?{of:of.join(':')}:{})};}if(x.drive?.signal==='turret')x.axis=orient(x,x.axis,x.origin);});
       if(!finite(v))return;
       if(f.startsWith('state:'))return change(id,x=>{x.states={...x.states,[f.slice(6)]:v};});
+      if(f.startsWith('link:')){const next=structuredClone(kin()),c=next.couplings.find(x=>x.to===id);if(c){c[f.slice(5)]=v;api.commit(next);}return;}
       if(f.startsWith('intake:')){const n=+String(j.drive?.of||'').split(':')[1]||0;api.setIntake(n,{[f.slice(7)]:v});return;}
       if(f.startsWith('origin:')){const o=toRobot(j.origin);o[+f.slice(7)]=v;return change(id,x=>{x.origin=fromRobot(o);});}
       if(f.startsWith('axis:')){const a=dirToRobot(j.axis);a[+f.slice(5)]=v;if(math().len(a)<1e-6)return;return change(id,x=>{x.axis=dirFromRobot(math().unit(a));});}

@@ -911,8 +911,10 @@ public class MyAuto implements DeckAutonomous {
     'Spin up':'Starts the flywheel early, so a later Shoot fires right away. It keeps spinning until that Shoot.',
     Aim:'Turns the turret to point at the hive, so a later Shoot does not wait for it.'};
   const gameActions=()=>{if(L().field!=='biobuzz')return [];const m=project.mechanisms;return ['Intake','Shoot','Spin up',...(!m.enabled||MECH.hasTurret(m)?['Aim']:[])];};
+  // The moving parts' own actions (Setup → Moving parts): saved actions, and each part routed by actions to each of its positions.
+  const partActions=()=>{const k=project.kinematics,out=[...k.actions.map(a=>a.name)];for(const j of k.joints)if(j.drive?.signal==='action')for(const st of Object.keys(j.states||{}))out.push(`${j.name} ${st}`);return [...new Set(out)].slice(0,16);};
   function actionPicker(where){
-    return `<div class="sim-chips sim-action-chips" role="group" aria-label="Action">${['None',...gameActions(),'Other…'].map(a=>`<button type="button" class="sim-chip" data-pick-action="${a}" aria-pressed="false">${a}</button>`).join('')}</div>
+    return `<div class="sim-chips sim-action-chips" role="group" aria-label="Action">${['None',...gameActions(),...partActions(),'Other…'].map(a=>`<button type="button" class="sim-chip" data-pick-action="${a}" aria-pressed="false">${a}</button>`).join('')}</div>
       <div data-custom hidden><label for="eff-${where}-action">Action name</label><input id="eff-${where}-action" maxlength="40" placeholder="e.g. Raise lift" autocomplete="off"></div>
       <div data-for hidden><span class="sim-pop-label">How long</span><div class="sim-chips"><button type="button" class="sim-chip" data-for-mode="all" aria-pressed="false">${where==='path'?'Whole path':'Until done'}</button><button type="button" class="sim-chip" data-for-mode="time" aria-pressed="false">For a set time</button></div>
         <div data-for-time hidden><label for="eff-${where}-for">Seconds${where==='path'?' from the start of the path':''}</label><input id="eff-${where}-for" type="number" min="0.05" max="30" step="any" data-slider-max="5" data-slider-step="0.05"></div></div>
@@ -922,10 +924,10 @@ public class MyAuto implements DeckAutonomous {
   }
   // Wires a picker to the pin (or path) draft: subject.action and subject.actionSeconds.
   function wireActionPicker(q,where,subject,commit){
-    const name=q(`#eff-${where}-action`),secs=q(`#eff-${where}-for`),known=a=>gameActions().some(g=>g.toLowerCase()===String(a).trim().toLowerCase());
+    const name=q(`#eff-${where}-action`),secs=q(`#eff-${where}-for`),known=a=>[...gameActions(),...partActions()].some(g=>g.toLowerCase()===String(a).trim().toLowerCase());
     let custom=!!subject.action&&!known(subject.action);
-    const render=()=>{const a=subject.action||'',k=gameActions().find(g=>g.toLowerCase()===a.toLowerCase());
-      for(const b of q('.sim-action-chips').children)b.setAttribute('aria-pressed',String(b.dataset.pickAction==='None'?!a&&!custom:b.dataset.pickAction==='Other…'?custom:b.dataset.pickAction===k&&!custom));
+    const render=()=>{const a=subject.action||'',k=gameActions().find(g=>g.toLowerCase()===a.toLowerCase()),part=partActions().find(g=>g.toLowerCase()===a.toLowerCase());
+      for(const b of q('.sim-action-chips').children)b.setAttribute('aria-pressed',String(b.dataset.pickAction==='None'?!a&&!custom:b.dataset.pickAction==='Other…'?custom:b.dataset.pickAction===(k||part)&&!custom));
       q('[data-custom]').hidden=!custom;if(document.activeElement!==name)name.value=custom?a:'';
       // Intake needs a time at a pin; Spin up and Aim are quick. Anything else may run for a time.
       const timed=!!a&&!(k==='Spin up'||k==='Aim'),needsTime=where==='pin'&&k==='Intake';q('[data-for]').hidden=!timed;
@@ -934,7 +936,7 @@ public class MyAuto implements DeckAutonomous {
       q('[data-for-mode=all]').setAttribute('aria-pressed',String(!hasTime));q('[data-for-mode=time]').setAttribute('aria-pressed',String(hasTime));q('[data-for-time]').hidden=!hasTime;
       if(hasTime&&document.activeElement!==secs){secs.value=subject.actionSeconds;window.DeckNumberSliders?.sync(secs);}
       const mech=project.mechanisms.enabled?'':' Set up mechanisms (Setup → 3) to run it in the simulator and the exported code.';
-      q('[data-action-hint]').textContent=!a?(where==='path'?'The robot just drives.':'The robot drives on after the pause.'):k?ACTION_INFO[k]+(k==='Intake'||k==='Shoot'?mech:''):'Your own action: the export adds an empty method with this name for your mechanism code.';};
+      q('[data-action-hint]').textContent=!a?(where==='path'?'The robot just drives.':'The robot drives on after the pause.'):k?ACTION_INFO[k]+(k==='Intake'||k==='Shoot'?mech:''):part?`Moves your robot’s parts as set in Setup → ${L().field==='biobuzz'?'Mechanisms':'Moving parts'}; at a pin the robot waits until they arrive. The export adds an empty method with this name for your mechanism code.`:'Your own action: the export adds an empty method with this name for your mechanism code.';};
     q('.sim-action-chips').onclick=e=>{const b=e.target.closest('[data-pick-action]');if(!b)return;const pick=b.dataset.pickAction;
       custom=pick==='Other…';subject.action=pick==='None'?'':custom?(known(subject.action)?'':subject.action):pick;
       if(where==='path')subject.kind=subject.action||custom?'action':'regular';

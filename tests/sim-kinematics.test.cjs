@@ -112,3 +112,10 @@ test('a route action naming a part and one of its positions moves it there, busy
   const d=new K.Driver(m);assert.equal(d.start('lift UP'),true,'joint name and position, any case');assert.equal(d.start('Lift sideways'),false,'not one of its positions');assert.equal(d.start('Shoot'),false);
   let t=0;while(d.busy('Lift up')&&t<10){d.tick(.01,{});t+=.01;}near(t,2,.02,'12 in at 6 in/s');near(d.values().lift,12,1e-9);
 });
+test('an action can name parts directly: lift up, then open the claw a quarter second later; route actions run it',()=>{
+  const m=model({joints:[{id:'lift',name:'Lift',type:'prismatic',axis:[0,0,1],lower:0,upper:20,states:{down:0,up:12},speed:6,drive:{signal:'action'}},{id:'claw',name:'Claw',type:'revolute',axis:[1,0,0],states:{closed:0,open:40},speed:160,drive:{signal:'action'}}],
+    actions:[{name:'Score',steps:[{actuator:'lift',command:{state:'up'}},{actuator:'claw',command:{state:'open'},after:0,delay:.25}]}]});
+  assert.equal(m.actions[0].steps.length,2,'part steps are kept');const tl=K.timeline(m,m.actions[0]);near([tl.steps[0].end,tl.steps[1].start,tl.duration],[2,2.25,2.5],1e-9);
+  const d=new K.Driver(m);assert.equal(d.start('score'),true);let t=0;while(d.busy('Score')&&t<10){d.tick(.01,{});t+=.01;}near(t,2.5,.03);near([d.values().lift,d.values().claw],[12,40],1e-9);
+  near(K.sampleTimeline(m,tl,1).lift,6,1e-9,'half way up at 1 s');
+});

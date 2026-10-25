@@ -122,7 +122,8 @@
     const driven=new Set(),kept=[];for(const c of couplings){const key=c.to+':'+(c.toIndex||0);if(driven.has(key))continue;driven.add(key);kept.push(c);}
     const end=e=>e&&vec(e.point)&&(e.joint===null||e.joint===undefined||jointRef(e.joint))?{joint:jointRef(e.joint),point:vec(e.point)}:null;
     const loops=(Array.isArray(r.loops)?r.loops:[]).slice(0,24).map(l=>{const a=end(l?.a),b=end(l?.b);return a&&b&&a.joint!==b.joint?{a,b}:null;}).filter(Boolean);
-    const actions=(Array.isArray(r.actions)?r.actions:[]).slice(0,48).map(sanitizeAction(new Set(actuators.map(a=>a.id)))).filter(Boolean);
+    const movable=new Set([...actuators.map(a=>a.id),...joints.filter(j=>j.drive?.signal==='action'&&dofOf(j).length===1).map(j=>j.id)]);
+    const actions=(Array.isArray(r.actions)?r.actions:[]).slice(0,48).map(sanitizeAction(movable)).filter(Boolean);
     const out={version:1,model:typeof r.model==='string'&&/^[0-9a-f]{32}\.glb$|^builtin:[a-z]+$/.test(r.model)?r.model:null,unit:num(r.unit,1,1e-6,1e6),joints,actuators,couplings:kept,loops,actions};
     if(r.discovered===true)out.discovered=true;return out;
   }
@@ -136,6 +137,9 @@
       steps.push({actuator:s.actuator,command,after:Number.isInteger(s.after)&&s.after>=0&&s.after<steps.length?s.after:null,delay:num(s.delay,0,0,600),...(finite(s.seconds)?{seconds:clamp(s.seconds,0,600)}:{})});}
     return steps.length?{name:text(raw.name,40),steps}:null;};
   const EMPTY=()=>sanitize({});
+  // What an action step moves: an actuator, or a part moved by route actions (its own speed and named positions).
+  function mover(model,id){const a=model.actuators.find(x=>x.id===id);if(a)return {...a,home:finite(a.home)?a.home:valuesOf(model.joints.find(x=>x.id===a.joint),model.joints.find(x=>x.id===a.joint)?.home||0)[a.index]??0};
+    const j=model.joints.find(x=>x.id===id);return j?{id,speed:j.speed||90,accel:0,states:j.states||{},home:valuesOf(j,j.home||0)[0]??0,joint:id}:null;}
   // ---------------------------------------------------------------- part refs against the CAD's assembly tree
   // tree: the stored body's parts ({nodes:[{name,parent}], leaf:[node index of each leaf]}).
   function partIndex(tree){
@@ -281,10 +285,10 @@
       const steps=r.action.steps;
       steps.forEach((s,i)=>{const st=r.steps[i];
         if(st.start===null){const ready=s.after===null?r.t0:r.steps[s.after].end;if(ready!==null&&this.time>=ready+s.delay-1e-9){st.start=this.time;this.command(s.actuator,s.command);}}
-        if(st.start!==null&&st.end===null){const axis=this.axes.get(s.actuator);if(!axis){st.end=this.time;return;}
+        if(st.start!==null&&st.end===null){const axis=this.axes.get(s.actuator)||this.axes.get('joint:'+s.actuator);if(!axis){st.end=this.time;return;}
           const timed=finite(s.seconds)||axis.velocity!==null;if(timed?this.time-st.start>=(s.seconds??0)-1e-9:axis.done){st.end=this.time;if(axis.velocity!==null&&finite(s.seconds))axis.spin(0);}}});
     }
-    command(id,c){const a=this.model.actuators.find(x=>x.id===id),axis=this.axes.get(id);if(!a||!axis)return;
+    command(id,c){const a=mover(this.model,id),axis=this.axes.get(id)||this.axes.get('joint:'+id);if(!a||!axis)return;
       if(c.state!==undefined){const v=a.states?.[c.state];if(finite(v))axis.to(v);}else if(finite(c.target))axis.to(c.target);else if(finite(c.velocity))axis.spin(c.velocity);else if(finite(c.effort))axis.spin(c.effort*a.speed);}
     values(){const out={};for(const [k,v] of Object.entries(this.q))out[k]=Array.isArray(v)?v.map(x=>+x.toFixed(4)):+v.toFixed(4);return out;}
   }
@@ -294,8 +298,7 @@
   // Setup preview can scrub it and a route knows how long it takes. from: {actuatorId: value} where they start.
   function timeline(model,action,from={}){
     const at={...from},out=[];
-    for(const a of model.actuators)if(at[a.id]===undefined){const j=model.joints.find(x=>x.id===a.joint);at[a.id]=finite(a.home)?a.home:valuesOf(j,j.home||0)[a.index]??0;}
-    action.steps.forEach((s,i)=>{const a=model.actuators.find(x=>x.id===s.actuator),begin=(s.after===null?0:out[s.after].end)+s.delay,c=s.command;
+    action.steps.forEach((s,i)=>{const a=mover(model,s.actuator);if(at[a.id]===undefined)at[a.id]=a.home;const begin=(s.after===null?0:out[s.after].end)+s.delay,c=s.command;
       let target=at[a.id],seconds=0;
       if(c.state!==undefined&&finite(a.states?.[c.state]))target=a.states[c.state];else if(finite(c.target))target=c.target;
       if(finite(c.velocity)||finite(c.effort))seconds=s.seconds??0;else seconds=Math.max(s.seconds??0,moveSeconds(target-at[a.id],a.speed,a.accel));
@@ -303,7 +306,7 @@
     return {steps:out,duration:Math.max(0,...out.map(s=>s.end))};
   }
   // Actuator values at time t of a timeline (positions eased along each step's trapezoid; speeds integrated).
-  function sampleTimeline(model,tl,t){const v={};for(const s of tl.steps){const a=model.actuators.find(x=>x.id===s.actuator);if(t<s.start)continue;
+  function sampleTimeline(model,tl,t){const v={};for(const s of tl.steps){const a=mover(model,s.actuator);if(t<s.start)continue;
     if(s.velocity!==null){v[a.id]=(v[a.id]??s.from)+s.velocity*(Math.min(t,s.end)-s.start);continue;}
     const total=s.end-s.start,u=total>0?clamp((t-s.start)/total,0,1):1;v[a.id]=s.from+(s.to-s.from)*profile(u,a,Math.abs(s.to-s.from));}
     return v;}
@@ -332,6 +335,6 @@
     if(n===removed){delete j.drive;j.note=(j.note?j.note+' ':'')+'Its mechanism was removed.';}else if(n>removed)d.of=kind+':'+(n-1);}return sanitize(out);}
   // What the engine needs: the joints with a drive, actuators and actions, without part lists.
   function forEngine(model){const m=sanitize(model);return {...m,joints:m.joints.map(({parts,alternatives,note,...j})=>j)};}
-  return {TYPES,ACTUATORS,MODES,COUPLINGS,SIGNALS,PROVENANCE,SHOW_SPIN,sanitize,EMPTY,partIndex,order,resolve,worlds,motion,frame,dofOf,valuesOf,solveLoops,pose,reach,Axis,moveSeconds,Driver,timeline,sampleTimeline,reindex,forEngine,
+  return {TYPES,ACTUATORS,MODES,COUPLINGS,SIGNALS,PROVENANCE,SHOW_SPIN,sanitize,EMPTY,mover,partIndex,order,resolve,worlds,motion,frame,dofOf,valuesOf,solveLoops,pose,reach,Axis,moveSeconds,Driver,timeline,sampleTimeline,reindex,forEngine,
     math:{sub,add,scale,dot,cross,len,unit,perpendicular,I4,mul,apply,applyDir,trans,rot,about,invert}};
 });
