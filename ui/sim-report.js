@@ -68,7 +68,7 @@
     if(finite(estimateError))facts.push(['Sensor estimate',`off by ${estimateError.toFixed(1)} in at the end`,estimateError>2?'warn':'']);
     facts.push(['Contact',contacts.length?[...new Set(contacts.map(c=>KIND[c.kind]))].join(', '):'None',contacts.some(c=>c.kind!=='wall')||zones?'bad':contacts.length?'warn':'']);
     if(mech&&finite(mech.score))facts.push(['Points',`${mech.score}${mech.shots?` · ${mech.landed} of ${mech.shots} shots landed`:''}`,'']);
-    return {level,title,total,before,legs:out,contacts,issues,tips:tips.slice(0,3),facts,endError,estimateError,timedOut};
+    return {level,title,total,before,auto,legs:out,contacts,issues,tips:tips.slice(0,3),facts,endError,estimateError,timedOut};
   }
 
   // ------------------------------------------------------------------ drawing
@@ -86,8 +86,9 @@
     return steps;
   }
   // report: from build(). onEdit(pinIndex) opens that path in Path planning; onSeek(seconds) replays a moment;
-  // onExport and onOutput open the Export view and the run's step-by-step output.
-  function render(host,report,{onEdit,onSeek,onExport,onOutput}={}){
+  // onExport and onOutput open the Export view and the run's step-by-step output; onSelect(leg) is told which
+  // path's breakdown is shown, and selected (a leg index) keeps that choice when the report is drawn again.
+  function render(host,report,{onEdit,onSeek,onExport,onOutput,onSelect,selected=null}={}){
     if(!report){host.replaceChildren();return;}
     const icon={ok:'✓',warn:'!',bad:'×'}[report.level];
     const head=el('div',{class:'sim-report-verdict '+report.level},[el('span',{class:'sim-report-icon','aria-hidden':'true',text:icon}),el('strong',{text:report.title})]);
@@ -96,14 +97,30 @@
     // An issue's own Edit link is left out when the Fix button below already opens that path.
     if(report.issues.length)parts.push(el('ul',{class:'sim-report-issues'},report.issues.map(i=>el('li',{class:i.level},[el('span',{text:i.text}),...(i.pin!==null&&i.pin!==fixPin&&onEdit?[editButton(i.pin,`path ${i.pin+1}`,onEdit)]:[])]))));
     if(steps.length)parts.push(el('div',{class:'sim-report-next',role:'group','aria-label':'Next step'},steps.map(s=>el('button',{type:'button',class:s.primary?'primary':'secondary','data-next':s.id,onclick:s.run,text:s.label}))));
-    // Where the time went: one bar per path, its width its share of the run, split into driving,
-    // turning in place, pausing and stopped. Clicking a path replays its start on the field.
+    // Where the time went, on the autonomous period's own scale: a segment per path, its width its share of the
+    // period, split into driving, turning in place, stopped for an action and stopped idle, then the time left.
+    // One path is chosen (the longest, until another is clicked): its breakdown shows under the bar and
+    // onSelect(leg) marks it on the field. Clicking a path also replays its start.
     if(report.legs.length&&report.total>0){
-      const bar=el('div',{class:'sim-report-bar',role:'list','aria-label':'Time per path'});
-      for(const l of report.legs){const seg=el('button',{type:'button',class:'sim-report-leg',role:'listitem',grow:Math.max(.001,l.total),title:`${l.label}: ${l.total.toFixed(1)} s · driving ${l.drive.toFixed(1)} s · turning ${l.turn.toFixed(1)} s · actions and pauses ${l.pause.toFixed(1)} s${l.idle>.05?` · stopped ${l.idle.toFixed(1)} s`:''}. Click to replay.`,'aria-label':`${l.label}, ${l.total.toFixed(1)} seconds. Replay on the field.`,onclick:()=>onSeek?.(l.start)},
-          [el('span',{class:'sim-report-mix'},['drive','turn','pause','idle'].filter(k=>l[k]>0).map(k=>el('i',{class:k,grow:l[k]}))),el('span',{class:'sim-report-label',text:String(l.index+1)})]);bar.append(seg);}
-      const key=el('p',{class:'sim-report-key'},[['drive','Driving'],['turn','Turning in place'],['pause','Stopped for an action or pause'],['idle','Stopped, nothing running']].map(([k,t])=>el('span',{},[el('i',{class:k}),document.createTextNode(t)])));
-      parts.push(el('h4',{text:'Where the time went'}),bar,key);
+      const span=report.auto&&!report.timedOut&&report.total<report.auto?report.auto:report.total,buttons=[],detail=el('div',{class:'sim-report-leg-detail','aria-live':'polite'});
+      const bar=el('div',{class:'sim-report-bar',role:'group','aria-label':span===report.auto?`Time per path in the ${report.auto} s autonomous`:'Time per path'});
+      if(report.before>.05)bar.append(el('span',{class:'sim-report-gap',grow:report.before,title:`Starting up: ${report.before.toFixed(1)} s`}));
+      const choose=(l,replay)=>{for(const b of buttons)b.setAttribute('aria-pressed',String(b.leg===l));
+        const kinds=[['drive','Driving'],['turn','Turning in place'],['pause',l.actions.length?`Stopped for ${l.actions.join(', ')}`:'Paused'],['idle','Stopped, nothing running']].filter(([k])=>l[k]>.05);
+        detail.replaceChildren(el('p',{class:'sim-report-leg-title'},[el('strong',{text:`${l.label} · ${l.total.toFixed(1)} s`}),document.createTextNode(` · from ${l.start.toFixed(1)} s to ${(l.start+l.total).toFixed(1)} s`)]),
+          el('ul',{class:'sim-report-leg-parts'},kinds.map(([k,t])=>el('li',{},[el('i',{class:k}),document.createTextNode(`${t} ${l[k].toFixed(1)} s`)]))),
+          ...(l.pin!==null&&onEdit?[editButton(l.pin,`path ${l.pin+1}`,onEdit)]:[]));
+        onSelect?.(l);if(replay)onSeek?.(l.start);};
+      for(const l of report.legs){const seg=el('button',{type:'button',class:'sim-report-leg',grow:Math.max(.001,l.total),'aria-pressed':'false',title:`${l.label}: ${l.total.toFixed(2)} s · driving ${l.drive.toFixed(2)} s · turning ${l.turn.toFixed(2)} s · actions and pauses ${l.pause.toFixed(2)} s${l.idle>.005?` · stopped ${l.idle.toFixed(2)} s`:''}. Click to replay.`,'aria-label':`${l.label}, ${l.total.toFixed(1)} seconds. Show its breakdown and replay it on the field.`,onclick:()=>choose(l,true)},
+          [el('span',{class:'sim-report-mix'},['drive','turn','pause','idle'].filter(k=>l[k]>0).map(k=>el('i',{class:k,grow:l[k]}))),el('span',{class:'sim-report-label',text:String(l.index+1)})]);seg.leg=l;buttons.push(seg);bar.append(seg);}
+      const spare=span-report.total;if(spare>.05)bar.append(el('span',{class:'sim-report-spare',grow:spare,title:`${spare.toFixed(2)} s of the autonomous left`},[el('span',{text:`${spare.toFixed(1)} s spare`})]));
+      // Seconds under the bar: every 5 s up to 30 s, every 10 s beyond.
+      const step=span>30?10:5,scale=el('div',{class:'sim-report-scale','aria-hidden':'true'});
+      for(let t=0;t<=span+1e-6;t+=step){const tick=el('span',{text:`${t}`});tick.style.left=`${t/span*100}%`;scale.append(tick);}
+      if(span%step>1e-6){const end=el('span',{class:'end',text:`${+span.toFixed(1)}`});end.style.left='100%';scale.append(end);}
+      const key=el('p',{class:'sim-report-key'},[['drive','Driving','Driving'],['turn','Turning','Turning in place'],['pause','Action or pause','Stopped for an action or a pause'],['idle','Idle','Stopped with nothing running']].map(([k,t,long])=>el('span',{title:long},[el('i',{class:k}),document.createTextNode(t)])));
+      parts.push(el('h4',{text:`Where the time went${span===report.auto?` · ${report.auto} s autonomous`:''}`}),bar,scale,key,detail);
+      choose(report.legs.find(l=>l.index===selected)||report.legs.reduce((a,b)=>b.total>a.total?b:a),false);
     }
     if(report.tips.length)parts.push(el('h4',{text:'What to try next'}),el('ol',{class:'sim-report-tips'},report.tips.map(t=>el('li',{},[el('span',{text:t.text}),...(t.pin!==null&&onEdit?[editButton(t.pin,`path ${t.pin+1}`,onEdit)]:[])]))));
     parts.push(el('p',{class:'hint sim-report-note',text:'Simulated estimate. Battery charge, wheel traction, tuning and field differences change real results, so test on your robot before a match.'}));

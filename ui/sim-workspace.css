@@ -266,6 +266,17 @@ body.sim-workspace{overflow:hidden}
 .sim-report-mix{display:flex;width:100%}.sim-report-mix i,.sim-report-key i{display:block}
 .sim-report-label{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px #000a;pointer-events:none}
 .sim-run-report i.drive{background:#4e8fd6}.sim-run-report i.turn{background:#a58ae6}.sim-run-report i.pause{background:#d9a640}.sim-run-report i.idle{background:#7a7f87}
+/* The time bar on the period's scale: start-up, the paths, then what is left; seconds under it; the chosen path's breakdown below. */
+#simulation-view .sim-run-report .sim-report-leg[aria-pressed=true]{outline:2px solid var(--text);outline-offset:1px}
+.sim-report-gap{flex:1 1 0;min-width:3px;border-radius:4px;background:var(--control)}
+.sim-report-spare{flex:1 1 0;min-width:0;display:grid;place-items:center;overflow:hidden;border:1px dashed var(--line-strong);border-radius:4px;font-size:11px;color:var(--muted);white-space:nowrap}
+.sim-report-spare>span{overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 4px;box-sizing:border-box}
+.sim-report-scale{position:relative;height:14px;margin-top:3px;font-size:10px;line-height:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sim-report-scale span{position:absolute;top:0;transform:translateX(-50%)}.sim-report-scale span:first-child{transform:none}.sim-report-scale span:last-child{transform:translateX(-100%)}
+.sim-report-leg-detail{margin-top:6px;padding:8px 10px;border-radius:6px;background:var(--control);font-size:12px;line-height:1.4}
+.sim-report-leg-title{margin:0}.sim-report-leg-title strong{font-weight:650}
+.sim-report-leg-parts{display:flex;flex-wrap:wrap;gap:2px 12px;list-style:none;margin:4px 0 0;padding:0;font-variant-numeric:tabular-nums}
+.sim-report-leg-parts li{display:inline-flex;align-items:center;gap:5px}.sim-report-leg-parts i{display:block;width:9px;height:9px;border-radius:2px}
 .sim-report-key{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0;font-size:11px;color:var(--muted)}
 .sim-report-key span{display:inline-flex;align-items:center;gap:5px}.sim-report-key i{width:9px;height:9px;border-radius:2px}
 .sim-report-tips{margin:0;padding-left:18px;font-size:12px;line-height:1.45}.sim-report-tips li+li{margin-top:6px}

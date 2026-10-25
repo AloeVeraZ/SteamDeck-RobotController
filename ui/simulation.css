@@ -139,6 +139,8 @@
 
 /* Paths and pins with effects: action paths dashed in the action colour; turn and spin marks. */
 .sim-path.action{stroke:var(--warning);stroke-dasharray:2.2 1.2}.sim-path.selected{stroke-width:calc(1.6 * var(--line-scale,1))}
+/* The path chosen in the run report's time bar. */
+.sim-path.reviewing{stroke-width:calc(2 * var(--line-scale,1));filter:drop-shadow(0 0 1.2px var(--text))}.sim-pin.reviewing circle{stroke:var(--text);stroke-width:.9}
 .sim-path-mark{fill:var(--text);font:700 calc(3.4px * var(--line-scale,1)) var(--font);paint-order:stroke;stroke:var(--bg);stroke-width:calc(.6px * var(--line-scale,1));pointer-events:none}
 .sim-pin-turn{stroke:var(--text);stroke-width:.8;stroke-linecap:round;pointer-events:none}
 .sim-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.sim-key{display:inline-block;width:22px;border-top:3px solid var(--accent);vertical-align:middle;margin-right:4px}.sim-key.action{border-top:3px dashed var(--warning)}

@@ -130,7 +130,7 @@
     }
     function scrub(){const span=duration();if(cursor!==null)cursor=Math.max(0,Math.min(span,cursor));const f=cursor===null?frames.at(-1):at(cursor);onScrub(live?null:f);render(f);}
     function render(f=live?frames.at(-1):at(cursor??0)){
-      const span=duration();range.max=String(Math.max(0,span).toFixed(2));if(live)range.value=range.max;clock.textContent=`${(live?span:cursor||0).toFixed(2)} s of ${span.toFixed(2)} s${live?' · live':''}`;liveButton.disabled=live;
+      const span=duration();range.max=String(Math.max(0,span).toFixed(2));range.value=live?range.max:String(cursor??0);clock.textContent=`${(live?span:cursor||0).toFixed(2)} s of ${span.toFixed(2)} s${live?' · live':''}`;liveButton.disabled=live;
       if(frames.length&&span){const stops=[];let phase=frames[0].practice?.phase,from=0;for(let i=1;i<=frames.length;i++){const p=frames[i]?.practice?.phase;if(i===frames.length||p!==phase){const a=(frames[from].time-t0())/span*100,b=(frames[i-1].time-t0())/span*100,c=PHASES[phase]?PHASES[phase]+'66':'transparent';stops.push(`${c} ${a}%`,`${c} ${b}%`);from=i;phase=p;}}track.style.background=`linear-gradient(90deg,${stops.join(',')})`;}else track.style.background='';
       empty.hidden=!!frames.length;recorded.hidden=!frames.length;
       if(frames.length){summary.replaceChildren(list(analysis(frames)));graphs(f);}

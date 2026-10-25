@@ -123,6 +123,8 @@ public class MyAuto implements DeckAutonomous {
   let runData=null,liveFrame=null,reportKey='',lastReport=null,estimateTimer=0,estimateSeq=0;const estimates=new Map();
   // Run & review's side views (Results, Export, Diagnostics) and the Results parts shown before and after a run.
   let runViews=null,resultsReady=null,replayBox=null,reportShown=-1;
+  // The run report's chosen path ({index, pin}): its breakdown shows under the time bar and Run & review marks it on the field.
+  let reviewLeg=null;
   let tab='setup',planningStep='start',setupStep='field',runAttempt=0,loadError='';
   const L=()=>project.layouts.find(l=>l.id===project.active)||project.layouts[0];
   if(!L().start){try{const legacy=field.restore(localStorage.getItem(field.KEY));if(legacy&&L().field==='empty')L().start=legacy;}catch{}}
@@ -392,7 +394,7 @@ public class MyAuto implements DeckAutonomous {
     else if(m.state==='error')appendRunLog(m.error||'Program error.');
     else if(m.state==='practice-finished')appendRunLog('Practice timer complete.');
     const err=$('#sim-error');
-    if(m.state==='starting'){runState='starting';trail=[];lastReport=null;reportKey='';err.hidden=true;status('#sim-run-status',m.kind==='source'?'Compiling and starting your program…':'Starting…');}
+    if(m.state==='starting'){runState='starting';trail=[];lastReport=null;reportKey='';reviewLeg=null;err.hidden=true;status('#sim-run-status',m.kind==='source'?'Compiling and starting your program…':'Starting…');}
     else if(m.state==='running'){runState='running';status('#sim-run-status','Running.');}
     else if(m.state==='finished'){runState=frame?.practice?'running':'idle';const r=m.result,last=L().pins.at(-1);let text=`Finished in ${r.time.toFixed(2)} s.`;
       if(last&&['route','timed'].includes(r.kind))text+=` Ended ${Math.hypot(r.truth.x-last.x,r.truth.y-last.y).toFixed(2)} in from the last path’s end point.${r.kind==='timed'?' Timed drive has no position feedback.':''}`;
@@ -437,7 +439,7 @@ public class MyAuto implements DeckAutonomous {
     const sel=selected?.kind==='zone'&&zoneById(selected.id);
     $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4*marker()})):[]));
     $('#sim-route').replaceChildren(...onionShapes(),...(l.route?routeShapes(l.route):[]),...controlShapes());$('#sim-preview-row').hidden=!l.route;drawPreview();
-    $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':''),transform:`translate(${p.x} ${p.y}) scale(${marker()})`,'data-pin':i});
+    $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':'')+(reviewing(i)?' reviewing':''),transform:`translate(${p.x} ${p.y}) scale(${marker()})`,'data-pin':i});
       // A pin that turns the robot shows the heading it turns to.
     if(finite(p.turn)){const h=l.route?.stops[i]?.turn??p.turn;n.append(svg('path',{class:'sim-pin-turn',d:`M0 0L${(5.2*Math.cos(h*Math.PI/180)).toFixed(2)} ${(5.2*Math.sin(h*Math.PI/180)).toFixed(2)}`}));}
       n.append(svg('circle',{r:2.8}),svg('text',{y:1.1,transform:'scale(1 -1)','text-anchor':'middle'},i+1));return n;}));
@@ -465,7 +467,8 @@ public class MyAuto implements DeckAutonomous {
     if(f.acting)add('Action path',f.acting);
     if(f.wait)add('Paused at end of path',`${f.wait.action||'Pause'} · ${f.wait.remaining.toFixed(1)} s left`);
     else if(f.mode==='program'&&f.follower)add('Route',`leg ${f.telemetry?.leg||f.telemetry?.Leg||Math.max(1,f.follower.pathIndex+1)}${finite(f.follower.remaining)?` · ${r(f.follower.remaining)} in to go`:''}`);
-    const done=!!(f.result||f.practice?.phase==='finished'),box=$('#sim-run-analysis');box.hidden=!done||!runData?.frames().length;if(done&&runData)runReport();
+    // Whether the run has ended comes from the latest frame, so replaying an earlier moment keeps the report.
+    const last=liveFrame||f,done=!!(last.result||last.practice?.phase==='finished'),box=$('#sim-run-analysis');box.hidden=!done||!runData?.frames().length;if(done&&runData)runReport();
     if(f.mechanisms){const m=f.mechanisms;add('Pieces',`${m.held} held · ${m.shots} shot`);if(project.mechanisms.shooter.type!=='none')add('Flywheel',`${Math.round(m.flywheel*100)}%${m.ready?' · ready':''}`);const turrets=project.mechanisms.shooters.flatMap((s,n)=>s.type==='turret'&&!s.sharesTurret?[n]:[]);turrets.forEach(n=>add(turrets.length>1?`Turret ${n+1}`:'Turret',`${Math.round(m.turrets?.[n]??m.turret)}°${m.aligned?' · on target':''}`));if(finite(m.score))add('Score',`${m.score} pts · ${m.tips} tip${m.tips===1?'':'s'}`);}
     add('Zones',f.hit.length?'Touching a no-go zone':f.violations.length?`Touched ${f.violations.length} this run`:'Clear',f.hit.length||f.violations.length?'warn':'');
     // The running program's own telemetry, as a Driver Station would show it.
@@ -494,7 +497,9 @@ public class MyAuto implements DeckAutonomous {
     function runReport(){
     const frames=runData.frames(),end=[...frames].reverse().find(f=>f.result)?.result,m=frames.at(-1)?.mechanisms,key=JSON.stringify([runAttempt,frames[0]?.time,end?.time,end?.reason,m?.score,m?.landed,m?.shots]);if(key===reportKey)return;reportKey=key;
     const report=lastReport=window.DeckSimReport.build(frames,{pins:L().pins,defaultPower:project.tuning.maxPathSpeed,autoSeconds:project.practice.mode==='teleop'?null:project.practice.autoSeconds,optimized:!!L().tested?.length});
-    window.DeckSimReport.render($('#sim-run-report'),report,{onEdit:editPath,onSeek:t=>runData.seek(t),onExport:()=>showRunView(1),onOutput:()=>{showDiag('output');showRunView(2);}});
+    if(reportShown!==runAttempt)reviewLeg=null;
+    window.DeckSimReport.render($('#sim-run-report'),report,{onEdit:editPath,onSeek:t=>runData.seek(t),onExport:()=>showRunView(1),onOutput:()=>{showDiag('output');showRunView(2);},
+      selected:reviewLeg?.index??null,onSelect:leg=>{const changed=reviewLeg?.pin!==leg.pin;reviewLeg={index:leg.index,pin:leg.pin};if(changed)draw();}});
     // A new run's report: Results shows it from the top, or its tab is marked when another view is open.
     if(report&&reportShown!==runAttempt){reportShown=runAttempt;const results=runViews?.panes[0];if(runViews?.shown()===0)results.pane.scrollTop=0;else results?.button.classList.add('has-news');}
   }
@@ -639,10 +644,12 @@ public class MyAuto implements DeckAutonomous {
   const bez=(points,t)=>{let p=points;while(p.length>1)p=p.slice(1).map((q,i)=>({x:p[i].x+(q.x-p[i].x)*t,y:p[i].y+(q.y-p[i].y)*t}));return p[0];};
   const segmentPoints=s=>Array.from({length:25},(_,j)=>bez(s.points,j/24));
   const pathOf=(l,k)=>l.pins[k]?.path||{kind:'regular',rotate:'keep'};
+  // The path the run report has chosen, marked on the field while Run & review shows that report.
+  function reviewing(k){return tab==='run'&&!!lastReport&&reviewLeg?.pin===k&&!$('#sim-run-analysis').hidden;}
   function routeShapes(route){
     const l=L(),to=exporter.pathIndex(route),out=[],marks=new Map();
     route.segments.forEach((s,i)=>{const k=to[i],path=pathOf(l,k),points=segmentPoints(s);
-      const appearance=planner.pathAppearance(path,project.tuning.maxPathSpeed),line=svg('polyline',{class:'sim-path'+(path.kind==='action'?' action':'')+(['path','pin'].includes(selected?.kind)&&selected.index===k?' selected':''),points:pts(points),'data-path':k,role:'button','aria-label':`Path ${k+1}:${planner.pathDescription(path,project.tuning.maxPathSpeed).join('; ')}`});
+      const appearance=planner.pathAppearance(path,project.tuning.maxPathSpeed),line=svg('polyline',{class:'sim-path'+(path.kind==='action'?' action':'')+(['path','pin'].includes(selected?.kind)&&selected.index===k?' selected':'')+(reviewing(k)?' reviewing':''),points:pts(points),'data-path':k,role:'button','aria-label':`Path ${k+1}:${planner.pathDescription(path,project.tuning.maxPathSpeed).join('; ')}`});
       line.style.stroke=appearance.color;out.push(line);
       if(path.rotate!=='keep'&&!route.nonholonomic){for(const t of [.25,.75]){const p=bez(s.points,t),h=planner.headingAt(s,t)*Math.PI/180,dx=Math.cos(h),dy=Math.sin(h),end={x:p.x+4*dx,y:p.y+4*dy};out.push(svg('path',{class:'sim-heading-arrow',stroke:appearance.color,d:`M${p.x} ${p.y}L${end.x} ${end.y}m${-1.5*dx+dy} ${-1.5*dy-dx}L${end.x} ${end.y}l${-1.5*dx-dy} ${-1.5*dy+dx}`}));}}
       if(!marks.has(k))marks.set(k,[]);marks.get(k).push(...points);});

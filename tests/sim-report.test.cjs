@@ -29,7 +29,7 @@ test('run report splits route time per path by driving, turning and pausing, fro
   near(r.legs[0].drive,2);near(r.legs[1].drive,1);near(r.legs[1].turn,1);near(r.legs[2].pause,1.5);near(r.legs[2].drive,2);near(r.before,.2);
   assert.deepEqual(r.legs[2].actions,['Intake']);near(r.legs[1].start,2.2);
   // Facts are the run's own numbers.
-  assert.equal(r.facts[0][1],'7.7 s of the 30 s autonomous · 22.3 s to spare');assert.equal(r.facts.find(f=>f[0]==='Final position')[1],'0.5 in from the last end point');assert.equal(r.facts.find(f=>f[0]==='Contact')[1],'None');
+  assert.equal(r.facts[0][1],'7.7 s of the 30 s autonomous · 22.3 s to spare');assert.equal(r.auto,30,'the time bar is drawn on the period it ran in');assert.equal(r.facts.find(f=>f[0]==='Final position')[1],'0.5 in from the last end point');assert.equal(r.facts.find(f=>f[0]==='Contact')[1],'None');
   // Starting against the wall is not a route contact.
   assert.equal(r.contacts.length,0);assert.equal(r.issues.length,0);
   // Suggestions name the slowest path and the low-power one; never more than three.
