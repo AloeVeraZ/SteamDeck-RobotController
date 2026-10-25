@@ -214,6 +214,29 @@ Measured on the user's lunala setup and robot CAD (a 28 s autonomous, 848 frames
 
 While feeding, the turret camera moved 9.6 in/s and turned 40.7°/s before; now 0.2 in/s and 11°/s (only the turret's own turning). Paths take 5–110 ms per camera (best of five runs), about 0.4 s for all five, worked out in quiet moments once the editor opens. In the app: record → Pick cameras for me (4 cameras, 11 cuts) → Save video gave an 18.9 MB MP4 in 11 s with no page errors, and its frames show no camera inside a wall, flower or the hive.
 
+### Video cameras: the turret camera over drawn turrets, no gliding through walls (25 October, evening)
+
+The user's Video editor showed the Turret camera as a flat gray-blue picture. On their lunala robot both turrets are stand-ins, drawn on the robot's top from 14.2 to 18.8 in. The "inside the turret" camera sat at 16.2 in, 2 in behind the stand-in's housing, looking into its back face. Replaying their BIOBUZZ red auto through every camera also showed other problems. When the intake and front-right cameras changed sides near the wall, they glided straight through it (my first pass made this worse: up to 10 in outside the field at 3–8 in high). Moved cameras kept looking at their old spot, so the robot slid to the edge. Camera 1 lost the robot when it strafed off fast after a shot. Aim beams filled the rear chase picture as the turret swung past it.
+- `DeckRobotModel.rig` records each stand-in turret's shape in `kin.turrets` ({n, pivot, z0, z1, x0, x1, y, tip}, in the turret's frame). `cameraBase` passes them to the cameras (sim-3d's live `chase` reads them off the body). The "Robot shooter mechanism setup" session will add CAD turret links in the same shape; a turret with `hidden: true` is skipped.
+- `rig()`: a drawn shooter turns about its pivot. `top` is the robot's drawn height, while `height` stays the chassis's own, for the robot box. Each drawn turret is its own box, turned with it (`sceneAt` → `parts`), that cameras keep out of; it never counts as hiding the robot.
+- Turret camera (pov) over a drawn turret: 4 in behind the pivot and 3.5 in above the turret's top. The housing and barrel stay low in the picture, and a shot passes about 11 in from the lens. It tilts up only for a goal within 40° of where it aims.
+- `aimIn`: a moved camera keeps what it watches where it was in the picture, drawing it towards the middle the further it has moved (up to 15 in).
+- Glides have two crane shapes (up over what the camera watches, swinging while high, then down), timed by the length of the path actually travelled. On the last pass, a change whose glide still goes through something, or would move over 5 in a picture, becomes a cut. Smoothing never blends across a cut, and a smoothed frame that would be blocked goes back to its planned position. Two cuts within 0.3 s merge where either neighbouring move is clear.
+- Camera 1 widens from 50° to 60° while shooting, and `inView` turns it just enough to keep all of the robot in its 16:9 picture (in path() and `mainLive`; `chase()` applies the pose's fov).
+- sim-3d `beamsFrom(P)`: a picture whose camera is within 10 in of an aim beam leaves that beam out.
+
+Measured on two replays of the user's run (849 / 847 frames, robot CAD, real app path). Old code → new:
+
+| Check | Old | New |
+|---|---|---|
+| Turret camera looking straight into a drawn turret (inside one) | 849 (99) | 0 (0) |
+| Frames inside the wall / a field solid, all cameras | 1 / 3 (both runs) | 0 / 0 |
+| Camera 1: robot off the picture / within 20% of its edge | 17–19 / 56–62 | 0 / 0 |
+| Largest move between frames, excluding cuts | 6.8 in | 5.5 in |
+| Cuts | — | front-right 3, intake 2 (13.9 s spinning at the wall, 25.1 s passing a flower) |
+
+Three new tests in `tests/sim-cameras.test.cjs`: the turret camera over a stand-in, camera 1 keeping the robot in view through a fast strafe after a shot, and every camera out of the wall while the robot strafes along it facing it. The old code fails the first two. The third passes on the old code too: the fixture run could not reproduce the side-switch through the wall, so the replay numbers above are the evidence for that fix. All 446 unit tests pass.
+
 ### Moving parts: articulated CAD mechanisms (25 October)
 
 The user asked for the CAD's mechanisms to move in the simulator (turrets turning on their gears, hoods tilting, rollers and flywheels spinning, ramps and kickers folding between two set positions in set times), for pivots to be found automatically from the CAD and picked on the model (circles, as a slicer measures them), and for the text-only folds on the Mechanisms page to go. Then a brief for a general mechanism engine (joints, actuators, transmissions, actions; discovery with confidence; not FTC-only). Design, sources and limits: `docs/MECHANISM_ENGINE.md`.

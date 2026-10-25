@@ -205,7 +205,7 @@
   function rig(holder,{meta,mechanisms,kinematics,footprint,height=12}={}){
     const {THREE:T}=three(),K=Kin();if(!K)return holder;
     const model=K.sanitize(kinematics),m=mechanisms?.enabled?mechanisms:null;let mesh=null;holder.traverse(o=>{if(o.isMesh&&!mesh&&o.geometry?.attributes?._part)mesh=o;});
-    const cad=mesh&&meta?.id&&model.model===meta.id?model.joints:[],kin={model:{...model,joints:[]},P:null,standIns:[]};
+    const cad=mesh&&meta?.id&&model.model===meta.id?model.joints:[],kin={model:{...model,joints:[]},P:null,standIns:[],turrets:[]};
     holder.updateMatrixWorld(true);const P=mesh?new T.Matrix4().copy(holder.matrixWorld).invert().multiply(mesh.matrixWorld):null;if(P)kin.P=P.toArray();
     if(cad.length){
       const g=mesh.geometry,parts=K.partIndex(g.userData.parts),list=K.order({...model,joints:cad}),owner=new Int16Array(Math.max(1,parts.leafCount)).fill(-1);
@@ -228,13 +228,16 @@
       m.intakes.forEach((i,n)=>{if(!['ramp','kicker'].includes(i.kind)||i.parts?.length||driven.has('deploy:intake:'+n))return;standIn(holder,kin,{kind:'deploy',n,intake:i},footprint,height);});}
     holder.userData.kin=kin;linkCache.delete(holder);return holder;
   }
-  // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own.
+  // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own. A turret's
+  // shape is kept in kin.turrets (inches from its pivot, turning with it: z0 to z1 high, x0 to x1 and ±y round the
+  // turntable and housing, the barrel out to tip) for the run-video cameras, which ride on it and keep out of it.
   function standIn(holder,kin,w,footprint,height){
     const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let geometry,joint;
     if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(1,height);
       const base=new T.CylinderGeometry(3.4,3.4,1.4,24);base.rotateX(Math.PI/2);base.translate(ox,oy,top+.7);const body=new T.BoxGeometry(6,4.6,3.2);body.translate(ox+.4,oy,top+3);
       const barrel=new T.CylinderGeometry(1.1,1.1,5,16);barrel.rotateZ(-Math.PI/2);barrel.translate(ox+5.4,oy,top+3.4);geometry=mergeGeometries([base,body,barrel].map(g=>g.toNonIndexed()));
-      joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};}
+      joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};
+      (kin.turrets||=[]).push({n:w.n,pivot:[ox,oy],z0:top,z1:top+4.6,x0:-3.4,x1:3.4,y:3.4,tip:7.9});}
     else{const side=(w.intake.sides||['front'])[0],[dx,dy]=SIDE_DIR[side]||SIDE_DIR.front,e=dx>0?f.front:dx<0?f.rear:f.half,width=Math.min(14,(dx?2*f.half:f.front+f.rear)-2);
       geometry=new T.BoxGeometry(dx?.7:width,dx?width:.7,6.5);geometry.translate(dx*(e+.35),dy*(e+.35),3.6);geometry=geometry.toNonIndexed();
       // Hinged along its inner bottom edge, it folds out and down.

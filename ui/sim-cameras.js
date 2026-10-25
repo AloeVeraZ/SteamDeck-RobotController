@@ -36,9 +36,11 @@
   // Points on the robot (robot frame: inches, x forward, y left, z up from the floor) the cameras look at: the front
   // intake's mouth (or the first intake's), the ramp, and each shooter's turret. From the CAD parts when the model
   // names them, else from the mechanism settings and the robot's size. `reach` is how far intakes stick out past the
-  // chassis on each side, so the cameras keep clear of them too.
+  // chassis on each side, so the cameras keep clear of them too. `turrets` are the turrets drawn on the robot's top
+  // (sim-robot-model.js kin.turrets): a shooter drawn so turns about that pivot, the cameras keep out of it, and `top`
+  // is how tall the robot looks with them (`height` stays the chassis's own, for the robot's box).
   const SIDE={front:[1,0],back:[-1,0],left:[0,1],right:[0,-1]};
-  function rig({footprint,robot={},mechanisms,parts,aim}={}){
+  function rig({footprint,robot={},mechanisms,parts,aim,turrets}={}){
     const f=footprint||{front:9,rear:9,half:9},height=finite(robot.heightIn)?robot.heightIn:12,size=Math.max(14,f.front+f.rear),m=mechanisms?.enabled?mechanisms:null;
     const edge=side=>side==='front'?f.front:side==='back'?f.rear:f.half,box=p=>p?.box?[(p.box.x0+p.box.x1)/2,(p.box.y0+p.box.y1)/2,(p.box.z0+p.box.z1)/2]:null;
     const partFor=(role,kind)=>(parts||[]).find(p=>p.role===role&&(!kind||p.kind===kind)),out=i=>finite(i?.reach)?Math.max(0,i.reach):0;
@@ -52,10 +54,11 @@
     if(ip&&ip[0]*intake.dir[0]+ip[1]*intake.dir[1]>0)intake.point=[ip[0],ip[1],clamp(ip[2],1.5,8)];
     if(rampAt&&rp&&rp[0]*rampAt.dir[0]+rp[1]*rampAt.dir[1]>0)rampAt.point=[rp[0],rp[1],clamp(rp[2],1.5,8)];
     const M=mech(),dims={length:robot.length||17,width:robot.width||17};
-    const shooters=(aim?.shooters||m?.shooters||[]).map((s,n)=>{const [ox,oy]=M?M.mountOffset(s.mount,dims):[0,0],a=s.at;
-      return {n,type:s.type,pieces:s.pieces||'pollen',point:a&&finite(a.x)&&finite(a.y)?[a.x,a.y,finite(a.z)?a.z:height]:[ox,oy,height],facing:M?.FACING?.[s.facing]||0};});
+    const shooters=(aim?.shooters||m?.shooters||[]).map((s,n)=>{const [ox,oy]=M?M.mountOffset(s.mount,dims):[0,0],a=s.at,d=(turrets||[]).find(x=>x?.n===n&&!x.hidden&&x.pivot?.every(finite)&&finite(x.z1));
+      const point=d?[d.pivot[0],d.pivot[1],d.z1]:a&&finite(a.x)&&finite(a.y)?[a.x,a.y,finite(a.z)?a.z:height]:[ox,oy,height];
+      return {n,type:s.type,pieces:s.pieces||'pollen',point,facing:M?.FACING?.[s.facing]||0,drawn:d||null};});
     const gate=!!m?.shooters?.some(s=>s.indexerKind==='gate');
-    return {size,height,footprint:f,reach,intake,ramp:rampAt,shooters,gate,hasMechanisms:!!m};
+    return {size,height,top:Math.max(height,...shooters.map(s=>s.drawn?s.drawn.z1:0)),footprint:f,reach,intake,ramp:rampAt,shooters,gate,hasMechanisms:!!m};
   }
   // ---------------------------------------------------------------- the field, as solid boxes
   // A solid is a box: centre c, three unit axes u, half sizes e along them, and r, the radius of a ball round it.
@@ -127,9 +130,9 @@
   // ---------------------------------------------------------------- camera 1: the original follow camera
   // Behind the robot and above it, turning with it (smoothly, so turning on the spot does not whip the picture
   // round). While the robot spins up, aims or shoots, and for 2 s after, the camera swings behind the robot towards
-  // the goal and pulls up, so the robot, its aim and where the pieces land are all in view. A robot that has stood
-  // still for 1.5 s (parked, or waiting) is seen from further back and higher up. `follow` carries it between pictures;
-  // dt 0 starts afresh.
+  // the goal, pulls up and widens its view (50° to 60°), so the robot, its aim and where the pieces land are all in
+  // view. A robot that has stood still for 1.5 s (parked, or waiting) is seen from further back and higher up.
+  // `follow` carries it between pictures; dt 0 starts afresh.
   function mainStep(follow,{frame,start,aim,footprint,bounds},dt){
     const t=frame?.truth||start;if(!t)return null;if(!dt)follow.ready=false;
     const k=tau=>follow.ready?1-Math.exp(-Math.max(0,dt)/tau):1,f=footprint||{front:9,rear:9},size=Math.max(14,f.front+f.rear),h=t.heading*DEG;
@@ -144,8 +147,20 @@
     // Not far outside the field, where the camera would look through the perimeter.
     if(bounds){pos[0]=clamp(pos[0],bounds.x0-18,bounds.x1+18);pos[1]=clamp(pos[1],bounds.y0-18,bounds.y1+18);}
     follow.pos=follow.ready&&follow.pos?lerp(follow.pos,pos,k(.3)):pos;follow.look=follow.ready&&follow.look?lerp(follow.look,look,k(.3)):look;follow.ready=true;
-    return {p:follow.pos.slice(),l:follow.look.slice(),fov:50};
+    return {p:follow.pos.slice(),l:follow.look.slice(),fov:50+10*(follow.goal?follow.shot:0)};
   }
+  // Camera 1 keeps all of the robot (a ball r inches round S) in its 16:9 picture: where the robot would reach past an
+  // edge (driving fast out of the shot, or under a camera moved round something), it turns just enough to bring it back.
+  function inView(pose,S,r){
+    const p=pose.p,v=[pose.l[0]-p[0],pose.l[1]-p[1],pose.l[2]-p[2]],d=[S[0]-p[0],S[1]-p[1],S[2]-p[2]],ld=Math.hypot(...v),sd=Math.hypot(...d);if(!ld||!sd)return pose;
+    const ly=Math.atan2(v[1],v[0]),lp=Math.atan2(v[2],Math.hypot(v[0],v[1])),sy=Math.atan2(d[1],d[0]),sp=Math.atan2(d[2],Math.hypot(d[0],d[1]));
+    const high=pose.fov*DEG/2,wide=Math.atan(Math.tan(high)*16/9),size=Math.asin(Math.min(1,r/sd))+2*DEG,up=sp-lp,side=wrap(sy-ly)*Math.cos(sp);
+    const over=(a,most)=>Math.abs(a)>most?a-Math.sign(a)*most:0,dp=over(up,Math.max(0,high-size)),dy=over(side,Math.max(0,wide-size));if(!dp&&!dy)return pose;
+    const pitch=clamp(lp+dp,-88*DEG,88*DEG),yaw=ly+dy/Math.max(.2,Math.cos(sp));
+    return {...pose,l:[p[0]+ld*Math.cos(pitch)*Math.cos(yaw),p[1]+ld*Math.cos(pitch)*Math.sin(yaw),p[2]+ld*Math.sin(pitch)]};
+  }
+  // The robot as camera 1 keeps it in view: the middle of it as drawn and the ball round it (a little inside its box's corners).
+  const robotBall=(t,R)=>[[t.x,t.y,R.top/2+(t.z||0)],.8*Math.hypot(Math.max(R.footprint.front,R.footprint.rear),R.footprint.half,R.top/2)];
   // ---------------------------------------------------------------- cameras 2 to 5
   // Something worth looking at near a point: the closest flower piece or loose piece within `reach` inches.
   function interest(world,point,reach,kinds){
@@ -184,14 +199,18 @@
         look=lerp(look,[s.near[0],s.near[1],Math.max(1.5,s.near[2])],.35*s.w);}
     }else if(pov){
       // Inside the turret: just over the shooter it rides and a little behind its pivot, looking where it aims, the
-      // shooter's top along the bottom of the picture. It turns only with the turret and the robot, never after a
-      // piece, so a volley is seen leaving from under the picture and flying on; while the shooter aims at a goal the
-      // picture tilts up until the goal is in its upper part (held a moment, so a flicker in the aim does not nod it).
-      const sh=R.shooters[s.which]||R.shooters[0],n=sh?.n??0,pivot=sh?sh.point:[0,0,R.height],turn=(sh?sh.type==='turret'?(m?.turrets?.[n]??m?.turret??0):sh.facing:0)*DEG;
-      pos=toWorld(t,h,[pivot[0]-Math.cos(turn)*4*D,pivot[1]-Math.sin(turn)*4*D,Math.max(pivot[2],R.height)+2*H+(t.z||0)]);
+      // shooter's top along the bottom of the picture (over a turret drawn on the robot's top, high enough that its
+      // housing stays low in the picture and a piece it fires passes well clear of the lens). It turns only with the
+      // turret and the robot, never after a piece, so a volley is seen leaving from under the picture and flying on;
+      // while the shooter aims at a goal the picture tilts up until the goal is in its upper part (held a moment, so a
+      // flicker in the aim does not nod it).
+      const sh=R.shooters[s.which]||R.shooters[0],n=sh?.n??0,pivot=sh?sh.point:[0,0,R.height],turn=(sh?sh.type==='turret'?(m?.turrets?.[n]??m?.turret??0):sh.facing:0)*DEG,d=sh?.drawn;
+      pos=toWorld(t,h,[pivot[0]-Math.cos(turn)*4*D,pivot[1]-Math.sin(turn)*4*D,(d?d.z1+1.5:Math.max(pivot[2],R.top))+2*H+(t.z||0)]);
       s.aim=s.ready?s.aim+wrap(h+turn+swing-s.aim)*k(.05):h+turn+swing;
       const goal=aims(frame,aim)[n]?.goal;if(goal){s.goal=goal;s.hold=1.5;}else s.hold=Math.max(0,(s.hold||0)-dt);
-      const tilt=s.hold>0&&s.goal?clamp(Math.atan2((G?.goalZ??36)-pos[2],Math.hypot(s.goal.x-pos[0],s.goal.y-pos[1]))-12*DEG,-10*DEG,18*DEG):-8*DEG;
+      // (Only while it still faces the goal: a robot turning away after a volley does not leave it staring at the sky.)
+      const facing=s.goal&&Math.abs(wrap(Math.atan2(s.goal.y-pos[1],s.goal.x-pos[0])-s.aim))<40*DEG;
+      const tilt=s.hold>0&&facing?clamp(Math.atan2((G?.goalZ??36)-pos[2],Math.hypot(s.goal.x-pos[0],s.goal.y-pos[1]))-12*DEG,-10*DEG,18*DEG):-8*DEG;
       s.pitch=s.ready&&finite(s.pitch)?s.pitch+(tilt-s.pitch)*k(.5):tilt;
       look=[pos[0]+Math.cos(s.aim)*Math.cos(s.pitch)*60,pos[1]+Math.sin(s.aim)*Math.cos(s.pitch)*60,pos[2]+Math.sin(s.pitch)*60];
     }else if(id==='turret'){
@@ -203,9 +222,10 @@
       const base=toWorld(t,h,pivot),dir=[Math.cos(fixed?h+swing:s.aim),Math.sin(fixed?h+swing:s.aim)],left=[-dir[1],dir[0]];
       pos=[base[0]-dir[0]*15*D+left[0]*5,base[1]-dir[1]*15*D+left[1]*5,pivot[2]+8*D*H];look=[base[0]+dir[0]*34,base[1]+dir[1]*34,pivot[2]+1];watch={at:base,spread:3,edge:true};
     }else if(id==='chase'){
-      // Trailing the chassis: further back the faster it goes, looking a little ahead of where it is going.
+      // Trailing the chassis: further back the faster it goes, looking a little ahead of where it is going, high
+      // enough that a tall robot's top (turrets drawn on it) stays in the picture.
       const speed=Math.hypot(t.vx||0,t.vy||0),back=size*(1.55+.6*Math.min(1,speed/60))*D,yaw=s.yaw+swing;
-      pos=[t.x-Math.cos(yaw)*back,t.y-Math.sin(yaw)*back,size*.72*H+3];look=[t.x+Math.cos(s.yaw)*size*.5+(t.vx||0)*.3,t.y+Math.sin(s.yaw)*size*.5+(t.vy||0)*.3,4];watch=robot;
+      pos=[t.x-Math.cos(yaw)*back,t.y-Math.sin(yaw)*back,Math.max(size*.72,R.top*.75)*H+3];look=[t.x+Math.cos(s.yaw)*size*.5+(t.vx||0)*.3,t.y+Math.sin(s.yaw)*size*.5+(t.vy||0)*.3,Math.max(4,R.top*.3)];watch=robot;
     }else{
       // In front of the intake looking back at it; following, it leans towards the piece being picked up.
       const I=R.intake,[dx,dy]=I.dir,c=Math.cos(swing),sn=Math.sin(swing),out=[dx*c-dy*sn,dx*sn+dy*c],rel=[I.point[0]+out[0]*15*D,I.point[1]+out[1]*15*D,7*D*H+2];
@@ -231,31 +251,48 @@
   // The height at which the line from S (on the field) to P (outside it) passes over the perimeter.
   function over(S,P,b){let t=1;for(const [s,p,lo,hi] of [[S[0],P[0],b.x0,b.x1],[S[1],P[1],b.y0,b.y1]]){if(p>hi)t=Math.min(t,(hi-s)/(p-s));if(p<lo)t=Math.min(t,(lo-s)/(p-s));}return S[2]+Math.max(0,t)*(P[2]-S[2]);}
   // What can block a camera about P that looks at L and watches w (a point `at`, how wide the thing round it is, and
-  // whether it is on the robot's edge) while the robot is at t: the robot as a box with its intakes' reach, the
-  // field's solids (G, from field()) and loose pieces within the camera's reach, and the walls.
-  function sceneAt(t,balls,w,P,L,G,R,bounds){
+  // whether it is on the robot's edge) while the robot is at t with mechanism state m: the robot as a box with its
+  // intakes' reach and the turrets drawn on its top, the field's solids (G, from field()) and loose pieces within the
+  // camera's reach, and the walls.
+  function sceneAt(t,balls,w,P,L,G,R,bounds,m){
     const f=R.footprint,out=R.reach||{front:0,back:0,left:0,right:0},x0=-f.rear-out.back,x1=f.front+out.front,y0=-f.half-out.right,y1=f.half+out.left;
     const h=t.heading*DEG,c=Math.cos(h),s=Math.sin(h),reach=Math.hypot(P[0]-w.at[0],P[1]-w.at[1],P[2]-w.at[2])+NEAR+CLEAR,mx=(x0+x1)/2,my=(y0+y1)/2;
     const robot={c:[t.x+c*mx-s*my,t.y+s*mx+c*my,R.height/2],u:[[c,s,0],[-s,c,0],[0,0,1]],e:[(x1-x0)/2,(y1-y0)/2,R.height/2]};
+    // Each drawn turret is a box turned with it, from behind its turntable to its barrel's tip.
+    const parts=R.shooters.filter(sh=>sh.drawn).map(sh=>{const d=sh.drawn,a=h+(sh.type==='turret'?(m?.turrets?.[sh.n]??m?.turret??0):sh.facing)*DEG,ca=Math.cos(a),sa=Math.sin(a),mid=(d.x0+d.tip)/2;
+      return {c:[t.x+c*d.pivot[0]-s*d.pivot[1]+ca*mid,t.y+s*d.pivot[0]+c*d.pivot[1]+sa*mid,(d.z0+d.z1)/2+(t.z||0)],u:[[ca,sa,0],[-sa,ca,0],[0,0,1]],e:[(d.tip-d.x0)/2,d.y,(d.z1-d.z0)/2]};});
     // A solid that holds what the camera watches (a flower the ramp reaches into) does not hide it: it is what is seen.
     const near=(G?.solids||[]).filter(o=>Math.hypot(o.c[0]-w.at[0],o.c[1]-w.at[1],o.c[2]-w.at[2])<reach+o.r),holds=new Set(near.filter(o=>gap(o,w.at)<1)),pieces=[];
     for(const ball of balls||[])if(ball.state?.kind==='ground'){const r=finite(ball.r)?ball.r:1.6,q=[ball.pos.x+72,ball.pos.y+72,Math.max(0,ball.z||0)+r];if(Math.hypot(q[0]-w.at[0],q[1]-w.at[1],q[2]-w.at[2])<reach)pieces.push([...q,r]);}
-    return {w,L,robot,core:{...robot,e:robot.e.map(v=>Math.max(.5,v-1.5))},near,holds,balls:pieces,heading:h,b:G?.bounds||bounds,wall:G?.wall??WALL};
+    return {w,L,robot,core:{...robot,e:robot.e.map(v=>Math.max(.5,v-1.5))},parts,near,holds,balls:pieces,heading:h,b:G?.bounds||bounds,wall:G?.wall??WALL};
   }
   // A camera at P moved by swing, raise and scale round what scene q watches.
   function placeIn(q,P,sw,up,sc){const S=q.w.at,v=[P[0]-S[0],P[1]-S[1],P[2]-S[2]],dh=Math.hypot(v[0],v[1]),ph=Math.atan2(v[2],dh),L=Math.hypot(dh,v[2])*sc;
     const th=(dh>1e-6?Math.atan2(v[1],v[0]):q.heading+Math.PI)+sw,el=up<0?Math.max(Math.min(ph,-10*DEG),ph+up):Math.min(Math.max(ph,82*DEG),ph+up);
     return [S[0]+L*Math.cos(el)*Math.cos(th),S[1]+L*Math.cos(el)*Math.sin(th),S[2]+L*Math.sin(el)];}
-  // What a camera at P costs per second in scene q for what is in its way: HARD or more when it is inside something
-  // or cannot see what it watches, a little when something crowds the lens or hides the sides of it.
-  function blockedIn(q,P){
-    const w=q.w,S=w.at,L=q.L,b=q.b,wall=q.wall;let hard=0,soft=0;
+  // Where a camera moved from P to P2 looks: what scene q watches stays where it was in the picture (as far to the side
+  // of the middle and as far above or below it), so a camera swung round the hive or raised over a wall still has the
+  // robot in view instead of looking at the spot it looked at from where it was. The further it has moved (up to
+  // 15 in), the nearer the middle that is, so a camera brought closer or craning over the robot keeps all of it in view.
+  function aimIn(q,P,P2){
+    const S=q.w.at,L=q.L,dir=(A,B)=>{const v=[B[0]-A[0],B[1]-A[1],B[2]-A[2]];return [Math.atan2(v[1],v[0]),Math.atan2(v[2],Math.hypot(v[0],v[1])),Math.hypot(...v)];};
+    const k=1-.6*clamp(Math.hypot(P2[0]-P[0],P2[1]-P[1],P2[2]-P[2])/15,0,1)**2;
+    const [ly,lp,ld]=dir(P,L),[sy,sp]=dir(P,S),[ny,np]=dir(P2,S),yaw=ny+wrap(ly-sy)*k,pitch=clamp(np+(lp-sp)*k,-88*DEG,88*DEG);
+    return [P2[0]+ld*Math.cos(pitch)*Math.cos(yaw),P2[1]+ld*Math.cos(pitch)*Math.sin(yaw),P2[2]+ld*Math.sin(pitch)];
+  }
+  // What a camera at P looking at L (as aimIn aims it) costs per second in scene q for what is in its way: HARD or
+  // more when it is inside something or cannot see what it watches, a little when something crowds the lens or hides
+  // the sides of it.
+  function blockedIn(q,P,L=q.L){
+    const w=q.w,S=w.at,b=q.b,wall=q.wall;let hard=0,soft=0;
     if(b){const out=Math.max(b.x0+CLEAR-P[0],P[0]-b.x1+CLEAR,b.y0+CLEAR-P[1],P[1]-b.y1+CLEAR,0);
       if(out>0){if(P[2]<wall+CLEAR)hard+=1+out/12;else if(out>30+CLEAR||over(S,P,b)<wall+1)hard++;}}
     const view=[L[0]-P[0],L[1]-P[1],L[2]-P[2]],vl=Math.hypot(...view)||1,ahead=o=>{const Q=nearest(o,P),a=[Q[0]-P[0],Q[1]-P[1],Q[2]-P[2]];return dot(a,view)/(Math.hypot(...a)*vl||1)>Math.cos(40*DEG);};
     // The robot: never in it, not right up against its parts (its CAD is not quite its box), and, watching a
     // mechanism on its edge, not looking through it.
     const rg=gap(q.robot,P);if(P[2]<1.5)hard++;if(rg<CLEAR)hard++;else if(rg<8&&ahead(q.robot))soft+=(8-rg)/8;if(w.edge&&crosses(q.core,toward(S,P,1.5),P))hard++;
+    // Its drawn turrets: not in them or crowded by them (they hide nothing: they are the robot, which is what is seen).
+    for(const o of q.parts){const g=gap(o,P);if(g<CLEAR)hard++;else if(g<NEAR&&ahead(o))soft+=(NEAR-g)/NEAR;}
     const d=[P[0]-S[0],P[1]-S[1]],l=Math.hypot(...d)||1,side=[-d[1]/l*w.spread,d[0]/l*w.spread],ends=[S,[S[0]+side[0],S[1]+side[1],S[2]],[S[0]-side[0],S[1]-side[1],S[2]],[S[0],S[1],S[2]+Math.min(5,w.spread)]].map(T=>toward(T,P,3));
     // Only a solid near the line of sight can hide anything (the lines to the sides of S stay within `spread` of it).
     const sight=[S[0]-P[0],S[1]-P[1],S[2]-P[2]],ss=dot(sight,sight)||1,offSight=o=>{const c=[o.c[0]-P[0],o.c[1]-P[1],o.c[2]-P[2]],k=clamp(dot(c,sight)/ss,0,1);return Math.hypot(c[0]-sight[0]*k,c[1]-sight[1]*k,c[2]-sight[2]*k);};
@@ -269,41 +306,51 @@
   // flower or the robot, or when one stands between it and what it watches. Blocked stretches, with a second either
   // side, are worked out as a whole: each picture takes one of MOVES, holding it rather than changing often (the
   // cheapest sequence, found by Viterbi), and the camera glides from one to the next, getting there before it would
-  // be blocked and leaving only once it is clear. Poses with nothing in the way stay exactly as they were.
+  // be blocked and leaving only once it is clear. A moved camera is aimed again (aimIn), so what it watches stays where
+  // it was in the picture. Poses with nothing in the way stay exactly as they were.
   function clear(poses,frames,ctx){
     const N=poses.length,K=MOVES.length,G=ctx.field,R=ctx.rig||rig(ctx);
     if(!N)return poses;
-    const scene=poses.map((pose,i)=>{const t=frames[i]?.truth;return t&&pose.watch?sceneAt(t,frames[i].fieldState?.balls,pose.watch,pose.p,pose.l,G,R,ctx.bounds):null;});
+    const scene=poses.map((pose,i)=>{const t=frames[i]?.truth;return t&&pose.watch?sceneAt(t,frames[i].fieldState?.balls,pose.watch,pose.p,pose.l,G,R,ctx.bounds,frames[i].mechanisms):null;});
     // The camera of picture i moved by swing, raise and scale round what it watches, and what that costs.
-    const place=(i,sw,up,sc)=>scene[i]?placeIn(scene[i],poses[i].p,sw,up,sc):poses[i].p,blocked=(i,P)=>blockedIn(scene[i],P);
+    const place=(i,sw,up,sc)=>scene[i]?placeIn(scene[i],poses[i].p,sw,up,sc):poses[i].p,blocked=(i,P)=>blockedIn(scene[i],P,aimIn(scene[i],poses[i].p,P));
     const cost0=poses.map((p,i)=>scene[i]?blocked(i,p.p):0),span=N>1?(frames[N-1].time-frames[0].time)/(N-1)||1/30:1/30,pad=Math.ceil(1.2/span);
     // Blocked stretches (anything costing more than a second of a small move), each with `pad` pictures either side.
     const stretches=[];for(let i=0;i<N;i++)if(cost0[i]>1){const a=Math.max(0,i-pad),z=Math.min(N-1,i+pad),last=stretches.at(-1);if(last&&a<=last[1]+1)last[1]=Math.max(last[1],z);else stretches.push([a,z]);}
     if(!stretches.length)return poses;
     const sw=new Float64Array(N),up=new Float64Array(N),sc=new Float64Array(N).fill(1);
     // Glides between the moves of stretch a (len pictures, `seq` the move of each), about 2 in a picture at most (a
-    // quarter of a second to 1 s). One to a move the old one could not keep ends before the old one is blocked; one
-    // back ends no sooner than the change. Each is placed (how long, how far before or after the change, and whether
-    // it swings first, rises or drops first, or does both together) where the pictures on the way, and those held
-    // before or after it, are least in the way of anything. Returns the changes whose glide could not keep clear
-    // ([index, from, to]).
-    const smooth=x=>x*x*(3-2*x),SHAPES=[x=>[smooth(x),smooth(x)],x=>[smooth(Math.min(1,2*x)),smooth(Math.max(0,2*x-1))],x=>[smooth(Math.max(0,2*x-1)),smooth(Math.min(1,2*x))]];
-    function glide(a,len,seq,viol){
+    // quarter of a second to 1.2 s). One to a move the old one could not keep ends before the old one is blocked; one
+    // back ends no sooner than the change. Each is placed (how long, how far before or after the change, and its
+    // shape: swinging and rising or dropping together, one before the other, or up over what it watches like a crane,
+    // swinging while high, then down) where the pictures on the way, and those held before or after it, are least in
+    // the way of anything. The crane shapes take a camera from one side of the robot to the other over it rather than
+    // round through the wall in front of it. Returns the changes whose glide could not keep clear ([index, from, to]);
+    // on the last pass (`last`) a glide that would still go through something is a cut instead (`cuts`).
+    const smooth=x=>x*x*(3-2*x),hold=(x,a,b)=>smooth(clamp((x-a)/(b-a),0,1)),crane=x=>hold(x,0,.3)*(1-hold(x,.7,1)),ARCH=70*DEG;
+    const SHAPES=[x=>[smooth(x),smooth(x),0],x=>[hold(x,0,.5),hold(x,.5,1),0],x=>[hold(x,.5,1),hold(x,0,.5),0],x=>[hold(x,.3,.7),smooth(x),crane(x)*.5],x=>[hold(x,.3,.7),smooth(x),crane(x)]];
+    const cuts=new Set();
+    function glide(a,len,seq,viol,last){
       const changes=[],wrong=[];for(let j=1;j<len;j++)if(seq[j]!==seq[j-1])changes.push(j);
       let free=0;
-      changes.forEach((j,n)=>{const A=seq[j-1],B=seq[j],mA=MOVES[A],mB=MOVES[B],i=a+j,pa=place(i,mA.swing,mA.raise,mA.scale),pb=place(i,mB.swing,mB.raise,mB.scale);
-        const T=clamp(Math.ceil(Math.hypot(pa[0]-pb[0],pa[1]-pb[1],pa[2]-pb[2])/2),8,30),early=viol[j*K+A]>=HARD,after=n+1<changes.length?changes[n+1]:len;
-        // The parameters partway along glide shape f: swing and raise each by its own share, scale with x.
-        const mid=(s0,f,x)=>{const [ks,kr]=f(x),k=smooth(x);return [s0[0]+(mB.swing-s0[0])*ks,s0[1]+(mB.raise-s0[1])*kr,s0[2]+(mB.scale-s0[2])*k];};
+      changes.forEach((j,n)=>{const A=seq[j-1],B=seq[j],mA=MOVES[A],mB=MOVES[B],i=a+j,early=viol[j*K+A]>=HARD,after=n+1<changes.length?changes[n+1]:len;
+        // The parameters partway along glide shape f: swing and raise each by its own share (and the crane's lift), scale with x.
+        const mid=(s0,f,x)=>{const [ks,kr,lift]=f(x),k=smooth(x);return [s0[0]+(mB.swing-s0[0])*ks,s0[1]+(mB.raise-s0[1])*kr+ARCH*lift,s0[2]+(mB.scale-s0[2])*k];};
+        // How far the camera goes along shape f (inches): the way it goes, not just from one end to the other. At about
+        // 2 in a picture that is T pictures.
+        const length=f=>{let d=0,p=place(i,mA.swing,mA.raise,mA.scale);for(let s=1;s<=8;s++){const q=place(i,...mid([mA.swing,mA.raise,mA.scale],f,s/8));d+=Math.hypot(q[0]-p[0],q[1]-p[1],q[2]-p[2]);p=q;}return d;};
         // Hemmed in by the glides either side (or the start of the run), it is as long as there is room for.
         const room=early?j-free:after-j;let best=null;
-        for(const f of SHAPES)for(const L of new Set([T,Math.max(8,Math.ceil(T*.6)),Math.min(T,8),Math.min(T,room)].filter(v=>v>=1&&v<=room)))for(let shift=0;shift<=24;shift+=4){
+        SHAPES.forEach((f,fi)=>{const way=length(f),T=clamp(Math.ceil(way/2),8,36);for(const L of new Set([T,Math.max(8,Math.ceil(T*.6)),Math.min(T,8),Math.min(T,room)].filter(v=>v>=1&&v<=room)))for(let shift=0;shift<=24;shift+=4){
           const start=early?j-L-shift:j+shift;if(start<free||start+L>after)continue;
-          const k0=a+Math.min(start,j)-1,s0=k0>=0?[sw[k0],up[k0],sc[k0]]:[mA.swing,mA.raise,mA.scale];let score=shift*.02+(T-L)*.01+(f===SHAPES[0]?0:.05),hits=0;
+          const k0=a+Math.min(start,j)-1,s0=k0>=0?[sw[k0],up[k0],sc[k0]]:[mA.swing,mA.raise,mA.scale];let score=shift*.02+(T-L)*.01+[0,.05,.05,.15,.2][fi],hits=0;
           if(early)for(let u=start+L;u<j;u++)score+=viol[u*K+B]*span;else for(let u=j;u<start;u++)score+=viol[u*K+A]*span;
           for(let u=0;u<L;u++){const q=a+start+u;if(!scene[q])continue;const v=blocked(q,place(q,...mid(s0,f,(u+1)/(L+1))));score+=v*span;if(v>=HARD)hits++;}
-          if(!best||score<best.score)best={start,L,s0,f,score,hits};}
-        if(!best)return;const {start,L,s0,f}=best;if(best.hits)wrong.push([j,A,B]);
+          if(!best||score<best.score)best={start,L,s0,f,score,hits,fast:way/(L+1)>5};}});
+        if(!best)return;const {start,L,s0,f}=best;if(best.hits||best.fast)wrong.push([j,A,B]);
+        // Still through something, or too quick to be a glide (over 5 in a picture), after every other way was tried:
+        // the picture cuts from one move to the next.
+        if(last&&(best.hits>2||best.fast)){cuts.add(a+j);free=j;return;}
         if(early)for(let u=start+L;u<j;u++){sw[a+u]=mB.swing;up[a+u]=mB.raise;sc[a+u]=mB.scale;}else for(let u=j;u<start;u++){sw[a+u]=s0[0];up[a+u]=s0[1];sc[a+u]=s0[2];}
         for(let u=0;u<L;u++){const q=a+start+u;[sw[q],up[q],sc[q]]=mid(s0,f,(u+1)/(L+1));}
         free=start+L;});
@@ -323,54 +370,65 @@
         for(let j=1;j<len;j++){const no=barred.get(j);for(let c=0;c<K;c++){let low=best[c],arg=c;for(let e=0;e<K;e++){if(e===c)continue;const v=best[e]+SWITCH[e*K+c]+(no?.has(e*K+c)?5:0);if(v<low){low=v;arg=e;}}next[c]=low+cost[j*K+c];from[j*K+c]=arg;}best.set(next);}
         let c=0;for(let e=1;e<K;e++)if(best[e]<best[c])c=e;for(let j=len-1;j>=0;j--){seq[j]=c;if(j)c=from[j*K+c];}
         for(let j=0;j<len;j++){const mv=MOVES[seq[j]];sw[a+j]=mv.swing;up[a+j]=mv.raise;sc[a+j]=mv.scale;}
-        const wrong=glide(a,len,seq,viol);if(!wrong.length||pass===3)break;
+        const wrong=glide(a,len,seq,viol,pass===3);if(!wrong.length||pass===3)break;
         for(const [j,A,B] of wrong)for(let u=Math.max(1,j-20);u<=Math.min(len-1,j+20);u++){if(!barred.has(u))barred.set(u,new Set());barred.get(u).add(A*K+B);}
       }
-      // A last light smoothing takes the corners off the glides.
-      for(const arr of [sw,up,sc]){const copy=arr.slice(a,z+1);for(let j=1;j<len-1;j++){let s=0,n=0;for(let d=-3;d<=3;d++){const q=j+d;if(q<0||q>=len)continue;s+=copy[q];n++;}arr[a+j]=s/n;}}
+      // Two cuts within 0.3 s would flash a move for a moment: the move after them (or else the one before) takes its
+      // place, where it is clear there.
+      const clearWith=(i0,i1,q)=>{for(let i=i0;i<i1;i++)if(scene[i]&&blocked(i,place(i,...q))>=HARD)return false;return true;},inside=[...cuts].filter(c=>c>a&&c<=z).sort((x,y)=>x-y);
+      for(let n=1;n<inside.length;n++){const c1=inside[n-1],c2=inside[n];if(c2-c1>9||!cuts.has(c1))continue;const later=[sw[c2],up[c2],sc[c2]],earlier=[sw[c1-1],up[c1-1],sc[c1-1]];
+        if(clearWith(c1,c2,later)){for(let i=c1;i<c2;i++)[sw[i],up[i],sc[i]]=later;cuts.delete(c2);}else if(clearWith(c1,c2,earlier)){for(let i=c1;i<c2;i++)[sw[i],up[i],sc[i]]=earlier;cuts.delete(c1);}}
+      // A last light smoothing takes the corners off the glides (not across a cut, and not where it would take the
+      // camera into something the glide kept clear of).
+      const across=(p,q)=>{for(let c=Math.min(p,q)+1;c<=Math.max(p,q);c++)if(cuts.has(a+c))return true;return false;},raw=[sw,up,sc].map(arr=>arr.slice(a,z+1));
+      raw.forEach((copy,k)=>{const arr=[sw,up,sc][k];for(let j=1;j<len-1;j++){let s=0,n=0;for(let d=-3;d<=3;d++){const q=j+d;if(q<0||q>=len||across(j,q))continue;s+=copy[q];n++;}arr[a+j]=s/n;}});
+      for(let j=1;j<len-1;j++){const i=a+j;if(!scene[i]||blocked(i,place(i,sw[i],up[i],sc[i]))<HARD||blocked(i,place(i,raw[0][j],raw[1][j],raw[2][j]))>=HARD)continue;sw[i]=raw[0][j];up[i]=raw[1][j];sc[i]=raw[2][j];}
     }
-    return poses.map((p,i)=>!scene[i]||(!sw[i]&&!up[i]&&sc[i]===1)?p:{...p,p:place(i,sw[i],up[i],sc[i])});
+    return poses.map((p,i)=>{if(!scene[i]||(!sw[i]&&!up[i]&&sc[i]===1))return p;const P=place(i,sw[i],up[i],sc[i]);return {...p,p:P,l:aimIn(scene[i],p.p,P)};});
   }
   // Camera 1 as Record films it live, picture by picture: the original follow camera kept clear of the field by the
   // same rules as clear(), but without the rest of the run to look ahead in. Each picture weighs every move where the
   // robot is now and where its speed takes it in half a second. The camera keeps its move unless another stays
   // clearly better for a moment (it changes at once when blocked now or soon), and glides to it: quickly when it is
-  // blocked, slowly back towards the design once clear. `follow` carries it between pictures; dt 0 starts afresh.
-  // Without a field (ctx.field) only the walls and the robot count.
+  // blocked, slowly back towards the design once clear. It keeps all of the robot in its picture (inView). `follow`
+  // carries it between pictures; dt 0 starts afresh. Without a field (ctx.field) only the walls and the robot count.
   const amount=q=>Math.abs(q[0])/(60*DEG)+Math.abs(q[1])/(35*DEG)+(1-q[2])/.3;
   function mainLive(follow,ctx,dt){
     const pose=mainStep(follow,ctx,dt),t=ctx.frame?.truth;if(!pose||!t)return pose;
     const R=ctx.rig||rig(ctx),G=ctx.field,K=MOVES.length,balls=ctx.frame.fieldState?.balls;if(!dt||!follow.keep)follow.keep={m:0,q:[0,0,1],next:-1,wait:0,v:null};const keep=follow.keep;
-    const w={at:[t.x,t.y,R.height*.55],spread:R.footprint.half,edge:false},now=sceneAt(t,balls,w,pose.p,pose.l,G,R,ctx.bounds);
+    const w={at:[t.x,t.y,R.height*.55],spread:R.footprint.half,edge:false},now=sceneAt(t,balls,w,pose.p,pose.l,G,R,ctx.bounds,ctx.frame.mechanisms);
     // Half a second on: the robot at its speed, and the camera and what it looks at each at their own (smoothed), as
     // the follow camera swings round the robot when it turns to the goal.
     const ahead=.5,d=[(t.vx||0)*ahead,(t.vy||0)*ahead,0],later={...t,x:t.x+d[0],y:t.y+d[1],heading:t.heading+(t.omega||0)*ahead};
     if(dt&&keep.v){const kv=1-Math.exp(-dt/.1),v=[...pose.p,...pose.l].map((x,i)=>(x-keep.v.at[i])/dt);keep.v.speed=keep.v.speed.map((s,i)=>s+(v[i]-s)*kv);}
     keep.v={at:[...pose.p,...pose.l],speed:keep.v?.speed||[(t.vx||0),(t.vy||0),0,(t.vx||0),(t.vy||0),0]};
     const Pl=pose.p.map((x,i)=>x+keep.v.speed[i]*ahead),Ll=pose.l.map((x,i)=>x+keep.v.speed[i+3]*ahead);
-    const soon=sceneAt(later,balls,{...w,at:w.at.map((x,i)=>x+d[i])},Pl,Ll,G,R,ctx.bounds),cost=new Float64Array(K);let best=0;
-    for(let c=0;c<K;c++){const m=MOVES[c];cost[c]=m.cost+blockedIn(now,placeIn(now,pose.p,m.swing,m.raise,m.scale))+.5*blockedIn(soon,placeIn(soon,Pl,m.swing,m.raise,m.scale));if(cost[c]<cost[best])best=c;}
+    const soon=sceneAt(later,balls,{...w,at:w.at.map((x,i)=>x+d[i])},Pl,Ll,G,R,ctx.bounds,ctx.frame.mechanisms),cost=new Float64Array(K);let best=0;
+    // What the camera moved by swing, raise and scale (aimed again at what it watches) meets in scene q.
+    const moved=(q,P0,sw,up,sc)=>{const P=placeIn(q,P0,sw,up,sc);return blockedIn(q,P,aimIn(q,P0,P));};
+    for(let c=0;c<K;c++){const m=MOVES[c];cost[c]=m.cost+moved(now,pose.p,m.swing,m.raise,m.scale)+.5*moved(soon,Pl,m.swing,m.raise,m.scale);if(cost[c]<cost[best])best=c;}
     if(!dt){keep.m=best;keep.q=[MOVES[best].swing,MOVES[best].raise,MOVES[best].scale];}
     else if(cost[keep.m]>=HARD/2){keep.m=best;keep.next=-1;}
     else if(best!==keep.m&&cost[best]<cost[keep.m]-.3){if(keep.next!==best){keep.next=best;keep.wait=0;}else if((keep.wait+=dt)>=.4){keep.m=best;keep.next=-1;}}
     else keep.next=-1;
     // The glide itself carries the camera at most 120 in/s (on top of the robot's own motion), so it never jumps.
-    const to=MOVES[keep.m],target=[to.swing,to.raise,to.scale],from=placeIn(now,pose.p,...keep.q),k=dt?1-Math.exp(-dt/(blockedIn(now,from)>=HARD?.08:blockedIn(soon,placeIn(soon,Pl,...keep.q))>=HARD?.12:amount(target)>amount(keep.q)?.2:.5)):1;
+    const to=MOVES[keep.m],target=[to.swing,to.raise,to.scale],from=placeIn(now,pose.p,...keep.q),k=dt?1-Math.exp(-dt/(moved(now,pose.p,...keep.q)>=HARD?.08:moved(soon,Pl,...keep.q)>=HARD?.12:amount(target)>amount(keep.q)?.2:.5)):1;
     let q=keep.q.map((v,i)=>v+(target[i]-v)*k);
-    if(dt){const P=placeIn(now,pose.p,...q),moved=Math.hypot(P[0]-from[0],P[1]-from[1],P[2]-from[2]),most=120*dt;if(moved>most)q=keep.q.map((v,i)=>v+(q[i]-v)*most/moved);}
+    if(dt){const P=placeIn(now,pose.p,...q),went=Math.hypot(P[0]-from[0],P[1]-from[1],P[2]-from[2]),most=120*dt;if(went>most)q=keep.q.map((v,i)=>v+(q[i]-v)*most/went);}
     keep.q=!keep.m&&amount(q)<.002?[0,0,1]:q;
-    return amount(keep.q)?{...pose,p:placeIn(now,pose.p,...keep.q)}:pose;
+    if(!amount(keep.q))return inView(pose,...robotBall(t,R));const P=placeIn(now,pose.p,...keep.q);return inView({...pose,p:P,l:aimIn(now,pose.p,P)},...robotBall(t,R));
   }
   // ---------------------------------------------------------------- whole-run paths
   // The path of one camera through a recording: seven numbers per frame (camera x, y, z, look x, y, z, fov). The
-  // camera inside the turret is not moved by clear(): it sits on the robot, over its top.
+  // camera inside the turret is not moved by clear(): it sits on the robot, over its top. Camera 1 then keeps all of
+  // the robot in its picture (inView).
   function path(id,frames,ctx,cfg){
     cfg=cfg||DEFAULTS[id];const s={},R=ctx.rig||rig(ctx),poses=[];let last=null;if(id==='turret')s.which=busiest(frames,R);
     frames.forEach((frame,i)=>{const dt=i?Math.max(0,frame.time-frames[i-1].time):0;let p=step(id,s,{...ctx,rig:R,frame},cfg,dt);
       if(p&&id==='main'&&frame.truth)p.watch={at:[frame.truth.x,frame.truth.y,R.height*.55],spread:R.footprint.half,edge:false};
       p=p||last||{p:[72,-40,80],l:[72,72,0],fov:50};last=p;poses.push(p);});
     const out=new Float32Array(frames.length*7),done=id==='turret'&&cfg.mode==='pov'?poses:clear(poses,frames,{...ctx,rig:R});
-    done.forEach((p,i)=>out.set([...p.p,...p.l,p.fov],i*7));
+    done.forEach((p,i)=>{if(id==='main'&&frames[i].truth)p=inView(p,...robotBall(frames[i].truth,R));out.set([...p.p,...p.l,p.fov],i*7);});
     return out;
   }
   // Every camera's path: {main: Float32Array, ...}. `cfg` from settings().

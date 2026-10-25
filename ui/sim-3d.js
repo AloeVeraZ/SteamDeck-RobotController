@@ -187,13 +187,19 @@ window.DeckSim3D={create(host,options){
   // turret (or fixed facing) to the goal it points at, if one is within 25° of that line (sim-cameras.js).
   const aims=()=>window.DeckCameras.aims(frame,state?.aim);
   // A beam along each shooter's aim: amber while it spins up or turns, green once it is ready and on target.
-  const beamGroup=new THREE.Group(),beamParts=[];scene.add(beamGroup);
+  const beamGroup=new THREE.Group(),beamParts=[];scene.add(beamGroup);let beamList=[];
   function beams(){
-    const list=aims();beamGroup.visible=list.length>0;
+    const list=beamList=aims();beamGroup.visible=list.length>0;
     list.forEach((b,n)=>{let p=beamParts[n];if(!p){const bar=new THREE.BoxGeometry(1,.7,.7);bar.translate(.5,0,0);p={bar:new THREE.Mesh(bar,new THREE.MeshBasicMaterial({transparent:true,opacity:.75,depthWrite:false})),end:new THREE.Mesh(new THREE.SphereGeometry(1.6,16,10),new THREE.MeshBasicMaterial({transparent:true,opacity:.85,depthWrite:false}))};p.bar.renderOrder=p.end.renderOrder=11;beamGroup.add(p.bar,p.end);beamParts[n]=p;}
       const hex=b.on?0x49cbb3:0xf2bc62;p.bar.material.color.setHex(hex);p.end.material.color.setHex(hex);p.bar.visible=p.end.visible=true;
       p.bar.position.set(b.x,b.y,13);p.bar.rotation.set(0,0,b.dir);p.bar.scale.set(b.len,1,1);p.end.position.set(b.x+Math.cos(b.dir)*b.len,b.y+Math.sin(b.dir)*b.len,13);});
     for(const p of beamParts.slice(list.length)){p.bar.visible=p.end.visible=false;}
+  }
+  // A beam passing within 10 in of a camera at P would fill its picture with a blur of colour, so that picture leaves
+  // it out (a camera riding the turret, or trailing the robot as the turret swings past). No P draws every beam.
+  function beamsFrom(P){
+    beamList.forEach((b,n)=>{const p=beamParts[n],dx=Math.cos(b.dir)*b.len,dy=Math.sin(b.dir)*b.len,k=P?Math.max(0,Math.min(1,((P[0]-b.x)*dx+(P[1]-b.y)*dy)/(dx*dx+dy*dy||1))):0;
+      p.bar.visible=p.end.visible=!P||Math.hypot(b.x+dx*k-P[0],b.y+dy*k-P[1],13-P[2])>10;});
   }
   // The orthographic camera straight above the field, fitted to a picture of the given shape.
   function fitTop(aspect,margin){const b=info?.bounds||{x0:0,y0:0,x1:144,y1:144},cx=(b.x0+b.x1)/2,cy=(b.y0+b.y1)/2,hh=Math.max((b.y1-b.y0)/2,(b.x1-b.x0)/2/aspect)*margin;
@@ -208,9 +214,9 @@ window.DeckSim3D={create(host,options){
   let camFor=null,camField=null,camRig=null;
   function chase(dt,pose){
     const K=window.DeckCameras;
-    if(!pose){if(camFor?.info!==info||camFor?.aim!==state?.aim){camFor={info,aim:state?.aim};camField=K.field(info);camRig=K.rig({footprint:info?.footprint,robot:info?.robot,mechanisms:info?.mechanisms,aim:state?.aim});}
+    if(!pose){if(camFor?.info!==info||camFor?.aim!==state?.aim||camFor?.body!==body){camFor={info,aim:state?.aim,body};camField=K.field(info);camRig=K.rig({footprint:info?.footprint,robot:info?.robot,mechanisms:info?.mechanisms,aim:state?.aim,turrets:body?.userData?.kin?.turrets});}
       pose=K.mainLive(follow,{frame,start:state?.start,aim:state?.aim,footprint:info?.footprint,bounds:info?.bounds,field:camField,rig:camRig},dt);}
-    if(!pose)return;camera.position.set(...pose.p);camera.lookAt(...pose.l);
+    if(!pose)return;camera.fov=pose.fov||50;camera.updateProjectionMatrix();camera.position.set(...pose.p);camera.lookAt(...pose.l);
   }
   // Draws the next picture of a run video `dt` seconds after the last, from above ('top') or following the robot
   // ('chase', with `pose` when the camera was worked out ahead). The follow camera has the whole field from above in
@@ -218,8 +224,8 @@ window.DeckSim3D={create(host,options){
   function shoot(nextFrame,nextState,dt,view='chase',pose){
     frame=nextFrame;state=nextState||state;prepare();renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
     if(view==='top'){fitTop(W/H,1.06);renderer.render(scene,top);return {canvas:renderer.domElement,inset:null};}
-    camera.fov=pose?.fov||50;camera.aspect=W/H;camera.updateProjectionMatrix();chase(dt,pose);renderer.render(scene,camera);
-    const s=Math.round(H*.3),pad=Math.round(H*.03);fitTop(1,1.04);renderer.setScissorTest(true);renderer.setScissor(W-s-pad,pad,s,s);renderer.setViewport(W-s-pad,pad,s,s);renderer.render(scene,top);renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
+    camera.fov=pose?.fov||50;camera.aspect=W/H;camera.updateProjectionMatrix();chase(dt,pose);beamsFrom(camera.position.toArray());renderer.render(scene,camera);
+    const s=Math.round(H*.3),pad=Math.round(H*.03);fitTop(1,1.04);beamsFrom(null);renderer.setScissorTest(true);renderer.setScissor(W-s-pad,pad,s,s);renderer.setViewport(W-s-pad,pad,s,s);renderer.render(scene,top);renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
     return {canvas:renderer.domElement,inset:{x:W-s-pad,y:H-s-pad,size:s}};
   }
   // The Video workspace: one picture of the run seen by several cameras, each in its own rectangle of the canvas
@@ -228,9 +234,9 @@ window.DeckSim3D={create(host,options){
   function picture(nextFrame,nextState,shots){
     frame=nextFrame;state=nextState||state;prepare();renderer.setScissorTest(true);
     for(const s of shots){const [x,y,w,h]=s.rect,yb=H-y-h;renderer.setViewport(x,yb,w,h);renderer.setScissor(x,yb,w,h);
-      if(s.top){fitTop(w/h,1.06);renderer.render(scene,top);continue;}
-      camera.fov=s.pose.fov;camera.aspect=w/h;camera.updateProjectionMatrix();camera.position.set(...s.pose.p);camera.lookAt(...s.pose.l);renderer.render(scene,camera);
-      if(s.inset){const size=Math.round(h*.3),pad=Math.round(h*.03),ix=x+w-size-pad,iy=yb+pad;fitTop(1,1.04);renderer.setViewport(ix,iy,size,size);renderer.setScissor(ix,iy,size,size);renderer.render(scene,top);s.insetRect={x:ix,y:y+h-pad-size,size};}}
+      if(s.top){fitTop(w/h,1.06);beamsFrom(null);renderer.render(scene,top);continue;}
+      camera.fov=s.pose.fov;camera.aspect=w/h;camera.updateProjectionMatrix();camera.position.set(...s.pose.p);camera.lookAt(...s.pose.l);beamsFrom(s.pose.p);renderer.render(scene,camera);
+      if(s.inset){const size=Math.round(h*.3),pad=Math.round(h*.03),ix=x+w-size-pad,iy=yb+pad;fitTop(1,1.04);beamsFrom(null);renderer.setViewport(ix,iy,size,size);renderer.setScissor(ix,iy,size,size);renderer.render(scene,top);s.insetRect={x:ix,y:y+h-pad-size,size};}}
     renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);return renderer.domElement;
   }
   // A video camera's picture size.

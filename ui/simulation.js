@@ -2245,8 +2245,9 @@ public class MyAuto implements DeckAutonomous {
   // Where each shooter is and the goals it can aim at, so the video can draw its aim.
   function videoAim(){const m=MECH.sanitize(project.mechanisms);if(L().field!=='biobuzz'||!m.enabled||!m.shooters.length)return null;
     return {shooters:m.shooters,dims:{length:project.robot.length,width:project.robot.width},targets:['start','other'].map(cell=>MECH.target(m,L().field,L().alliance,cell))};}
-  // What the video cameras know of the robot (sim-cameras.js): its size, mechanisms and CAD parts, and the aim.
-  const cameraBase=aim=>({footprint:info?.footprint,bounds:info?.bounds,robot:project.robot,aim,mechanisms:MECH.sanitize(project.mechanisms),parts:project.model?.parts});
+  // What the video cameras know of the robot (sim-cameras.js): its size, mechanisms and CAD parts, the aim, and the
+  // turrets drawn as stand-ins on its top (the cameras ride on them and keep out of them).
+  const cameraBase=aim=>({footprint:info?.footprint,bounds:info?.bounds,robot:project.robot,aim,mechanisms:MECH.sanitize(project.mechanisms),parts:project.model?.parts,turrets:fieldRig()?.userData?.kin?.turrets||[]});
   // A replay can hand each picture its camera pose (videoShow.pose); live filming works the camera out as it goes.
   const videoRec=Video.create({frame:()=>videoShow?.frame(),name:()=>L().name,start:()=>videoShow?.start??runData.frames()[0]?.time??0,
     shoot:dt=>{const f=videoShow.frame();return videoCam.cam.shoot(f,{...state3d(),trail:videoShow.trail(),aim:videoShow.aim},dt,videoShow.view==='2d'?'top':'chase',videoShow.pose?.(f));}});
