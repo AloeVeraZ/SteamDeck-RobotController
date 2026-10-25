@@ -259,6 +259,26 @@ The user's Mechanisms preview drew made-up turret boxes and a ramp plate over th
 - `ui/sim-joints.js`: Not in your CAD yet rows, launch angle and limits for hoods, Pickup box from the ramp, Hitboxes toggle (shared with the 3D view's), older findings made again.
 - On the user's setup (copied, untouched) in the app: 22 moving parts; renders and a 3D run checked. The hood is at its steepest in the CAD (53°/57° launch), so at the game's 70–85° it holds; Play sweeps its 18°/21° range.
 
+### A universal mechanism engine (25 October, night)
+
+The user asked for the mechanism system to become a general robotics mechanism engine: research across robot types, a clean split of geometry, joints, actuators, transmissions and actions, structured-format import with confidence, an easy configuration UI, coordinated actions, a multi-architecture test suite, and repeated self-review. Work was on branch `universal-mechanisms`, coordinated with the CAD shooter session, then merged.
+
+The research, the decisions with their sources, the test coverage, the limits and iterations 7–13 are in `docs/MECHANISM_RESEARCH.md`. The design is in `docs/MECHANISM_ENGINE.md`, the user guide in `docs/SIMULATION.md`.
+
+- `ui/sim-kinematics.js`:
+  - couplings take several inputs, polynomials and periodic tables (differential, planetary, tendon, cam, Geneva, continuous rigging);
+  - every joint type has end stops;
+  - actuators move in joint units through transmissions, ideally, as a DC motor (WPILib model) or as a pneumatic cylinder;
+  - sensors; wait, pose, reach and run-action steps; repeats;
+  - inverse kinematics with orientation; pins in slots;
+  - loops solve in inches, warm-started (17× faster);
+  - exact trapezoids;
+  - the driver sends only the joints it drives (loops close in runs).
+- `ui/sim-robot-formats.js` (new): SDFormat, MJCF and text USD readers into one description, then the body and confirmed joints. `src/sim-bridge.cjs` reads them and their meshes.
+- `ui/sim-joints.js`: Motor and gearing, Poses, Sensors, richer action steps.
+- `ui/sim-robot-model.js` and `ui/simulation.js`: robot files are drawn at their true size; imports of the new formats.
+- Tests: `tests/sim-mechanism-universal.test.cjs` (26 tests of robots and mechanisms, each against an independent answer) and `tests/sim-robot-formats.test.cjs` (fixtures in `tests/fixtures`). Checked in the app with Playwright (see `docs/MECHANISM_RESEARCH.md` iteration 13).
+
 ### lunala red auto (the user's request)
 
 - One custom curve replaces the back-off pin.

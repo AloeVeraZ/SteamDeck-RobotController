@@ -1,6 +1,6 @@
 # Moving parts: the mechanism engine
 
-How the simulator represents, finds, edits and animates what moves on a robot. The user guide is in `SIMULATION.md` (Mechanisms → Moving parts); this is the design, its sources and its limits.
+How the simulator represents, finds, edits and animates what moves on a robot. The user guide is in `SIMULATION.md` (Mechanisms → Moving parts); this is the design, its sources and its limits. The research behind it is in `MECHANISM_RESEARCH.md`: the robots studied, what each needs, the source of each decision, the test coverage.
 
 ## Five separate ideas
 
@@ -8,9 +8,10 @@ How the simulator represents, finds, edits and animates what moves on a robot. T
 |---|---|---|
 | Geometry | the imported CAD body | parts (leaves of the assembly tree), named by refs: an assembly key (every part under it) or `#n` (one part instance) |
 | Joints | `sim-kinematics.js` | how a link (some parts) moves relative to its parent link |
-| Actuators | `sim-kinematics.js` (`Axis`, `Driver`) | what commands a joint: position, speed, effort or named states, with speed and acceleration limits |
-| Couplings and loops | `sim-kinematics.js` | motion passed on (gear, belt, rack, screw, cable, mimic) and closed chains |
-| Actions | `sim-kinematics.js` (`timeline`, `Driver.start`) and route actions | named, timed steps that command actuators |
+| Actuators | `sim-kinematics.js` (`Axis`, `Driver`) | what commands a joint (position, speed, effort or named states) through a transmission, moving ideally, as a DC motor against a load, or as a pneumatic cylinder; sensors read how it actually moved |
+| Couplings and loops | `sim-kinematics.js` | motion passed on (gears, belts, racks, screws, cables, mimic, differentials, planetary sets, tendons, cams, stages one after another) and closed chains (points that meet, pins in slots) |
+| Actions | `sim-kinematics.js` (`timeline`, `Driver.start`) and route actions | named, timed steps: move a part, go to a pose, reach a point, wait for a sensor, run another action; they can repeat |
+| Robot files | `sim-urdf.js`, `sim-robot-formats.js` | URDF, SDFormat, MJCF and text USD read into links, joints, couplings, loops and actuators, confirmed |
 
 A joint does not know what it is for. A turret, a ramp, an elbow and an intake roller are all revolute or continuous joints; a game binds one to its own signals with `drive` (`turret`, `hood`, `flywheel`, `roller`, `deploy`, `feeder`, `wheel`, or `action` for route actions). This is the split URDF makes between `<joint>` and `<transmission>`, and Onshape between mates and mate relations.
 
@@ -42,15 +43,42 @@ with every `M` expressed in that one frame (`M` for a revolute joint is translat
 
 ### Couplings
 
-`q_to = ratio · q_from + offset`. This is URDF's mimic joint (`multiplier`, `offset`) and the linear case of MuJoCo's joint equality (`polycoef`). Onshape's gear, rack and pinion and screw relations are particular ratios. Couplings are resolved in dependency order (gear trains), and a joint is set by at most one coupling. A motor that drives a spool that pulls a cable that lifts a slide is a motor joint (with or without geometry), a `cable` coupling and a prismatic joint.
+`q_to = offset + f(q_from) + Σ ratioᵢ · q_plusᵢ`, where f is `ratio · x` (plus optional x², x³, x⁴ terms) or a table of points.
+
+- **Linear, one input.** URDF's mimic joint (`multiplier`, `offset`) and Drake's coupler constraint. Onshape's gear, rack and pinion and screw relations are particular ratios.
+- **Several inputs (`plus`).** ros2_control's differential and four-bar transmissions, CoreXY belts, a planetary set (`planetary()`, Willis), and a MuJoCo fixed tendon held at a length.
+- **Polynomial (`poly`).** MuJoCo's joint equality (`polycoef`).
+- **Table (`curve`).** Cams, linkages, and the stages of a continuously rigged slide (`rigging()`, gm0: the top stage first). With a `period`, the table repeats every turn and each turn adds the table's rise (a Geneva wheel).
+
+Couplings are resolved in dependency order (a differential after both its inputs), and a joint is set by at most one coupling. A motor that drives a spool that pulls a cable that lifts a slide is a motor joint (with or without geometry), a `cable` coupling and a prismatic joint; an actuator's `transmission` stages say the same more simply when the motor itself is not drawn.
 
 ### Closed loops
 
-URDF describes only trees; mimic joints and simulators' constraints cover loops (MuJoCo's `connect` equality, Onshape's closed mate loops). Here a loop says a point on one link and a point on another are the same point. The joints along either chain that nothing else sets are solved by damped least squares (Levenberg–Marquardt with a numerical Jacobian) so the points meet. To stay on the branch the CAD was assembled in, the driven joints move from the rest pose to their values in steps of at most 10° (or 0.5 in), so the result depends only on the inputs (deterministic for scrubbing and recordings). Tested against Freudenstein's four-bar solution and the slider-crank formula.
+URDF describes only trees; mimic joints and simulators' constraints cover loops (MuJoCo's `connect` equality, Onshape's closed mate loops). Here a loop says a point on one link and a point on another are the same point, or with `along`, that a point stays on a line through the other (a pin in a slot). The joints along either chain that nothing else sets are solved by damped least squares (Levenberg–Marquardt with a numerical Jacobian, residuals in inches whatever the CAD unit) so the points meet. Couplings are re-applied inside the solve, so a geared five-bar closes too.
+
+To stay on the branch the CAD was assembled in, the driven joints move from the rest pose to their values in steps of at most 10° (or 0.5 in). Only the inputs that reach the loops' chains step it, and only those chains are posed while solving. When every input has moved less than one step since the last pose of the same model (a run, an animation), it continues from that pose, as the real linkage would; a jump (a scrub) starts from the rest pose again, and unchanged inputs return the last answer. A moving four-bar costs about 0.1 ms a pose.
+
+The driver sends only the joints it drives, and `pose()` solves the rest; sending every joint used to hold loops open in runs. Tested against Freudenstein's four-bar, the slider-crank formula, a delta robot, a Stewart platform's inverse kinematics, a Scotch yoke and a slotted lever.
 
 ### Actuators and actions
 
-An actuator moves its joint toward a target along a trapezoid (top speed, acceleration and deceleration; none means full speed at once), or holds a speed, or turns effort into a speed (a kinematic approximation, labelled as such). Joint limits stop it. Actions are steps that start together, in sequence or after a delay; `timeline()` works out each step's start and end ahead from the trapezoids, so a preview can scrub it and the ticking driver finishes when the timeline says. A route action named after a part and one of its named positions ("Lift up") moves that part there; a pin waits until it arrives.
+An actuator's targets, named positions and speeds are in its joint's units ("lift to 20 in at 15 in/s"). Its `transmission` stages (gearbox, belt or gear pair, spool, rack, lead screw) give `ratio`, the actuator's turn per unit of joint motion. An actuator without named positions uses its joint's, and a route action may name the joint or the motor. It moves in one of three ways (`response`):
+
+- **ideal:** a trapezoid at its top speed and acceleration, followed exactly within each tick (a phase may end inside one), so ticking ends on the first tick at or after the planned time;
+- **motor:** WPILib's DC motor model, with torque falling from stall to nothing at free speed, in proportion to voltage. The datasheet's free speed and stall torque come through the transmission, and the team enters the load and inertia at the joint. The speed over each sub-step is the exact solution of J·dω/dt = τs(u − ω/ωf) − τL. The default position gain makes the loop critically damped. A speed command is held with load feed-forward; an effort is open loop. Under its load it slows, and past stall it is back-driven;
+- **pneumatic:** rests only at its two ends.
+
+The driver reports each actuator's command beside its response (`state()`). Sensors (encoders counting motor turns, limit switches, angle and speed sensors) read the response.
+
+An action's steps start together, in sequence or after a delay. A step can:
+
+- move a part;
+- go to a named pose (every mover's trapezoid time-scaled to the slowest so all arrive together);
+- reach a point (inverse kinematics over the chain's movers, optionally aiming the tool);
+- wait for a sensor, joint or actuator reading (with a timeout);
+- run another action as a preset (an action cannot run itself).
+
+An action can repeat. `timeline()` works out each step ahead for ideal actuators; an action that waits or uses a motor model is timed by running the driver every 1/240 s and recording a track, so either way a preview can scrub it and the ticking driver finishes when the timeline says. A route action named after a part and one of its named positions ("Lift up") moves that part there; a pin waits until it arrives.
 
 ### What is simulated, and how
 
@@ -94,12 +122,34 @@ On the team's own robot (a 118 MB, 2.18 M-triangle Onshape STEP) the finder take
 
 **Pick a circle** measures the circle under the click, as a slicer does: a round part gives its own axis; on a flat face the edge loop nearest the click (a hole, or the face's rim) is fitted as a circle, accepted only when it is many short edges (any four corners of a rectangle also lie on a circle); a curved patch is fitted as a cylinder whose axis is the direction its normals avoid. **Two points** sets an axis through two clicks.
 
+## Robot files with joints
+
+URDF (`sim-urdf.js`), SDFormat, MJCF and text USD (`sim-robot-formats.js`) carry joints as data, so nothing is guessed: their joints are **From the file**. Each format is read with its own frame rules:
+
+- SDFormat's `relative_to` and frames;
+- MJCF's default classes, angle units and Euler sequence;
+- USD's transform ops, `metersPerUnit` and up axis.
+
+The file's couplings, loops and actuators come with the joints:
+
+- mimic tags, MuJoCo joint and tendon equalities, PhysX mimic joints and SDFormat gearboxes become couplings;
+- connect and weld equalities, and a joint whose child is already reached, become loops;
+- MJCF actuators and USD drives become actuators.
+
+What a file holds that is not read is reported in the import message, not guessed. These robots are drawn at their true size, never stretched to the footprint (which would shear every turning link).
+
 ## Limits
 
 - **No mates from STEP.** Joints come from geometry and names. AP242 can carry kinematic structure (`KINEMATIC_JOINT`, `REVOLUTE_PAIR`), but the exporters teams use do not write it and the reader does not expose it.
-- **URDF imports with its joints (From the file); SDF and MJCF do not yet.** Collada (.dae) meshes are not read (no loader is bundled): their links show their collision shapes, and the import says which were not drawn. Xacro must be expanded to URDF first.
+- **URDF, SDFormat, MJCF and text USD import with their joints (From the file).**
+  - Collada (.dae) meshes are not read (no loader is bundled): their links show their collision shapes, and the import says which were not drawn.
+  - Xacro must be expanded to URDF first.
+  - Binary USD must be saved as .usda.
+  - Includes, references, spatial tendons, muscles, flex, and USD distance and D6 joints are reported, not read.
 - **Discovery is strongest on FTC mechanisms.** Turrets, hoods, flywheels, ramps, rollers, feeders and drive wheels are found from geometry; arms, claws and wrists (a hinge line joining the assembly to the robot) and lifts and slides (a shared rail direction, the rails touching the frame staying) only from assemblies named that way, and always marked for checking. Anything else is added with + Add.
-- **The panel edits couplings (Follows), loops (Pin it to) and actions**, but not separate actuators: a part moved by route actions is its own actuator (its speed and named positions).
+- **The panel edits couplings with one input (Follows) and point loops (Pin it to).** Multi-input couplings, tables, pins in slots and reach steps come from files or code; the panel shows them.
+- **Motors, poses, sensors and action steps (pose, wait, pause, run another action, repeat) are edited in the panel.**
+- **No rigid-body dynamics for CAD links.** The motor model is a one-DOF model at the actuator, with the load the team enters; the CAD's mass is not known.
 - **No collision of CAD parts.** See the three levels above.
 
 ## Sources
@@ -124,3 +174,5 @@ On the team's own robot (a 118 MB, 2.18 M-triangle Onshape STEP) the finder take
 **Iteration 5 (review).** Checked the field view from a real run: in the frame where the intake runs, the ramp is down on the floor; while feeding, both turrets turned to the hive. Found and fixed: every edit re-split the 2-million-triangle body (now only a change of which parts move does; the rest retunes the rig in place); turret stand-ins on a bundled chassis floated at the robot height setting. Added clearance checking (above): sweeps take 0.3–2 s in the worker on the lunala CAD. Its first results were false (a slanted plate's principal-axes box reached the indexer below it; a turntable gear's box swept its corners), fixed by intersecting the two boxes and skipping parts round about their own joint's axis; what remains is a real near-miss (turret 2's hood servo and turret 1's pulley at 114°) and the hood's narrow free range (its bottom edge sits 0.1 in above the turntable gear).
 
 **Iteration 6 (25 October, evening): the CAD is the robot.** Gap, from the team: on their own setup the Mechanisms preview drew made-up turret boxes with barrels and a brown ramp plate over the CAD, while the real shooters (a turntable gear under each, turned by two Axon servos through a 20-tooth gear and a 24-tooth pinion on one shaft and two 100-tooth gears; a hood whose gear racks on both sides mesh with a pinion on a SWYFT servo) and the LUNALA bump-plate ramp on its servo hub never moved. Cause: that setup's shooters and intake named no CAD assemblies (only one older setup did), so the finder skipped them and the rig drew stand-ins. Changes: game mechanisms are linked to CAD assemblies by role, pieces and place, or by geometry when the CAD names nothing; stand-ins are joints only on an imported CAD; mechanisms still not found are listed for the team to set up; meshing gears become joints coupled by tooth ratio (branches included); each hood knows its CAD launch angle and tilts to the game's, within limits found by a points sweep; spacers on a hood's shafts go with it; hitboxes per moving link; turret shapes for the cameras; older findings are made again once. On the team's CAD (their current setup, untouched): both turrets on their gears with 3 gears each, both hoods (launch 53° and 57°; free 18° and 21° flatter, 0° steeper, since each hood's lower edge sits just over its own turntable gear), the ramp down at 71°, 22 moving parts in about 1.3 s in Node and 3 s in the app's worker. Renders checked: the turret turned 40° and 45°, the hood at its flattest (its racks along the servo pinion), the ramp down, and a 3D run with hitboxes on (turrets 0–150° from forward, the ramp 0–71°, the hood held at its steepest because the game's 70–85° launch angle is steeper than it can reach). Tests: linking without names (the same joints as with names), shapes alone, placeholders, the launch angle and its limit, a three-gear train with tooth ratios, invisible stand-ins on a CAD, hitboxes moving with the ramp, turret shapes.
+
+**Iterations 7–13** (transmissions, motor models, sensors, presets, SDFormat/MJCF/USD, orientation IK, pins in slots, faster loops, coordinated poses, exact trapezoids, repeats, the Stewart platform, the panel and app checks) are logged in `MECHANISM_RESEARCH.md`.

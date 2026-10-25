@@ -162,7 +162,9 @@ Difficult cases covered:
 
 ## 7. Iteration log (universal engine phase)
 
-**Iteration 6.** Concept: transmissions and actuator responses across robot types (ros2_control, WPILib, gm0, MuJoCo). Gaps:
+Iterations 1–6 are in `MECHANISM_ENGINE.md`. Iteration 6 there (the CAD shooter work) ran alongside iteration 7 here.
+
+**Iteration 7.** Concept: transmissions and actuator responses across robot types (ros2_control, WPILib, gm0, MuJoCo). Gaps:
 - couplings had one input and were linear only;
 - actuators moved in their own units, ideally;
 - no sensors or conditional steps;
@@ -175,7 +177,7 @@ Tests: 16 new, each against an independent reference.
 
 Found and fixed: step handover losing up to two ticks per step, so sequences drifted; an arriving ideal actuator reporting speed for one more tick.
 
-**Iteration 7.** Concept: structured formats beyond URDF (SDFormat, MJCF). Gap: only URDF carried joints as data.
+**Iteration 8.** Concept: structured formats beyond URDF (SDFormat, MJCF). Gap: only URDF carried joints as data.
 
 Changes: D6–D9 and D11, `sim-robot-formats.js`, bridge reading with mesh lookup.
 
@@ -183,7 +185,7 @@ Tests: SCARA (SDFormat 1.9), four-bar and gearbox (SDFormat 1.6), arm and four-b
 
 Found and fixed: loop damping tied to inch-scale CAD; 5-decimal storage of points; MJCF rgba precedence over materials.
 
-**Iteration 8.** Concept: industrial arms need tool orientation, and linkages such as the Scotch yoke and the quick-return lever need a pin sliding in another link's slot. Performance matters too, since the 3D view poses the robot every frame.
+**Iteration 9.** Concept: industrial arms need tool orientation, and linkages such as the Scotch yoke and the quick-return lever need a pin sliding in another link's slot. Performance matters too, since the 3D view poses the robot every frame.
 
 Gaps:
 - inverse kinematics reached positions only;
@@ -213,7 +215,7 @@ Benchmarks (Electron's Node, this laptop), µs per pose:
 
 A driver tick with 30 actuators takes 14 µs; a ticked motor-model timeline takes 0.17 ms.
 
-**Iteration 9.** Concept: OpenUSD, the format Isaac Sim and Omniverse robots come in. Gap: USD was the one structured robot format the brief names that could not be read.
+**Iteration 10.** Concept: OpenUSD, the format Isaac Sim and Omniverse robots come in. Gap: USD was the one structured robot format the brief names that could not be read.
 
 Changes:
 - a text USD (.usda) reader in `sim-robot-formats.js`: prims, transform ops, units and up axis, UsdPhysics joints, shapes and inline meshes, drives as actuators, PhysX mimic joints as couplings;
@@ -228,7 +230,7 @@ Tests:
 
 Found and fixed: unread joint types (distance, D6) at first held their bodies together; they are now left out, so they cannot lock a linkage that moves.
 
-**Iteration 10.** Concept: coordinated multi-joint motion, as industrial controllers do a joint move, plus Cartesian goals for arms, for pick-and-place and "move the arm to a pose".
+**Iteration 11.** Concept: coordinated multi-joint motion, as industrial controllers do a joint move, plus Cartesian goals for arms, for pick-and-place and "move the arm to a pose".
 
 Gap: actions could only command one actuator per step, and the arm's joints arrived at different times.
 
@@ -243,7 +245,7 @@ Found and fixed (self-review):
 - The ideal trapezoid's integrator moved at each tick's new speed and snapped to the target while still moving (at 18 °/s for a 120 °/s, 480 °/s² move). Fast moves finished up to 7 ticks early, and a time-scaled move peaked at two thirds of its speed.
 - It now follows each phase exactly, switching inside a tick when a phase ends there. Ticked moves end on the first tick at or after the planned time, at full speed, landing exactly on the target.
 
-**Iteration 11.** Concept: parallel manipulators beyond the delta robot (the Stewart–Gough platform; cable-driven parallel robots share its leg model), and cyclic behaviour such as legged gaits.
+**Iteration 12.** Concept: parallel manipulators beyond the delta robot (the Stewart–Gough platform; cable-driven parallel robots share its leg model), and cyclic behaviour such as legged gaits.
 
 Gaps: the solver had not been checked on a 6-DOF parallel robot, and an action could not repeat.
 
@@ -256,3 +258,26 @@ Tests:
 Found (self-review): with legs paired base-pair to platform-pair (a near-singular layout), the solver closed the loops in a different assembly than the target. The usual crossed layout matches.
 
 Limit (recorded in §6): the solver finds an assembly that closes, and stays on the built branch only along a path without singularities.
+
+**Iteration 13.** Concept: a first-time user configures these from the panel, and the work is checked in the app, not only in tests.
+
+Gaps:
+- the Moving parts panel had no motors, gearing, poses, sensors or step kinds;
+- SDFormat, MuJoCo and USD files could not be imported from the app;
+- the action preview divided motor values by their ratio.
+
+Changes:
+- Motor and gearing (stages, response, datasheet figures, what the joint gets), Poses, Sensors, and step kinds (pose, wait for a sensor, pause, run an action) with Repeat;
+- a motor added to a part keeps its positions and route actions;
+- imports of the three formats, with what is not read in the message.
+
+Checked in the app (Playwright on Electron, temporary data folder, empty field):
+- imported the USD arm, MuJoCo arm, MuJoCo four-bar with tendon finger, and SDFormat SCARA, with the right joints, couplings, loops and actuators;
+- posed the arm with Try it, added a motor through the panel; its readouts agreed with hand working (6000 rpm through 20:1 is 1800 °/s; 2.1 N·m stall; 942.9 °/s under a 1 N·m load);
+- saved a pose from the preview, added an encoder, built an action from a pose step and a pause repeated twice. It played for 3.33 s, as worked by hand.
+
+Found and fixed in the app:
+- robot files were stretched to the previous robot's footprint, shearing turning links. Robot files with joints are now drawn at their true size, and the footprint follows within 4–48 in;
+- a loop-solved rocker offered a motor;
+- motor figures were rounded to two decimals (0.105 N·m showed as 0.1);
+- gearing, pose and sensor rows and step controls stacked full width.
