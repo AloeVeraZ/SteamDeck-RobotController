@@ -230,6 +230,40 @@
   const toward=(A,B,d)=>{const v=[B[0]-A[0],B[1]-A[1],B[2]-A[2]],l=Math.hypot(...v);return l>d?[A[0]+v[0]*d/l,A[1]+v[1]*d/l,A[2]+v[2]*d/l]:B.slice();};
   // The height at which the line from S (on the field) to P (outside it) passes over the perimeter.
   function over(S,P,b){let t=1;for(const [s,p,lo,hi] of [[S[0],P[0],b.x0,b.x1],[S[1],P[1],b.y0,b.y1]]){if(p>hi)t=Math.min(t,(hi-s)/(p-s));if(p<lo)t=Math.min(t,(lo-s)/(p-s));}return S[2]+Math.max(0,t)*(P[2]-S[2]);}
+  // What can block a camera about P that looks at L and watches w (a point `at`, how wide the thing round it is, and
+  // whether it is on the robot's edge) while the robot is at t: the robot as a box with its intakes' reach, the
+  // field's solids (G, from field()) and loose pieces within the camera's reach, and the walls.
+  function sceneAt(t,balls,w,P,L,G,R,bounds){
+    const f=R.footprint,out=R.reach||{front:0,back:0,left:0,right:0},x0=-f.rear-out.back,x1=f.front+out.front,y0=-f.half-out.right,y1=f.half+out.left;
+    const h=t.heading*DEG,c=Math.cos(h),s=Math.sin(h),reach=Math.hypot(P[0]-w.at[0],P[1]-w.at[1],P[2]-w.at[2])+NEAR+CLEAR,mx=(x0+x1)/2,my=(y0+y1)/2;
+    const robot={c:[t.x+c*mx-s*my,t.y+s*mx+c*my,R.height/2],u:[[c,s,0],[-s,c,0],[0,0,1]],e:[(x1-x0)/2,(y1-y0)/2,R.height/2]};
+    // A solid that holds what the camera watches (a flower the ramp reaches into) does not hide it: it is what is seen.
+    const near=(G?.solids||[]).filter(o=>Math.hypot(o.c[0]-w.at[0],o.c[1]-w.at[1],o.c[2]-w.at[2])<reach+o.r),holds=new Set(near.filter(o=>gap(o,w.at)<1)),pieces=[];
+    for(const ball of balls||[])if(ball.state?.kind==='ground'){const r=finite(ball.r)?ball.r:1.6,q=[ball.pos.x+72,ball.pos.y+72,Math.max(0,ball.z||0)+r];if(Math.hypot(q[0]-w.at[0],q[1]-w.at[1],q[2]-w.at[2])<reach)pieces.push([...q,r]);}
+    return {w,L,robot,core:{...robot,e:robot.e.map(v=>Math.max(.5,v-1.5))},near,holds,balls:pieces,heading:h,b:G?.bounds||bounds,wall:G?.wall??WALL};
+  }
+  // A camera at P moved by swing, raise and scale round what scene q watches.
+  function placeIn(q,P,sw,up,sc){const S=q.w.at,v=[P[0]-S[0],P[1]-S[1],P[2]-S[2]],dh=Math.hypot(v[0],v[1]),ph=Math.atan2(v[2],dh),L=Math.hypot(dh,v[2])*sc;
+    const th=(dh>1e-6?Math.atan2(v[1],v[0]):q.heading+Math.PI)+sw,el=up<0?Math.max(Math.min(ph,-10*DEG),ph+up):Math.min(Math.max(ph,82*DEG),ph+up);
+    return [S[0]+L*Math.cos(el)*Math.cos(th),S[1]+L*Math.cos(el)*Math.sin(th),S[2]+L*Math.sin(el)];}
+  // What a camera at P costs per second in scene q for what is in its way: HARD or more when it is inside something
+  // or cannot see what it watches, a little when something crowds the lens or hides the sides of it.
+  function blockedIn(q,P){
+    const w=q.w,S=w.at,L=q.L,b=q.b,wall=q.wall;let hard=0,soft=0;
+    if(b){const out=Math.max(b.x0+CLEAR-P[0],P[0]-b.x1+CLEAR,b.y0+CLEAR-P[1],P[1]-b.y1+CLEAR,0);
+      if(out>0){if(P[2]<wall+CLEAR)hard+=1+out/12;else if(out>30+CLEAR||over(S,P,b)<wall+1)hard++;}}
+    const view=[L[0]-P[0],L[1]-P[1],L[2]-P[2]],vl=Math.hypot(...view)||1,ahead=o=>{const Q=nearest(o,P),a=[Q[0]-P[0],Q[1]-P[1],Q[2]-P[2]];return dot(a,view)/(Math.hypot(...a)*vl||1)>Math.cos(40*DEG);};
+    // The robot: never in it, not right up against its parts (its CAD is not quite its box), and, watching a
+    // mechanism on its edge, not looking through it.
+    const rg=gap(q.robot,P);if(P[2]<1.5)hard++;if(rg<CLEAR)hard++;else if(rg<8&&ahead(q.robot))soft+=(8-rg)/8;if(w.edge&&crosses(q.core,toward(S,P,1.5),P))hard++;
+    const d=[P[0]-S[0],P[1]-S[1]],l=Math.hypot(...d)||1,side=[-d[1]/l*w.spread,d[0]/l*w.spread],ends=[S,[S[0]+side[0],S[1]+side[1],S[2]],[S[0]-side[0],S[1]-side[1],S[2]],[S[0],S[1],S[2]+Math.min(5,w.spread)]].map(T=>toward(T,P,3));
+    // Only a solid near the line of sight can hide anything (the lines to the sides of S stay within `spread` of it).
+    const sight=[S[0]-P[0],S[1]-P[1],S[2]-P[2]],ss=dot(sight,sight)||1,offSight=o=>{const c=[o.c[0]-P[0],o.c[1]-P[1],o.c[2]-P[2]],k=clamp(dot(c,sight)/ss,0,1);return Math.hypot(c[0]-sight[0]*k,c[1]-sight[1]*k,c[2]-sight[2]*k);};
+    for(const o of q.near){const g=gap(o,P);if(g<CLEAR)hard+=1+(CLEAR-g)/CLEAR;else if(g<NEAR&&ahead(o))soft+=(NEAR-g)/NEAR;
+      if(!q.holds.has(o)&&offSight(o)<o.r+w.spread+5)ends.forEach((T,j)=>{if(crosses(o,P,T)){if(j)soft+=.3;else hard++;}});}
+    for(const ball of q.balls)if(Math.hypot(ball[0]-P[0],ball[1]-P[1],ball[2]-P[2])<ball[3]+1.2)soft+=.5;
+    return hard?HARD+30*hard:6*soft;
+  }
   // One camera's poses for a whole run, moved where they are blocked. A pose is blocked when the camera would be in a
   // wall (or outside one, below its top or seeing the field through it), in or right against a field structure, a
   // flower or the robot, or when one stands between it and what it watches. Blocked stretches, with a second either
@@ -237,39 +271,11 @@
   // cheapest sequence, found by Viterbi), and the camera glides from one to the next, getting there before it would
   // be blocked and leaving only once it is clear. Poses with nothing in the way stay exactly as they were.
   function clear(poses,frames,ctx){
-    const N=poses.length,K=MOVES.length,G=ctx.field,b=G?.bounds||ctx.bounds,R=ctx.rig||rig(ctx),wall=G?.wall??WALL,solids=G?.solids||[],f=R.footprint;
+    const N=poses.length,K=MOVES.length,G=ctx.field,R=ctx.rig||rig(ctx);
     if(!N)return poses;
-    // What can block each picture: the robot as a box (with its intakes), and the solids and loose pieces within the
-    // camera's reach.
-    const out=R.reach||{front:0,back:0,left:0,right:0},x0=-f.rear-out.back,x1=f.front+out.front,y0=-f.half-out.right,y1=f.half+out.left;
-    const scene=poses.map((pose,i)=>{const t=frames[i]?.truth,w=pose.watch;if(!t||!w)return null;const h=t.heading*DEG,c=Math.cos(h),s=Math.sin(h),reach=Math.hypot(pose.p[0]-w.at[0],pose.p[1]-w.at[1],pose.p[2]-w.at[2])+NEAR+CLEAR;
-      const mx=(x0+x1)/2,my=(y0+y1)/2,robot={c:[t.x+c*mx-s*my,t.y+s*mx+c*my,R.height/2],u:[[c,s,0],[-s,c,0],[0,0,1]],e:[(x1-x0)/2,(y1-y0)/2,R.height/2]};
-      // A solid that holds what the camera watches (a flower the ramp reaches into) does not hide it: it is what is seen.
-      const near=solids.filter(o=>Math.hypot(o.c[0]-w.at[0],o.c[1]-w.at[1],o.c[2]-w.at[2])<reach+o.r),holds=new Set(near.filter(o=>gap(o,w.at)<1)),balls=[];
-      for(const ball of frames[i].fieldState?.balls||[])if(ball.state?.kind==='ground'){const r=finite(ball.r)?ball.r:1.6,q=[ball.pos.x+72,ball.pos.y+72,Math.max(0,ball.z||0)+r];if(Math.hypot(q[0]-w.at[0],q[1]-w.at[1],q[2]-w.at[2])<reach)balls.push([...q,r]);}
-      return {robot,core:{...robot,e:robot.e.map(v=>Math.max(.5,v-1.5))},near,holds,balls,heading:h};});
-    // The camera of picture i moved by swing, raise and scale round what it watches.
-    const place=(i,sw,up,sc)=>{if(!scene[i])return poses[i].p;const P=poses[i].p,S=poses[i].watch.at,v=[P[0]-S[0],P[1]-S[1],P[2]-S[2]],dh=Math.hypot(v[0],v[1]),ph=Math.atan2(v[2],dh),L=Math.hypot(dh,v[2])*sc;
-      const th=(dh>1e-6?Math.atan2(v[1],v[0]):scene[i].heading+Math.PI)+sw,el=up<0?Math.max(Math.min(ph,-10*DEG),ph+up):Math.min(Math.max(ph,82*DEG),ph+up);
-      return [S[0]+L*Math.cos(el)*Math.cos(th),S[1]+L*Math.cos(el)*Math.sin(th),S[2]+L*Math.sin(el)];};
-    // What a camera at P costs per second at picture i for what is in its way: HARD or more when it is inside
-    // something or cannot see what it watches, a little when something crowds the lens or hides the sides of it.
-    function blocked(i,P){
-      const q=scene[i],w=poses[i].watch,S=w.at,L=poses[i].l;let hard=0,soft=0;
-      if(b){const out=Math.max(b.x0+CLEAR-P[0],P[0]-b.x1+CLEAR,b.y0+CLEAR-P[1],P[1]-b.y1+CLEAR,0);
-        if(out>0){if(P[2]<wall+CLEAR)hard+=1+out/12;else if(out>30+CLEAR||over(S,P,b)<wall+1)hard++;}}
-      const view=[L[0]-P[0],L[1]-P[1],L[2]-P[2]],vl=Math.hypot(...view)||1,ahead=o=>{const Q=nearest(o,P),a=[Q[0]-P[0],Q[1]-P[1],Q[2]-P[2]];return dot(a,view)/(Math.hypot(...a)*vl||1)>Math.cos(40*DEG);};
-      // The robot: never in it, not right up against its parts (its CAD is not quite its box), and, watching a
-      // mechanism on its edge, not looking through it.
-      const rg=gap(q.robot,P);if(P[2]<1.5)hard++;if(rg<CLEAR)hard++;else if(rg<8&&ahead(q.robot))soft+=(8-rg)/8;if(w.edge&&crosses(q.core,toward(S,P,1.5),P))hard++;
-      const d=[P[0]-S[0],P[1]-S[1]],l=Math.hypot(...d)||1,side=[-d[1]/l*w.spread,d[0]/l*w.spread],ends=[S,[S[0]+side[0],S[1]+side[1],S[2]],[S[0]-side[0],S[1]-side[1],S[2]],[S[0],S[1],S[2]+Math.min(5,w.spread)]].map(T=>toward(T,P,3));
-      // Only a solid near the line of sight can hide anything (the lines to the sides of S stay within `spread` of it).
-      const sight=[S[0]-P[0],S[1]-P[1],S[2]-P[2]],ss=dot(sight,sight)||1,offSight=o=>{const c=[o.c[0]-P[0],o.c[1]-P[1],o.c[2]-P[2]],k=clamp(dot(c,sight)/ss,0,1);return Math.hypot(c[0]-sight[0]*k,c[1]-sight[1]*k,c[2]-sight[2]*k);};
-      for(const o of q.near){const g=gap(o,P);if(g<CLEAR)hard+=1+(CLEAR-g)/CLEAR;else if(g<NEAR&&ahead(o))soft+=(NEAR-g)/NEAR;
-        if(!q.holds.has(o)&&offSight(o)<o.r+w.spread+5)ends.forEach((T,j)=>{if(crosses(o,P,T)){if(j)soft+=.3;else hard++;}});}
-      for(const ball of q.balls)if(Math.hypot(ball[0]-P[0],ball[1]-P[1],ball[2]-P[2])<ball[3]+1.2)soft+=.5;
-      return hard?HARD+30*hard:6*soft;
-    }
+    const scene=poses.map((pose,i)=>{const t=frames[i]?.truth;return t&&pose.watch?sceneAt(t,frames[i].fieldState?.balls,pose.watch,pose.p,pose.l,G,R,ctx.bounds):null;});
+    // The camera of picture i moved by swing, raise and scale round what it watches, and what that costs.
+    const place=(i,sw,up,sc)=>scene[i]?placeIn(scene[i],poses[i].p,sw,up,sc):poses[i].p,blocked=(i,P)=>blockedIn(scene[i],P);
     const cost0=poses.map((p,i)=>scene[i]?blocked(i,p.p):0),span=N>1?(frames[N-1].time-frames[0].time)/(N-1)||1/30:1/30,pad=Math.ceil(1.2/span);
     // Blocked stretches (anything costing more than a second of a small move), each with `pad` pictures either side.
     const stretches=[];for(let i=0;i<N;i++)if(cost0[i]>1){const a=Math.max(0,i-pad),z=Math.min(N-1,i+pad),last=stretches.at(-1);if(last&&a<=last[1]+1)last[1]=Math.max(last[1],z);else stretches.push([a,z]);}
@@ -325,6 +331,36 @@
     }
     return poses.map((p,i)=>!scene[i]||(!sw[i]&&!up[i]&&sc[i]===1)?p:{...p,p:place(i,sw[i],up[i],sc[i])});
   }
+  // Camera 1 as Record films it live, picture by picture: the original follow camera kept clear of the field by the
+  // same rules as clear(), but without the rest of the run to look ahead in. Each picture weighs every move where the
+  // robot is now and where its speed takes it in half a second. The camera keeps its move unless another stays
+  // clearly better for a moment (it changes at once when blocked now or soon), and glides to it: quickly when it is
+  // blocked, slowly back towards the design once clear. `follow` carries it between pictures; dt 0 starts afresh.
+  // Without a field (ctx.field) only the walls and the robot count.
+  const amount=q=>Math.abs(q[0])/(60*DEG)+Math.abs(q[1])/(35*DEG)+(1-q[2])/.3;
+  function mainLive(follow,ctx,dt){
+    const pose=mainStep(follow,ctx,dt),t=ctx.frame?.truth;if(!pose||!t)return pose;
+    const R=ctx.rig||rig(ctx),G=ctx.field,K=MOVES.length,balls=ctx.frame.fieldState?.balls;if(!dt||!follow.keep)follow.keep={m:0,q:[0,0,1],next:-1,wait:0,v:null};const keep=follow.keep;
+    const w={at:[t.x,t.y,R.height*.55],spread:R.footprint.half,edge:false},now=sceneAt(t,balls,w,pose.p,pose.l,G,R,ctx.bounds);
+    // Half a second on: the robot at its speed, and the camera and what it looks at each at their own (smoothed), as
+    // the follow camera swings round the robot when it turns to the goal.
+    const ahead=.5,d=[(t.vx||0)*ahead,(t.vy||0)*ahead,0],later={...t,x:t.x+d[0],y:t.y+d[1],heading:t.heading+(t.omega||0)*ahead};
+    if(dt&&keep.v){const kv=1-Math.exp(-dt/.1),v=[...pose.p,...pose.l].map((x,i)=>(x-keep.v.at[i])/dt);keep.v.speed=keep.v.speed.map((s,i)=>s+(v[i]-s)*kv);}
+    keep.v={at:[...pose.p,...pose.l],speed:keep.v?.speed||[(t.vx||0),(t.vy||0),0,(t.vx||0),(t.vy||0),0]};
+    const Pl=pose.p.map((x,i)=>x+keep.v.speed[i]*ahead),Ll=pose.l.map((x,i)=>x+keep.v.speed[i+3]*ahead);
+    const soon=sceneAt(later,balls,{...w,at:w.at.map((x,i)=>x+d[i])},Pl,Ll,G,R,ctx.bounds),cost=new Float64Array(K);let best=0;
+    for(let c=0;c<K;c++){const m=MOVES[c];cost[c]=m.cost+blockedIn(now,placeIn(now,pose.p,m.swing,m.raise,m.scale))+.5*blockedIn(soon,placeIn(soon,Pl,m.swing,m.raise,m.scale));if(cost[c]<cost[best])best=c;}
+    if(!dt){keep.m=best;keep.q=[MOVES[best].swing,MOVES[best].raise,MOVES[best].scale];}
+    else if(cost[keep.m]>=HARD/2){keep.m=best;keep.next=-1;}
+    else if(best!==keep.m&&cost[best]<cost[keep.m]-.3){if(keep.next!==best){keep.next=best;keep.wait=0;}else if((keep.wait+=dt)>=.4){keep.m=best;keep.next=-1;}}
+    else keep.next=-1;
+    // The glide itself carries the camera at most 120 in/s (on top of the robot's own motion), so it never jumps.
+    const to=MOVES[keep.m],target=[to.swing,to.raise,to.scale],from=placeIn(now,pose.p,...keep.q),k=dt?1-Math.exp(-dt/(blockedIn(now,from)>=HARD?.08:blockedIn(soon,placeIn(soon,Pl,...keep.q))>=HARD?.12:amount(target)>amount(keep.q)?.2:.5)):1;
+    let q=keep.q.map((v,i)=>v+(target[i]-v)*k);
+    if(dt){const P=placeIn(now,pose.p,...q),moved=Math.hypot(P[0]-from[0],P[1]-from[1],P[2]-from[2]),most=120*dt;if(moved>most)q=keep.q.map((v,i)=>v+(q[i]-v)*most/moved);}
+    keep.q=!keep.m&&amount(q)<.002?[0,0,1]:q;
+    return amount(keep.q)?{...pose,p:placeIn(now,pose.p,...keep.q)}:pose;
+  }
   // ---------------------------------------------------------------- whole-run paths
   // The path of one camera through a recording: seven numbers per frame (camera x, y, z, look x, y, z, fov). The
   // camera inside the turret is not moved by clear(): it sits on the robot, over its top.
@@ -347,5 +383,5 @@
     const i=indexAt(frames,time);if(i<0)return null;const j=Math.min(frames.length-1,i+1),span=frames[j].time-frames[i].time,k=span>0?clamp((time-frames[i].time)/span,0,1):0;
     const a=i*7,b=j*7,v=n=>track[a+n]+(track[b+n]-track[a+n])*k;return {p:[v(0),v(1),v(2)],l:[v(3),v(4),v(5)],fov:v(6)};
   }
-  return {CAMERAS,IDS,DEFAULTS,settings,rig,field,aims,mainStep,step,clear,path,paths,indexAt,poseAt};
+  return {CAMERAS,IDS,DEFAULTS,settings,rig,field,aims,mainStep,mainLive,step,clear,path,paths,indexAt,poseAt};
 });

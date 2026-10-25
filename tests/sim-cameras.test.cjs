@@ -120,6 +120,20 @@ test('a camera moves round a structure in its way: never inside it, still seeing
   assert.deepEqual([...moved.slice(0,7*15)],[...free.slice(0,7*15)],'far from the post it is the camera as designed');
 });
 
+test('Record films camera 1 live: the original camera where nothing is in the way, moving round a post as it comes',()=>{
+  const live=(c)=>{const s={},out=[];frames.forEach((f,i)=>out.push(K.mainLive(s,{frame:f,aim:c.aim,footprint:c.footprint,bounds:c.bounds,field:c.field,rig:c.rig},i?f.time-frames[i-1].time:0)));return out;};
+  const raw={},plain=frames.map((f,i)=>K.mainStep(raw,{frame:f,aim:ctx.aim,footprint:ctx.footprint,bounds:ctx.bounds},i?f.time-frames[i-1].time:0));
+  live(ctx).forEach((p,i)=>assert.deepEqual(p.p,plain[i].p,`picture ${i} is the original`));
+  // A tall post that comes between the camera and the robot once the robot drives past it.
+  const post={c:[40,30,30],u:[[1,0,0],[0,1,0],[0,0,1]],e:[1,1,30],r:30.1},inside=(P,g=0)=>P.every((v,k)=>Math.abs(v-post.c[k])<post.e[k]+g);
+  const moved=live({...ctx,field:{bounds:ctx.bounds,wall:12,solids:[post],goalZ:40}});let hidden=0;
+  assert.ok(plain.some((p,i)=>{const t=frames[i].truth;for(let k=1;k<20;k++)if(inside([0,1,2].map(j=>p.p[j]+([t.x,t.y,ctx.rig.height*.55][j]-p.p[j])*k/20)))return true;return false;}),'as designed the post would hide the robot');
+  moved.forEach((p,i)=>{const t=frames[i].truth,S=[t.x,t.y,ctx.rig.height*.55];assert.ok(!inside(p.p,1),`picture ${i}: not in the post`);
+    for(let k=1;k<20;k++)if(inside(S.map((v,j)=>v+(p.p[j]-v)*k/20))){hidden++;break;}
+    if(i)assert.ok(dist(p.p,moved[i-1].p)<8,`picture ${i}: it glides (${dist(p.p,moved[i-1].p).toFixed(2)} in)`);});
+  assert.ok(hidden<=3,`the post hides the robot in ${hidden} pictures`);
+});
+
 test('the rig comes from the mechanisms and the CAD parts',()=>{
   const R=K.rig({...base,parts:[{role:'intake',kind:'ramp',box:{x0:7,x1:11,y0:-6,y1:6,z0:0,z1:4}}]});
   assert.deepEqual(R.ramp.point,[9,0,2]);assert.equal(R.intake.side,'front');assert.equal(R.shooters.length,1);

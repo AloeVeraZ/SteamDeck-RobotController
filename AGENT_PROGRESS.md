@@ -193,7 +193,14 @@ The user's exported edit showed the intake camera inside the perimeter wall and 
 - `clear()` runs after every camera's designed path. A pose is blocked inside or right against a wall, structure, flower or the robot (with its intakes' reach), or when one hides what the camera watches. A solid holding the watched point (the ramp in a flower) does not count as hiding it. Blocked stretches get one of 70 moves per picture by Viterbi: swing round what it watches, raise, lower under the trays, or come closer. Each glide between moves is timed and shaped (swing first, rise first, or both) to stay clear. A glide that still clips bars that change near there, and the sequence is solved again (three times at most). Unblocked poses are left exactly as designed.
 - Turret camera, new default mode `pov` ("Inside the turret"): 4 in behind the pivot of the shooter that fires most (by the colours of pieces seen leaving) and 2 in over the robot's top. It turns only with the turret, tilts up to the goal while aiming (held 1.5 s), and its position is not smoothed. `follow` (behind the turret) and `fixed` stay; the old `projectile` mode is gone, and settings saved with it fall back to `pov`.
 - The rig's intake point is now the intake's mouth (chassis edge plus `reach`), so the intake camera frames the whole intake.
-- The editor works out a camera's path when it is first shown (`track`) and the rest when idle, again only when that camera's own settings change. Live Record and Run video still use the original `mainStep` unchanged.
+- The editor works out a camera's path when it is first shown (`track`) and the rest when idle, again only when that camera's own settings change.
+- Live Record now films with `mainLive` (sim-3d.js `chase`): `mainStep`, then the same rules picture by picture, without the rest of the run.
+  - It looks half a second ahead from the robot's velocity and the follow camera's own (smoothed) velocity. The camera's velocity matters because the camera whips round the robot when it turns to the goal.
+  - It keeps its move unless another stays 0.3/s cheaper for 0.4 s, and changes at once when blocked now or soon.
+  - It glides with τ 0.08 s when blocked, 0.12 s when about to be, 0.2 s away from the design and 0.5 s back, the glide itself capped at 120 in/s.
+  - On the lunala run: no picture inside anything, and one (at 22.3 s, under the hive) with a tray edge across the robot. The old live camera had 1 inside and 25 hidden.
+- Run video (after the run) films 3D with the editor's camera 1 path over the replayed part: `videoShow.pose` hands each picture its pose to `shoot()`.
+- The shared pieces in sim-cameras.js are `sceneAt` (what can block a picture), `placeIn` and `blockedIn`.
 
 Measured on the user's lunala setup and robot CAD (a 28 s autonomous, 848 frames), counting frames inside a solid / inside the wall / with the watched point hidden:
 

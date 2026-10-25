@@ -201,18 +201,24 @@ window.DeckSim3D={create(host,options){
   // The follow camera: behind the robot and above it, turning with it (smoothly, so turning on the spot does not
   // whip the picture round). While the robot spins up, aims or shoots, and for 2 s after, the camera swings
   // behind the robot towards the goal and pulls up, so the robot, its aim and where the pieces land are all in view.
-  // A robot that has stood still for 1.5 s (parked, or waiting) is seen from further back and higher up.
-  // (sim-cameras.js has the follow camera's own description: it is camera 1 of the Video workspace.)
-  function chase(dt){
-    const p=window.DeckCameras.mainStep(follow,{frame,start:state?.start,aim:state?.aim,footprint:info?.footprint,bounds:info?.bounds},dt);if(!p)return;
-    camera.position.set(...p.p);camera.lookAt(...p.l);
+  // A robot that has stood still for 1.5 s (parked, or waiting) is seen from further back and higher up. It keeps
+  // out of the walls, the hive, the flowers and the robot, and does not film the robot through them, moving round
+  // them as it goes (mainLive). (sim-cameras.js has the follow camera's own description: it is camera 1 of the Video
+  // workspace.) A replay hands in each picture's pose, worked out over the whole run.
+  let camFor=null,camField=null,camRig=null;
+  function chase(dt,pose){
+    const K=window.DeckCameras;
+    if(!pose){if(camFor?.info!==info||camFor?.aim!==state?.aim){camFor={info,aim:state?.aim};camField=K.field(info);camRig=K.rig({footprint:info?.footprint,robot:info?.robot,mechanisms:info?.mechanisms,aim:state?.aim});}
+      pose=K.mainLive(follow,{frame,start:state?.start,aim:state?.aim,footprint:info?.footprint,bounds:info?.bounds,field:camField,rig:camRig},dt);}
+    if(!pose)return;camera.position.set(...pose.p);camera.lookAt(...pose.l);
   }
   // Draws the next picture of a run video `dt` seconds after the last, from above ('top') or following the robot
-  // ('chase'). The follow camera has the whole field from above in its corner; `inset` says where, to frame it.
-  function shoot(nextFrame,nextState,dt,view='chase'){
+  // ('chase', with `pose` when the camera was worked out ahead). The follow camera has the whole field from above in
+  // its corner; `inset` says where, to frame it.
+  function shoot(nextFrame,nextState,dt,view='chase',pose){
     frame=nextFrame;state=nextState||state;prepare();renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
     if(view==='top'){fitTop(W/H,1.06);renderer.render(scene,top);return {canvas:renderer.domElement,inset:null};}
-    camera.fov=50;camera.aspect=W/H;camera.updateProjectionMatrix();chase(dt);renderer.render(scene,camera);
+    camera.fov=pose?.fov||50;camera.aspect=W/H;camera.updateProjectionMatrix();chase(dt,pose);renderer.render(scene,camera);
     const s=Math.round(H*.3),pad=Math.round(H*.03);fitTop(1,1.04);renderer.setScissorTest(true);renderer.setScissor(W-s-pad,pad,s,s);renderer.setViewport(W-s-pad,pad,s,s);renderer.render(scene,top);renderer.setScissorTest(false);renderer.setViewport(0,0,W,H);
     return {canvas:renderer.domElement,inset:{x:W-s-pad,y:H-s-pad,size:s}};
   }

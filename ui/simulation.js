@@ -2245,8 +2245,11 @@ public class MyAuto implements DeckAutonomous {
   // Where each shooter is and the goals it can aim at, so the video can draw its aim.
   function videoAim(){const m=MECH.sanitize(project.mechanisms);if(L().field!=='biobuzz'||!m.enabled||!m.shooters.length)return null;
     return {shooters:m.shooters,dims:{length:project.robot.length,width:project.robot.width},targets:['start','other'].map(cell=>MECH.target(m,L().field,L().alliance,cell))};}
+  // What the video cameras know of the robot (sim-cameras.js): its size, mechanisms and CAD parts, and the aim.
+  const cameraBase=aim=>({footprint:info?.footprint,bounds:info?.bounds,robot:project.robot,aim,mechanisms:MECH.sanitize(project.mechanisms),parts:project.model?.parts});
+  // A replay can hand each picture its camera pose (videoShow.pose); live filming works the camera out as it goes.
   const videoRec=Video.create({frame:()=>videoShow?.frame(),name:()=>L().name,start:()=>videoShow?.start??runData.frames()[0]?.time??0,
-    shoot:dt=>videoCam.cam.shoot(videoShow.frame(),{...state3d(),trail:videoShow.trail(),aim:videoShow.aim},dt,videoShow.view==='2d'?'top':'chase')});
+    shoot:dt=>{const f=videoShow.frame();return videoCam.cam.shoot(f,{...state3d(),trail:videoShow.trail(),aim:videoShow.aim},dt,videoShow.view==='2d'?'top':'chase',videoShow.pose?.(f));}});
   const recordButton=$('#sim-record'),recordStatus=Object.assign(document.createElement('p'),{id:'sim-record-status',className:'hint'}),videoSection=document.createElement('select'),videoButton=document.createElement('button'),videoStatus=document.createElement('p');
   const takeBox=Object.assign(document.createElement('section'),{id:'sim-record-result',className:'sim-record-result',hidden:true,innerHTML:`<div class="sim-record-result-text"><strong id="sim-record-title">Recording ready</strong><span id="sim-record-meta"></span><p id="sim-record-note" class="hint">It is open in the Video editor tab. Not saved yet: recording again or closing the app discards it.</p></div>
     <div class="sim-record-actions"><button id="sim-record-edit" class="primary" type="button">Edit video</button><button id="sim-record-discard" class="secondary" type="button">Discard</button></div>`});
@@ -2283,7 +2286,7 @@ public class MyAuto implements DeckAutonomous {
       saveOriginal:async()=>{if(!take)return 'The recording is gone.';await saveVideo(take.blob,take.section,take.view);return videoStatus.textContent;},
       discard:()=>{dropTake();videoSay('Recording discarded.');}});
     $('#sim-tab-video').hidden=false;selectTab('video');const aim=videoAim();
-    await studio.load({frames,view,name:L().name,ctx:{footprint:info?.footprint,bounds:info?.bounds,robot:project.robot,aim,mechanisms:MECH.sanitize(project.mechanisms),parts:project.model?.parts},
+    await studio.load({frames,view,name:L().name,ctx:cameraBase(aim),
       state:{layout:L(),start,info,hitboxes:false,preview:null,aim}});
   }
   const videoSections=()=>{const s=Video.sections(runData.frames());for(const o of videoSection.options)o.disabled=!s[o.value];return s;};
@@ -2335,6 +2338,9 @@ public class MyAuto implements DeckAutonomous {
     try{
       await videoCamera();if(replay.cancel)throw null;
       videoShow={view,aim:videoAim(),start:t0,trail:()=>replay.trail,frame:()=>{const t=elapsed();while(replay.i<list.length-1&&list[replay.i+1].time-t0<=t){replay.i++;replay.trail=trailAdd(replay.trail,list[replay.i]);}return list[replay.i];}};
+      // In 3D the replay films with the Video editor's camera 1, worked out over the whole part: it moves clear of the
+      // field before it gets there (live Record has only the run so far).
+      if(view==='3d'){const K=window.DeckCameras,base=cameraBase(videoShow.aim),track=K.path('main',list,{...base,rig:K.rig(base),field:K.field(info)});videoShow.pose=f=>K.poseAt(track,list,f.time);}
       replay.began=performance.now();videoRec.begin();
       await new Promise(resolve=>{const timer=setInterval(()=>{const t=elapsed();if(replay.cancel){clearInterval(timer);return resolve();}
         const shown=`Filming the ${Video.SECTIONS[section].toLowerCase()} in ${view.toUpperCase()}… ${Math.min(t,span).toFixed(0)} of ${span.toFixed(0)} s`;if(videoStatus.textContent!==shown)videoSay(shown);
