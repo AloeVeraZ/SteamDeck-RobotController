@@ -125,7 +125,7 @@ public class MyAuto implements DeckAutonomous {
   const L=()=>project.layouts.find(l=>l.id===project.active)||project.layouts[0];
   if(!L().start){try{const legacy=field.restore(localStorage.getItem(field.KEY));if(legacy&&L().field==='empty')L().start=legacy;}catch{}}
   let diagnostics=[],analysisPending=false;
-  let planError='',blockedPin=-1,sketch=null,cursor=null,info=null,frame=null,selected=null,tool='start',active=false,pointer=null,startGrab={dx:0,dy:0},stroke=null,drag=null,planSeq=0,keys=new Set(),trail=[],loading=null,view3d=null,runState='idle',logLines=[],model=null,modelPreview=null,selectedSide=null,optimizing=false,videoCheck=null,videoReplay=null;
+  let planError='',blockedPin=-1,sketch=null,cursor=null,info=null,frame=null,selected=null,tool='start',active=false,pointer=null,startGrab={dx:0,dy:0},stroke=null,drag=null,planSeq=0,keys=new Set(),trail=[],loading=null,view3d=null,runState='idle',logLines=[],model=null,modelPreview=null,selectedSide=null,optimizing=false,videoCheck=null,videoRefresh=null,videoReplay=null;
   const fallbackFootprint=()=>C.footprint(project.robot);
   // The chassis alone (size settings, no intakes): the red outline in the model preview and what the model is fitted to.
   const chassisFootprint=()=>({front:project.robot.length/2,rear:project.robot.length/2,half:project.robot.width/2});
@@ -285,7 +285,7 @@ public class MyAuto implements DeckAutonomous {
         <div class="sim-grid3"><div><label for="sim-auto-seconds">Auto</label><input id="sim-auto-seconds" type="number" min="0.1" step="any" data-slider-min="1" data-slider-max="120" data-slider-step="1"></div><div><label for="sim-transition-seconds">Transition</label><input id="sim-transition-seconds" type="number" min="0" step="any" data-slider-max="60" data-slider-step="1"></div><div><label for="sim-teleop-seconds">Teleop</label><input id="sim-teleop-seconds" type="number" min="0.1" step="any" data-slider-min="1" data-slider-max="300" data-slider-step="1"></div></div><div id="sim-practice-clock" class="sim-practice-clock" role="timer" aria-live="off"><span id="sim-practice-phase">Ready</span><strong id="sim-practice-time">0:30</strong></div>
         <p class="hint" id="sim-run-readiness"></p><button id="sim-run-sensors" type="button" class="secondary" hidden>Choose position sensing</button><button id="sim-run-plan" type="button" class="secondary" hidden>Go to Path planning</button><p class="hint" id="sim-practice-help"></p>
         ${segmented('program',{route:'Planned route',opmode:'OnBot Java export',source:'Java program'},'Program')}<p id="sim-program-note" class="hint"></p><pre id="sim-program-preview" class="sim-program-preview"></pre>
-        <div class="sim-run-row"><button id="sim-run" class="primary" type="button">Run</button><label class="sr-only" for="sim-speed">Speed</label><select id="sim-speed">${options({'0.25':'0.25×','0.5':'0.5×','1':'1×','2':'2×','4':'4×'},'1')}</select><button id="sim-record" class="secondary sim-record" type="button" aria-pressed="false" title="Film the next run (or the one playing) and save it as a video when it ends">Record</button></div>
+        <div class="sim-run-row"><button id="sim-run" class="primary" type="button">Run</button><label class="sr-only" for="sim-speed">Speed</label><select id="sim-speed">${options({'0.25':'0.25×','0.5':'0.5×','1':'1×','2':'2×','4':'4×'},'1')}</select><button id="sim-record" class="secondary sim-record" type="button" aria-pressed="false" title="Film the next run with the camera of the view on screen, 2D or 3D">Record</button></div>
         <p id="sim-run-status" role="status"></p><section id="sim-run-analysis" class="sim-run-analysis" hidden><h3>Run report</h3><div id="sim-run-report" class="sim-run-report"></div></section><div id="sim-error" class="sim-error" role="alert" hidden></div>
         <div id="sim-source-box" hidden><div class="button-row"><button id="sim-java-open" class="secondary" type="button">Open .java…</button><button id="sim-java-example" class="secondary" type="button">Example</button></div>
           <label for="sim-source" id="sim-source-name">Program</label><textarea id="sim-source" spellcheck="false" wrap="off"></textarea></div>
@@ -400,7 +400,7 @@ public class MyAuto implements DeckAutonomous {
     else if(m.state==='reset'){runState='idle';trail=[];status('#sim-run-status','Back at the starting pose.');}
     else if(m.state==='practice-finished'){runState='idle';status('#sim-run-status','Practice complete. Drive input is disabled.');}
     else if(m.state==='auto-time-limit'){status('#sim-run-status',`Autonomous reached its ${m.result.time.toFixed(1)} s limit before the program finished.`);}
-    transport();
+    transport();videoCheck?.(m.state);
   }
 
   // ------------------------------------------------------------------ drawing
@@ -1781,7 +1781,8 @@ public class MyAuto implements DeckAutonomous {
   function state3d(){return {layout:L(),start,info,trail,frame,hitboxes:project.hitboxes};}
   async function setView(next){
     project.view=next;save();pressed('view',next);const three3=next==='3d';$('#sim-3d').hidden=!three3;graph.style.display=three3?'none':'';applyZoom();
-    $('[data-tool]').parentElement.classList.toggle('three',three3);$('#sim-hitboxes').hidden=!three3;$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));
+    // −/Fit/+ zoom the 2D field only, so 3D shows Hitboxes in their place.
+    $('[data-tool]').parentElement.classList.toggle('three',three3);$('#sim-hitboxes').hidden=!three3;$('.sim-zoom').hidden=three3;$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));videoRefresh?.();
     if(three3){tool='select';try{await three();await script('sim-3d.js');view3d=view3d||window.DeckSim3D.create($('#sim-3d'));view3d.setField(info,L());view3d.setModel(model?.holder||null);view3d.update(frame,state3d());}catch(e){status('#sim-run-status',e.message);}}
     draw();
   }
@@ -2014,9 +2015,13 @@ public class MyAuto implements DeckAutonomous {
   const logNodes=[Object.assign(document.createElement('h3'),{textContent:'Run log'}),Object.assign(document.createElement('p'),{className:'hint',textContent:'The last run with every value, in the WPILOG format FTC and FRC log viewers read.'}),logButton,logStatus];
   // Run videos, filmed by a camera of their own rather than from the window: 2D looks straight down at the whole
   // field; 3D follows the robot and turns to the goal while it shoots, with the whole field in a corner. Record
-  // beside Run asks which, then films the next run (or the one playing) and asks where to save it when the run
-  // ends. Export → Run video films one period of the last run again by replaying it at real speed.
-  const Video=window.DeckSimVideo,video={armed:false,live:false,ending:false,picking:false,preparing:false,view:'3d',exportView:'3d'};
+  // beside Run films the next run (or the one playing) with the camera of the view on screen, 2D or 3D. When the
+  // run ends the take plays under Run with Save and Discard. Export → Run video films one period of the last run
+  // again by replaying it at real speed.
+  const Video=window.DeckSimVideo,video={armed:false,live:false,ending:false,preparing:false,began:0,exportView:'3d'};
+  const viewNow=()=>project.view==='3d'?'3d':'2d',elapsedText=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+  // The last take, kept until it is discarded or replaced: {blob, url, view, section, seconds}.
+  let take=null,liveTimer=0;
   // What the video films: the run frame and trail now, the view, and when its clock starts.
   let videoShow=null,videoCam=null;
   async function videoCamera(){
@@ -2030,14 +2035,33 @@ public class MyAuto implements DeckAutonomous {
   const videoRec=Video.create({frame:()=>videoShow?.frame(),name:()=>L().name,start:()=>videoShow?.start??runData.frames()[0]?.time??0,
     shoot:dt=>videoCam.cam.shoot(videoShow.frame(),{...state3d(),trail:videoShow.trail(),aim:videoShow.aim},dt,videoShow.view==='2d'?'top':'chase')});
   const recordButton=$('#sim-record'),recordStatus=Object.assign(document.createElement('p'),{id:'sim-record-status',className:'hint'}),videoSection=document.createElement('select'),videoButton=document.createElement('button'),videoStatus=document.createElement('p');
-  const recordPick=Object.assign(document.createElement('div'),{id:'sim-record-pick',className:'sim-record-pick',hidden:true,innerHTML:`<p class="hint">Record the next run in</p>${segmented('recordview',Video.VIEWS,'Record the next run in')}`});
+  const takeBox=Object.assign(document.createElement('div'),{id:'sim-record-result',className:'sim-record-result',hidden:true,innerHTML:`<video id="sim-record-preview" controls muted loop playsinline></video>
+    <div class="sim-record-result-text"><strong id="sim-record-title">Recording ready</strong><p id="sim-record-note" class="hint"></p></div>
+    <div class="button-row"><button id="sim-record-save" class="primary" type="button">Save video…</button><button id="sim-record-discard" class="secondary" type="button">Discard</button></div>`});
   const videoView=Object.assign(document.createElement('div'),{innerHTML:segmented('videoview',Video.VIEWS,'Video camera')}).firstElementChild;videoView.id='sim-video-view';
-  recordStatus.setAttribute('role','status');recordStatus.hidden=true;recordButton.parentElement.after(recordPick,recordStatus);recordButton.setAttribute('aria-controls','sim-record-pick');
+  recordStatus.setAttribute('role','status');recordStatus.hidden=true;recordButton.parentElement.after(recordStatus,takeBox);
   videoSection.id='sim-video-section';videoSection.innerHTML=options(Video.SECTIONS,'auto');videoButton.type='button';videoButton.className='secondary';videoButton.id='sim-video-save';videoStatus.className='hint';videoStatus.setAttribute('role','status');
   const videoSay=text=>{videoStatus.textContent=recordStatus.textContent=text;recordStatus.hidden=!text;};
-  const videoButtons=()=>{recordButton.setAttribute('aria-pressed',String(video.armed));recordButton.setAttribute('aria-expanded',String(video.picking));recordButton.classList.toggle('recording',video.live);
-    recordButton.textContent=video.live?'Stop recording':video.armed?`Recording next run · ${video.view.toUpperCase()}`:video.preparing?'Getting the camera ready…':'Record';recordButton.disabled=!native||!!videoReplay||video.ending||video.preparing;
-    recordPick.hidden=!video.picking;pressedIn(recordPick,'recordview',video.view);pressedIn(videoView,'videoview',video.exportView);videoButton.textContent=videoReplay?'Cancel video':'Save video of the last run…';};
+  // The button says what it will do: which camera it films with, that it is waiting for Run, or how long it has filmed.
+  const videoButtons=()=>{const v=video.live?videoShow?.view||viewNow():viewNow(),name=v.toUpperCase();
+    recordButton.setAttribute('aria-pressed',String(video.armed||video.live));recordButton.classList.toggle('recording',video.live);recordButton.classList.toggle('armed',video.armed&&!video.live);
+    recordButton.textContent=video.ending?'Finishing the video…':video.live?`Stop recording · ${elapsedText((performance.now()-video.began)/1000)}`:video.armed?`Armed · ${name} · press Run`:video.preparing?'Getting the camera ready…':`Record ${name} video`;
+    recordButton.title=video.live?'Stop filming now. The video is ready to save under Run.':video.armed?'The next run is filmed. Click to cancel.':`Film the next run ${v==='2d'?'top-down (2D)':'following the robot (3D)'}. Switch 2D / 3D above the field to change the camera.`;
+    recordButton.disabled=!native||!!videoReplay||video.ending||video.preparing;
+    pressedIn(videoView,'videoview',video.exportView);videoButton.textContent=videoReplay?'Cancel video':'Save video of the last run…';};
+  videoRefresh=videoButtons;
+  function dropTake(){if(take)URL.revokeObjectURL(take.url);take=null;const v=takeBox.querySelector('video');v.pause();v.removeAttribute('src');v.load();takeBox.hidden=true;}
+  // A finished take plays under Run, so it is plain that it was filmed and what to do with it.
+  function showTake(blob,view,section,seconds){
+    dropTake();if(!blob?.size){videoSay('Nothing was filmed.');return;}
+    take={blob,url:URL.createObjectURL(blob),view,section,seconds};const v=takeBox.querySelector('video');v.src=take.url;
+    takeBox.querySelector('#sim-record-title').textContent=`Recording ready · ${view.toUpperCase()} · ${elapsedText(seconds)}`;
+    takeBox.querySelector('#sim-record-note').textContent=`${Video.VIEWS[view]} · ${(blob.size/1048576).toFixed(1)} MB. Save it to keep it; it is gone when you discard it, record again or close the app.`;
+    takeBox.querySelector('#sim-record-save').textContent='Save video…';takeBox.hidden=false;videoSay('');void v.play().catch(()=>{});takeBox.scrollIntoView({block:'nearest',behavior:'smooth'});
+  }
+  takeBox.querySelector('#sim-record-save').onclick=async()=>{if(!take)return;const b=takeBox.querySelector('#sim-record-save');b.disabled=true;
+    await saveVideo(take.blob,take.section,take.view);b.disabled=false;if(/^Saved /.test(recordStatus.textContent))b.textContent='Save another copy…';};
+  takeBox.querySelector('#sim-record-discard').onclick=()=>{dropTake();videoSay('Recording discarded.');};
   const videoSections=()=>{const s=Video.sections(runData.frames());for(const o of videoSection.options)o.disabled=!s[o.value];return s;};
   async function saveVideo(blob,section,view){
     if(!blob?.size){videoSay('Nothing was filmed.');return;}
@@ -2045,27 +2069,28 @@ public class MyAuto implements DeckAutonomous {
     try{const r=await api.simFile('video-save',{name:Video.title(L().name,section,view),ext:videoRec.ext(),bytes:new Uint8Array(await blob.arrayBuffer())});videoSay(r?.message||'The video was not saved.');}catch(e){videoSay(e.message);}
   }
   async function endLive(wait){
-    video.ending=true;videoButtons();if(wait)await new Promise(r=>setTimeout(r,wait));
-    const blob=await videoRec.stop(),view=videoShow?.view||video.view;videoRec.close();videoShow=null;Object.assign(video,{armed:false,live:false,ending:false});videoButtons();
-    await saveVideo(blob,{autonomous:'auto',teleop:'teleop'}[project.practice.mode]||'all',view);
+    clearInterval(liveTimer);video.ending=true;videoButtons();if(wait)await new Promise(r=>setTimeout(r,wait));
+    const blob=await videoRec.stop(),view=videoShow?.view||viewNow(),seconds=(performance.now()-video.began)/1000;videoRec.close();videoShow=null;Object.assign(video,{armed:false,live:false,ending:false});videoButtons();
+    showTake(blob,view,{autonomous:'auto',teleop:'teleop'}[project.practice.mode]||'all',seconds);
   }
   // Called with every transport update: filming starts when the run does and ends shortly after it stops.
-  videoCheck=()=>{
+  // The camera is the view on screen when filming starts. Autonomous practice stops a second after the robot's
+  // autonomous finishes rather than waiting out the period's clock.
+  videoCheck=event=>{
     if(video.armed&&!video.live&&!video.ending&&runState==='running'){
-      videoShow={view:video.view,aim:videoAim(),start:null,frame:()=>frame,trail:()=>trail};
-      try{videoRec.begin();video.live=true;videoSay(`Recording the run in ${video.view.toUpperCase()}. It is saved when the run ends.`);}catch(e){videoRec.close();videoShow=null;video.armed=false;videoSay(e.message);}videoButtons();}
-    else if(video.live&&!video.ending&&runState==='idle')void endLive(700);
+      const view=viewNow();videoShow={view,aim:videoAim(),start:null,frame:()=>frame,trail:()=>trail};
+      try{videoRec.begin();Object.assign(video,{live:true,began:performance.now()});liveTimer=setInterval(videoButtons,250);
+        videoSay(`Recording in ${view.toUpperCase()}. It stops when ${project.practice.mode==='autonomous'?'the autonomous finishes':project.practice.mode==='teleop'?'the teleop period ends':'the match ends'}, or press Stop recording.`);}
+      catch(e){videoRec.close();videoShow=null;video.armed=false;videoSay(e.message);}videoButtons();}
+    else if(video.live&&!video.ending&&(runState==='idle'||event==='finished'&&project.practice.mode==='autonomous'))void endLive(event==='finished'?1000:700);
   };
-  recordButton.onclick=()=>{
+  // One press arms Record with the camera of the view on screen (the field model loads once); Run starts filming.
+  recordButton.onclick=async()=>{
     if(video.live){void endLive(0);return;}
-    if(video.armed){video.armed=false;videoSay('');videoButtons();return;}
-    video.picking=!video.picking;videoButtons();
-  };
-  // Choosing 2D or 3D readies that camera (the field model loads once) and waits for the run.
-  for(const b of recordPick.querySelectorAll('[data-recordview]'))b.onclick=async()=>{
-    Object.assign(video,{view:b.dataset.recordview,picking:false,preparing:true});videoButtons();
+    if(video.armed){video.armed=false;videoSay('Recording cancelled.');videoButtons();return;}
+    video.preparing=true;videoButtons();
     try{await videoCamera();}catch(e){video.preparing=false;videoSay(e.message||'Recording could not start.');videoButtons();return;}
-    Object.assign(video,{preparing:false,armed:true});videoSay(runState==='running'?'':`Recording the next run in ${video.view.toUpperCase()}: press Run.`);videoButtons();videoCheck();
+    Object.assign(video,{preparing:false,armed:true});videoSay(runState==='running'?'':'Record is on. Press Run and the run is filmed with the camera of the view on screen; switch 2D / 3D above the field to change it.');videoButtons();videoCheck();
   };
   for(const b of videoView.querySelectorAll('[data-videoview]'))b.onclick=()=>{video.exportView=b.dataset.videoview;videoButtons();};
   videoSection.onfocus=videoSections;

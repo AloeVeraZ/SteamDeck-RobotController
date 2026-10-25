@@ -287,7 +287,7 @@ class SimEngine{
   async startPractice(raw={}){
     this.stop();this.practice=null;
     if(!planner.safePose(this.config.start,[],this.info.footprint,this.info.bounds))throw Error('The starting robot footprint must fit inside this field. Change the field size, robot size or starting pose.');
-    if(raw.mode==='teleop'){this.reset();this.practice=new PracticeClock('teleop',raw.timing);this.mode='manual';this.play();return {ok:true};}
+    if(raw.mode==='teleop'){this.reset(true);this.practice=new PracticeClock('teleop',raw.timing);this.mode='manual';this.play();return {ok:true};}
     const result=await this.run(raw.program||{});if(result.ok)this.practice=new PracticeClock(raw.mode,raw.timing);this.emitFrame(true);return result;
   }
   practiceInput(pad){
@@ -429,7 +429,8 @@ class SimEngine{
     if(bridge){for(const w of bridge.waiters.splice(0))w.reject(Error(reason||'Stopped.'));try{bridge.child.stdin.end(JSON.stringify({type:'stop'})+'\n');}catch{}try{bridge.child.kill();}catch{}setTimeout(()=>{try{fs.rmSync(bridge.dir,{recursive:true,force:true});}catch{}},2000).unref?.();}
   }
   stop(){const running=!!this.child||!!this.timed||!!this.practice;this.practice=null;this.playing=false;this.stopProgram('Stopped.');if(this.world){this.world.robots[0].vel={x:0,y:0};this.world.robots[0].angVel=0;}if(running)this.emit({type:'run',state:'stopped'});this.emitFrame(true);}
-  reset(){this.practice=null;this.stopProgram('Reset.');this.playing=false;this.build();this.violations=new Set();this.contacts=[];this.contactEvents=new Set();this.estimate=null;this.follower=null;this.telemetry=null;this.emit({type:'run',state:'reset'});this.emitFrame(true);}
+  // quiet: a practice run starting resets without telling the window the run is over.
+  reset(quiet=false){this.practice=null;this.stopProgram('Reset.');this.playing=false;this.build();this.violations=new Set();this.contacts=[];this.contactEvents=new Set();this.estimate=null;this.follower=null;this.telemetry=null;if(!quiet)this.emit({type:'run',state:'reset'});this.emitFrame(true);}
   setZones(zones){this.zones=Array.isArray(zones)?zones.slice(0,24).map(z=>{try{return planner.validateZone(z);}catch{return null;}}).filter(Boolean):[];this.lastLoad={...this.lastLoad,zones:structuredClone(this.zones)};if(this.world){if(this.world.game==='biobuzz')this.dsim.disposePhysics3dFor(this.world);this.applyBarriers();}}
   setStart(start){if(!start||![start.x,start.y,start.heading].every(finite))throw Error('Invalid start pose.');if(this.practice||this.timed)this.stop();this.config.start={...start};this.lastLoad={...this.lastLoad,start:{...start}};if(this.mode!=='program'){this.playing=false;this.build();this.emitFrame(true);}}
 

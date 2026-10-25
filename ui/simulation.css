@@ -343,5 +343,12 @@
 @media (prefers-reduced-motion:reduce){.sim-run-row .sim-record.recording::before{animation:none}}
 #sim-video-section{margin-bottom:8px}
 #sim-video-view{margin-bottom:8px}
-.sim-record-pick{display:grid;gap:6px;margin:4px 0 8px}
-.sim-record-pick .hint{margin:0}
+.sim-run-row .sim-record.armed{background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.sim-run-row .sim-record.recording{background:var(--danger);border-color:var(--danger);color:var(--bg)}
+.sim-run-row .sim-record.recording::before{background:var(--bg)}
+#sim-record-status{margin:4px 0 8px}
+/* The finished take: it plays here with Save and Discard until it is saved elsewhere or dropped. */
+.sim-record-result{display:grid;gap:8px;margin:4px 0 12px;padding:10px;border:1px solid var(--danger);border-radius:8px}
+.sim-record-result video{width:100%;aspect-ratio:16/9;border-radius:6px;background:#000}
+.sim-record-result-text .hint{margin:2px 0 0}
+.sim-record-result .button-row{margin:0}
