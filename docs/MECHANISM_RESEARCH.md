@@ -225,3 +225,18 @@ Tests:
 - reading from disk.
 
 Found and fixed: unread joint types (distance, D6) at first held their bodies together; they are now left out, so they cannot lock a linkage that moves.
+
+**Iteration 10.** Concept: coordinated multi-joint motion, as industrial controllers do a joint move, plus Cartesian goals for arms, for pick-and-place and "move the arm to a pose".
+
+Gap: actions could only command one actuator per step, and the arm's joints arrived at different times.
+
+Changes:
+- named `poses` and `pose`/`reach` steps;
+- every mover's trapezoid is the slowest one's, time-scaled (speed × k, acceleration × k²) so all arrive together;
+- a reach step solves inverse kinematics over the chain's movable joints from where the robot is.
+
+Tests: a three-joint pose arriving together, with half-way positions; a reach checked by the law of cosines; a full pick-and-place built from presets, the driver following the timeline step by step.
+
+Found and fixed (self-review):
+- The ideal trapezoid's integrator moved at each tick's new speed and snapped to the target while still moving (at 18 °/s for a 120 °/s, 480 °/s² move). Fast moves finished up to 7 ticks early, and a time-scaled move peaked at two thirds of its speed.
+- It now follows each phase exactly, switching inside a tick when a phase ends there. Ticked moves end on the first tick at or after the planned time, at full speed, landing exactly on the target.

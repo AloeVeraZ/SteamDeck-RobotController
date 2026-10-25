@@ -209,3 +209,49 @@ test('posing frame after frame continues from the last pose and agrees with solv
   const again=K.pose(warm,{crank:660,turret:1320});assert.equal(again.q.rocker[0],K.pose(warm,{crank:660,turret:1320}).q.rocker[0],'unchanged inputs, the same answer');
   near(K.pose(warm,{crank:45}).q.rocker,model(raw)&&K.pose(model(raw),{crank:45}).q.rocker,1e-4,'a jump starts from the rest pose again');
 });
+
+test('coordinated moves: a named pose sends every joint so all arrive together, each trapezoid time-scaled',()=>{
+  const m=model({joints:[{id:'a',type:'revolute',axis:[0,0,1]},{id:'b',type:'revolute',parent:'a',origin:[10,0,0],axis:[0,0,1]},{id:'c',type:'prismatic',parent:'b',origin:[18,0,0],axis:[0,0,-1],lower:0,upper:6}],
+    actuators:[{id:'A',joint:'a',speed:90,accel:180},{id:'B',joint:'b',speed:30},{id:'C',joint:'c',speed:2,accel:4}],poses:[{name:'Ready',values:{A:90,B:20,C:3,nope:4}}],actions:[{name:'Ready',steps:[{pose:'Ready'}]}]});
+  assert.deepEqual(m.poses[0].values,{A:90,B:20,C:3},'only movers are kept');
+  // Alone: A 1.5 s (90° at 90°/s, 180°/s²), B 0.67 s, C 2 s (3 in at 2 in/s, 4 in/s²). Together: all take 2 s.
+  const tl=K.timeline(m,m.actions[0]);near(tl.duration,2,1e-12);for(const s of tl.steps.filter(x=>x.actuator))near(s.end,2,1e-12,`${s.actuator} ends with the rest`);
+  near(Object.values(K.sampleTimeline(m,tl,1)),[45,10,1.5],1e-9,'half way in time is half way for every joint (symmetric profiles)');
+  const d=new K.Driver(m);assert.equal(d.start('Ready'),true);const ends={};let t=0;while(d.busy('Ready')&&t<5){d.tick(1/240,{});t+=1/240;for(const id of ['A','B','C'])if(ends[id]===undefined&&d.axes.get(id).done)ends[id]=t;}
+  for(const id of ['A','B','C'])near(ends[id],2,1.001/240,`${id} arrives with the others`);near([d.values().a,d.values().b,d.values().c],[90,20,3],1e-9);
+  near(t,tl.duration,1.001/240,'the driver ends when the timeline says');
+});
+
+test('coordinated moves: a reach step solves the arm’s joints from where it is and brings the tool to the target',()=>{
+  const a1=10,a2=8,m=model({joints:[{id:'shoulder',type:'revolute',axis:[0,0,1],lower:-170,upper:170},{id:'elbow',type:'revolute',parent:'shoulder',origin:[a1,0,0],axis:[0,0,1],lower:-170,upper:170}],
+    actuators:[{id:'S',joint:'shoulder',speed:60,accel:120},{id:'E',joint:'elbow',speed:90,accel:180}],actions:[{name:'Go',steps:[{reach:{joint:'elbow',point:[a1+a2,0,0],target:[6,12,0]}}]}]});
+  const tl=K.timeline(m,m.actions[0]),d=new K.Driver(m);run(d,'Go');const p=at(m,d.values(),'elbow',[a1+a2,0,0]);near(p,[6,12,0],1e-4,'the tool is at the target');
+  const moved=tl.steps.filter(s=>s.actuator);assert.equal(moved.length,2);near(moved[0].end,moved[1].end,1e-12,'both joints arrive together');
+  // Law of cosines for the elbow bend.
+  near(Math.abs(d.values().elbow),Math.acos((6*6+12*12-a1*a1-a2*a2)/(2*a1*a2))/R,1e-3,'elbow bend');
+});
+
+test('pick and place from presets: poses, reaches and a claw, the driver following the timeline step by step',()=>{
+  const a1=10,a2=8,m=model({joints:[{id:'shoulder',type:'revolute',axis:[0,0,1],lower:-170,upper:170},{id:'elbow',type:'revolute',parent:'shoulder',origin:[a1,0,0],axis:[0,0,1],lower:-170,upper:170},
+      {id:'quill',type:'prismatic',parent:'elbow',origin:[a1+a2,0,0],axis:[0,0,-1],lower:0,upper:6},{id:'claw',type:'revolute',parent:'quill',origin:[a1+a2,0,0],axis:[1,0,0],lower:0,upper:40}],
+    actuators:[{id:'S',joint:'shoulder',speed:90,accel:360},{id:'E',joint:'elbow',speed:120,accel:480},{id:'Q',joint:'quill',speed:6,accel:24,states:{up:0,down:5}},{id:'C',joint:'claw',kind:'servo',speed:200,states:{open:40,closed:0}}],
+    poses:[{name:'Home',values:{S:0,E:0,Q:0}}],
+    actions:[{name:'Grab',steps:[{actuator:'Q',command:{state:'down'}},{actuator:'C',command:{state:'closed'},after:0},{actuator:'Q',command:{state:'up'},after:1}]},
+      {name:'Release',steps:[{actuator:'Q',command:{state:'down'}},{actuator:'C',command:{state:'open'},after:0},{actuator:'Q',command:{state:'up'},after:1}]},
+      {name:'Pick and place',steps:[{actuator:'C',command:{state:'open'}},{reach:{joint:'elbow',point:[a1+a2,0,0],target:[12,6,0]}},{action:'Grab',after:1},{reach:{joint:'elbow',point:[a1+a2,0,0],target:[-4,14,0]},after:2},{action:'Release',after:3},{pose:'Home',after:4}]}]});
+  const pp=m.actions.find(a=>a.name==='Pick and place'),tl=K.timeline(m,pp),d=new K.Driver(m);d.start('Pick and place');
+  const steps=tl.steps.filter(s=>!s.depth),seen=[];let t=0;
+  while(d.busy('Pick and place')&&t<30){d.tick(1/240,{});t+=1/240;const run=d.running[0];if(!run)break;run.steps.forEach((st,i)=>{if(st.end!==null&&seen[i]===undefined)seen[i]=st.end;});}
+  near(t,tl.duration,6/240,'the whole sequence takes as long as planned (at most a tick a step)');
+  steps.forEach((s,i)=>{if(seen[i]!==undefined)near(seen[i],s.end,(i+1)/240+1e-9,`step ${i} ends when planned`);});
+  near([d.values().shoulder,d.values().elbow,d.values().quill,d.values().claw],[0,0,0,40],1e-6,'home again, claw open');
+});
+
+test('a ticked trapezoid ends on the first tick at or after its planned time, at any tick length, at full speed and at rest',()=>{
+  for(const [d,v,a,dt] of [[84.26,120,480,1/240],[90,90,180,1/240],[84.26,31.2,43.35,1/60],[.3,90,180,1/240],[-50,20,1000,1/30],[7,5,2,1/1000]]){
+    const x=new K.Axis(0,{speed:v,accel:a});x.to(d);let t=0,peak=0;while(!x.done&&t<60){x.step(dt);t+=dt;peak=Math.max(peak,Math.abs(x.v));}
+    const T=K.moveSeconds(d,v,a);assert.ok(t>=T-1e-9&&t<T+dt+1e-9,`${d} at ${v}/${a}, ticks of ${dt}: ${t} vs ${T}`);assert.equal(x.q,d,'lands exactly');
+    near(peak,Math.min(v,Math.sqrt(a*Math.abs(d))),a*dt+1e-9,'reaches the speed the plan says (sampled at the ticks)');}
+  // A new target while moving the other way: brake (0.5 s, to 25), then 35 back (1.2 s).
+  const y=new K.Axis(0,{speed:50,accel:100});y.to(40);for(let i=0;i<60;i++)y.step(1/120);near([y.q,y.v],[12.5,50],1e-9);y.to(-10);let t=0;while(!y.done&&t<10){y.step(1/120);t+=1/120;}near(t,1.7,1.001/120);
+});

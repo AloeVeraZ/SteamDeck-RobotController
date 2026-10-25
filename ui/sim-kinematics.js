@@ -156,6 +156,10 @@
     const actions=(Array.isArray(r.actions)?r.actions:[]).slice(0,48).map(sanitizeAction(movable,{sensors:sid,joints:new Set(byId.keys()),actuators:aid})).filter(Boolean);
     const out={version:1,model:typeof r.model==='string'&&/^[0-9a-f]{32}\.glb$|^builtin:[a-z]+$/.test(r.model)?r.model:null,unit:num(r.unit,1,1e-6,1e6),joints,actuators,couplings:kept,loops,actions};
     if(sensors.length)out.sensors=sensors;
+    // Named poses: values for several movers at once ("Home", "Above the bin"), reached together.
+    const poses=(Array.isArray(r.poses)?r.poses:[]).slice(0,32).map(p=>{if(!p||typeof p.name!=='string'||!p.name.trim())return null;const values={};
+      for(const [k,v] of Object.entries(p.values&&typeof p.values==='object'?p.values:{}).slice(0,32))if(movable.has(k)&&finite(v))values[k]=+v;return Object.keys(values).length?{name:text(p.name,40),values}:null;}).filter(Boolean);
+    if(poses.length)out.poses=poses;
     if(r.discovered===true)out.discovered=true;return out;
   }
   // An action: steps that command actuators. Each step starts `delay` seconds after the step it follows ends (or after
@@ -168,6 +172,10 @@
     for(const s of (Array.isArray(raw.steps)?raw.steps:[]).slice(0,48)){if(!s)continue;
       const base={after:Number.isInteger(s.after)&&s.after>=0&&s.after<steps.length?s.after:null,delay:num(s.delay,0,0,600)};
       if(typeof s.action==='string'&&text(s.action,40)){steps.push({action:text(s.action,40),...base});continue;}
+      // A named pose, or a point on a link to bring to a target (and directions to aim): every mover goes together.
+      if(typeof s.pose==='string'&&text(s.pose,40)){steps.push({pose:text(s.pose,40),...base});continue;}
+      if(s.reach&&typeof s.reach==='object'){const g=s.reach,aim=(Array.isArray(g.aim)?g.aim:[]).slice(0,2).filter(x=>x&&vec(x.local)&&vec(x.target)).map(x=>({local:vec(x.local),target:vec(x.target)}));
+        if(refs.joints?.has(g.joint)&&vec(g.point)&&vec(g.target))steps.push({reach:{joint:g.joint,point:vec(g.point),target:vec(g.target),...(aim.length?{aim}:{})},...base});continue;}
       if(s.wait&&typeof s.wait==='object'){const w=s.wait,on=refs.sensors?.has(w.sensor)?{sensor:w.sensor}:refs.actuators?.has(w.actuator)?{actuator:w.actuator}:refs.joints?.has(w.joint)?{joint:w.joint,...(finite(w.index)?{index:Math.max(0,Math.round(w.index))}:{})}:{};
         const cond={...(finite(w.above)?{above:w.above}:{}),...(finite(w.below)?{below:w.below}:{}),...(typeof w.is==='boolean'?{is:w.is}:{})},timed=finite(s.timeout)?{timeout:clamp(s.timeout,0,600)}:{};
         if(Object.keys(on).length&&Object.keys(cond).length)steps.push({wait:{...on,...cond},...base,...timed});else if(timed.timeout!==undefined)steps.push({wait:{},...base,...timed});continue;}
@@ -326,14 +334,15 @@
   //   pneumatic  rests only at its two ends: a target goes to the nearer end, a speed or effort to the end it points at.
   class Axis{
     constructor(q=0,{speed=90,accel=0,lower=-Infinity,upper=Infinity,wrap=false,response='ideal',motor=null,si=DEG,ends=null}={}){
-      Object.assign(this,{q,v:0,target:q,velocity:null,effort:null,speed,accel,lower,upper,wrap,response:'ideal',command:{mode:'position',value:q}});
+      Object.assign(this,{q,v:0,target:q,velocity:null,effort:null,speed,accel,vmax:speed,amax:accel,lower,upper,wrap,response:'ideal',command:{mode:'position',value:q}});
       if(response==='pneumatic'&&ends&&ends.every(finite))Object.assign(this,{response,ends:[Math.min(...ends),Math.max(...ends)]});
       if(response==='motor'&&motor){const m={i:0,d:0,power:1,load:0,...motor};m.inertia??=m.stall*.05/(m.free*si);
         // tau: the motor's time constant. The default p closes an error at full speed in T = 4·tau (at least 0.05 s), which
         // with the motor's own back-EMF damping makes the loop critically damped: s² + s/tau + 1/(tau·T) = 0, ζ = √(T/tau)/2.
         const tau=m.inertia*m.free*si/m.stall,T=Math.max(.05,4*tau);m.p??=1/(m.free*T);Object.assign(this,{response,motor:m,tau,T,sum:0,still:0});}
     }
-    to(target){if(this.response==='pneumatic'){const [lo,hi]=this.ends;target=Math.abs(target-lo)<=Math.abs(target-hi)?lo:hi;}this.target=target;this.velocity=null;this.effort=null;this.sum=0;this.still=0;this.command={mode:'position',value:target};}
+    // A move to a target, at its own speed and acceleration or at those given for this move (a coordinated move).
+    to(target,{speed,accel}={}){this.vmax=speed??this.speed;this.amax=accel??this.accel;if(this.response==='pneumatic'){const [lo,hi]=this.ends;target=Math.abs(target-lo)<=Math.abs(target-hi)?lo:hi;}this.target=target;this.velocity=null;this.effort=null;this.sum=0;this.still=0;this.command={mode:'position',value:target};}
     spin(velocity){if(this.response==='pneumatic'){this.to(velocity>=0?this.ends[1]:this.ends[0]);}else{this.velocity=velocity;this.effort=null;}this.command={mode:'velocity',value:velocity};}
     push(effort){effort=clamp(effort,-1,1);if(this.response==='motor'){this.effort=effort;this.velocity=null;}else if(this.response==='pneumatic')this.to(effort>=0?this.ends[1]:this.ends[0]);else{this.velocity=effort*this.speed;this.effort=null;}this.command={mode:'effort',value:effort};}
     get done(){if(this.velocity!==null||this.effort!==null)return false;
@@ -344,14 +353,25 @@
       if(this.response==='motor')this.stepMotor(dt);
       else if(this.velocity!==null){const want=clamp(this.velocity,-this.speed,this.speed),dv=this.accel>0?clamp(want-this.v,-this.accel*dt,this.accel*dt):want-this.v;this.v+=dv;this.q+=this.v*dt;}
       else{const d=this.target-this.q;if(Math.abs(d)<1e-9&&Math.abs(this.v)<1e-9){this.q=this.target;this.v=0;}
-        else if(!(this.accel>0)){const move=Math.sign(d)*Math.min(Math.abs(d),this.speed*dt);this.q+=move;this.v=dt>0&&Math.abs(this.target-this.q)>1e-9?move/dt:0;}
-        else{const dir=Math.sign(d),a=this.accel;
-          if(this.v*dir<0)this.v-=Math.sign(this.v)*Math.min(Math.abs(this.v),a*dt);
-          else if(this.v*this.v/(2*a)>=Math.abs(d)-1e-12)this.v-=dir*Math.min(Math.abs(this.v),a*dt);
-          else this.v=dir*Math.min(Math.abs(this.v)+a*dt,this.speed);
-          this.q+=this.v*dt;if(Math.sign(this.target-this.q)!==dir||Math.abs(this.target-this.q)<1e-9){this.q=this.target;this.v=0;}}}
+        else if(!(this.amax>0)){const move=Math.sign(d)*Math.min(Math.abs(d),this.vmax*dt);this.q+=move;this.v=dt>0&&Math.abs(this.target-this.q)>1e-9?move/dt:0;}
+        else this.trapezoid(dt);}
       if(this.q<this.lower){this.q=this.lower;this.v=0;}if(this.q>this.upper){this.q=this.upper;this.v=0;}
       if(this.wrap)this.q=((this.q%360)+360)%360;
+    }
+    // The quickest move to the target within the speed and acceleration limits, followed exactly through dt: speed up,
+    // cruise, brake, each phase for exactly as long as it lasts (one may end inside the tick), so ticking takes the time
+    // moveSeconds() works out at any tick length and lands on the target at rest.
+    trapezoid(dt){const a=this.amax,vm=this.vmax;let h=dt;
+      for(let n=0;n<12&&h>1e-12;n++){const d=this.target-this.q;if(Math.abs(d)<1e-12&&Math.abs(this.v)<1e-9){this.q=this.target;this.v=0;return;}
+        // v: speed toward the target (negative while moving away from it).
+        const dir=d!==0?Math.sign(d):-Math.sign(this.v),v=this.v*dir,dist=Math.abs(d),stop=v*v/(2*a),tol=1e-12*Math.max(1,dist);let acc,t,landing=false;
+        if(v<0){acc=a;t=-v/a;}
+        else if(v>vm+1e-12){acc=-a;t=(v-vm)/a;}
+        else if(stop>=dist-tol){acc=-a;t=v/a;landing=stop<=dist+1e-9*Math.max(1,dist);}
+        else{const peak=Math.sqrt(a*dist+v*v/2);if(peak<=vm){acc=a;t=(peak-v)/a;}else if(v<vm-1e-12){acc=a;t=(vm-v)/a;}else{acc=0;t=(dist-stop)/vm;}}
+        const s=Math.min(h,t);h-=s;
+        if(landing&&s>=t){this.q=this.target;this.v=0;continue;}
+        this.q+=dir*(v*s+acc*s*s/2);this.v=dir*(v+acc*s);}
     }
     stepMotor(dt){
       const m=this.motor,n=Math.min(400,Math.max(1,Math.ceil(8*dt/Math.min(this.tau,this.T)))),h=dt/n,decay=Math.exp(-h/this.tau);
@@ -424,13 +444,21 @@
         if(st.start===null){const ready=s.after===null?r.t0:r.steps[s.after].end;if(ready!==null&&this.time>=ready+s.delay-1e-9){st.start=this.time;
           if(s.action!==undefined){const sub=this.model.actions.find(a=>a.name.toLowerCase()===s.action.toLowerCase());
             if(sub&&r.depth<6&&!r.names.includes(sub.name.toLowerCase()))st.child=this.run(sub,r.depth+1,r.names);else st.end=this.time;}
+          else if(s.pose!==undefined||s.reach!==undefined){const goal=s.pose!==undefined?findPose(this.model,s.pose):this.reachGoal(s.reach);st.movers=goal?this.together(goal):[];if(!st.movers.length)st.end=this.time;}
           else if(s.wait===undefined)this.command(s.actuator,s.command);}}
         if(st.start===null||st.end!==null)return;
         if(st.child){this.stepAction(st.child);if(st.child.steps.every(x=>x.end!==null))st.end=this.time;return;}
+        if(st.movers){if(st.movers.every(id=>(this.axes.get(id)||this.axes.get('joint:'+id)).done))st.end=this.time;return;}
         if(s.wait!==undefined){if(this.met(s.wait)||finite(s.timeout)&&this.time-st.start>=s.timeout-1e-9)st.end=this.time;return;}
         const axis=this.axes.get(s.actuator)||this.axes.get('joint:'+s.actuator);if(!axis){st.end=this.time;return;}
         const timed=finite(s.seconds)||axis.velocity!==null||axis.effort!==null;if(timed?this.time-st.start>=(s.seconds??0)-1e-9:axis.done){st.end=this.time;if((axis.velocity!==null||axis.effort!==null)&&finite(s.seconds))axis.spin(0);}});
     }
+    // Sends every mover of a goal ({moverId: value}) to its value so all arrive together: each trapezoid is the slowest
+    // one's, time-scaled (speed × k, acceleration × k²). Motor and pneumatic movers are sent as they are.
+    together(goal){const plan=coordinate(this.model,goal,id=>(this.axes.get(id)||this.axes.get('joint:'+id))?.q);
+      for(const p of plan){const axis=this.axes.get(p.id)||this.axes.get('joint:'+p.id);axis.to(p.to,axis.response==='ideal'?{speed:p.speed,accel:p.accel}:{});}return plan.map(p=>p.id);}
+    // The movers' values that bring a point on a link to a target, solved from where the robot is now.
+    reachGoal(r){return reachGoal(this.model,r,this.values());}
     command(id,c){const a=mover(this.model,id),axis=this.axes.get(id)||this.axes.get('joint:'+id);if(!a||!axis)return;
       if(c.state!==undefined){const v=a.states?.[c.state];if(finite(v))axis.to(v);}else if(finite(c.target))axis.to(c.target);else if(finite(c.velocity))axis.spin(c.velocity);else if(finite(c.effort))axis.push(c.effort);}
     // Only the joints this driver moves. pose() sets the rest: coupled joints from their inputs, and the joints a closed
@@ -465,6 +493,9 @@
     const at={...from},out=[];
     const run=(act,t0,depth,names)=>{const local=[];
       act.steps.forEach(s=>{const begin=(s.after===null?t0:local[s.after].end)+s.delay;
+        if(s.pose!==undefined||s.reach!==undefined){const now=id=>at[id]??mover(model,id)?.home,values={};for(const id of Object.keys(at))values[id]=at[id];
+          const goal=s.pose!==undefined?findPose(model,s.pose):reachGoal(model,s.reach,values),plan=goal?coordinate(model,goal,now):[],T=plan[0]?.seconds||0,rec={[s.pose!==undefined?'pose':'reach']:s.pose??s.reach,start:begin,end:begin+T,velocity:null,...(depth?{depth}:{})};
+          local.push(rec);out.push(rec);for(const p of plan){out.push({actuator:p.id,start:begin,end:begin+T,from:p.from,to:p.to,velocity:null,speed:p.speed,accel:p.accel,depth:depth+1});at[p.id]=p.to;}return;}
         if(s.action!==undefined){const sub=findAction(model,s.action),rec={action:s.action,start:begin,end:begin,velocity:null,...(depth?{depth}:{})};local.push(rec);out.push(rec);
           if(sub&&depth<6&&!names.includes(sub.name.toLowerCase()))rec.end=run(sub,begin,depth+1,[...names,sub.name.toLowerCase()]);return;}
         const a=mover(model,s.actuator),c=s.command;if(at[a.id]===undefined)at[a.id]=a.home;
@@ -479,6 +510,20 @@
     return {steps:out,duration:Math.max(0,...out.map(s=>s.end))};
   }
   const findAction=(model,name)=>model.actions.find(a=>a.name.toLowerCase()===String(name).toLowerCase());
+  const findPose=(model,name)=>(model.poses||[]).find(p=>p.name.toLowerCase()===String(name).toLowerCase())?.values||null;
+  // A coordinated move: for each mover, where it goes and the speed and acceleration that make it take as long as the
+  // slowest (scaling a trapezoid's speed by k and its acceleration by k² scales its time by 1/k, keeping its shape).
+  function coordinate(model,goal,now){const out=[];for(const [id,to] of Object.entries(goal)){const m=mover(model,id),from=now(id);if(!m||!finite(from)||!finite(to))continue;out.push({id,from,to,m,T:moveSeconds(to-from,m.speed,m.accel)});}
+    const T=Math.max(0,...out.map(p=>p.T));return out.map(p=>{const k=T>0&&p.T>0?p.T/T:1;return {id:p.id,from:p.from,to:p.to,seconds:T,speed:p.m.speed*k,accel:(p.m.accel||0)*k*k};});}
+  // Movers for each joint value: the actuator on it (its value index), or the joint itself when route actions move it.
+  function moversOf(model){const out=new Map();for(const a of model.actuators){const k=a.joint+':'+(a.index||0);if(!out.has(k))out.set(k,a.id);}
+    for(const j of model.joints)if(j.drive?.signal==='action'&&dofOf(j).length===1&&!out.has(j.id+':0'))out.set(j.id+':0',j.id);return out;}
+  // Inverse kinematics over the joints of the chain that something can move, from the values given (movers' and joints').
+  function reachGoal(model,r,values){const movers=moversOf(model),byId=new Map(model.joints.map(j=>[j.id,j])),given={};
+    for(const [id,v] of Object.entries(values)){const a=model.actuators.find(x=>x.id===id);if(a){const q=valuesOf(byId.get(a.joint),given[a.joint]??byId.get(a.joint).home??0);q[a.index||0]=v;given[a.joint]=q;}else if(byId.has(id))given[id]=v;}
+    const joints=chain(byId,r.joint).filter(id=>dofOf(byId.get(id)).some((_,i)=>movers.has(id+':'+i)));if(!joints.length)return null;
+    const sol=reach(model,{joint:r.joint,point:r.point,target:r.target,aim:r.aim||[],given,joints}),goal={};
+    for(const id of joints)dofOf(byId.get(id)).forEach((_,i)=>{const m=movers.get(id+':'+i);if(m)goal[m]=sol.q[id][i];});return goal;}
   function needsTicking(model,action,names){if(names.length>6||names.includes(action.name.toLowerCase()))return false;
     return action.steps.some(s=>s.wait!==undefined||(s.action!==undefined?(a=>a&&needsTicking(model,a,[...names,action.name.toLowerCase()]))(findAction(model,s.action)):mover(model,s.actuator)?.response==='motor'));}
   // The timeline of an action as the driver runs it: steps (start, end, and where each actuator was then) and the
@@ -505,7 +550,7 @@
       const x=clamp(t/dt,0,arr.length-1),i=Math.floor(x),j=Math.min(arr.length-1,i+1);v[s.actuator]=arr[i]+(arr[j]-arr[i])*(x-i);}return v;}
     for(const s of tl.steps){if(!s.actuator)continue;const a=mover(model,s.actuator);if(t<s.start)continue;
     if(s.velocity!==null){v[a.id]=(v[a.id]??s.from)+s.velocity*(Math.min(t,s.end)-s.start);continue;}
-    const total=s.end-s.start,u=total>0?clamp((t-s.start)/total,0,1):1;v[a.id]=s.from+(s.to-s.from)*profile(u,a,Math.abs(s.to-s.from));}
+    const total=s.end-s.start,u=total>0?clamp((t-s.start)/total,0,1):1;v[a.id]=s.from+(s.to-s.from)*profile(u,s.speed!==undefined?{speed:s.speed,accel:s.accel}:a,Math.abs(s.to-s.from));}
     return v;}
   // Fraction of the distance covered at fraction u of a trapezoid's time.
   function profile(u,a,d){if(!(a.accel>0)||!d)return u;const T=moveSeconds(d,a.speed,a.accel),ta=Math.min(a.speed/a.accel,T/2),vmax=a.accel*ta,t=u*T;
