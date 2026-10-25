@@ -54,7 +54,7 @@
     const $=s=>host.querySelector(s),$$=s=>[...host.querySelectorAll(s)];
     const canvas=$('#studio-canvas'),pctx=canvas.getContext('2d'),scroll=$('#studio-scroll'),tracks=$('#studio-tracks'),screen=$('#studio-screen');
     const pane=k=>$(`[data-side="${k}"]`);
-    let take=null,editor=null,paths={},pathKey='',trail=null,events=[],selected=new Set(),t=0,playing=false,pps=40,cam=null,shown=false,exporting=null,side='cameras',lastTick=0,lastPaint=0,raf=0,drawQueued=false,formats=null,formatKey='',discardArmed=0,focusSnap=null;
+    let take=null,editor=null,paths={},pathKeys={},trail=null,events=[],selected=new Set(),t=0,playing=false,pps=40,cam=null,shown=false,exporting=null,side='cameras',lastTick=0,lastPaint=0,raf=0,drawQueued=false,formats=null,formatKey='',discardArmed=0,focusSnap=null;
     const lanes=E.TRACKS.filter(x=>x.kind!=='audio'),NAMES={T1:'Text',V2:'Corner',V1:'Camera'};
     const say=text=>{$('#studio-status').textContent=text||'';};
     const duration=()=>editor?Math.max(E.MIN,E.duration(editor.doc)):0;
@@ -73,8 +73,12 @@
     const trailAt=i=>trail.points.slice(0,trail.count[i-(i%6)]);
     function buildTrail(F){const points=[],count=new Array(F.length);let last=null;
       F.forEach((f,i)=>{const p=f.truth;if(p&&(!last||Math.hypot(last.x-p.x,last.y-p.y)>.4)){points.push({x:p.x,y:p.y,e:null});last=p;}count[i]=points.length;});return {points,count};}
-    // Camera paths follow the camera settings in the edit, so undo puts a camera back too.
-    function cameraPaths(){const key=JSON.stringify(editor.doc.cameras||{});if(key===pathKey)return;pathKey=key;paths=K.paths(take.frames,take.ctx,editor.doc.cameras);}
+    // Camera paths follow the camera settings in the edit, so undo puts a camera back too. A camera's path is worked
+    // out when it is first shown (or in a quiet moment after the recording opens), and again only when its own
+    // settings change: keeping clear of the field takes a moment per camera.
+    function track(id){if(!K.IDS.includes(id))id='main';const cfg=K.settings(editor.doc.cameras)[id],key=JSON.stringify(cfg);
+      if(pathKeys[id]!==key){pathKeys[id]=key;paths[id]=K.path(id,take.frames,take.ctx,cfg);}return paths[id];}
+    function warmPaths(){const idle=f=>window.requestIdleCallback?requestIdleCallback(f,{timeout:400}):setTimeout(f,60),next=()=>{if(!editor)return;const id=K.IDS.find(x=>pathKeys[x]!==JSON.stringify(K.settings(editor.doc.cameras)[x]));if(id){track(id);idle(next);}};idle(next);}
 
     // ------------------------------------------------------------ drawing a picture
     function pill(ctx,x,y,w,h,fill){ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,h*.22);else ctx.rect(x,y,w,h);ctx.fillStyle=fill;ctx.fill();}
@@ -115,7 +119,7 @@
       const doc=editor.doc,r=E.resolve(doc,time);ctx.save();ctx.globalAlpha=1;ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
       let lead=null;if(cam)cam.size(W,H);
       for(const l of r.layers){if(!cam)break;const {f,i}=frameAt(l.source),shot={rect:[0,0,W,H]};
-        if(l.camera==='top')shot.top=true;else{shot.pose=K.poseAt(paths[l.camera]||paths.main,take.frames,take.t0+l.source);shot.inset=!!doc.overlays.path&&!l.pip;}
+        if(l.camera==='top')shot.top=true;else{shot.pose=K.poseAt(track(l.camera),take.frames,take.t0+l.source);shot.inset=!!doc.overlays.path&&!l.pip;}
         const pic=cam.picture(f,{...take.state,frame:f,trail:trailAt(i)},[shot]);ctx.globalAlpha=clamp(l.alpha*(l.fade??1),0,1);
         if(l.pip){const w=Math.round(W*.34),h=Math.round(w*H/W),m=Math.round(H*.03),x=W-w-m,y=Math.round(H*.12);ctx.drawImage(pic,x,y,w,h);ctx.lineWidth=Math.max(2,H/300);ctx.strokeStyle='rgb(232 236 241 / .9)';ctx.strokeRect(x,y,w,h);}
         else{ctx.drawImage(pic,0,0,W,H);lead={f,camera:l.camera,inset:shot.insetRect||null};}}
@@ -219,7 +223,7 @@
       if(id){say(`${CAM[camera].name} camera from ${E.timecode(t)}. Move the red line and pick another to switch again.`);selected.clear();refresh();}else say('Move the red line over the Camera row to switch cameras there.');
     }
     function changed(){
-      selected=new Set([...selected].filter(id=>editor.doc.clips.some(c=>c.id===id)));cameraPaths();
+      selected=new Set([...selected].filter(id=>editor.doc.clips.some(c=>c.id===id)));
       if(t>duration())t=duration();refresh();requestDraw();
     }
     function refresh(){timeline();clock();buttons();clipPane();cameraMarks();lookPane();void exportPane();}
@@ -270,7 +274,7 @@
       for(const input of body.querySelectorAll('[data-tune]')){const k=input.dataset.tune;
         input.onfocus=()=>{focusSnap=JSON.stringify(editor.doc);};
         input.oninput=()=>{const v=k==='mode'?input.value:+input.value;if(input.previousElementSibling?.tagName==='OUTPUT')input.previousElementSibling.textContent=input.value+(k==='distance'||k==='height'?'×':'°');
-          editor.doc.cameras={...editor.doc.cameras,[id]:{...K.settings(editor.doc.cameras)[id],[k]:v}};cameraPaths();requestDraw();};
+          editor.doc.cameras={...editor.doc.cameras,[id]:{...K.settings(editor.doc.cameras)[id],[k]:v}};requestDraw();};
         input.onchange=()=>commit(focusSnap,'Adjust camera');}
       body.querySelector('[data-tune-reset]').onclick=()=>{editor.change('Reset camera',d=>{const c={...d.cameras};delete c[id];d.cameras=c;});body.dataset.stale='1';cameraMarks();};
     }
@@ -362,12 +366,13 @@
 
     // ------------------------------------------------------------ the recording
     // next: {frames, ctx (the cameras' view of the robot), state (what the 3D field shows), name, view, seconds}.
+    // The cameras also get the field's solid parts from the field info, to keep out of them.
     async function load(next){
       pause();const F=next.frames;if(!F?.length)return;
-      take={...next,t0:F[0].time,duration:Math.max(E.MIN,F.at(-1).time-F[0].time),ctx:{...next.ctx,rig:K.rig(next.ctx)}};
+      take={...next,t0:F[0].time,duration:Math.max(E.MIN,F.at(-1).time-F[0].time),ctx:{...next.ctx,rig:K.rig(next.ctx),field:K.field(next.state?.info)}};
       const doc=E.create({recording:{id:'take',duration:take.duration},name:next.name||'Run video'});if(next.view==='2d')doc.clips[0].camera='top';
       Object.assign(doc.overlays,{match:true,velocity:true,path:next.view!=='2d'});
-      editor=new E.Editor(doc,{onChange:changed});pathKey='';cameraPaths();trail=buildTrail(F);events=E.events(F);selected.clear();t=0;
+      editor=new E.Editor(doc,{onChange:changed});paths={};pathKeys={};warmPaths();trail=buildTrail(F);events=E.events(F);selected.clear();t=0;
       $('#studio-name').value=doc.name;$('#studio-meta').textContent=`${E.timecode(take.duration).replace(/\.\d+$/,'')} long`;
       say('Press Play to watch it. Save video keeps it; changing it first is optional.');
       camerasPane();requestAnimationFrame(fitZoom);refresh();
@@ -375,7 +380,7 @@
       try{cam=await opts.camera();$('#studio-loading').hidden=true;}catch(e){$('#studio-loading').textContent=e.message||'The cameras could not load.';}
       requestDraw();
     }
-    function clear(){pause();exporting?.abort();take=null;editor=null;paths={};pathKey='';trail=null;events=[];selected.clear();pctx.clearRect(0,0,canvas.width,canvas.height);tracks.innerHTML='';for(const k of ['cameras','clip','look','export'])pane(k).innerHTML='';say('');}
+    function clear(){pause();exporting?.abort();take=null;editor=null;paths={};pathKeys={};trail=null;events=[];selected.clear();pctx.clearRect(0,0,canvas.width,canvas.height);tracks.innerHTML='';for(const k of ['cameras','clip','look','export'])pane(k).innerHTML='';say('');}
     // The tab is on screen (or not): playing stops when it is hidden.
     function show(on){shown=!!on;if(!shown){pause();return;}if(take){requestAnimationFrame(()=>{if(pps===40)fitZoom();else timeline();requestDraw();});}}
     return {load,show,clear,has:()=>!!take,busy:()=>!!exporting};

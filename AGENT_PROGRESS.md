@@ -186,6 +186,27 @@ The user's goal: plug into the Control Hub, press one button, and everything for
 - The app's CSP blocks `style` attributes in markup, so the timeline sets positions through `data-css` and the style object.
 - Verified in Electron: record → tab opens → auto cameras, a camera cut and a title → a 1280×720 H.264 MP4 of 11.5 s saved in about 7–10 s → Discard hides the tab.
 
+### Video cameras keep clear of the field; the turret camera rides inside the turret (25 October)
+
+The user's exported edit showed the intake camera inside the perimeter wall and in a flower's posts, the chase camera behind a hive leg, and the turret camera bobbing after every shot and losing the robot. Changes, all in `ui/sim-cameras.js` (plus `ui/sim-studio.js` passing the field):
+- `field(info)` turns the engine's `structureParts` into boxes for the cameras: each hive part fitted along its own axes (Jacobi on the points' covariance, so a slanting leg gets a slim box), each flower one box round its posts and pollen. Walls stand on `bounds`, 12 in high.
+- `clear()` runs after every camera's designed path. A pose is blocked inside or right against a wall, structure, flower or the robot (with its intakes' reach), or when one hides what the camera watches. A solid holding the watched point (the ramp in a flower) does not count as hiding it. Blocked stretches get one of 70 moves per picture by Viterbi: swing round what it watches, raise, lower under the trays, or come closer. Each glide between moves is timed and shaped (swing first, rise first, or both) to stay clear. A glide that still clips bars that change near there, and the sequence is solved again (three times at most). Unblocked poses are left exactly as designed.
+- Turret camera, new default mode `pov` ("Inside the turret"): 4 in behind the pivot of the shooter that fires most (by the colours of pieces seen leaving) and 2 in over the robot's top. It turns only with the turret, tilts up to the goal while aiming (held 1.5 s), and its position is not smoothed. `follow` (behind the turret) and `fixed` stay; the old `projectile` mode is gone, and settings saved with it fall back to `pov`.
+- The rig's intake point is now the intake's mouth (chassis edge plus `reach`), so the intake camera frames the whole intake.
+- The editor works out a camera's path when it is first shown (`track`) and the rest when idle, again only when that camera's own settings change. Live Record and Run video still use the original `mainStep` unchanged.
+
+Measured on the user's lunala setup and robot CAD (a 28 s autonomous, 848 frames), counting frames inside a solid / inside the wall / with the watched point hidden:
+
+| Camera | Before | After |
+|---|---|---|
+| Main | 1 / 0 / 25 | 0 / 0 / 0 |
+| Front-right | 3 / 241 / 183 | 0 / 0 / 0 |
+| Turret | 6 / 0 / 1 | 0 / 0 / 0 |
+| Rear chase | 5 / 0 / 0 | 0 / 0 / 0 |
+| Intake | 64 / 255 / 305 | 0 / 0 / 0 |
+
+While feeding, the turret camera moved 9.6 in/s and turned 40.7°/s before; now 0.2 in/s and 11°/s (only the turret's own turning). Paths take 5–110 ms per camera (best of five runs), about 0.4 s for all five, worked out in quiet moments once the editor opens. In the app: record → Pick cameras for me (4 cameras, 11 cuts) → Save video gave an 18.9 MB MP4 in 11 s with no page errors, and its frames show no camera inside a wall, flower or the hive.
+
 ### lunala red auto (the user's request)
 
 - One custom curve replaces the back-off pin.
