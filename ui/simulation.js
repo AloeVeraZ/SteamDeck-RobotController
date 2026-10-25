@@ -296,7 +296,7 @@ public class MyAuto implements DeckAutonomous {
         <section class="sim-log"><pre id="sim-log" role="log" aria-label="Run output">No run yet. Press Run and each step of the run is listed here.</pre></section>
         <p class="hint sim-credit">Route planning and following use the Deck controller. Third-party physics and component licences are in the app’s licenses folder.</p></div>
     </section></div>`;
-  const graph=$('#simulation-field'),robotGlyph=$('#field-robot');
+  const graph=$('#simulation-field'),robotGlyph=$('#field-robot'),estimateShape=$('#sim-estimate'),targetMark=$('#sim-target'),elementsLayer=$('#sim-elements');
   function svg(tag,attributes,text){const node=document.createElementNS(ns,tag);for(const [key,value] of Object.entries(attributes))node.setAttribute(key,value);if(text!==undefined)node.textContent=text;return node;}
   let fieldArtKey='';
   // ---------------------------------------------------------------- zoom and pan
@@ -374,7 +374,7 @@ public class MyAuto implements DeckAutonomous {
   async function call(method,...args){await ready();return api.sim(method,...args);}
   if(native)api.onSim(message=>{
     if(!active)return;
-    if(message.type==='frame'){liveFrame=message;runData?.record(message);if(runData&&!runData.live())return;frame=message;trailPoint(message);const key=pictureKey(message);if(key!==pictureKey.last){pictureKey.last=key;pictureKey.same=0;paint();}else pictureKey.same=(pictureKey.same||0)+1;telemetry();return;}
+    if(message.type==='frame'){liveFrame=message;runData?.record(message);if(runData&&!runData.live())return;frame=message;trailPoint(message);const key=pictureKey(message);if(key!==pictureKey.last){pictureKey.last=key;pictureKey.same=0;if(!glideAdd(message))paint();}else pictureKey.same=(pictureKey.same||0)+1;telemetry();return;}
     if(message.type==='run')runEvent(message);
     else if(message.type==='practice')practicePanel(message);
     else if(message.type==='optimize'&&optimizing&&optimize.layoutId===L().id)status('#sim-plan-status',`Test-driving route ${message.index+1} of ${message.total}…`);
@@ -393,6 +393,7 @@ public class MyAuto implements DeckAutonomous {
   function trailPoint(f){trail=trailAdd(trail,f);}
   function appendRunLog(line){logLines.push(line);logLines=logLines.slice(-200);$('#sim-log').textContent=logLines.join('\n');}
   function runEvent(m){
+    if(m.state==='starting'||m.state==='reset')glideStop();
     if(m.state==='starting'){if(videoReplay)videoReplay.cancel=true;runData?.reset();logLines=[];appendRunLog('Starting '+(m.kind||'autonomous')+'…');}
     else if(m.state==='running')appendRunLog('Running. Escape stops the autonomous and practice timer.');
     else if(m.state==='finished')appendRunLog(`Route finished in ${m.result?.time?.toFixed(2)||'?'} s · ${m.result?.violations?.length||0} zone contact(s).`);
@@ -413,24 +414,78 @@ public class MyAuto implements DeckAutonomous {
     transport();videoCheck?.(m.state);
   }
 
-  // ------------------------------------------------------------------ drawing
-  function robotPose(){return tab==='plan'||!frame?preview:{x:frame.truth.x,y:frame.truth.y,heading:frame.truth.heading};}
-  // Pieces on the 2D field: one circle each, kept and moved rather than rebuilt with every frame.
-  function pieces(list){
-    const g=$('#sim-elements'),have=new Map([...g.children].map(c=>[c.dataset.element,c])),seen=new Set();
-    for(const p of list){const key=String(p.id);seen.add(key);let c=have.get(key);if(!c){c=svg('circle',{});g.append(c);}
-      for(const [k,v] of Object.entries(p)){if(k==='id')continue;const s=String(v);if(c.getAttribute(k)!==s)c.setAttribute(k,s);}}
-    for(const [k,c] of have)if(!seen.has(k))c.remove();
+  // ------------------------------------------------------------------ smooth motion
+  // Frames arrive about 30 times a second, unevenly. While a run plays, the robot, its mechanisms and the pieces are
+  // drawn at the display's own rate between the two frames around a moment about one frame behind the newest, so
+  // they glide instead of stepping. Readouts and the trail keep following the newest frame (`frame`).
+  const glide={list:[],shown:null,raf:0,clock:0,wall:0,arrived:0,gap:.033,late:0};
+  const lerp=(a,b,u)=>a+(b-a)*u,lerpAngle=(a,b,u)=>a+((((b-a)%360)+540)%360-180)*u;
+  // About one and a half frames of run time (frames are further apart in run time when the run plays faster), plus how
+  // late frames have lately been arriving (a busy computer), which fades over a few seconds.
+  const glideDelay=()=>Math.max(.03,glide.gap*1.5+glide.late);
+  // Takes a new live frame; false when it does not play (paused, stopped, finished), which ends the glide.
+  function glideAdd(f){
+    if(!f.playing||!f.truth){glideStop();return false;}
+    const l=glide.list,last=l.at(-1),now=performance.now();
+    // Time going back a long way (a new run) or jumping far ahead starts over; a frame older than the newest is late
+    // and left out; a frame sent again for the same moment replaces it.
+    if(last&&f.time<last.time-1e-9&&f.time>last.time-.5)return true;
+    if(last&&(f.time<last.time||f.time-last.time>.5))l.length=0;else if(last&&f.time-last.time<1e-9)l.pop();
+    else if(last){glide.gap+=(Math.min(.15,f.time-last.time)-glide.gap)*.2;glide.late=Math.max(glide.late*.99,Math.min(.25,(now-glide.arrived)/1000*(f.speed||1)-(f.time-last.time)));}
+    // Frames are kept from the one before the picture shown on, so a longer delay never runs out of them.
+    l.push(f);while(l.length>2&&l[1].time<=glide.clock||l.length>64)l.shift();glide.arrived=now;
+    // Starting again after a wait, it goes on from the picture it last showed rather than jumping to the new frame.
+    if(!glide.raf){glide.wall=now;glide.clock=l.length>1?Math.max(l[0].time,Math.min(glide.clock,f.time)):f.time;glide.raf=requestAnimationFrame(glideStep);}
+    return true;
   }
+  function glideStop(){cancelAnimationFrame(glide.raf);glide.raf=0;glide.list.length=0;glide.shown=null;}
+  function glideStep(now){
+    const l=glide.list,newest=l.at(-1);if(!newest||!active){glideStop();return;}
+    const speed=newest.speed||1,since=(now-glide.arrived)/1000*speed;
+    // Nothing new for a while (the robot stands still, or frames are late): show the newest frame as it is and wait,
+    // keeping the frames for the next one.
+    if(since>Math.max(.15,glide.gap*4)&&glide.clock>=newest.time){glide.raf=0;glide.shown=null;paint();return;}
+    // The 3D view draws this picture at once (asking for its own frame now would draw it one frame late).
+    glide.raf=requestAnimationFrame(glideStep);
+    // The clock runs at the run's speed, nudged towards about one frame behind the newest frame.
+    const dt=Math.max(0,Math.min(.1,(now-glide.wall)/1000))*speed,target=newest.time+Math.min(glide.gap,since)-glideDelay();glide.wall=now;
+    let t=glide.clock+dt*Math.max(.6,Math.min(1.4,1+(target-glide.clock)*3));if(Math.abs(target-t)>.5)t=target;
+    t=Math.max(l[0].time,Math.min(newest.time,t));glide.clock=t;
+    const k=l.findIndex(f=>f.time>t);glide.shown=k<0?newest:k===0?l[0]:between(l[k-1],l[k],(t-l[k-1].time)/(l[k].time-l[k-1].time));
+    paint();if(project.view==='3d')view3d?.draw();
+  }
+  // The picture between two frames: pose, estimate, mechanism angles and pieces in between; the rest is the later frame's.
+  function between(a,b,u){
+    const pose=(p,q)=>p&&q?{...q,x:lerp(p.x,q.x,u),y:lerp(p.y,q.y,u),heading:lerpAngle(p.heading,q.heading,u)}:q;
+    const truth={...pose(a.truth,b.truth),z:lerp(a.truth.z||0,b.truth.z||0,u),vx:lerp(a.truth.vx,b.truth.vx,u),vy:lerp(a.truth.vy,b.truth.vy,u),omega:lerp(a.truth.omega,b.truth.omega,u)};
+    const m=a.mechanisms,n=b.mechanisms,mechanisms=m&&n?{...n,...(finite(n.turret)?{turret:lerpAngle(m.turret??n.turret,n.turret,u)}:{}),...(n.turrets?{turrets:n.turrets.map((v,i)=>finite(v)?lerpAngle(m.turrets?.[i]??v,v,u):v)}:{}),...(n.ramps?{ramps:n.ramps.map((v,i)=>finite(v)?lerp(m.ramps?.[i]??v,v,u):v)}:{})}:n;
+    const was=new Map((a.fieldState?.balls||[]).map(x=>[x.id,x])),balls=b.fieldState?.balls?.map(x=>{const y=was.get(x.id);return !y||y.state?.kind!==x.state?.kind?x:{...x,pos:{...x.pos,x:lerp(y.pos.x,x.pos.x,u),y:lerp(y.pos.y,x.pos.y,u)},z:lerp(y.z||0,x.z||0,u)};});
+    return {...b,time:lerp(a.time,b.time,u),truth,estimate:pose(a.estimate,b.estimate),mechanisms,...(b.fieldState?{fieldState:{...b.fieldState,balls}}:{})};
+  }
+
+  // ------------------------------------------------------------------ drawing
+  function robotPose(f=frame){return tab==='plan'||!f?preview:{x:f.truth.x,y:f.truth.y,heading:f.truth.heading};}
+  // Pieces on the 2D field: one circle each, kept and moved rather than rebuilt with every frame. Each circle keeps
+  // what it was last given, so a frame sets only what changed and reads nothing back from the page.
+  const pieceCircles=new Map();
+  function pieces(list){
+    const seen=new Set();
+    for(const p of list){const key=String(p.id);seen.add(key);let c=pieceCircles.get(key);if(!c||c.node.parentNode!==elementsLayer){c={node:svg('circle',{}),last:{}};elementsLayer.append(c.node);pieceCircles.set(key,c);}
+      for(const k in p){if(k==='id')continue;const v=p[k];if(c.last[k]!==v){c.last[k]=v;c.node.setAttribute(k,String(v));}}}
+    for(const [k,c] of pieceCircles)if(!seen.has(k)){c.node.remove();pieceCircles.delete(k);}
+  }
+  // Draws the run's moving parts as the frame shown now has them: the glide's picture while a run plays.
   function paint(){
-    if(project.view==='3d'&&view3d){view3d.update(frame,state3d());return;}
-    pieces((frame?.fieldState?.balls||[]).filter(b=>!['held','stock','scored'].includes(b.state?.kind)).map(b=>({id:b.id,cx:b.pos.x+72,cy:b.pos.y+72,r:L().field==='biobuzz'?(b.color==='yellow'?1.4:1.8):2.5,fill:{yellow:'#f2d14b',red:'#e2564d',blue:'#007be1',purple:'#a568ce',green:'#69bd74'}[b.color]||'#dadada',stroke:'#17191c','stroke-width':'.25','data-element':b.id})));
+    const f=glide.shown||frame;
+    if(project.view==='3d'&&view3d){view3d.update(f,state3d());return;}
+    pieces((f?.fieldState?.balls||[]).filter(b=>!['held','stock','scored'].includes(b.state?.kind)).map(b=>({id:b.id,cx:b.pos.x+72,cy:b.pos.y+72,r:L().field==='biobuzz'?(b.color==='yellow'?1.4:1.8):2.5,fill:{yellow:'#f2d14b',red:'#e2564d',blue:'#007be1',purple:'#a568ce',green:'#69bd74'}[b.color]||'#dadada',stroke:'#17191c','stroke-width':'.25','data-element':b.id})));
     // Attributes are set only when they change: setting one, even to the same value, makes the page lay out again.
     const set=(n,k,v)=>{v=String(v);if(n.getAttribute(k)!==v)n.setAttribute(k,v);};
-    const p=robotPose();set(robotGlyph,'transform',`translate(${p.x} ${fieldHeight()-p.y}) rotate(${-p.heading})`);
-    const e=frame?.estimate;set($('#sim-estimate'),'points',e?pts(planner.body(e,geometry().footprint)):'');
-    const c=frame?.follower?.closest,target=$('#sim-target');set(target,'cx',c?c.x:-99);set(target,'cy',c?c.y:-99);
-    for(const z of $$('#sim-zones [data-zone]'))z.classList.toggle('hit',!!frame?.hit?.includes(z.dataset.zone));
+    const p=robotPose(f);set(robotGlyph,'transform',`translate(${p.x} ${fieldHeight()-p.y}) rotate(${-p.heading})`);
+    const e=f?.estimate;set(estimateShape,'points',e?pts(planner.body(e,geometry().footprint)):'');
+    const c=f?.follower?.closest;set(targetMark,'cx',c?c.x:-99);set(targetMark,'cy',c?c.y:-99);
+    // No-go zones the robot touches turn red; looked up only when that changes (draw() rebuilds the zones and clears it).
+    const hit=f?.hit?.join()||'';if(paint.hit!==hit){paint.hit=hit;for(const z of $$('#sim-zones [data-zone]'))z.classList.toggle('hit',!!f?.hit?.includes(z.dataset.zone));}
   }
   function draw(){
     $('#sim-grab-cursor')?.remove();if(graph.dataset.dragging){const x=preview.x-startGrab.dx,y=preview.y-startGrab.dy;$('#sim-overlay').append(svg('path',{id:'sim-grab-cursor',d:`M${x-1.8} ${y}h3.6M${x} ${y-1.8}v3.6`,class:'sim-grab-cursor'}));}
@@ -452,7 +507,7 @@ public class MyAuto implements DeckAutonomous {
     if(pic){image.setAttribute('href',pic.url);image.setAttribute('x',pic.x0);image.setAttribute('y',-pic.y1);image.setAttribute('width',pic.x1-pic.x0);image.setAttribute('height',pic.y1-pic.y0);}else image.setAttribute('width',0);
     for(const [k,v] of Object.entries({x:b.x0,y:b.y0,width:b.x1-b.x0,height:b.y1-b.y0}))$('#sim-walls').setAttribute(k,v);
     const sel=selected?.kind==='zone'&&zoneById(selected.id);
-    $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4*marker()})):[]));
+    $('#sim-zones').replaceChildren(...l.zones.map(z=>zoneShape(z,sel===z?' selected':'')),...(sel?handles(sel).map(h=>svg('circle',{class:'sim-handle',cx:h.x,cy:h.y,r:1.4*marker()})):[]));paint.hit=null;
     $('#sim-route').replaceChildren(...onionShapes(),...(l.route?routeShapes(l.route):[]),...controlShapes());$('#sim-preview-row').hidden=!l.route;drawPreview();
     $('#sim-pins').replaceChildren(...l.pins.map((p,i)=>{const n=svg('g',{class:'sim-pin'+(selected?.kind==='pin'&&selected.index===i?' selected':'')+(p.wait>0||p.action?' stop':'')+(diagnostics.some(q=>q.pin===i)?' blocked':'')+(reviewing(i)?' reviewing':''),transform:`translate(${p.x} ${p.y}) scale(${marker()})`,'data-pin':i});
       // A pin that turns the robot shows the heading it turns to.
@@ -1625,7 +1680,7 @@ public class MyAuto implements DeckAutonomous {
   // Switching to measured numbers starts from the worked-out ones.
   $('#sim-timed-measured').onchange=e=>{if(e.target.checked){Object.assign(project.timing,info?.timing?{forwardSpeed:info.timing.forwardSpeed,strafeSpeed:info.timing.strafeSpeed,startup:info.timing.startup,stopping:info.timing.stopping,strafeStopping:info.timing.strafeStopping}:{});project.timing.source='measured';}else project.timing.source='robot';save();robotPanel();reload();};
   $('#sim-appearance').onchange=e=>{project.robot.appearance=e.target.value;if(e.target.value!=='custom')project.model=null;if(e.target.value==='swechanum')project.robot.drivetrain='swerve';if(e.target.value==='strafer')project.robot.drivetrain='mecanum';settle();robotPanel();void placeModel();};
-  const M=()=>window.DeckRobotModel,modelCache=new Map();
+  const M=()=>window.DeckRobotModel,modelCache=new Map(),LIGHT_TRIANGLES=400000;
   async function three(){await script('vendor/three-view.js');await script('sim-robot-model.js');}
   // The stored one-body model, placed in the robot frame for 2D and 3D.
   async function placeModel(){
@@ -1633,9 +1688,22 @@ public class MyAuto implements DeckAutonomous {
     const imported=project.model,builtin=!imported&&builtins.has(project.robot.appearance)?project.robot.appearance:null,identity=imported?.id||builtin,meta=imported||(builtin?{units:'in',...(project.orientations?.[builtin]||{front:builtin==='strafer'?'-x':'+x',top:'+z'})}:null);
     if(!identity||!native){model=null;modelUi();draw();view3d?.setModel(null);return;}
     try{await three();if(model?.id!==identity){model=modelCache.get(identity)||null;if(!model){const data=await api.simFile(builtin?'builtin-model':'model-read',identity);if(!data)throw Error('The saved robot model is missing. Import it again.');const object=builtin?await M().builtin(data.bytes,data.meta):await M().fromGlb(data.bytes);if(seq!==placeModel.seq)return;model={id:identity,geometry:object,builtin,meta:data.meta};modelCache.set(identity,model);}}
-      if(seq!==placeModel.seq)return;const chassis=chassisFootprint(),key=JSON.stringify([meta,chassis]);if(key!==model.placeKey){model.holder=M().place(model.geometry,meta||{front:'+x',top:'+z',units:'in'},chassis);model.picture=M().silhouette(model.holder);model.placeKey=key;}
+      if(seq!==placeModel.seq)return;const chassis=chassisFootprint(),key=JSON.stringify([meta,chassis]),look=JSON.stringify([meta?.front,meta?.top]);
+      // The top-down picture is drawn again only when the model turns; a new size stretches the one there is.
+      if(key!==model.placeKey){model.holder=M().place(model.geometry,meta||{front:'+x',top:'+z',units:'in'},chassis);model.picture=M().silhouette(model.holder,model.look===look?model.picture:null);model.look=look;model.placeKey=key;}
     }catch(e){model=null;status('#start-status',e.message);}
-    modelUi();draw();view3d?.setModel(model?.holder||null);
+    modelUi();draw();view3d?.setModel(fieldBody());
+  }
+  // The field views (3D, run videos) draw a lighter copy of a heavy CAD body (DeckRobotModel.lighten), made once per
+  // model in the background; until it is ready they show the plain robot. The Setup previews keep every triangle,
+  // so parts can still be picked there.
+  function fieldBody(){
+    const m=model;if(!m?.holder)return null;
+    if(m.lite===undefined){m.lite=null;const g=m.geometry,tris=g?.isObject3D?0:(g?.index?.count??g?.attributes?.position?.count??0)/3;
+      if(tris>LIGHT_TRIANGLES){m.lighten=M().lighten(g,{target:LIGHT_TRIANGLES}).catch(()=>g).then(lite=>{m.lite=lite;if(model===m)view3d?.setModel(fieldBody());});}else m.lite=g;}
+    if(!m.lite)return null;if(m.lite===m.geometry)return m.holder;
+    if(m.liteOf!==m.holder){m.liteOf=m.holder;m.liteHolder=m.holder.clone();m.liteHolder.traverse(o=>{if(o.isMesh&&o.geometry===m.geometry)o.geometry=m.lite;});}
+    return m.liteHolder;
   }
   function modelUi(){
     const meta=project.model,builtin=model?.builtin;$('#sim-model-box').hidden=!meta&&!builtin;$('#sim-model-drop').classList.toggle('compact',!!meta||!!builtin);
@@ -1900,7 +1968,7 @@ public class MyAuto implements DeckAutonomous {
     project.view=next;save();pressed('view',next);const three3=next==='3d';$('#sim-3d').hidden=!three3;graph.style.display=three3?'none':'';applyZoom();
     // −/Fit/+ zoom the 2D field only, so 3D shows Hitboxes in their place.
     $('[data-tool]').parentElement.classList.toggle('three',three3);$('#sim-hitboxes').hidden=!three3;$('.sim-zoom').hidden=three3;$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));videoRefresh?.();
-    if(three3){tool='select';try{await three();await script('sim-3d.js');view3d=view3d||window.DeckSim3D.create($('#sim-3d'));view3d.setField(info,L());view3d.setModel(model?.holder||null);view3d.update(frame,state3d());}catch(e){status('#sim-run-status',e.message);}}
+    if(three3){tool='select';try{await three();await script('sim-3d.js');view3d=view3d||window.DeckSim3D.create($('#sim-3d'));view3d.setField(info,L());view3d.setModel(fieldBody());view3d.update(frame,state3d());}catch(e){status('#sim-run-status',e.message);}}
     draw();
   }
   for(const b of $$('[data-view]'))b.onclick=()=>void setView(b.dataset.view);
@@ -2115,7 +2183,7 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-stage').before(fieldRow);fieldRow.append(timing,$('#sim-stage'));fieldRow.after(fieldFooter);fieldFooter.append($('#field-coordinates'),$('#field-help'));practicePanel(null);
   const dataBox=document.createElement('div');dataBox.className='sim-data';
   resultsReady=Object.assign(document.createElement('section'),{id:'sim-results-ready',className:'sim-results-ready'});replayBox=Object.assign(document.createElement('section'),{id:'sim-replay',className:'sim-replay',hidden:true});
-  runData=window.DeckSimData.create({panelHost:dataBox,settings:()=>({mechanisms:project.mechanisms,robot:project.robot}),onScrub:f=>{frame=f||liveFrame;paint();telemetry();}});
+  runData=window.DeckSimData.create({panelHost:dataBox,settings:()=>({mechanisms:project.mechanisms,robot:project.robot}),onScrub:f=>{glideStop();frame=f||liveFrame;paint();telemetry();}});
   // The recorded run as a WPILOG file, for sharing or comparing with logs from the real robot.
   const logButton=document.createElement('button'),logStatus=document.createElement('p');logButton.type='button';logButton.className='secondary';logButton.textContent='Save run log (.wpilog)…';logStatus.className='hint';logStatus.setAttribute('role','status');
   logButton.onclick=async()=>{const frames=runData.frames();if(!frames.length){logStatus.textContent='Run the route first; the run is recorded while it plays.';return;}if(!native){logStatus.textContent='Saving run logs needs the installed app.';return;}
@@ -2152,7 +2220,7 @@ public class MyAuto implements DeckAutonomous {
   async function videoCamera(){
     await three();await script('sim-3d.js');const key=JSON.stringify([info?.field,info?.bounds]);
     if(videoCam?.key!==key){videoCam?.cam.dispose();videoCam={key,cam:window.DeckSim3D.create(document.createElement('div'),{video:true,style:$('#sim-stage')})};}
-    await videoCam.cam.setField(info,L());videoCam.cam.setModel(model?.holder||null);videoCam.cam.size(1280,720);return videoCam.cam;
+    await videoCam.cam.setField(info,L());videoCam.cam.setModel(fieldBody());videoCam.cam.size(1280,720);return videoCam.cam;
   }
   // Where each shooter is and the goals it can aim at, so the video can draw its aim.
   function videoAim(){const m=MECH.sanitize(project.mechanisms);if(L().field!=='biobuzz'||!m.enabled||!m.shooters.length)return null;
@@ -2215,7 +2283,8 @@ public class MyAuto implements DeckAutonomous {
   // autonomous finishes rather than waiting out the period's clock.
   videoCheck=event=>{
     if(video.armed&&!video.live&&!video.ending&&runState==='running'){
-      const view=viewNow();videoShow={view,aim:videoAim(),start:null,from:frame?.time,frame:()=>frame,trail:()=>trail};
+      // The camera films the picture on screen: the glide's while the robot moves, so the video moves as smoothly.
+      const view=viewNow();videoShow={view,aim:videoAim(),start:null,from:frame?.time,frame:()=>glide.shown||frame,trail:()=>trail};
       try{videoRec.begin();Object.assign(video,{live:true,began:performance.now()});liveTimer=setInterval(videoButtons,250);
         videoSay(`Recording in ${view.toUpperCase()}. It stops when ${project.practice.mode==='autonomous'?'the autonomous finishes':project.practice.mode==='teleop'?'the teleop period ends':'the match ends'}, or press Stop recording.`);}
       catch(e){videoRec.close();videoShow=null;video.armed=false;videoSay(e.message);}videoButtons();}
@@ -2327,7 +2396,7 @@ public class MyAuto implements DeckAutonomous {
   function refreshAll(){setupPanel();layoutPanel();inputs();robotPanel();mechanismsPanel();programPanel();practicePanel(null);modelUi();zonePanel();pinPanel();tested();void exportPanel();pressed('view',project.view);draw();transport();}
   save();selectTab('setup');refreshAll();
   return {activate(value){
-    if(active&&!value){pointer=null;drag=null;status('#sim-run-status',runState==='running'?'Simulation closed. The running program was stopped.':'');if(tool==='start')preview={...start};frame=null;info=null;runState='idle';trail=[];draw();}
+    if(active&&!value){glideStop();pointer=null;drag=null;status('#sim-run-status',runState==='running'?'Simulation closed. The running program was stopped.':'');if(tool==='start')preview={...start};frame=null;info=null;runState='idle';trail=[];draw();}
     const was=active;active=value;document.body.classList.toggle('sim-workspace',active&&tab!=='setup');
     if(value&&!was){if(!L().start)tool='start';draw();void load().then(()=>{if(project.view==='3d')void setView('3d');void placeModel();});}
   }};

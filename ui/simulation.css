@@ -21,6 +21,8 @@
 .sim-path{fill:none;stroke:var(--accent);stroke-width:calc(.9 * var(--line-scale,1));stroke-linejoin:round;stroke-linecap:round}
 .sim-trail{fill:none;stroke:var(--text);stroke-width:calc(.45 * var(--line-scale,1));stroke-opacity:.7}.sim-trail.estimate{stroke:var(--warning);stroke-dasharray:1.2 .9}
 .sim-start{fill:none;stroke:var(--muted);stroke-width:.4;stroke-dasharray:1.2 .9}.sim-estimate{fill:none;stroke:var(--warning);stroke-width:.45;stroke-dasharray:1 .8}.sim-target{fill:var(--accent)}
+/* What moves during a run gets a layer of its own, so moving it does not re-raster the field's tiles under it. */
+#field-robot,#sim-elements,#sim-estimate,#sim-target,#sim-trail{will-change:transform}
 .sim-pin circle{fill:var(--accent);stroke:var(--bg);stroke-width:.5;cursor:move}.sim-pin.stop circle{fill:var(--warning)}.sim-pin text{fill:var(--bg);font:700 3px var(--font);pointer-events:none}.sim-pin.selected circle{stroke:var(--text);stroke-width:.9}
 #field-robot rect{fill:var(--text);fill-opacity:.85;stroke:var(--muted);stroke-width:.4}#field-robot path{fill:none;stroke:var(--bg);stroke-width:1;stroke-linecap:round;stroke-linejoin:round}
 #field-robot.has-model rect{fill:none;stroke:var(--text);stroke-width:.35;stroke-dasharray:1 .8}#field-robot.has-model path{stroke:var(--accent)}

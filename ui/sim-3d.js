@@ -10,14 +10,17 @@ window.DeckSim3D={create(host,options){
   const box=host.querySelector('.sim-3d-canvas'),note=host.querySelector('#sim-3d-note');
   let renderer;try{renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:!!video});}catch{if(video)throw Error('Run videos need WebGL, which this device did not provide.');note.textContent='3D needs WebGL, which this device did not provide.';return {setField(){},setModel(){},update(){},resize(){},dispose(){}};}
   renderer.setPixelRatio(video?1:Math.min(2,devicePixelRatio||1));box.append(renderer.domElement);if(video)renderer.setSize(W,H,false);
-  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;if(video)renderer.shadowMap.autoUpdate=false;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
+  // Shader errors are not read back: each check waits for the GPU process, and the shaders are three.js's own.
+  // PCF shadows: this three.js replaces PCFSoftShadowMap with PCFShadowMap at the first shadow pass, which threw away
+  // every shader compiled before it and compiled them all again while drawing.
+  renderer.debug.checkShaderErrors=false;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;if(video)renderer.shadowMap.autoUpdate=false;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,1,1,3000);camera.up.set(0,0,1);camera.position.set(72,-95,150);
   const top=new THREE.OrthographicCamera(-1,1,1,-1,1,3000);top.up.set(0,1,0);if(video){camera.fov=50;camera.aspect=W/H;camera.updateProjectionMatrix();}
   const controls=video?null:new L.OrbitControls(camera,renderer.domElement);if(controls){controls.target.set(72,72,0);controls.minPolarAngle=.001;controls.maxPolarAngle=Math.PI-.001;controls.enablePan=false;controls.update();}
   const navigator=video?null:window.DeckRobotModel.viewCube(host.querySelector('.sim-field-cube'),direction=>{const d=[...direction];if(!d[0]&&!d[1])d[0]=-.0001;const distance=Math.min(controls.maxDistance,Math.max(controls.minDistance,camera.position.distanceTo(controls.target)));camera.position.copy(new THREE.Vector3(...d).normalize().multiplyScalar(distance)).add(controls.target);controls.update();schedule();},{controls,orbit:(dx,dy)=>{window.DeckRobotModel.orbitCamera(camera,controls,dx,dy);schedule();}});
   scene.add(new THREE.HemisphereLight(0xffffff,0x8b96a5,2.8),new THREE.AmbientLight(0xffffff,.5));const sun=new THREE.DirectionalLight(0xffffff,1.8);sun.position.set(130,-40,220);scene.add(sun);
   sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-180;sun.shadow.camera.right=180;sun.shadow.camera.top=180;sun.shadow.camera.bottom=-180;sun.shadow.bias=-.0005;
-  const fieldGroup=new THREE.Group(),overlay=new THREE.Group(),trailGroup=new THREE.Group(),robotGroup=new THREE.Group(),ghost=new THREE.Group();scene.add(fieldGroup,overlay,trailGroup,robotGroup,ghost);
+  const fieldGroup=new THREE.Group(),overlay=new THREE.Group(),trailGroup=new THREE.Group(),robotGroup=new THREE.Group(),estimateLine=new THREE.LineLoop(new THREE.BufferGeometry(),new THREE.LineDashedMaterial({dashSize:1.5,gapSize:1}));estimateLine.visible=false;estimateLine.frustumCulled=false;scene.add(fieldGroup,overlay,trailGroup,robotGroup,estimateLine);
   let info=null,frame=null,state=null,body=null,raf=0,lastOverlay='',fieldKey='',fieldSequence=0,visual=null,markers=null,disposed=false;
   const markersHost=new THREE.Group(),ballsHost=new THREE.Group(),elementMarkers=new THREE.Group();scene.add(markersHost,ballsHost,elementMarkers);const ballMeshes=new Map(),ballWires=new Map();
   const css=name=>getComputedStyle(options.style||host).getPropertyValue(name).trim()||'#888',color=name=>new THREE.Color(css(name));
@@ -37,7 +40,7 @@ window.DeckSim3D={create(host,options){
       try{const next=await window.DeckFieldArt.build3d(temporary,info,THREE,L,{surface:color('--surface').lerp(color('--muted'),.18),line:color('--line-strong')},{own:!!video});if(disposed||sequence!==fieldSequence)return;fieldGroup.add(...temporary.children);visual=next;host.dataset.fieldReady=info.field;host.setAttribute('aria-busy','false');}
       catch(e){if(sequence===fieldSequence){fieldKey='';note.textContent='Field model could not load: '+e.message;host.setAttribute('aria-busy','false');}return;}}
     note.textContent=!info?'':info.physics==='3d'?'3D physics':'Flat (2D) physics, shown in 3D';
-    lastOverlay='';trailKey='';trailMaterials.themed=false;robotModel();schedule();
+    lastOverlay='';trailKey='';trailMaterials.themed=false;estimateLine.material.color.copy(color('--warning'));robotModel();warm();schedule();
   }
   function robotModel(){
     clear(robotGroup);
@@ -47,7 +50,28 @@ window.DeckSim3D={create(host,options){
     const nose=new THREE.Mesh(new THREE.ConeGeometry(2.4,5,3),new THREE.MeshStandardMaterial({color:color('--accent')}));nose.rotation.z=-Math.PI/2;nose.position.set(f.front-3,0,6.2);
     robotGroup.add(chassis,nose);
   }
-  function setModel(holder){body=holder||null;robotModel();schedule();}
+  // A new body joins the scene once its shaders have compiled in the background, so a view on screen never stalls on them.
+  function setModel(holder){
+    body=holder||null;const next=body;if(!next||video||!renderer.compileAsync){robotModel();warm();schedule();return;}
+    const trial=new THREE.Scene();trial.add(next.clone());renderer.compileAsync(trial,camera,scene).catch(()=>{}).then(()=>{if(body!==next||disposed)return;robotModel();warm();schedule();});
+  }
+  // Shaders compile in the background (KHR_parallel_shader_compile) as soon as the field or robot changes, and a
+  // hidden view uploads its meshes when the page is idle, so the first picture shown does not stall the page. Each
+  // shader's uniforms are read before that upload: the read waits for the GPU process, which is then idle.
+  let warming=0;
+  function warm(){if(video||!renderer.compileAsync)return;const n=++warming;prepare();Promise.all([renderer.compileAsync(scene,camera),shadowShaders()]).then(()=>{if(n!==warming||disposed)return;for(const p of renderer.info.programs||[])p.getUniforms?.();if(shown())return;(window.requestIdleCallback||setTimeout)(()=>{if(n===warming&&!disposed&&!shown()){prepare();renderer.render(scene,camera);}},{timeout:2000});}).catch(()=>{});}
+  // The shadow pass draws every caster with a depth material of its own, which compileAsync does not see. One
+  // stand-in per kind of caster (plain or instanced, coloured instances, which side) is compiled the same way, into
+  // a target as the shadow map is, so the pass finds its shaders ready. The stand-ins stay, which keeps them cached.
+  const standIns=new THREE.Scene(),standInKinds=new Set(),flip={[THREE.FrontSide]:THREE.BackSide,[THREE.BackSide]:THREE.FrontSide,[THREE.DoubleSide]:THREE.DoubleSide};
+  function shadowShaders(){
+    const fresh=[];scene.traverse(o=>{const m=[].concat(o.material||[])[0];if(!o.isMesh||!o.castShadow||!m)return;const side=m.shadowSide??flip[m.side]??THREE.BackSide,normals=!!o.geometry?.attributes?.normal,key=[!!o.isInstancedMesh,!!o.instanceColor,side,normals].join();
+      if(standInKinds.has(key))return;standInKinds.add(key);const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0)]);if(normals)g.computeVertexNormals();
+      const material=new THREE.MeshDepthMaterial({side}),stand=o.isInstancedMesh?new THREE.InstancedMesh(g,material,1):new THREE.Mesh(g,material);if(o.instanceColor)stand.setColorAt(0,new THREE.Color());fresh.push(stand);});
+    if(!fresh.length)return Promise.resolve();const group=new THREE.Scene();group.add(...fresh);
+    const target=new THREE.WebGLRenderTarget(1,1),before=renderer.getRenderTarget();renderer.setRenderTarget(target);const done=renderer.compileAsync(group,sun.shadow.camera,scene);renderer.setRenderTarget(before);
+    return done.finally(()=>{standIns.add(...group.children);target.dispose();});
+  }
   function overlays(){
     const s=state;if(!s)return;const l=s.layout,signature=JSON.stringify([l.zones,l.pins,l.route?.samples?.length,l.route?.length,s.start,info?.footprint]);if(signature===lastOverlay)return;lastOverlay=signature;clear(overlay);
     const red=new THREE.MeshStandardMaterial({color:color('--danger'),transparent:true,opacity:.45});
@@ -73,9 +97,15 @@ window.DeckSim3D={create(host,options){
   }
   function update(nextFrame,nextState){frame=nextFrame;state=nextState||state;schedule();}
   function schedule(){if(!raf&&!video)raf=requestAnimationFrame(render);}
+  // Draws now, from inside an animation frame (the run's glide), instead of on the next one.
+  function drawNow(){if(raf){cancelAnimationFrame(raf);raf=0;}if(!video)render();}
+  let boxSize=null;const lastCamera=new THREE.Matrix4();
+  const watch=!video&&typeof ResizeObserver==='function'?new ResizeObserver(()=>{boxSize=null;schedule();}):null;watch?.observe(box);
+  const shown=()=>{boxSize??={w:box.clientWidth,h:box.clientHeight};return boxSize.w>0&&boxSize.h>0;};
   function render(){
-    raf=0;if(video||!host.isConnected||host.hidden)return;resize();prepare();
-    controls.update();navigator.update(camera);renderer.render(scene,camera);
+    raf=0;if(video||!host.isConnected||host.hidden||!shown())return;resize();prepare();
+    // The view cube is redrawn only when the camera turns (the orbit controls move it by rounding noise every frame).
+    controls.update();camera.updateMatrixWorld();if(camera.matrixWorld.elements.some((v,i)=>Math.abs(v-lastCamera.elements[i])>1e-6)){lastCamera.copy(camera.matrixWorld);navigator.update(camera);}renderer.render(scene,camera);
   }
   // Puts the robot, pieces and overlays where the frame shown now has them.
   function prepare(){
@@ -85,9 +115,10 @@ window.DeckSim3D={create(host,options){
     markersHost.visible=!!state?.hitboxes;
     const world=frame?.fieldState;
     elementMarkers.visible=markersHost.visible;if(world&&markersHost.visible){const seen=new Set();for(const ball of world.balls){if(['held','stock','scored'].includes(ball.state?.kind))continue;seen.add(ball.id);let line=ballWires.get(ball.id);const radius=Number.isFinite(ball.r)?ball.r:info?.field==='biobuzz'?(ball.color==='yellow'?1.4:1.8):2.5;if(!line){line=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2*radius,2*radius,2*radius)),new THREE.LineBasicMaterial({color:0xff6373,depthTest:false}));line.renderOrder=12;ballWires.set(ball.id,line);elementMarkers.add(line);}line.position.set(ball.pos.x+72,ball.pos.y+72,(ball.z||0)+radius);}for(const [id,line]of ballWires)if(!seen.has(id)){elementMarkers.remove(line);dispose(line);ballWires.delete(id);}}
-    if(world&&visual?.handles){L.updateBiobuzzField(visual.handles,world);L.updateBiobuzzElements(visual.elements,world);for(const a of ['red','blue'])if(markers?.trays[a])markers.trays[a].rotation.x=L.hiveTiltAngle(world,a)-info.trays[a].reference;}
+    if(world&&visual?.handles){L.updateBiobuzzField(visual.handles,world);L.updateBiobuzzElements(visual.elements,world);for(const a of ['red','blue'])if(markers?.trays[a]&&info?.trays?.[a])markers.trays[a].rotation.x=L.hiveTiltAngle(world,a)-info.trays[a].reference;}
     if(world&&info?.field==='decode'){const seen=new Set();for(const ball of world.balls){if(['held','stock','scored'].includes(ball.state?.kind))continue;seen.add(ball.id);let mesh=ballMeshes.get(ball.id);if(!mesh){mesh=new THREE.Mesh(new THREE.SphereGeometry(2.5,16,12),new THREE.MeshStandardMaterial({color:ball.color==='purple'?0x9d68cb:0x64bc70,roughness:.7}));mesh.castShadow=true;mesh.receiveShadow=true;ballMeshes.set(ball.id,mesh);ballsHost.add(mesh);}mesh.position.set(ball.pos.x+72,ball.pos.y+72,Math.max(0,ball.z||0)+2.5);}for(const [id,mesh]of ballMeshes)if(!seen.has(id)){ballsHost.remove(mesh);dispose(mesh);ballMeshes.delete(id);}}
-    clear(ghost);const e=frame?.estimate;if(e&&info){const c=window.DeckPlanner.body(e,info.footprint);ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c.map(q=>v3(q,7))),new THREE.LineDashedMaterial({color:color('--warning'),dashSize:1.5,gapSize:1})).computeLineDistances());}
+    const e=frame?.estimate;estimateLine.visible=!!(e&&info);if(estimateLine.visible){const c=window.DeckPlanner.body(e,info.footprint),pos=estimateLine.geometry.attributes.position;
+      if(pos?.count===c.length){c.forEach((q,i)=>pos.setXYZ(i,q.x,q.y,7));pos.needsUpdate=true;}else estimateLine.geometry.setFromPoints(c.map(q=>v3(q,7)));estimateLine.computeLineDistances();}
     beams();previewGhost();
   }
   // ---------------------------------------------------------------- route preview ghost
@@ -198,8 +229,8 @@ window.DeckSim3D={create(host,options){
   }
   // A video camera's picture size.
   function size(w,h){if(!video||(w===W&&h===H))return;W=w;H=h;renderer.setSize(W,H,false);}
-  function resize(){const w=Math.max(1,box.clientWidth),h=Math.max(1,box.clientHeight),size=renderer.getSize(new THREE.Vector2());if(size.x!==w||size.y!==h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
+  function resize(){shown();const w=Math.max(1,boxSize.w),h=Math.max(1,boxSize.h),size=renderer.getSize(new THREE.Vector2());if(size.x!==w||size.y!==h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
   controls?.addEventListener('change',schedule);
   const themeObserver=new MutationObserver(()=>{if(info)setField(info);});themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});const scheme=matchMedia('(prefers-color-scheme: dark)'),themeChanged=()=>{if(info)setField(info);};scheme.addEventListener('change',themeChanged);
-  return {setField,setModel,update,shoot,picture,size,canvas:()=>renderer.domElement,resize:()=>{resize();schedule();},dispose(){disposed=true;fieldSequence++;cancelAnimationFrame(raf);themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);navigator?.dispose();controls?.dispose();clear(scene);renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
+  return {setField,setModel,update,draw:drawNow,shoot,picture,size,canvas:()=>renderer.domElement,resize:()=>{boxSize=null;schedule();},dispose(){disposed=true;fieldSequence++;cancelAnimationFrame(raf);watch?.disconnect();themeObserver.disconnect();scheme.removeEventListener('change',themeChanged);navigator?.dispose();controls?.dispose();clear(scene);renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
 }};

@@ -18,6 +18,9 @@ const MotionModule=require('../ui/sim-motionmodule.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
 // How long the game physics takes to swing its ramp down or up (DSIM's BB_RAMP_DEPLOY_S).
 const RAMP_SWING=.3;
+// Frames go to the page at least this far apart (ms). Windows wakes the 4 ms pump only every ~15.6 ms, so a
+// 32 ms spacing became every third wake (47 ms, 21 frames a second); 28 ms is every second wake (31 ms).
+const FRAME_MS=28;
 const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
 // What each game's planning obstacles are, for the UI.
 const OBSTACLES={empty:'',decode:'goals and ramps',biobuzz:'hive legs and flower bases'};
@@ -234,7 +237,7 @@ class SimEngine{
     this.busy=true;
     try{for(let i=0;i<due&&this.playing;i++)await this.practiceTick();}
     catch(e){this.fail(e.message);}finally{this.busy=false;}
-    if(now-this.lastFrame>=32)this.emitFrame();
+    if(now-this.lastFrame>=FRAME_MS)this.emitFrame();
   }
   // Mechanism commands for this tick become the game physics' intake and fire inputs.
   mechanismTick(){
@@ -463,7 +466,7 @@ class SimEngine{
       modules:config.drives[this.config.robot.drivetrain]?.engine==='swerve'&&Array.isArray(this.world.robots[0].moduleAngles)?this.world.robots[0].moduleAngles.slice(0,4):null,
       fieldState:{game:this.config.field,time:this.world.time,tick:this.world.tick,balls:this.world.balls.map(b=>({...b,pos:{...b.pos},state:{...b.state}})),robots:[],biobuzz:this.world.biobuzz?structuredClone(this.world.biobuzz):undefined}};
   }
-  emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<32)return;this.lastFrame=now;this.emit(this.frame());}
+  emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<FRAME_MS)return;this.lastFrame=now;this.emit(this.frame());}
   dispose(){this.stopProgram('Closed.');this.playing=false;if(this.timer)clearInterval(this.timer);this.timer=null;if(this.world?.game==='biobuzz')this.dsim.disposePhysics3dFor(this.world);this.world=null;}
 }
 module.exports={SimEngine,FIELDS,LOCALIZATION,OFFSET,sensorConfig,robotConfig};

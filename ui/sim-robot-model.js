@@ -79,6 +79,55 @@
     return new Promise((resolve,reject)=>new L.GLTFExporter().parse(mesh,buffer=>resolve(new Uint8Array(buffer)),e=>reject(Error('Could not store the model: '+(e?.message||e))),{binary:true}));
   }
   async function fromGlb(bytes){const scene=await parseMesh('glb',bytes);let geometry=null;scene.traverse(o=>{if(o.isMesh&&!geometry)geometry=o.geometry;});if(!geometry)throw Error('Stored model is empty.');return geometry;}
+  // ---- a lighter body for the field views ----------------------------------------------------
+  // A CAD body can be millions of triangles, most of them screws, fillets and threads too small to see on the field.
+  // The field views (3D, run videos) draw a lighter copy: vertices in the same small cube of space, part and facing
+  // merge into one (vertex clustering) and triangles that collapse go; part ids and the assembly tree stay, so parts
+  // can still be found. It works in slices so the page keeps drawing, and gives back the same geometry when it is
+  // already light.
+  async function lighten(geometry,{target=400000}={}){
+    const {THREE:T}=three(),pos=geometry?.attributes?.position;if(!pos||geometry.isObject3D)return geometry;
+    const index=geometry.index,tris=Math.floor((index?index.count:pos.count)/3);if(tris<=target)return geometry;
+    const n=pos.count,plain=(a,size)=>a&&!a.isInterleavedBufferAttribute&&!a.normalized&&a.itemSize===size&&a.array instanceof Float32Array;
+    const read=(a,size)=>!a?null:plain(a,size)?a.array:Float32Array.from({length:a.count*size},(_,i)=>a.getComponent(Math.floor(i/size),i%size));
+    const P=read(pos,3),N=read(geometry.attributes.normal,3),C=read(geometry.attributes.color,3),ids=read(geometry.attributes._part,1),I=index?index.array:null;
+    // Slices of about 12 ms, so the page keeps drawing.
+    let since=performance.now();const slice=async()=>{if(performance.now()-since<12)return;await (globalThis.scheduler?.yield?.()??new Promise(r=>setTimeout(r)));since=performance.now();};
+    let parts=1;if(ids)for(let i=0;i<n;i++)if(ids[i]>=parts)parts=ids[i]+1;
+    geometry.boundingBox||geometry.computeBoundingBox();const lo=geometry.boundingBox.min,span=geometry.boundingBox.getSize(new T.Vector3());
+    // A first cell size from a sample of the surface area (about two triangles per merged vertex), corrected once or twice.
+    let area=0;const step=Math.max(1,Math.floor(tris/50000));
+    for(let t=0;t<tris;t+=step){const a=3*(I?I[3*t]:3*t),b=3*(I?I[3*t+1]:3*t+1),c=3*(I?I[3*t+2]:3*t+2),ux=P[b]-P[a],uy=P[b+1]-P[a+1],uz=P[b+2]-P[a+2],wx=P[c]-P[a],wy=P[c+1]-P[a+1],wz=P[c+2]-P[a+2];
+      area+=Math.hypot(uy*wz-uz*wy,uz*wx-ux*wz,ux*wy-uy*wx)/2*step;}
+    let cell=Math.max(1e-6,Math.sqrt(area/(target/2))),clusters=0,m=0;
+    const cap=2**Math.ceil(Math.log2(n*1.5+16)),keys=new Float64Array(cap),slot=new Int32Array(cap),of=new Int32Array(n),out=new Uint32Array(tris*3);await slice();
+    const sum=new Float32Array(n*3),nsum=N&&new Float32Array(n*3),csum=C&&new Float32Array(n*3),count=new Uint32Array(n),owner=ids&&new Float32Array(n);await slice();
+    for(let pass=0;;pass++){
+      keys.fill(-1);await slice();for(const a of [sum,nsum,csum,count])if(a){a.fill(0);await slice();}
+      const inv=1/cell,ny=Math.ceil(span.y*inv)+2,nz=Math.ceil(span.z*inv)+2;clusters=0;m=0;
+      for(let i=0;i<n;i++){
+        const j=3*i,x=P[j],y=P[j+1],z=P[j+2],ix=Math.floor((x-lo.x)*inv),iy=Math.floor((y-lo.y)*inv),iz=Math.floor((z-lo.z)*inv),q=ids?ids[i]:0;
+        // The facing, in 54 directions (the axis the normal mostly points along, its sign, and where the other two
+        // components lie in thirds), so faces that meet at a sharp edge or tooth stay apart.
+        let face=0;if(N){const a=N[j],b=N[j+1],c=N[j+2],ax=Math.abs(a),ay=Math.abs(b),az=Math.abs(c);let d=2,s=c,u=a,w=b;if(ax>=ay&&ax>=az){d=0;s=a;u=b;w=c;}else if(ay>=az){d=1;s=b;u=a;w=c;}
+          face=((d*2+(s<0?1:0))*3+(u<-.38?0:u>.38?2:1))*3+(w<-.38?0:w>.38?2:1);}
+        const extra=q*54+face,key=((ix*ny+iy)*nz+iz)*parts*54+extra;
+        let h=(Math.imul(ix,73856093)^Math.imul(iy,19349663)^Math.imul(iz,83492791)^Math.imul(extra,-1640531535))&(cap-1);
+        while(keys[h]!==-1&&keys[h]!==key)h=(h+1)&(cap-1);
+        if(keys[h]===-1){keys[h]=key;slot[h]=clusters++;}
+        const c=slot[h],k=3*c;of[i]=c;count[c]++;sum[k]+=x;sum[k+1]+=y;sum[k+2]+=z;if(owner)owner[c]=q;
+        if(nsum){nsum[k]+=N[j];nsum[k+1]+=N[j+1];nsum[k+2]+=N[j+2];}if(csum){csum[k]+=C[j];csum[k+1]+=C[j+1];csum[k+2]+=C[j+2];}
+        if((i&8191)===0)await slice();}
+      for(let t=0;t<tris;t++){const a=of[I?I[3*t]:3*t],b=of[I?I[3*t+1]:3*t+1],c=of[I?I[3*t+2]:3*t+2];if(a!==b&&b!==c&&a!==c){out[m++]=a;out[m++]=b;out[m++]=c;}if((t&16383)===0)await slice();}
+      if(m/3<=target*1.4||pass===2)break;cell*=Math.sqrt(m/3/target);
+    }
+    const g=new T.BufferGeometry(),position=new Float32Array(clusters*3);for(let c=0;c<clusters;c++)for(let k=0;k<3;k++)position[3*c+k]=sum[3*c+k]/count[c];g.setAttribute('position',new T.BufferAttribute(position,3));await slice();
+    if(nsum){const nn=new Float32Array(clusters*3);for(let c=0;c<clusters;c++){const l=Math.hypot(nsum[3*c],nsum[3*c+1],nsum[3*c+2])||1;for(let k=0;k<3;k++)nn[3*c+k]=nsum[3*c+k]/l;}g.setAttribute('normal',new T.BufferAttribute(nn,3));await slice();}
+    if(csum){const cc=new Float32Array(clusters*3);for(let c=0;c<clusters;c++)for(let k=0;k<3;k++)cc[3*c+k]=csum[3*c+k]/count[c];g.setAttribute('color',new T.BufferAttribute(cc,3));await slice();}
+    if(owner)g.setAttribute('_part',new T.BufferAttribute(owner.slice(0,clusters),1));
+    g.setIndex(new T.BufferAttribute(clusters<65536?Uint16Array.from(out.subarray(0,m)):out.slice(0,m),1));if(!nsum)g.computeVertexNormals();
+    g.userData={...geometry.userData};g.computeBoundingBox();g.computeBoundingSphere();return g;
+  }
   // ---- parts: what the team clicks ---------------------------------------------------------
   // The assembly tree of a stored body: each node's key (names from the top, joined by "/"), children and parts.
   function partTree(geometry){
@@ -200,10 +249,12 @@
       if(j.kind==='turret')o.rotation.set(0,0,(m.turrets?.[j.index]??m.turret??0)*Math.PI/180);
       else if(j.kind==='ramp')o.quaternion.setFromAxisAngle(new T.Vector3(...j.axis),(m.ramps?.[j.index]??0)*j.angle);});
   }
-  // Top-down picture of the placed body for the 2D field, with its extent in robot inches.
-  function silhouette(holder){
+  // Top-down picture of the placed body for the 2D field, with its extent in robot inches. A `previous` picture of
+  // the same model and orientation is reused: a new chassis size only stretches it, so it is not drawn again.
+  function silhouette(holder,previous){
     // A top-down render of the model (the 2D field shows it in place of the plain robot shape).
-    const {THREE:T}=three(),box=new T.Box3().setFromObject(holder),ppi=16,w=Math.max(8,Math.min(2048,Math.round((box.max.x-box.min.x)*ppi))),h=Math.max(8,Math.min(2048,Math.round((box.max.y-box.min.y)*ppi)));
+    const {THREE:T}=three(),box=new T.Box3().setFromObject(holder);if(previous?.url)return {url:previous.url,x0:box.min.x,x1:box.max.x,y0:box.min.y,y1:box.max.y};
+    const ppi=16,w=Math.max(8,Math.min(2048,Math.round((box.max.x-box.min.x)*ppi))),h=Math.max(8,Math.min(2048,Math.round((box.max.y-box.min.y)*ppi)));
     const renderer=new T.WebGLRenderer({alpha:true,antialias:true,preserveDrawingBuffer:true});renderer.setSize(w,h,false);renderer.setClearColor(0,0);
     const scene=new T.Scene(),camera=new T.OrthographicCamera(box.min.x,box.max.x,box.max.y,box.min.y,.1,1000);camera.up.set(0,1,0);camera.position.set(0,0,box.max.z+50);camera.lookAt(0,0,0);
     scene.add(new T.HemisphereLight(0xffffff,0x555555,2.4),holder.clone());const sun=new T.DirectionalLight(0xffffff,1.2);sun.position.set(30,-30,100);scene.add(sun);
@@ -333,5 +384,5 @@
     }
     return {update(...a){glowKey=null;glow=null;return update(...a);},look,pick,highlight,markers,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
   }
-  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig};
+  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig};
 });
