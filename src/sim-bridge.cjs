@@ -53,8 +53,21 @@ class SimulationHost{
     const ext=path.extname(file).toLowerCase(),size=fs.statSync(file).size;
     if(size>MODEL_LIMIT)throw Error(`${path.basename(file)} is larger than 200 MB.`);
     if(STEP_TYPES.includes(ext))return {kind:'step',...await this.convertStep(file)};
-    if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), .glb, .gltf, .stl or .obj file.');
+    if(ext==='.urdf')return this.readUrdf(file);
+    if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), URDF (.urdf), .glb, .gltf, .stl or .obj file.');
     return {kind:'mesh',name:path.basename(file),format:MESH_TYPES[ext],bytes:new Uint8Array(fs.readFileSync(file))};
+  }
+  // A URDF and the mesh files it names (package://name/... is looked for in the folders above it, as ROS finds packages).
+  // Only mesh files are read; a Collada (.dae) mesh is reported, and its link's collision shapes are drawn instead.
+  readUrdf(file){
+    const U=require('../ui/sim-urdf.js'),xml=fs.readFileSync(file,'utf8'),u=U.parse(xml),dir=path.dirname(file),files=[],missing=[];let total=Buffer.byteLength(xml);
+    const find=ref=>{const pkg=/^(?:package|model):\/\/([^/]+)\/(.*)$/.exec(ref);
+      if(pkg){for(let d=dir;;d=path.dirname(d)){for(const c of [path.join(d,pkg[1],pkg[2]),path.basename(d)===pkg[1]?path.join(d,pkg[2]):null])if(c&&fs.existsSync(c))return c;if(d===path.dirname(d))return null;}}
+      if(/^file:\/\//.test(ref))return require('node:url').fileURLToPath(ref);return path.resolve(dir,ref);};
+    for(const ref of U.meshFiles(u)){const at=find(ref),kind=at&&MESH_TYPES[path.extname(at).toLowerCase()];
+      if(!at||!fs.existsSync(at)){missing.push(`${ref} (not found)`);continue;}if(!kind){missing.push(`${ref} (${path.extname(at).slice(1)} meshes are not read)`);continue;}
+      const size=fs.statSync(at).size;if(total+size>MODEL_LIMIT){missing.push(`${ref} (over 200 MB in all)`);continue;}total+=size;files.push({ref,format:kind,bytes:new Uint8Array(fs.readFileSync(at))});}
+    return {kind:'urdf',name:path.basename(file),xml,files,missing};
   }
   exportsFile(){return path.join(this.dataDir,'simulation','exports.json');}
   exportTargets(){try{const v=JSON.parse(fs.readFileSync(this.exportsFile(),'utf8'));return v&&typeof v==='object'?v:{};}catch{return {};}}
@@ -84,7 +97,7 @@ class SimulationHost{
     if(action==='robot-log-open'){const file=await open('Compare with a robot log',[{name:'Robot log',extensions:['wpilog','csv','txt']}],64*1024*1024);return file&&{name:path.basename(file),bytes:new Uint8Array(fs.readFileSync(file))};}
     if(action==='java-open'){const file=await open('Choose a Java autonomous program',[{name:'Java source',extensions:['java']}],SOURCE_LIMIT);return file&&{name:path.basename(file),source:fs.readFileSync(file,'utf8')};}
     // Only picks the file: the window confirms it is the robot's starting position before model-drop reads it.
-    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
+    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','urdf','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
     // A file dropped on the window: the path comes from Electron's own File-to-path lookup.
     if(action==='model-drop'){const file=typeof data==='string'?data:data?.file;if(typeof file!=='string'||!path.isAbsolute(file)||!fs.existsSync(file))throw Error('That file could not be opened.');return this.readModel(file);}
     if(action==='model-save'){

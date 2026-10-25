@@ -36,7 +36,7 @@
     if(!raw||typeof raw.id!=='string'||!/^[0-9a-f]{32}\.glb$/.test(raw.id))return null;
     const parts=Array.isArray(raw.parts)?raw.parts.slice(0,64).filter(p=>p&&Array.isArray(p.box)&&p.box.length===6&&p.box.every(Number.isFinite)).map(p=>({name:String(p.name||'').slice(0,80),role:['chassis','intake','shooter','indexer'].includes(p.role)?p.role:'other',
       ...(['pollen','nectar','both'].includes(p.pieces)?{pieces:p.pieces}:{}),...(['turret','fixed'].includes(p.type)?{type:p.type}:{}),...(['sweeper','siderollers','ramp'].includes(p.kind)?{kind:p.kind}:{}),...(typeof p.key==='string'?{key:p.key.slice(0,400)}:{}),...(p.chosen===true?{chosen:true}:{}),box:p.box.slice()})):[];
-    return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:raw.source==='step'?'step':'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
+    return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:raw.source==='step'||raw.source==='urdf'?raw.source:'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
   }
   let THREE=null;
   function three(){if(!THREE){THREE=globalThis.DeckThree;if(!THREE)throw Error('3D library not loaded.');}return THREE;}
@@ -70,6 +70,12 @@
   }
   async function bodyFromImport(result){
     if(result.kind==='step')return {geometry:geometryFromArrays(result),parts:result.parts,units:'in',source:'step',groups:Array.isArray(result.groups)?result.groups:[]};
+    // A URDF: its links drawn at zero, each a part under its parent link, and its joints (DeckUrdf).
+    if(result.kind==='urdf'){const L=three(),U=globalThis.DeckUrdf,u=U.parse(result.xml),meshes={};
+      for(const f of result.files||[]){try{const buffer=f.bytes.buffer.slice(f.bytes.byteOffset,f.bytes.byteOffset+f.bytes.byteLength);
+        meshes[f.ref]=f.format==='stl'?new L.STLLoader().parse(buffer):f.format==='obj'?new L.OBJLoader().parse(new TextDecoder().decode(buffer)):await parseMesh(f.format,f.bytes);}catch{}}
+      const {group,missing}=U.buildScene(u,L.THREE,{meshes});let parts=0;group.traverse(o=>{if(o.isMesh)parts++;});
+      return {geometry:mergeObject(group),parts,units:'m',source:'urdf',kinematics:U.toKinematics(u),missing:[...(result.missing||[]),...missing.filter(m=>!(result.missing||[]).some(r=>r.startsWith(m.split(': ')[1])))],groups:[]};}
     const object=await parseMesh(result.format,result.bytes);let parts=0;object.traverse(o=>{if(o.isMesh)parts++;});
     return {geometry:mergeObject(object),parts,units:result.format==='stl'?'mm':result.format==='obj'?'mm':'m',source:'mesh'};
   }

@@ -152,7 +152,7 @@
       const pose=K().pose(kmod,values),stand=new Set(body.userData.kin.standIns),M=math(),Pm=P();
       const list=kmod.joints.filter(j=>open?j.id===open:true).map(j=>{const W=j.parent?pose.W.get(j.parent):M.I4(),o=M.apply(W,j.origin),a=M.applyDir(W,j.axis),ro=stand.has(j.id)||!Pm?o:M.apply(Pm,o),ra=stand.has(j.id)||!Pm?M.unit(a):M.unit(M.applyDir(Pm,a));
         let arrow=null;if(j.drive?.signal==='turret'){const q=(K().valuesOf(j,pose.q[j.id])[0]||0)+(j.zero||0),t=q*Math.PI/180;arrow=[Math.cos(t),Math.sin(t),0];}
-        return {origin:ro,axis:ra,radius:(j.radius||1)*(stand.has(j.id)?1:unit()),color:colorOf(j),dim:!open,arrow,lift:arrow?2:0};});
+        return {origin:ro,axis:ra,radius:j.radius?j.radius*(stand.has(j.id)?1:unit()):1,color:colorOf(j),dim:!open,arrow,lift:arrow?2:0};});
       p.gizmos(list);
     }
     function showPose(){const p=preview();if(!p)return;p.posed(values);gizmos();}

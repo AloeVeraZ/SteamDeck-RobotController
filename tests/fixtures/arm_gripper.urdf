@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- A small arm for the URDF tests: a turning base, a shoulder, a two-finger gripper whose right finger mimics the left,
+     and a camera fixed to the forearm turned 90° about its z. Lengths in metres, angles in radians. -->
+<robot name="arm_gripper">
+  <material name="blue"><color rgba="0.1 0.3 0.8 1"/></material>
+  <link name="base_link">
+    <visual><geometry><box size="0.2 0.2 0.1"/></geometry><origin xyz="0 0 0.05"/><material name="blue"/></visual>
+  </link>
+  <joint name="turn" type="revolute">
+    <parent link="base_link"/><child link="link1"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/><axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" velocity="1.5" effort="10"/>
+  </joint>
+  <link name="link1">
+    <visual><origin xyz="0 0 0.1"/><geometry><cylinder radius="0.03" length="0.2"/></geometry></visual>
+  </link>
+  <joint name="shoulder" type="revolute">
+    <parent link="link1"/><child link="link2"/>
+    <origin xyz="0 0 0.2"/><axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" velocity="1" effort="10"/>
+  </joint>
+  <link name="link2">
+    <visual><origin xyz="0.15 0 0"/><geometry><box size="0.3 0.04 0.04"/></geometry></visual>
+  </link>
+  <joint name="finger_left" type="prismatic">
+    <parent link="link2"/><child link="finger_l"/>
+    <origin xyz="0.3 0.02 0"/><axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.02" velocity="0.05" effort="5"/>
+  </joint>
+  <link name="finger_l"><visual><geometry><box size="0.04 0.01 0.04"/></geometry></visual></link>
+  <joint name="finger_right" type="prismatic">
+    <parent link="link2"/><child link="finger_r"/>
+    <origin xyz="0.3 -0.02 0"/><axis xyz="0 1 0"/>
+    <limit lower="-0.02" upper="0" velocity="0.05" effort="5"/>
+    <mimic joint="finger_left" multiplier="-1" offset="0"/>
+  </joint>
+  <link name="finger_r"><visual><geometry><box size="0.04 0.01 0.04"/></geometry></visual></link>
+  <joint name="camera_mount" type="fixed">
+    <parent link="link2"/><child link="camera"/>
+    <origin xyz="0.1 0 0.05" rpy="0 0 1.5707963"/>
+  </joint>
+  <link name="camera"><visual><origin xyz="0.02 0 0"/><geometry><mesh filename="package://arm_gripper/meshes/camera.dae"/></geometry></visual>
+    <collision><geometry><sphere radius="0.015"/></geometry></collision></link>
+</robot>
