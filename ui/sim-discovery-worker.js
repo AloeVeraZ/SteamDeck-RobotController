@@ -1,8 +1,13 @@
-// Looks through a CAD body for its moving parts (DeckDiscovery) off the page's thread, so a big robot does not
-// stall the page. Gets the body's arrays and the robot's settings; sends back the proposed joints and what it found.
-importScripts('sim-kinematics.js','sim-discovery.js');
+// Looks through a CAD body off the page's thread, so a big robot does not stall the page: finding its moving parts
+// (DeckDiscovery), and sweeping a moving part through its range for contacts (DeckCollide). The body's arrays come
+// with each request; the last body's prepared form is kept for the next one.
+importScripts('sim-kinematics.js','sim-discovery.js','sim-collide.js');
+let last=null;
 onmessage=e=>{
-  const {id,arrays,options}=e.data;
-  try{const t=performance.now(),ctx=DeckDiscovery.prepare(arrays),out=DeckDiscovery.discover(ctx,options);postMessage({id,ok:true,joints:out.joints,report:out.report,ms:performance.now()-t});}
+  const {id,op='discover',key,arrays,options}=e.data;
+  try{const t=performance.now();if(!last||last.key!==key||arrays)last={key,ctx:DeckDiscovery.prepare(arrays)};const ctx=last.ctx;
+    if(op==='sweep'){const model=DeckKinematics.sanitize(options.model),s=DeckCollide.sweep(ctx,model,options.joint,options);
+      postMessage({id,ok:true,free:s.free,hits:s.hits.map(h=>({at:h.at,parts:h.parts,names:[...new Set(h.parts.flatMap(([a,b])=>[ctx.parts.name(a),ctx.parts.name(b)]))].slice(0,4)})),ms:performance.now()-t});return;}
+    const out=DeckDiscovery.discover(ctx,options);postMessage({id,ok:true,joints:out.joints,report:out.report,ms:performance.now()-t});}
   catch(err){postMessage({id,ok:false,error:err.message});}
 };

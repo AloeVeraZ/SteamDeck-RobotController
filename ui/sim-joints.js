@@ -36,12 +36,31 @@
     // ---- changes
     function change(id,fn,{note}={}){const next=structuredClone(kin()),j=next.joints.find(x=>x.id===id);if(!j)return;fn(j,next);if(j.source==='inferred')j.source='user';api.commit(next,note);}
     // Finds the joints of this CAD. Joints the team set stay; found ones replace the old finds.
-    // The finder runs in a worker (sim-discovery-worker.js) so a big CAD does not stall the page; without workers it runs here.
-    let worker=null,jobs=0;const waiting=new Map();
-    function find(options){
-      const a=arrays();if(worker===null){try{worker=new Worker('sim-discovery-worker.js');worker.onmessage=e=>{const w=waiting.get(e.data.id);waiting.delete(e.data.id);w?.(e.data);};worker.onerror=()=>{worker=false;for(const w of waiting.values())w({ok:false,error:'the finder stopped'});waiting.clear();};}catch{worker=false;}}
-      if(!worker)return new Promise(resolve=>setTimeout(()=>{try{const t=performance.now(),out=D().discover(ctx(),options);resolve({ok:true,...out,ms:performance.now()-t});}catch(e){resolve({ok:false,error:e.message});}},30));
-      const id=++jobs;return new Promise(resolve=>{waiting.set(id,resolve);worker.postMessage({id,arrays:a,options});});
+    // The finder and the clearance sweep run in a worker (sim-discovery-worker.js) so a big CAD does not stall the page;
+    // the body's arrays go to it once per CAD. Without workers they run here.
+    let worker=null,jobs=0,sent=null;const waiting=new Map();
+    function ask(op,options){
+      const a=arrays(),key=meta()?.id||'';if(worker===null){try{worker=new Worker('sim-discovery-worker.js');worker.onmessage=e=>{const w=waiting.get(e.data.id);waiting.delete(e.data.id);w?.(e.data);};worker.onerror=()=>{worker=false;sent=null;for(const w of waiting.values())w({ok:false,error:'the worker stopped'});waiting.clear();};}catch{worker=false;}}
+      if(!worker)return new Promise(resolve=>setTimeout(()=>{try{const t=performance.now(),c=ctx();if(op==='sweep'){const r=root.DeckCollide.sweep(c,K().sanitize(options.model),options.joint,options);resolve({ok:true,free:r.free,hits:r.hits.map(h=>({...h,names:[...new Set(h.parts.flatMap(([x,y])=>[c.parts.name(x),c.parts.name(y)]))].slice(0,4)})),ms:performance.now()-t});}
+        else resolve({ok:true,...D().discover(c,options),ms:performance.now()-t});}catch(e){resolve({ok:false,error:e.message});}},30));
+      const id=++jobs,fresh=sent!==key;sent=key;return new Promise(resolve=>{waiting.set(id,resolve);worker.postMessage({id,op,key,arrays:fresh?a:undefined,options});});
+    }
+    const find=options=>ask('discover',options);
+    // Sweeps a part through its range (the other parts as the preview has them) for contacts with anything else.
+    const clearance={};
+    async function check(j){
+      const lin=j.type==='prismatic',range=lin?[j.lower??0,j.upper??12]:j.type==='revolute'?[j.lower??-180,j.upper??180]:[-180,180],from=K().valuesOf(j,values[j.id]??j.home??0)[0];
+      status(`Turning ${j.name} through its range to see what it meets…`);clearance[j.id]={busy:true};lastKey='';render();
+      const r=await ask('sweep',{model:kin(),joint:j.id,from:Math.max(range[0],Math.min(range[1],from)),lower:range[0],upper:range[1],step:lin?.25:3,values});
+      clearance[j.id]=r.ok?{free:r.free,hits:r.hits,unit:lin?'in':'°'}:{error:r.error};lastKey='';status(r.ok?`Checked in ${Math.round(r.ms)} ms.`:`Could not check: ${r.error}`);render();
+    }
+    function clearanceBits(j){
+      const c=clearance[j.id];if(K().dofOf(j).length!==1||j.type==='fixed')return '';
+      const button=`<button type="button" class="secondary" data-j="clear"${c?.busy?' disabled':''}>${c?.busy?'Checking…':'Check clearance'}</button>`;
+      if(!c||c.busy||c.error)return `<div class="sim-joint-buttons">${button}</div>${c?.error?`<p class="hint">${esc(c.error)}</p>`:''}`;
+      const u=c.unit,hits=c.hits.map((h,i)=>`<li>At ${fix(h.at,1)}${u}: ${h.names.map(n=>`“${esc(n)}”`).join(' and ')} <button type="button" class="text-button" data-j="hit" data-v="${i}">Show it</button></li>`).join('');
+      return `<div class="sim-joint-buttons">${button}${c.hits.length&&(j.type==='revolute'||j.type==='prismatic')?'<button type="button" class="secondary" data-j="limits">Use as limits</button>':''}</div>
+        <p class="hint">${c.hits.length?`Moves freely from ${fix(c.free[0],1)}${u} to ${fix(c.free[1],1)}${u}.`:`Moves its whole range (${fix(c.free[0],1)}${u} to ${fix(c.free[1],1)}${u}) without meeting anything.`} Checked with boxes around each part, so a contact is worth a look on the model, not certain; parts already touching in the CAD do not count.</p>${hits?`<ul class="sim-joint-alts">${hits}</ul>`:''}`;
     }
     async function discover({quiet=false}={}){
       const m=meta();if(!arrays()||!m?.id){if(!quiet)status('Moving parts are found in an imported STEP robot with named assemblies.');return false;}
@@ -96,6 +115,7 @@
         ${alt?`<ul class="sim-joint-alts">${alt}</ul>`:''}
         ${roleBits}
         ${dof===1?`<label class="sim-joint-try">Try it<input type="range" data-try min="${range[0]}" max="${range[1]}" step="0.5" value="${fix(K().valuesOf(j,values[j.id]??j.home??0)[0],1)}"></label>`:''}
+        ${clearanceBits(j)}
         <span class="sim-mech-label">Parts</span><p class="hint">Moves ${parts} part${parts===1?'':'s'}${j.parent?` and rides on ${esc(joints().find(x=>x.id===j.parent)?.name||j.parent)}`:''}.</p>
         <div class="sim-joint-buttons"><button type="button" class="secondary" data-j="parts" aria-pressed="${mode?.kind==='parts'&&mode.joint===j.id}">${mode?.kind==='parts'&&mode.joint===j.id?'Click parts to add or remove · Done':'Choose parts'}</button>
           <label class="sim-joint-parent">Rides on<select data-f="parent"><option value="">The robot</option>${others.map(x=>`<option value="${esc(x.id)}"${x.id===j.parent?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>
@@ -226,6 +246,9 @@
       if(what==='alt'){const a=j.alternatives?.[+b.dataset.v];if(a)change(id,x=>{x.origin=a.origin;x.axis=a.axis;x.note=a.note;x.alternatives=(j.alternatives||[]).filter((_,i)=>i!==+b.dataset.v).concat([{origin:j.origin,axis:j.axis,note:'The pivot it had before'}]);});return;}
       if(what==='state'){change(id,x=>{const s=x.states||{};let name='position '+(Object.keys(s).length+1);s[name]=0;x.states=s;});return;}
       if(what==='unstate'){change(id,x=>{delete x.states[b.dataset.v];});return;}
+      if(what==='clear'){void check(j);return;}
+      if(what==='hit'){const h=clearance[id]?.hits?.[+b.dataset.v];if(!h)return;values={...values,[id]:h.at};showPose();const p=preview();p?.highlight(new Set(h.parts.flat()),0xe5484d);const r=li.querySelector('[data-try]');if(r)r.value=h.at;return;}
+      if(what==='limits'){const c=clearance[id];if(!c)return;change(id,x=>{x.lower=c.free[0];x.upper=c.free[1];});return;}
       if(what==='loop'){const other=li.querySelector('[data-loop-other]')?.value||'';mode=mode?.kind==='loop'&&mode.joint===id?null:{kind:'loop',joint:id,other};status(mode?'Click the pin the two parts share on the model.':'');api.refreshPicker();render();return;}
       if(what==='unloop'){const next=structuredClone(kin());next.loops.splice(+b.dataset.v,1);api.commit(next);return;}
       if(what==='remove'){const next=structuredClone(kin());next.joints=next.joints.filter(x=>x.id!==id);for(const x of next.joints)if(x.parent===id)x.parent=null;open=null;mode=null;api.commit(next);return;}
