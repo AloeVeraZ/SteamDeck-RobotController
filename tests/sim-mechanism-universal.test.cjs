@@ -177,3 +177,35 @@ test('everything new survives saving: sanitize is stable through JSON, and bad p
   assert.deepEqual(s.actions[0].steps.map(x=>Object.keys(x)[0]),['action','wait','wait','actuator'],'a wait on a missing sensor goes');
   const old=K.sanitize({joints:[{id:'a'}]});assert.equal(old.sensors,undefined,'models without sensors keep their shape');
 });
+
+test('inverse kinematics with orientation: a six-axis arm reaches a pose, its tool pointing where Denavit–Hartenberg says',()=>{
+  const dh=(theta,d,a,alpha)=>{const ct=Math.cos(theta),st=Math.sin(theta),ca=Math.cos(alpha),sa=Math.sin(alpha);return [ct,st,0,0,-st*ca,ct*ca,sa,0,st*sa,-ct*sa,ca,0,a*ct,a*st,d,1];};
+  const d=[3.5,0,0,4.3,3.7,3.2],a=[0,-16.7,-15.4,0,0,0],al=[90,0,0,90,-90,0].map(x=>x*R),chainAt=q=>{let T=K.math.I4();for(let i=0;i<6;i++)T=K.math.mul(T,dh(q[i]*R,d[i],a[i],al[i]));return T;};
+  let T=K.math.I4();const frames=[];for(let i=0;i<6;i++){frames.push(T);T=K.math.mul(T,dh(0,d[i],a[i],al[i]));}
+  const m=model({joints:frames.map((F,i)=>({id:'j'+(i+1),type:'revolute',parent:i?'j'+i:null,origin:apply(F,[0,0,0]),axis:K.math.applyDir(F,[0,0,1]),lower:-360,upper:360}))});
+  // The pose of a known configuration is the target; the arm starts from a ready pose and must find a configuration with it.
+  const Tg=chainAt([20,-60,80,-110,-90,30]),toolZ=K.math.applyDir(T,[0,0,1]),toolX=K.math.applyDir(T,[1,0,0]),seed=[0,-45,45,-90,-90,0];
+  const r=K.reach(m,{joint:'j6',point:apply(T,[0,0,0]),target:apply(Tg,[0,0,0]),aim:[{local:toolZ,target:K.math.applyDir(Tg,[0,0,1])},{local:toolX,target:K.math.applyDir(Tg,[1,0,0])}],given:Object.fromEntries(seed.map((v,i)=>['j'+(i+1),v]))});
+  assert.ok(r.error<1e-4,`position (${r.error})`);assert.ok(r.aimError<.01,`orientation (${r.aimError}°)`);
+  const Tq=chainAt([1,2,3,4,5,6].map(i=>r.q['j'+i][0]));near(apply(Tq,[0,0,0]),apply(Tg,[0,0,0]),1e-4,'the solution checked by DH');near(K.math.applyDir(Tq,[0,0,1]),K.math.applyDir(Tg,[0,0,1]),1e-4);near(K.math.applyDir(Tq,[1,0,0]),K.math.applyDir(Tg,[1,0,0]),1e-4);
+  const out=K.reach(m,{joint:'j6',point:apply(T,[0,0,0]),target:[0,0,80]});assert.ok(out.error>10,'out of reach is reported, not faked');
+});
+
+test('pin in a slot across links: a Scotch yoke slides r·cos θ, a slotted lever turns as atan2 says',()=>{
+  const r=2,yoke=model({joints:[{id:'crank',type:'continuous',axis:[0,0,1]},{id:'yoke',type:'prismatic',axis:[1,0,0]}],loops:[{a:{joint:'yoke',point:[r,0,0]},b:{joint:'crank',point:[r,0,0]},along:[0,1,0]}]});
+  assert.deepEqual(yoke.loops[0].along,[0,1,0],'the slot direction is kept');
+  for(const th of [30,90,170,250]){const p=K.pose(yoke,{crank:th});assert.ok(p.loopError<1e-6);near(p.q.yoke,[r*Math.cos(th*R)-r],1e-6,`yoke at ${th}°`);}
+  // Quick return: crank radius 2 about the origin, built at 90° (pin at (0, 2)); the lever pivots 5 below and the pin slides along it.
+  const lever=model({joints:[{id:'crank',type:'continuous',axis:[0,0,1]},{id:'lever',type:'revolute',origin:[0,-5,0],axis:[0,0,1]}],loops:[{a:{joint:'lever',point:[0,2,0]},b:{joint:'crank',point:[0,2,0]},along:[0,1,0]}]});
+  for(const turn of [20,-40,90,-90]){const t=(90+turn)*R,p=K.pose(lever,{crank:turn});assert.ok(p.loopError<1e-6,`closed at ${turn}°`);near(p.q.lever,[Math.atan2(2*Math.sin(t)+5,2*Math.cos(t))/R-90],1e-5,`lever at crank +${turn}°`);}
+});
+
+test('posing frame after frame continues from the last pose and agrees with solving each frame from the rest pose',()=>{
+  const a=2,b=6,c=5,d=6,rest=60,[C0]=fourBar(a,b,c,d,rest).sort((p,q)=>q.y-p.y),B0={x:a*Math.cos(rest*R),y:a*Math.sin(rest*R)};
+  const raw={joints:[{id:'crank',type:'continuous',axis:[0,0,1]},{id:'coupler',type:'revolute',parent:'crank',origin:[B0.x,B0.y,0],axis:[0,0,1]},{id:'rocker',type:'revolute',origin:[d,0,0],axis:[0,0,1]},{id:'turret',type:'continuous',origin:[20,0,0],axis:[0,0,1]}],
+    loops:[{a:{joint:'coupler',point:[C0.x,C0.y,0]},b:{joint:'rocker',point:[C0.x,C0.y,0]}}]},warm=model(raw);
+  let worst=0;for(let th=0;th<=660;th+=3){const p=K.pose(warm,{crank:th,turret:th*2}),cold=K.pose(model(raw),{crank:th,turret:th*2});worst=Math.max(worst,Math.abs(p.q.rocker[0]-cold.q.rocker[0]));assert.ok(p.loopError<1e-6);}
+  assert.ok(worst<1e-4,`same rocker angle frame by frame as from rest (worst ${worst}°)`);
+  const again=K.pose(warm,{crank:660,turret:1320});assert.equal(again.q.rocker[0],K.pose(warm,{crank:660,turret:1320}).q.rocker[0],'unchanged inputs, the same answer');
+  near(K.pose(warm,{crank:45}).q.rocker,model(raw)&&K.pose(model(raw),{crank:45}).q.rocker,1e-4,'a jump starts from the rest pose again');
+});

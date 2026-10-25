@@ -145,7 +145,8 @@
     // One coupling per driven joint (the first wins), so a joint is never set twice.
     const driven=new Set(),kept=[];for(const c of couplings){const key=c.to+':'+(c.toIndex||0);if(driven.has(key))continue;driven.add(key);kept.push(c);}
     const end=e=>e&&vec(e.point)&&(e.joint===null||e.joint===undefined||jointRef(e.joint))?{joint:jointRef(e.joint),point:vec(e.point)}:null;
-    const loops=(Array.isArray(r.loops)?r.loops:[]).slice(0,24).map(l=>{const a=end(l?.a),b=end(l?.b);return a&&b&&a.joint!==b.joint?{a,b}:null;}).filter(Boolean);
+    // A loop with `along` (a direction fixed to a's link) is a pin in a slot: b's point stays on the line through a's.
+    const loops=(Array.isArray(r.loops)?r.loops:[]).slice(0,48).map(l=>{const a=end(l?.a),b=end(l?.b),along=vec(l?.along);return a&&b&&a.joint!==b.joint?{a,b,...(along&&len(along)>1e-9?{along:unit(along).map(x=>+x.toFixed(6))}:{})}:null;}).filter(Boolean);
     const movable=new Set([...actuators.map(a=>a.id),...joints.filter(j=>j.drive?.signal==='action'&&dofOf(j).length===1).map(j=>j.id)]),actuatorRef=v=>typeof v==='string'&&aid.has(v)?v:null,sid=new Set();
     // Sensors read the simulated (not the commanded) motion: an encoder counts an actuator's or a joint's turns, a limit
     // switch closes within `band` of `at`, an angle or distance sensor reads the value, a speed sensor its rate.
@@ -262,7 +263,10 @@
   // A loop says point A (on joint A's link, or the base) and point B (on joint B's link) are one point. The joints
   // that nothing else sets (no actuator, coupling or given value) along either chain are solved, by damped least
   // squares, so the points meet. From the rest pose (where the CAD has them meeting) the driven joints are moved in
-  // steps, so the linkage stays on the branch the CAD was assembled in; the answer depends only on the inputs.
+  // steps, so the linkage stays on the branch the CAD was assembled in. When every input has moved less than one step
+  // since the last pose of the same model (a run, an animation), it continues from that pose instead, as the real
+  // linkage would; a jump (a scrub) starts from the rest pose again. Unchanged inputs give the last answer at once.
+  const lastLoops=new WeakMap();
   const chain=(byId,id)=>{const out=[];for(let p=id;p;p=byId.get(p)?.parent)out.push(p);return out;};
   function solveLoops(model,q,{given={},fixed=new Set()}={}){
     if(!model.loops.length)return {q,error:0,solved:[]};
@@ -270,17 +274,24 @@
     const free=[];for(const l of model.loops)for(const id of [...chain(byId,l.a.joint),...chain(byId,l.b.joint)]){const j=byId.get(id);
       if(!j||given[id]!==undefined||coupled.has(id)||fixed.has(id)||j.drive||free.includes(id)||!dofOf(j).length)continue;free.push(id);}
     if(!free.length)return {q,error:residualNorm(model,q),solved:[]};
-    const list=order(model),slots=free.flatMap(id=>dofOf(byId.get(id)).map((u,i)=>({id,i,unit:u})));
+    // Only the loops' own chains are posed while solving, and only the inputs that reach them (directly or through
+    // couplings) step the homotopy: a turret turning elsewhere on the robot costs the linkage nothing.
+    const chains=new Set(model.loops.flatMap(l=>[...chain(byId,l.a.joint),...chain(byId,l.b.joint)]));for(let grew=true;grew;){grew=false;for(const c of model.couplings)if(chains.has(c.to))for(const id of [c.from,...(c.plus||[]).map(t=>t.from)])if(!chains.has(id)){chains.add(id);grew=true;}}
+    const list=order(model).filter(j=>chains.has(j.id)),slots=free.flatMap(id=>dofOf(byId.get(id)).map((u,i)=>({id,i,unit:u})));
     const read=()=>slots.map(s=>q[s.id][s.i]),write=x=>{slots.forEach((s,k)=>{q[s.id][s.i]=x[k];});};
     // In inches whatever the CAD unit, so the damping and the stopping point mean the same for a metre or a millimetre CAD.
-    const u=model.unit||1,residual=()=>{applyCouplings(model,q);const W=worlds(model,q,list),r=[];for(const l of model.loops){const pa=apply(l.a.joint?W.get(l.a.joint):I4(),l.a.point),pb=apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point);r.push(...scale(sub(pa,pb),u));}return r;};
+    const u=model.unit||1,residual=()=>{applyCouplings(model,q);const W=worlds(model,q,list),r=[];for(const l of model.loops)r.push(...scale(gap(l,W),u));return r;};
     // Homotopy: the given joints move from home to their values in steps of at most 10° (or 0.5 in).
-    const target=Object.fromEntries(Object.keys(given).map(id=>[id,q[id].slice()])),home=Object.fromEntries(Object.keys(given).map(id=>[id,valuesOf(byId.get(id),byId.get(id).home||0)]));
-    let span=0;for(const id of Object.keys(target))target[id].forEach((v,i)=>{span=Math.max(span,Math.abs(v-home[id][i])/(dofOf(byId.get(id))[i]==='in'?.5:10));});
-    const steps=Math.max(1,Math.min(72,Math.ceil(span)));for(const id of free)q[id]=valuesOf(byId.get(id),byId.get(id).home||0);
+    const inputs=Object.keys(given).filter(id=>chains.has(id)&&q[id]),target=Object.fromEntries(inputs.map(id=>[id,q[id].slice()])),stepOf=(id,i)=>dofOf(byId.get(id))[i]==='in'?.5:10;
+    const memo=lastLoops.get(model),same=memo&&memo.free===free.join()&&inputs.length===Object.keys(memo.target).length&&inputs.every(id=>memo.target[id]);
+    if(same&&inputs.every(id=>target[id].every((v,i)=>v===memo.target[id][i]))){write(memo.x);applyCouplings(model,q);return {q,error:memo.error,solved:free};}
+    const close=same&&inputs.every(id=>target[id].every((v,i)=>Math.abs(v-memo.target[id][i])<=stepOf(id,i)));
+    const home=close?memo.target:Object.fromEntries(inputs.map(id=>[id,valuesOf(byId.get(id),byId.get(id).home||0)]));
+    let span=0;for(const id of inputs)target[id].forEach((v,i)=>{span=Math.max(span,Math.abs(v-home[id][i])/stepOf(id,i));});
+    const steps=Math.max(1,Math.min(72,Math.ceil(span)));if(close)write(memo.x);else for(const id of free)q[id]=valuesOf(byId.get(id),byId.get(id).home||0);
     let x=read(),err=Infinity;
     for(let s=1;s<=steps;s++){
-      for(const id of Object.keys(target))q[id]=target[id].map((v,i)=>home[id][i]+(v-home[id][i])*s/steps);
+      for(const id of inputs)q[id]=target[id].map((v,i)=>home[id][i]+(v-home[id][i])*s/steps);
       let lambda=1e-3;
       for(let it=0;it<40;it++){
         write(x);const r=residual();err=Math.sqrt(r.reduce((a,v)=>a+v*v,0));if(err<1e-7)break;
@@ -294,9 +305,11 @@
           if(en<err){x=xn;err=en;lambda=Math.max(1e-9,lambda/3);improved=true;}else lambda*=4;}
         write(x);if(!improved)break;}
     }
-    applyCouplings(model,q);return {q,error:err,solved:free};
+    applyCouplings(model,q);lastLoops.set(model,{free:free.join(),target,x,error:err});return {q,error:err,solved:free};
   }
-  function residualNorm(model,q){const W=worlds(model,q);let s=0;for(const l of model.loops){const d=sub(apply(l.a.joint?W.get(l.a.joint):I4(),l.a.point),apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point));s+=dot(d,d);}return Math.sqrt(s)*(model.unit||1);}
+  function residualNorm(model,q){const W=worlds(model,q);let s=0;for(const l of model.loops){const d=gap(l,W);s+=dot(d,d);}return Math.sqrt(s)*(model.unit||1);}
+  // How far apart a loop's points are (CAD units): all of it, or for a pin in a slot only the part across the slot.
+  function gap(l,W){const Wa=l.a.joint?W.get(l.a.joint):I4(),d=sub(apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point),apply(Wa,l.a.point));if(!l.along)return d;const s=unit(applyDir(Wa,l.along));return sub(d,scale(s,dot(d,s)));}
   // Gaussian elimination with partial pivoting (small systems).
   function solve(A,b){const n=b.length,M=A.map((r,i)=>[...r,b[i]]);for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;if(Math.abs(M[p][c])<1e-14)return null;[M[c],M[p]]=[M[p],M[c]];
     for(let r=0;r<n;r++){if(r===c)continue;const f=M[r][c]/M[c][c];if(f)for(let k=c;k<=n;k++)M[r][k]-=f*M[c][k];}}return M.map((r,i)=>r[n]/r[i]);}
@@ -498,20 +511,26 @@
   function profile(u,a,d){if(!(a.accel>0)||!d)return u;const T=moveSeconds(d,a.speed,a.accel),ta=Math.min(a.speed/a.accel,T/2),vmax=a.accel*ta,t=u*T;
     if(t<ta)return .5*a.accel*t*t/d;if(t>T-ta){const r=T-t;return 1-.5*a.accel*r*r/d;}return (.5*a.accel*ta*ta+vmax*(t-ta))/d;}
   // ---------------------------------------------------------------- inverse kinematics
-  // Moves the free joints of a chain so a point on its last link reaches a target (damped least squares on the
-  // same forward kinematics). Returns the values and how far off it ended. Limits are kept.
-  function reach(model,{joint,point,target,given={},joints:chainIds}={}){
+  // Moves the free joints of a chain so a point on its last link reaches a target and, optionally, so directions fixed
+  // to that link point along world directions (aim: [{local, target}]: one aims a tool, two fix its orientation).
+  // Damped least squares on the same forward kinematics, limits kept. error: how far the point ended from the target
+  // (CAD units); aimError: the largest angle (degrees) left between an aimed direction and its target.
+  function reach(model,{joint,point,target,aim=[],given={},joints:chainIds}={}){
     const byId=new Map(model.joints.map(j=>[j.id,j])),coupled=new Set(model.couplings.map(c=>c.to)),ids=(chainIds||chain(byId,joint)).filter(id=>byId.has(id)&&dofOf(byId.get(id)).length&&!coupled.has(id));
     const q=resolve(model,given),slots=ids.flatMap(id=>dofOf(byId.get(id)).map((u,i)=>({id,i,unit:u}))),list=order(model);
-    const end=()=>{applyCouplings(model,q);return apply(worlds(model,q,list).get(joint)||I4(),point);},err=()=>len(sub(end(),target));
+    // Residuals in inches; a radian of aim error weighs as much as 5 in of position error.
+    const u=model.unit||1,w=5,aims=aim.map(a=>({local:unit(a.local),target:unit(a.target)})),goal=[...scale(target,u),...aims.flatMap(a=>scale(a.target,w))];
+    const now=()=>{applyCouplings(model,q);const W=worlds(model,q,list).get(joint)||I4();return [...scale(apply(W,point),u),...aims.flatMap(a=>scale(unit(applyDir(W,a.local)),w))];};
+    const residual=v=>goal.map((g,k)=>g-v[k]),norm=r=>Math.sqrt(r.reduce((s,x)=>s+x*x,0));
     const limit=sl=>{const l=limitsOf(byId.get(sl.id))[sl.i];if(l)q[sl.id][sl.i]=clamp(q[sl.id][sl.i],l[0],l[1]);};
-    let e=err(),lambda=.05;
-    for(let it=0;it<200&&e>1e-5;it++){const p=end(),r=sub(target,p);
-      const J=slots.map(sl=>{const h=sl.unit==='in'?1e-4:1e-3,old=q[sl.id][sl.i];q[sl.id][sl.i]=old+h;const d=sub(end(),p);q[sl.id][sl.i]=old;return scale(d,1/h);});
-      const n=slots.length,A=Array.from({length:n},(_,a)=>Array.from({length:n},(_,b)=>dot(J[a],J[b])+(a===b?lambda:0))),g=J.map(c=>dot(c,r)),dx=solve(A,g);if(!dx)break;
-      const before=slots.map(sl=>q[sl.id][sl.i]);slots.forEach((sl,k)=>{q[sl.id][sl.i]+=dx[k];limit(sl);});const en=err();
-      if(en<e){e=en;lambda=Math.max(1e-6,lambda*.5);}else{slots.forEach((sl,k)=>{q[sl.id][sl.i]=before[k];});lambda*=3;if(lambda>1e6)break;}}
-    return {q,error:e};
+    let v=now(),e=norm(residual(v)),lambda=.05;
+    for(let it=0;it<300&&e>1e-6;it++){const r=residual(v);
+      const J=slots.map(sl=>{const h=sl.unit==='in'?1e-4:1e-3,old=q[sl.id][sl.i];q[sl.id][sl.i]=old+h;const d=now().map((x,k)=>(x-v[k])/h);q[sl.id][sl.i]=old;return d;});
+      const n=slots.length,A=Array.from({length:n},(_,a)=>Array.from({length:n},(_,b)=>J[a].reduce((t,x,k)=>t+x*J[b][k],0)+(a===b?lambda:0))),g=J.map(c=>c.reduce((t,x,k)=>t+x*r[k],0)),dx=solve(A,g);if(!dx)break;
+      const before=slots.map(sl=>q[sl.id][sl.i]);slots.forEach((sl,k)=>{q[sl.id][sl.i]+=dx[k];limit(sl);});const vn=now(),en=norm(residual(vn));
+      if(en<e){e=en;v=vn;lambda=Math.max(1e-6,lambda*.5);}else{slots.forEach((sl,k)=>{q[sl.id][sl.i]=before[k];});lambda*=3;if(lambda>1e6)break;}}
+    applyCouplings(model,q);const W=worlds(model,q,list).get(joint)||I4();
+    return {q,error:len(sub(apply(W,point),target)),aimError:Math.max(0,...aims.map(a=>Math.acos(clamp(dot(unit(applyDir(W,a.local)),a.target),-1,1))/DEG))};
   }
   // ---------------------------------------------------------------- couplings for common transmissions
   // A multi-stage slide's couplings. stages: prismatic joints from the bottom stage up, each moving on the one below;
