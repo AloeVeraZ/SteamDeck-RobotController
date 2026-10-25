@@ -151,7 +151,7 @@ public class MyAuto implements DeckAutonomous {
   root.innerHTML=`<div class="simulation-heading"><div><h1>Simulation</h1><p id="sim-subtitle"></p></div><span class="simulation-mode" id="sim-mode">Offline</span></div>
     <dialog id="sim-start-confirm" aria-labelledby="sim-start-confirm-title"><form method="dialog"><h2 id="sim-start-confirm-title">Is this your robot’s starting position?</h2><p id="sim-start-confirm-file" class="hint"></p><p>The simulation starts your robot exactly as this CAD is posed: slides down, arms and intakes stowed, everything inside the starting size the way it sits on the field before a match. Import it only if this is that starting configuration.</p><div class="button-row"><button type="submit" value="yes" class="primary" id="sim-start-yes">Yes, this is the starting position</button><button type="submit" value="no" class="secondary" id="sim-start-no">No, cancel</button></div></form></dialog>
     <dialog id="sim-setup-delete-confirm" aria-labelledby="sim-setup-delete-title"><form method="dialog"><h2 id="sim-setup-delete-title"></h2><p>This removes the setup with its fields, planned routes, robot, mechanisms and program. It cannot be undone, so save it to a file first if you might want it back.</p><div class="button-row"><button type="submit" value="yes" class="primary danger" id="sim-setup-delete-yes">Yes, delete this setup</button><button type="submit" value="no" class="secondary" id="sim-setup-delete-no">No, keep it</button></div></form></dialog>
-    <nav class="sim-navigation" aria-label="Autonomous setup"><div class="sim-tabs" role="tablist">${Object.entries({setup:'Setup',plan:'Path planning',run:'Run & review'}).map(([k,t],i)=>`<button type="button" role="tab" data-tab="${k}" id="sim-tab-${k}" aria-controls="sim-panel-${k}"><span>${i+1}</span>${t}<i class="sim-tab-mark" aria-hidden="true"></i></button>`).join('')}</div></nav>
+    <nav class="sim-navigation" aria-label="Autonomous setup"><div class="sim-tabs" role="tablist">${Object.entries({setup:'Setup',plan:'Path planning',run:'Run & review'}).map(([k,t],i)=>`<button type="button" role="tab" data-tab="${k}" id="sim-tab-${k}" aria-controls="sim-panel-${k}"><span>${i+1}</span>${t}</button>`).join('')}</div></nav>
     <div class="sim-setup-bar"><span class="sim-setup-label" id="sim-setup-label">Saved setup</span><div class="sim-setup-picker"><button id="sim-setup" type="button" class="sim-setup-current" aria-haspopup="listbox" aria-expanded="false" aria-controls="sim-setup-list" aria-labelledby="sim-setup-label sim-setup"><span class="sim-setup-text"><strong></strong><small></small></span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
       <div id="sim-setup-list" class="sim-setup-list" role="listbox" aria-labelledby="sim-setup-label" hidden></div></div>
       <div class="sim-setup-actions" role="group" aria-label="Manage setups"><button id="sim-setup-new" type="button" title="Start a new setup with default settings">${ICON.add}New</button><button id="sim-setup-rename" type="button" title="Rename this setup">${ICON.rename}Rename</button><button id="sim-setup-delete" type="button" class="danger" title="Delete this setup">${ICON.trash}Delete</button></div>
@@ -520,6 +520,8 @@ public class MyAuto implements DeckAutonomous {
     const issue=diagnostics.find(d=>d.pin!==null)||diagnostics[0];
     return issue?{message:plainWords(issue.message),pin:issue.pin??null}:planError?{message:plainWords(planError),pin:blockedPin>=0?blockedPin:null}:null;
   }
+  // A path the route check or the planner flagged; its row in the path list glows amber.
+  const pathNeedsChange=i=>diagnostics.some(d=>d.pin===i)||!!planError&&blockedPin===i;
   function showRunView(i){if(!runViews)return;runViews.choose(i);runViews.panes[i].pane.scrollTop=0;}
   // Results before a run: what Run does in this practice mode and what this view will show. Once the run's clock
   // moves, the replay and graphs take its place, and the report joins them when the route ends.
@@ -534,18 +536,20 @@ public class MyAuto implements DeckAutonomous {
     const go=blocked||noRoute?[Object.assign(document.createElement('button'),{type:'button',className:blocked?'primary':'secondary',textContent:blocked?.pin!=null?`Fix path ${blocked.pin+1} →`:'Go to Path planning',onclick:()=>blocked?.pin!=null?editPath(blocked.pin):$('#sim-run-plan').click()})]:[];
     resultsReady.replaceChildren(Object.assign(document.createElement('h3'),{textContent:title}),Object.assign(document.createElement('p'),{textContent:text}),...(note?[Object.assign(document.createElement('p'),{className:'hint',textContent:note})]:[]),...go);
   }
-  // The stage tabs say what is done and what needs attention, so the next step is plain from any tab: Setup while
-  // the robot still needs measurements, Path planning when a path has a problem or the route will not fit the
-  // autonomous (done once it is planned and checked), Run & review after a run, from its report.
+  // The stage tabs' number rings say what is done (green), what needs changing (amber) and what is still missing
+  // (red), so the next step is plain from any tab: Setup while the robot still needs measurements, Path planning
+  // with no paths yet, a path with a problem or a route that will not fit the autonomous, Run & review after a run,
+  // from its report. The boxes to fill in or change glow the same red or amber.
   function stageMarks(){
     const est=L().route&&!diagnostics.length?routeEstimate():null,auto=project.practice.autoSeconds;
-    const plan=diagnostics.length||planError?['attention',`${diagnostics.length||1} route issue${diagnostics.length>1?'s':''} to fix`]:
+    for(const row of $$('#sim-pin-list .sim-path-row'))row.classList.toggle('needs-change',pathNeedsChange(Number(row.dataset.path)));
+    const plan=!L().pins.length?['incomplete','No paths yet: add one']:diagnostics.length||planError?['attention',`${diagnostics.length||1} route issue${diagnostics.length>1?'s':''} to fix`]:
       est?.time>auto?['attention',`The route takes about ${est.time.toFixed(1)} s, longer than the ${auto} s autonomous`]:est&&(est.violations>0||est.miss>1.5)?['attention','The test drive touched something or missed the end point']:
       L().route&&!analysisPending?['done',`Route planned and checked${est?.time?` · about ${est.time.toFixed(1)} s`:''}`]:null;
     const run=lastReport&&!$('#sim-run-analysis').hidden?[lastReport.level==='ok'?'done':'attention',`Last run: ${lastReport.title}`]:null;
-    const setup=$('#sim-needs-you')&&!$('#sim-needs-you').hidden?['attention','Your robot still needs some measurements']:null;
+    const setup=!$('#sim-needs-you')?null:$('#sim-needs-you').hidden?['done','Field, robot and controller set']:['incomplete','Your robot still needs some measurements'];
     for(const [k,s] of Object.entries({setup,plan,run})){const b=$(`.sim-tabs [data-tab=${k}]`),[state,note]=s||['',''];if(!b||b.dataset.state===state&&b.title===note)continue;
-      b.dataset.state=state;b.title=note;note?b.setAttribute('aria-description',note):b.removeAttribute('aria-description');b.querySelector('.sim-tab-mark').textContent=state==='done'?'✓':state?'!':'';}
+      b.dataset.state=state;b.title=note;note?b.setAttribute('aria-description',note):b.removeAttribute('aria-description');}
   }
   function diagnosticBox(id){const box=document.createElement('section');box.id=id;box.className='sim-diagnostics';return box;}
   const diagnosticPages={};
@@ -1090,7 +1094,7 @@ public class MyAuto implements DeckAutonomous {
     const list=$('#sim-pin-list'),l=L(),power=project.tuning.maxPathSpeed??.8,set=(input,v)=>{if(input&&input!==document.activeElement)input.value=v;};
     const first=list.querySelector('.sim-path-start [data-at]');if(first)first.textContent=`${xy(start)} · ${Math.round(start.heading)}°`;
     for(const row of list.querySelectorAll('.sim-path-row')){const i=Number(row.dataset.path),p=l.pins[i];if(!p)continue;
-      row.querySelector('[data-at]').textContent=`→ ${xy(p)}`;row.querySelector('.sim-path-swatch').style.background=planner.pathAppearance(p.path,power).color;row.querySelector('.sim-pin-summary').textContent=effectSummary(p);
+      row.classList.toggle('needs-change',pathNeedsChange(i));row.querySelector('[data-at]').textContent=`→ ${xy(p)}`;row.querySelector('.sim-path-swatch').style.background=planner.pathAppearance(p.path,power).color;row.querySelector('.sim-pin-summary').textContent=effectSummary(p);
       if(!row.classList.contains('selected'))continue;const path=planner.pathEffects(p.path),q=s=>row.querySelector(s);
       set(q('#path-x'),field.round(p.x));set(q('#path-y'),field.round(p.y));set(q('#path-heading'),path.rotate);set(q('#path-shape'),path.controls?'custom':path.style||'');set(q('#path-power'),path.power??'');set(q('#path-wait'),p.wait||0);
       (path.controls||[]).forEach((c,j)=>{set(q(`#path-c${j}x`),field.round(c.x));set(q(`#path-c${j}y`),field.round(c.y));});
@@ -1852,7 +1856,7 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-hitboxes').onclick=()=>{project.hitboxes=!project.hitboxes;save();$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));view3d?.update(frame,state3d());};
   $('#sim-game-elements').onchange=e=>{L().elements=e.target.checked;save();reload();};
   function selectTab(name){if(tab!==name){pointer=null;drag=null;}tab=name;root.dataset.tab=name;if(name==='plan'&&planningStep==='start')tool='start';for(const b of $$('[data-tab]')){b.setAttribute('aria-selected',String(b.dataset.tab===name));b.tabIndex=b.dataset.tab===name?0:-1;}for(const p of $$('[data-panel]'))p.hidden=p.dataset.panel!==name;$('.field-area').hidden=name==='setup';$('.sim-toolbar [data-tool]').parentElement.hidden=name==='run';$('#sim-telemetry').hidden=name!=='run';$('#sim-run-timing').hidden=name!=='run';$('.sim-planning-steps').hidden=name!=='plan';
-    document.body.classList.toggle('sim-workspace',active&&name!=='setup');if($('#sim-live-status'))$('#sim-live-status').hidden=name!=='plan'||!$('#sim-live-status').textContent;activeSetupPanel();window.scrollTo(0,0);if(name==='plan')planningPanel();if(name!=='setup')refreshDiagnostics();if(name!=='run'&&frame?.playing)void call('pause');view3d?.resize();modelPreview?.resize?.();}
+    document.body.classList.toggle('sim-workspace',active&&name!=='setup');if($('#sim-live-status'))$('#sim-live-status').hidden=name!=='plan'||!$('#sim-live-status').textContent;activeSetupPanel();window.scrollTo(0,0);if(name==='plan')planningPanel();if(name!=='setup')refreshDiagnostics();else stageMarks();if(name!=='run'&&frame?.playing)void call('pause');view3d?.resize();modelPreview?.resize?.();}
   // Field obstacles are a step only on the empty field; game fields go from the start straight to paths.
   const hasObstacleStep=()=>L().field==='empty';
   function planningPanel(){if(planningStep==='zones'&&!hasObstacleStep())planningStep='pins';const zones=hasObstacleStep();$('#sim-step-zones').hidden=!zones;

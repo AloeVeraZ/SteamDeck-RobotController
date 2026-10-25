@@ -12,7 +12,7 @@
 .sim-diagnostics ul{list-style:none;padding:0;margin:8px 0;font-size:12px}
 .sim-diagnostics li{padding:7px 0;border-bottom:1px solid var(--line);line-height:1.4}
 .sim-diagnostics .sim-issue{color:var(--text)}
-.sim-diagnostics .sim-issue::before{content:'● ';color:#ff7586}
+.sim-diagnostics li.sim-issue,.sim-diagnostics li.warn{margin:6px 0;padding:7px 9px;border-radius:var(--radius-control)}
 .sim-diagnostics .text-button{display:block;font-size:11px}
 .sim-popover{box-sizing:border-box;padding:8px 10px}
 .sim-popover input{min-height:30px;height:30px;font-size:12px;padding:4px 7px}
@@ -27,7 +27,7 @@
 .sim-popover textarea{height:46px;min-height:38px;resize:none}
 .sim-active-setup{display:flex;align-items:baseline;gap:8px;width:100%;min-width:0;text-align:left;margin:0 0 8px;padding:6px 10px;min-height:32px;border:1px solid var(--line);background:var(--surface);border-radius:6px;color:var(--text)}.sim-active-setup:hover{background:var(--hover)}.sim-active-setup>span{flex:none;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.sim-active-setup>strong{min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sim-live-status{display:block;width:100%;text-align:left;font-size:11px;margin:0 0 8px;padding:5px 8px;min-height:28px;color:var(--muted);border:1px solid var(--line);background:var(--surface);border-radius:6px}
-.sim-live-status.has-issues{color:#ff9aa6;border-color:#a44655}
+.sim-live-status.has-issues{color:var(--text)}
 /* The route checks open under the status line (and only in Path planning, where the line shows). */
 .sim-live-status[aria-expanded=true]{border-bottom-left-radius:0;border-bottom-right-radius:0;margin-bottom:0}
 #sim-plan-diagnostics{margin:0 0 8px;padding:0 8px 4px;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface)}
@@ -350,7 +350,7 @@ body.sim-workspace{overflow:hidden}
 .sim-path-more{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px}
 .sim-path-more .text-button{font-size:12px}
 .sim-path-empty{padding:8px}
-.sim-robot-example{margin:0 0 10px;padding:8px 10px;border-left:3px solid var(--warning);background:var(--warning-bg);border-radius:4px;color:var(--text)}
+.sim-robot-example{margin:0 0 10px;padding:8px 10px;border:1px solid var(--warning);box-shadow:0 0 0 1px var(--warning),0 0 10px color-mix(in srgb,var(--warning) 40%,transparent);background:var(--warning-bg);border-radius:var(--radius-control);color:var(--text)}
 /* Phones: the Run button and speed get their own row under the clock and modes, so "Run" never squeezes. */
 @media(max-width:480px){
  .sim-run-controls{grid-template-columns:auto minmax(0,1fr)}
