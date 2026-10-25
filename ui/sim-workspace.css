@@ -277,6 +277,8 @@ body.sim-workspace{overflow:hidden}
 .sim-report-icon{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:12px;font-weight:800;color:var(--bg)}
 .sim-report-verdict.ok .sim-report-icon{background:var(--connected)}.sim-report-verdict.warn .sim-report-icon{background:var(--warning)}.sim-report-verdict.bad .sim-report-icon{background:var(--danger)}
 .sim-report-facts dd.warn{color:var(--warning)}.sim-report-facts dd.bad{color:var(--danger)}
+/* A fact whose label has a technical explanation: hover or long-press it. */
+.sim-report-facts dt[title]{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}
 .sim-report-issues{list-style:none;margin:10px 0 0;padding:0;font-size:12px;line-height:1.4}
 .sim-report-issues li{padding:6px 8px;margin-top:4px;border-radius:6px;background:var(--warning-bg)}.sim-report-issues li.bad{background:var(--danger-bg)}
 #simulation-view .sim-run-report .sim-report-edit{display:block;min-height:0;margin-top:2px;font-size:12px;font-weight:600;padding:0}

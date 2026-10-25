@@ -65,7 +65,7 @@
     const title=timedOut?'Autonomous ended before the route finished':issues.length?`Route finished in ${s1(total)}, with ${issues.length} thing${issues.length>1?'s':''} to check`:`Route finished cleanly in ${s1(total)}`;
     const facts=[['Time',auto?`${s1(total)} of the ${auto} s autonomous${timedOut?'':` · ${s1(Math.max(0,auto-total))} to spare`}`:s1(total),timedOut?'bad':'']];
     if(finite(endError))facts.push(['Final position',`${endError.toFixed(1)} in from the last end point`,endError>2?'warn':'']);
-    if(finite(estimateError))facts.push(['Sensor estimate',`off by ${estimateError.toFixed(1)} in at the end`,estimateError>2?'warn':'']);
+    if(finite(estimateError))facts.push(['Position tracking',`the robot’s own estimate was ${estimateError.toFixed(1)} in off at the end`,estimateError>2?'warn':'','Sensor estimate: how far the position the robot worked out from its odometry and IMU was from where it really was, at the end of the route. Large values mean its sensors or their offsets need checking.']);
     facts.push(['Contact',contacts.length?[...new Set(contacts.map(c=>KIND[c.kind]))].join(', '):'None',contacts.some(c=>c.kind!=='wall')||zones?'bad':contacts.length?'warn':'']);
     if(mech&&finite(mech.score))facts.push(['Points',`${mech.score}${mech.shots?` · ${mech.landed} of ${mech.shots} shots landed`:''}`,'']);
     return {level,title,total,before,auto,legs:out,contacts,issues,tips:tips.slice(0,3),facts,endError,estimateError,timedOut};
@@ -94,7 +94,7 @@
     if(!report){host.replaceChildren();return;}
     const icon={ok:'✓',warn:'!',bad:'×'}[report.level];
     const head=el('div',{class:'sim-report-verdict '+report.level},[el('span',{class:'sim-report-icon','aria-hidden':'true',text:icon}),el('strong',{text:report.title})]);
-    const facts=el('dl',{class:'sim-analysis-list sim-report-facts'},report.facts.flatMap(([k,v,l])=>[el('dt',{text:k}),el('dd',{text:v,class:l||''})]));
+    const facts=el('dl',{class:'sim-analysis-list sim-report-facts'},report.facts.flatMap(([k,v,l,about])=>[el('dt',about?{text:k,title:about}:{text:k}),el('dd',{text:v,class:l||''})]));
     const parts=[head,facts],steps=nextSteps(report,{onEdit,onExport,onOutput}),fixPin=steps.find(s=>s.id==='fix')?report.issues.find(i=>i.pin!==null)?.pin:null;
     // An issue's own Edit link is left out when the Fix button below already opens that path.
     if(report.issues.length)parts.push(el('ul',{class:'sim-report-issues'},report.issues.map(i=>el('li',{class:i.level},[el('span',{text:i.text}),...(i.pin!==null&&i.pin!==fixPin&&onEdit?[editButton(i.pin,`path ${i.pin+1}`,onEdit)]:[])]))));
