@@ -10,11 +10,16 @@
   const esc=s=>String(s??'').replace(/[&<>"]/g,c=>`&#${c.charCodeAt(0)};`),finite=Number.isFinite,fix=(v,d=1)=>+(+v).toFixed(d);
   const COLORS={turret:0x8e4ec6,hood:0xf29d38,flywheel:0x2fa84f,roller:0x12a5c9,deploy:0xe5484d,feeder:0xd4a72c,wheel:0x7a8594,steer:0x7a8594,action:0x4ea1ff};
   const hex=c=>'#'+c.toString(16).padStart(6,'0'),colorOf=j=>COLORS[j.drive?.signal]??0x4ea1ff;
-  // The finder's three levels of certainty, as the team sees them.
+  // The finder's three levels of certainty, as the team sees them, and a mechanism it could not find in the CAD.
   function level(j){
-    if(j.source==='metadata')return ['sure','From the file'];if(j.source==='user')return ['user','Set by you'];if(j.source==='standin')return ['stand','Stand-in shape'];
+    if(j.source==='metadata')return ['sure','From the file'];if(j.source==='user')return ['user','Set by you'];if(j.source==='standin')return ['stand','Not in your CAD yet'];
     return (j.confidence??0)>=.7?['likely','Found · likely right']:['check','Found · please check'];
   }
+  // A saved finding older than this finder is looked at again (parts the team set stay): 2 links game mechanisms to
+  // CAD assemblies by themselves, finds the gears that drive them and each hood's launch angle.
+  const FINDER=2;
+  // How far a hood tilts to shoot: to the game's launch angle when its CAD launch angle is known, else as set.
+  const shootTilt=(j,launch)=>finite(j.launch)&&finite(launch)?Math.max(j.lower??-180,Math.min(j.upper??180,launch-j.launch)):j.states?.shoot??0;
   const ctxCache=new WeakMap();
   function create({host,api}){
     let open=null,mode=null,demo=0,values={},lastKey='';
@@ -34,7 +39,7 @@
     const leavesOf=j=>{const c=ctx();return c?c.parts.expand(j.parts||[]):new Set();};
     const joints=()=>kin().joints;
     // ---- changes
-    function change(id,fn,{note}={}){const next=structuredClone(kin()),j=next.joints.find(x=>x.id===id);if(!j)return;fn(j,next);if(j.source==='inferred'||j.source==='metadata')j.source='user';api.commit(next,note);}
+    function change(id,fn,{note}={}){const next=structuredClone(kin()),j=next.joints.find(x=>x.id===id);if(!j)return;fn(j,next);if(['inferred','metadata','standin'].includes(j.source))j.source='user';api.commit(next,note);}
     // Finds the joints of this CAD. Joints the team set stay; found ones replace the old finds.
     // The finder and the clearance sweep run in a worker (sim-discovery-worker.js) so a big CAD does not stall the page;
     // the body's arrays go to it once per CAD. Without workers they run here.
@@ -70,13 +75,16 @@
       const now=kin(),same=now.model===m.id;
       const kept=same?now.joints.filter(j=>j.source==='user'||j.source==='metadata'):[],bound=new Set(kept.map(j=>j.drive?j.drive.signal+':'+(j.drive.of||''):'')),ids=new Set(kept.map(j=>j.id));
       const fresh=found.joints.filter(j=>!ids.has(j.id)&&!(j.drive&&j.drive.signal!=='wheel'&&bound.has(j.drive.signal+':'+(j.drive.of||''))));
-      api.commit({...now,model:m.id,unit:unit(),discovered:true,joints:[...kept,...fresh],couplings:same?now.couplings:[],loops:same?now.loops:[],actuators:same?now.actuators:[],actions:same?now.actions:[]});
-      const n=kept.length+fresh.length;status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${found.report.filter(r=>/stand-in|not set up|no hinge/i.test(r)).join(' ')} Check each one on the model.`:'No moving parts were found. Add one with + Add.');
+      // The team's couplings stay; found ones (gears following a turret or hood) come with the joints found again.
+      const all=new Set([...kept,...fresh].map(j=>j.id)),freshIds=new Set(fresh.map(j=>j.id)),couplings=[...(same?now.couplings.filter(c=>ids.has(c.to)):[]),...(found.couplings||[]).filter(c=>freshIds.has(c.to)&&all.has(c.from))];
+      api.commit({...now,model:m.id,unit:unit(),discovered:true,finder:FINDER,joints:[...kept,...fresh],couplings,loops:same?now.loops:[],actuators:same?now.actuators:[],actions:same?now.actions:[]});
+      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole/i.test(r)),missing=fresh.filter(j=>j.source==='standin');
+      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`:'No moving parts were found. Add one with + Add.');
       return true;
     }
     // ---- drawing the panel (a number box gets a slider only when it has a lower bound: angles may be negative)
     const driveOptions=j=>{const m=api.mechanisms(),out=[['none','Nothing: it follows other joints'],['action','Route actions (named positions)']];
-      (m.enabled?m.shooters:[]).forEach((s,n)=>{if(s.type==='turret'&&!s.sharesTurret)out.push([`turret:shooter:${n}`,`Turret of shooter ${n+1}`]);out.push([`hood:shooter:${n}`,`Hood of shooter ${n+1}`],[`flywheel:shooter:${n}`,`Flywheel of shooter ${n+1}`]);});
+      (m.enabled?m.shooters:[]).forEach((s,n)=>{if(s.type==='turret'&&!s.sharesTurret)out.push([`turret:shooter:${n}`,`Turret (turning) of shooter ${n+1}`]);out.push([`hood:shooter:${n}`,`Hood (pitch) of shooter ${n+1}`],[`flywheel:shooter:${n}`,`Flywheel of shooter ${n+1}`]);});
       (m.enabled?m.intakes:[]).forEach((i,n)=>{out.push([`roller:intake:${n}`,`Rollers of intake ${n+1}`]);if(i.kind==='ramp'||i.kind==='kicker')out.push([`deploy:intake:${n}`,`${i.kind==='kicker'?'Kicker':'Ramp'} of intake ${n+1}`]);});
       out.push(['feeder:any','Feeder (while shooting)'],['wheel','Drive wheel (rolls with the robot)']);return out;};
     const driveKey=j=>j.drive?j.drive.signal+(j.drive.of?':'+j.drive.of:''):'none';
@@ -91,13 +99,22 @@
       if(d==='turret')roleBits=`<div class="start-xy">${num('zero',j.zero||0,{label:'Faces in your CAD',unit:'° from the front',min:-180,max:180})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="zero" data-v="-90">−90°</button><button type="button" class="secondary" data-j="zero" data-v="90">+90°</button><button type="button" class="secondary" data-j="zero" data-v="180">180°</button></div></div><p class="hint">The arrow shows which way it fires as your CAD has it; a turret angle of 0° faces the robot’s front. It turns ${m.turret?.min??-170}° to ${m.turret?.max??170}° at ${m.turret?.speed??240}°/s (Shooter timing).</p>`;
       else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;
         roleBits=`<div class="start-xy">${num('state:raised',a,{label:'Up',unit:'°'})}${num('state:lowered',b,{label:'Down',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="raised">Show up</button><button type="button" class="secondary" data-j="show" data-v="lowered">Show down</button><button type="button" class="secondary" data-j="floor">Down to the floor</button></div>
-        ${intake?`<div class="start-xy">${num('intake:down',intake.down,{label:'Goes down in',unit:'s',min:0,max:3})}${num('intake:up',intake.up,{label:'Goes up in',unit:'s',min:0,max:3})}</div>`:''}<p class="hint">It goes down while an Intake action runs and back up after; it picks up only once it is all the way down.</p>`;}
-      else if(d==='hood'){const a=j.states?.rest??0,b=j.states?.shoot??0;
-        roleBits=`<div class="start-xy">${num('state:rest',a,{label:'Resting',unit:'°'})}${num('state:shoot',b,{label:'Shooting',unit:'°'})}</div><div class="start-xy">${num('speed',j.speed??120,{label:'Moves at',unit:'°/s',min:1,max:3600})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="shoot">Show shooting</button></div></div>
+        ${intake?`<div class="start-xy">${num('intake:down',intake.down,{label:'Goes down in',unit:'s',min:0,max:3})}${num('intake:up',intake.up,{label:'Goes up in',unit:'s',min:0,max:3})}</div>`:''}<p class="hint">It goes down while an Intake action runs and back up after; it picks up only once it is all the way down.</p>
+        ${intake&&parts?`<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="pickup">Pickup box from the ${j.name.split(' · ')[0].toLowerCase()}</button></div><p class="hint">Sets the intake’s box (the green one: where it picks up) to what the ${j.name.split(' · ')[0].toLowerCase()}’s parts reach when down: ${fix(intake.reach,2)} in out, ${intake.width?fix(intake.width,2)+' in wide':'the whole edge wide'}, ${fix(intake.height,2)} in high now.</p>`:''}`;}
+      else if(d==='hood'){const a=j.states?.rest??0,b=j.states?.shoot??0,game=m.shooter?.hood??75;
+        roleBits=finite(j.launch)?`<div class="start-xy">${num('shooter:hood',game,{label:'Launch angle',unit:'° above level',min:70,max:85})}${num('launch',j.launch,{label:'Launches in your CAD at',unit:'°',min:0,max:90})}</div>
+          <div class="start-xy">${num('state:rest',a,{label:'Resting',unit:'°'})}${num('speed',j.speed??120,{label:'Moves at',unit:'°/s',min:1,max:3600})}</div>
+          <div class="start-xy">${num('lower',j.lower,{label:'Tilts down to',unit:'°',slider:false})}${num('upper',j.upper,{label:'Tilts up to',unit:'°',slider:false})}</div>
+          <div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="shoot">Show shooting</button><button type="button" class="secondary" data-j="unlaunch">Set the tilt myself</button></div>
+          ${(()=>{const want=game-j.launch,tilt=shootTilt(j,game),held=Math.abs(tilt-want)>.05;
+            return `<p class="hint${held?' sim-joint-needs':''}">${held?`To shoot at ${fix(game,1)}° it would tilt ${fix(want,1)}°, past its limit, so it stops at ${fix(tilt,1)}° (shots leave at ${fix(j.launch+tilt,1)}° in the picture; the game physics still uses ${fix(game,1)}°). Widen the limits if your hood really goes further, or set the tilt yourself.`:`Its gears turn it ${fix(tilt,1)}° from how your CAD has it, so shots leave at the launch angle, while the shooter spins up and aims; it rests at its resting tilt.`} Positive tilts raise the shot; empty limits mean none.</p>`;})()}`
+          :`<div class="start-xy">${num('state:rest',a,{label:'Resting',unit:'°'})}${num('state:shoot',b,{label:'Shooting',unit:'°'})}</div><div class="start-xy">${num('speed',j.speed??120,{label:'Moves at',unit:'°/s',min:1,max:3600})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="shoot">Show shooting</button></div></div>
         ${a===b?'<p class="hint sim-joint-needs">Set how far it tilts to shoot; until then it stays still.</p>':'<p class="hint">It tilts to its shooting angle while the shooter spins up or aims. Shots leave at the launch angle the game physics uses either way.</p>'}`;}
       else if(d==='flywheel')roleBits=`<p class="hint">Spins at the flywheel speed (${m.shooter?.rpm??3000} rpm, set below under Flywheel and turret), drawn slower so it can be seen.</p>`;
       else if(d==='roller'||d==='feeder')roleBits=`<div class="start-xy">${num('rpm',j.rpm??(d==='roller'?300:200),{label:'Spins at',unit:'rpm',min:1,max:60000})}</div>`;
       else if(d==='wheel')roleBits='<p class="hint">Turns as the robot drives, rolling on the floor.</p>';
+      else if(!d&&kin().couplings.some(c=>c.to===j.id)){const c=kin().couplings.find(x=>x.to===j.id),from=joints().find(x=>x.id===c.from);
+        roleBits=`<p class="hint">Turns with “${esc(from?.name||c.from)}”, ${fix(Math.abs(c.ratio),2)}× as far${c.ratio<0?' the other way':''} (set under Linked to other parts).</p>`;}
       else if(d==='action'||!d){const st=Object.entries(j.states||{});
         roleBits=`<span class="sim-mech-label">Named positions</span>${st.map(([k,v])=>`<div class="sim-joint-state"><input aria-label="Position name" data-state-name="${esc(k)}" value="${esc(k)}"><input type="number" data-slider="off" aria-label="${esc(k)} value" data-state-value="${esc(k)}" value="${fix(v,2)}" step="any"><button type="button" class="secondary" data-j="show" data-v="${esc(k)}">Show</button><button type="button" class="icon-button" data-j="unstate" data-v="${esc(k)}" aria-label="Remove ${esc(k)}">×</button></div>`).join('')}
           <button type="button" class="secondary" data-j="state">+ Position</button>${j.type==='revolute'||j.type==='prismatic'?`<div class="start-xy">${num('lower',j.lower,{label:'Lowest',unit:j.type==='prismatic'?'in':'°'})}${num('upper',j.upper,{label:'Highest',unit:j.type==='prismatic'?'in':'°'})}</div>`:''}
@@ -106,6 +123,7 @@
       const alt=(j.alternatives||[]).map((a,i)=>`<li>${esc(a.note||'Another pivot')} <button type="button" class="secondary" data-j="alt" data-v="${i}">Use it</button></li>`).join('');
       return `<div class="sim-joint-body">
         ${j.note?`<p class="hint">${esc(j.note)}</p>`:''}
+        ${parts?'':`<p class="hint sim-joint-needs">No CAD parts move for it yet, so nothing is drawn for it (the simulator still turns it). Click Choose parts below and click its parts on the model (Shift-click takes a whole assembly), then Pick a circle on what it turns on.</p>`}
         <div class="start-xy"><div><label>Moves by<select data-f="type">${Object.entries(K().TYPES).map(([k,t])=>`<option value="${k}"${k===j.type?' selected':''}>${esc(t.name)}</option>`).join('')}</select></label></div>
           <div><label>Driven by<select data-f="drive">${driveOptions(j).map(([k,t])=>`<option value="${k}"${k===driveKey(j)?' selected':''}>${esc(t)}</option>`).join('')}</select></label></div></div>
         <span class="sim-mech-label">Pivot</span><p class="sim-joint-where">${esc(where(j))}${j.radius?` · ${fix(2*j.radius*unit(),2)} in across`:''}</p>
@@ -156,9 +174,9 @@
     function render(){
       const k=kin(),m=meta(),cadOk=!!arrays()&&!!m?.id,list=k.model===m?.id?k.joints:[];
       const typing=host.contains(document.activeElement)&&document.activeElement.matches('input:not([type=range]),select');
-      const key=JSON.stringify([k,open,mode,cadOk,api.mechanisms()]);if(typing||key===lastKey){gizmos();return;}lastKey=key;
+      const key=JSON.stringify([k,open,mode,cadOk,api.mechanisms(),!!api.hitboxes?.()]);if(typing||key===lastKey){gizmos();return;}lastKey=key;
       host.hidden=!cadOk&&!list.length;
-      host.innerHTML=`<div class="sim-joints-head"><h3>Moving parts</h3><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="find">${list.length?'Find again':'Find moving parts'}</button><button type="button" class="secondary" data-j="add">+ Add</button>${list.length?`<button type="button" class="secondary" data-j="demo" aria-pressed="${!!demo}">${demo?'Stop':'Play'}</button>`:''}</div></div>
+      host.innerHTML=`<div class="sim-joints-head"><h3>Moving parts</h3><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="find">${list.length?'Find again':'Find moving parts'}</button><button type="button" class="secondary" data-j="add">+ Add</button>${list.length?`<button type="button" class="secondary" data-j="demo" aria-pressed="${!!demo}">${demo?'Stop':'Play'}</button><button type="button" class="secondary" data-j="hitboxes" aria-pressed="${!!api.hitboxes?.()}" title="A box round each moving part's CAD parts, moving with it">Hitboxes</button>`:''}</div></div>
         <p class="hint sim-joints-status" role="status"></p>
         ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id;return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}${list.length?actionsSection():''}`;
       // Colours go in through the style object (the page allows no inline style attributes).
@@ -200,6 +218,15 @@
       if(j.drive?.signal==='turret')return M.dot(axis,u)>=0?axis:M.scale(axis,-1);
       if(j.drive?.signal==='deploy'){const c=centroid(j);if(c){const t=M.apply(M.about(origin,axis,10),c);if(M.dot(t,u)>M.dot(c,u))return M.scale(axis,-1);}}
       return axis;}
+    // The intake's pickup box from where a ramp's or kicker's parts reach when it is down: how far past the chassis edge,
+    // how wide along it and how high (robot inches).
+    function pickupBox(j){
+      const c=ctx(),Pm=P(),n=+String(j.drive?.of||'').split(':')[1]||0,intake=api.mechanisms().intakes[n],f=api.footprint?.();if(!c||!Pm||!intake||!f)return;
+      const W=math().mul(Pm,K().motion(j,j.states?.lowered??0,unit())),[dx,dy]={front:[1,0],back:[-1,0],left:[0,1],right:[0,-1]}[intake.sides[0]]||[1,0],edge=dx>0?f.front:dx<0?f.rear:f.half;
+      let out=-Infinity,side=0,top=0;for(const k of leavesOf(j)){const v=c.vertsOf(k),step=Math.max(1,Math.floor(v.length/2000));for(let i=0;i<v.length;i+=step){const p=math().apply(W,c.P(v[i]));out=Math.max(out,dx*p[0]+dy*p[1]);side=Math.max(side,Math.abs(-dy*p[0]+dx*p[1]));top=Math.max(top,p[2]);}}
+      if(!finite(out))return status('It has no parts to measure.');const box={reach:+Math.max(0,out-edge).toFixed(2),width:+Math.max(1,2*side).toFixed(2),height:+Math.max(1,Math.min(24,top)).toFixed(2)};
+      api.setIntake(n,box);status(`Intake ${n+1}’s pickup box: ${box.reach} in out, ${box.width} in wide, ${box.height} in high, as the ${j.name.split(' · ')[0].toLowerCase()} reaches when down.`);
+    }
     function centroid(j){const c=ctx();if(!c)return null;let A=0;const s=[0,0,0];for(const k of leavesOf(j)){const f=D().feature(c,k);if(!f)continue;A+=f.area;for(let i=0;i<3;i++)s[i]+=f.area*f.center[i];}return A?s.map(v=>v/A):null;}
     // Plays a saved action on the preview, along its timeline.
     function playAction(i){
@@ -213,7 +240,8 @@
       const t0=performance.now(),step=now=>{const t=(now-t0)/1000,ph=(Math.sin(t*1.4)+1)/2,v={};
         for(const j of joints()){const d=j.drive?.signal;
           if(d==='turret')v[j.id]=60*Math.sin(t*.9);else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;v[j.id]=a+(b-a)*ph;}
-          else if(d==='hood'){const a=j.states?.rest??0,b=j.states?.shoot??0;v[j.id]=a+(b-a)*ph;}else if(['flywheel','roller','feeder','wheel'].includes(d))v[j.id]=(t*240)%360;
+          // A hood with limits shows its whole pitch range; else it goes between resting and shooting.
+          else if(d==='hood'){const lim=finite(j.lower)&&finite(j.upper)&&j.upper-j.lower>1,a=lim?j.lower:j.states?.rest??0,b=lim?j.upper:shootTilt(j,api.mechanisms().shooter?.hood);v[j.id]=a+(b-a)*ph;}else if(['flywheel','roller','feeder','wheel'].includes(d))v[j.id]=(t*240)%360;
           else if(j.type==='revolute'){const a=j.lower??-30,b=j.upper??30;v[j.id]=a+(b-a)*ph;}else if(j.type==='prismatic'){const a=j.lower??0,b=j.upper??4;v[j.id]=a+(b-a)*ph;}else if(j.type==='continuous')v[j.id]=(t*90)%360;}
         values=v;showPose();demo=requestAnimationFrame(step);};demo=requestAnimationFrame(step);render();
     }
@@ -229,6 +257,7 @@
       if(what==='step-add'){const next=structuredClone(kin()),a=next.actions[ai],last=a.steps.at(-1);a.steps.push({...structuredClone(last),after:a.steps.length-1,delay:0});api.commit(next);return;}
       if(what==='step-remove'){const next=structuredClone(kin()),a=next.actions[ai],n=+b.closest('[data-step]').dataset.step;a.steps.splice(n,1);for(const st of a.steps)if(st.after!==null&&st.after>=n)st.after=st.after>n?st.after-1:null;if(!a.steps.length)next.actions.splice(ai,1);api.commit(next);return;}
       if(what==='demo'){play();return;}
+      if(what==='hitboxes'){api.setHitboxes?.(!api.hitboxes?.());lastKey='';render();return;}
       if(what==='add'){const next=structuredClone(kin()),m=meta(),n=next.joints.length+1;let id2='joint'+n;while(next.joints.some(x=>x.id===id2))id2+='b';
         const c=ctx(),center=c?[(c.lo[0]+c.hi[0])/2,(c.lo[1]+c.hi[1])/2,(c.lo[2]+c.hi[2])/2]:[0,0,0];
         next.model=m?.id||next.model;next.unit=unit();next.joints.push({id:id2,name:`Moving part ${n}`,type:'revolute',origin:center,axis:rows()[1],parts:[],states:{up:0,down:45},speed:90,drive:{signal:'action'},source:'user',note:'Choose its parts, then pick its pivot.'});
@@ -239,7 +268,9 @@
         status(mode?{circle:'Click a round part (gear, bearing, shaft, wheel), a hole or a round edge on the model.',points:'Click a point on the pivot axis, then another along it.',parts:'Click parts to add or remove them (Shift-click: the whole assembly). Click Done when finished.'}[what]:'');api.refreshPicker();render();return;}
       if(what==='flip'){change(id,x=>{x.axis=x.axis.map(v=>-v);if(x.drive?.signal==='turret')x.zero=((x.zero||0)+360)%360-180;});return;}
       if(what==='zero'){change(id,x=>{x.zero=((((x.zero||0)+ +b.dataset.v)%360)+540)%360-180;});return;}
-      if(what==='show'){const v=j.states?.[b.dataset.v];if(finite(v)){values={...values,[id]:v};showPose();const r=li.querySelector('[data-try]');if(r)r.value=v;}return;}
+      if(what==='show'){const v=j.drive?.signal==='hood'&&b.dataset.v==='shoot'?shootTilt(j,api.mechanisms().shooter?.hood):j.states?.[b.dataset.v];if(finite(v)){values={...values,[id]:v};showPose();const r=li.querySelector('[data-try]');if(r)r.value=v;}return;}
+      if(what==='unlaunch'){change(id,x=>{x.states={...x.states,shoot:+shootTilt(x,api.mechanisms().shooter?.hood).toFixed(2)};delete x.launch;});return;}
+      if(what==='pickup'){pickupBox(j);return;}
       if(what==='floor'){const c=ctx();if(!c)return;const u=up();let floor=Infinity;for(const x of [c.lo[0],c.hi[0]])for(const y of [c.lo[1],c.hi[1]])for(const z of [c.lo[2],c.hi[2]])floor=Math.min(floor,x*u[0]+y*u[1]+z*u[2]);
         const a=D().swingToFloor(c,[...leavesOf(j)],j.origin,j.axis,{up:u,floor,clearance:.02/unit()});if(a===null)return status('It does not reach the floor within 150°; type how far it goes down.');
         change(id,x=>{x.states={...x.states,lowered:a};});values={...values,[id]:a};status(`Down set to ${a}°, where it touches the floor.`);return;}
@@ -277,6 +308,8 @@
       if(f.startsWith('state:'))return change(id,x=>{x.states={...x.states,[f.slice(6)]:v};});
       if(f.startsWith('link:')){const next=structuredClone(kin()),c=next.couplings.find(x=>x.to===id);if(c){c[f.slice(5)]=v;api.commit(next);}return;}
       if(f.startsWith('intake:')){const n=+String(j.drive?.of||'').split(':')[1]||0;api.setIntake(n,{[f.slice(7)]:v});return;}
+      if(f==='shooter:hood'){api.setShooting?.({hood:v});return;}
+      if(f==='launch')return change(id,x=>{x.launch=Math.max(0,Math.min(90,v));});
       if(f.startsWith('origin:')){const o=toRobot(j.origin);o[+f.slice(7)]=v;return change(id,x=>{x.origin=fromRobot(o);});}
       if(f.startsWith('axis:')){const a=dirToRobot(j.axis);a[+f.slice(5)]=v;if(math().len(a)<1e-6)return;return change(id,x=>{x.axis=dirFromRobot(math().unit(a));});}
       if(['zero','speed','rpm','lower','upper'].includes(f))return change(id,x=>{x[f]=v;});
@@ -284,8 +317,9 @@
     host.addEventListener('input',e=>{const el=e.target;if(!el.matches('[data-try]'))return;const id=el.closest('[data-id]')?.dataset.id;if(!id)return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:el.valueAsNumber};showPose();});
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&mode){mode=null;status('');api.refreshPicker();render();}});
     return {render,picker,discover,
-      // Called when the Mechanisms page opens: a CAD the finder has not looked at yet is looked at now.
-      shown(){const m=meta(),k=kin();if(m?.id&&k.model!==m.id&&arrays())discover({quiet:true});else render();},
+      // Called when the Mechanisms page opens: a CAD the finder has not looked at yet is looked at now, and a finding made
+      // by an older finder is made again, keeping what the team set.
+      shown(){const m=meta(),k=kin();if(m?.id&&(k.model!==m.id||k.discovered&&(k.finder||1)<FINDER)&&arrays())discover({quiet:true});else render();},
       hide(){if(demo){cancelAnimationFrame(demo);demo=0;}mode=null;}};
   }
   root.DeckJointsPanel={create};

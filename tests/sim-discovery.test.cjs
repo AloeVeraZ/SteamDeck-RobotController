@@ -58,10 +58,77 @@ test('an FTC robot: turret on its gear, flywheel, concentric hood, hinged ramp o
   assert.ok(joints.every(x=>x.source==='inferred'&&x.note),'each says it was found, and why');
   assert.deepEqual(K.sanitize({joints}).joints.map(x=>x.id),joints.map(x=>x.id),'proposals are valid joints');
 });
-test('a CAD with no named mechanism parts proposes nothing it cannot back up',()=>{
+test('a CAD with nothing to find: the turret and ramp are listed with no parts, for the team to choose (nothing is drawn)',()=>{
   const b=S.builder(),root=b.node('Blob');b.add(root,S.box([-8,-8,0],[8,8,6]));const ctx=D.prepare(b.arrays());
   const {joints,report}=D.discover(ctx,{rows:[[1,0,0],[0,1,0],[0,0,1]],unit:1,meta:{parts:[]},mechanisms:Mech.sanitize({enabled:true,intakes:[{kind:'ramp',sides:['front']}],shooters:[{type:'turret'}]})});
-  assert.equal(joints.length,0);assert.ok(report.some(r=>/stand-in/.test(r)),'it says what is drawn instead');
+  assert.deepEqual(joints.map(j=>[j.id,j.source,j.parts.length,j.drive.signal]),[['turret1','standin',0,'turret'],['deploy1','standin',0,'deploy']],'only placeholders, moving no part');
+  const turret=joints[0],ramp=joints[1];near(turret.axis,[0,0,1],1e-9,'a turret turns about up');near(turret.origin[2],6,1e-9,'on top of the robot');
+  near(ramp.axis,[0,1,0],1e-9,'a front ramp hinges along the front edge, folding out and down');assert.ok(ramp.origin[0]>6,'at the front');
+  assert.ok(report.some(r=>/listed under Moving parts with no parts yet/.test(r)),'it says where to set them up');
+  assert.deepEqual(K.sanitize({joints}).joints.map(j=>j.source),['standin','standin'],'kept as they are when stored');
+});
+// The FTC robot's mechanisms with no CAD parts named in the setup (as a setup made before linking, or by hand).
+const unnamed=r=>Mech.sanitize({...r.mechanisms,intakes:r.mechanisms.intakes.map(({parts,...i})=>i),shooters:r.mechanisms.shooters.map(({parts,...s})=>s)});
+test('a setup that names no CAD parts is linked to the CAD’s own named assemblies, and finds the same joints',()=>{
+  const r=S.ftcRobot(),ctx=D.prepare(r.arrays),rows=[[1,0,0],[0,1,0],[0,0,1]];
+  const named=D.discover(ctx,{rows,unit:1,meta:r.meta,mechanisms:Mech.sanitize(r.mechanisms)}),linked=D.discover(ctx,{rows,unit:1,meta:r.meta,mechanisms:unnamed(r)});
+  const shape=out=>out.joints.map(j=>[j.id,j.source,[...ctx.parts.expand(j.parts)].sort((a,b)=>a-b).join(),j.origin.map(v=>v.toFixed(3)).join()]);
+  assert.deepEqual(shape(linked),shape(named),'the same parts move about the same pivots');
+  assert.ok(linked.report.some(x=>/Shooter 1: .*linked to “Pollen shooter” on “Turret”/.test(x)),linked.report.join(' | '));assert.ok(linked.report.some(x=>/Intake 1: .*linked to “Front intake”/.test(x)));
+});
+test('a CAD with no assembly names: the flywheel, its turntable and the ramp’s hinge are found from shapes alone',()=>{
+  const r=S.ftcRobot(),ctx=D.prepare(r.arrays),L=r.leaves,{joints,report}=D.discover(ctx,{rows:[[1,0,0],[0,1,0],[0,0,1]],unit:1,meta:{...r.meta,parts:[]},mechanisms:unnamed(r)}),j=id=>joints.find(x=>x.id===id),leaves=x=>ctx.parts.expand(x.parts);
+  assert.ok(report.some(x=>/looked for in the whole CAD/.test(x)),report.join(' | '));
+  const turret=j('turret1');assert.equal(turret.source,'inferred');near(turret.origin.slice(0,2),[-3,0],1e-3,'on the turntable gear');assert.ok(leaves(turret).has(L.flywheel)&&leaves(turret).has(L.gear)&&!leaves(turret).has(L.base),'carries the shooter, not the base');
+  assert.ok(j('flywheel1')&&j('hood1'),'the flywheel and hood too');
+  const ramp=j('deploy1');assert.equal(ramp.source,'inferred');near(lineDistance([8.5,0,5],ramp.origin,ramp.axis),0,.02,'on the servo hub line');assert.ok(leaves(ramp).has(L.ramp)&&!L.wheels.some(k=>leaves(ramp).has(k)),'the ramp plate swings, the wheels do not');
+  assert.ok(ramp.confidence<.7,'guessed from its side, so marked for checking');assert.ok(!joints.some(x=>x.drive?.signal==='roller'),'rollers are not guessed (the drive wheels are on that side too)');
+});
+test('a hood knows the angle its CAD launches at and tilts to the game’s launch angle, positive raising the shot',()=>{
+  const r=S.ftcRobot(),ctx=D.prepare(r.arrays),{joints}=D.discover(ctx,{rows:[[1,0,0],[0,1,0],[0,0,1]],unit:1,meta:r.meta,mechanisms:Mech.sanitize(r.mechanisms)}),hood=joints.find(x=>x.id==='hood1');
+  // The hood arc runs from 30° above level round to 60° below on the flywheel's front; the spin carries the piece up
+  // it, so the shot leaves its top end, along the arc: 60° above level.
+  near(hood.launch,60,1.5,'launch angle in the CAD');
+  const exit=[-4.5+3.8*Math.cos(Math.PI/6),0,9+3.8*Math.sin(Math.PI/6)],W=K.worlds(K.sanitize({joints:[{...hood,parent:null}]}),{hood1:[10]}).get('hood1'),moved=K.math.apply(W,exit);
+  assert.ok(moved[2]<exit[2],'a positive tilt turns the exit end down round the axle, so the shot leaves steeper');
+  // Nothing stops it within 45° either way here; on a robot with a block 0.2 in past its lower end, it stops about 3.5°
+  // steeper (it never tilts through another part), and flattening stays free.
+  assert.deepEqual([hood.lower,hood.upper],[-45,45],'free both ways');
+  const stopped=D.discover(D.prepare(S.ftcRobot({hoodStop:true}).arrays),{rows:[[1,0,0],[0,1,0],[0,0,1]],unit:1,meta:r.meta,mechanisms:Mech.sanitize(r.mechanisms)}).joints.find(x=>x.id==='hood1');
+  assert.ok(stopped.upper>=1.5&&stopped.upper<=4.5,`stops before the block (${stopped.upper}°)`);assert.equal(stopped.lower,-45,'free to flatten');
+  const drive=(joint,s)=>{const d=new K.Driver(K.sanitize({joints:[{...joint,parent:null}]}));for(let i=0;i<100;i++)d.tick(.02,{spin:true,...s});return d;};
+  near(drive(stopped,{hood:75}).values().hood1,stopped.upper,1e-6,'75° is past its limit: it tilts as far as it can');
+  const d=drive(hood,{hood:75});near(d.values().hood1,15,1e-6,'15° to shoot at 75°');
+  for(let i=0;i<100;i++)d.tick(.02,{hood:75});near(d.values().hood1,0,1e-6,'back to rest after');
+});
+// A turret driven through gears: a servo turns a 100-tooth gear, which turns a 24-tooth pinion on the shaft of a
+// 20-tooth gear meshing with the turntable gear (as on the team's own robot).
+function geared(){
+  const b=S.builder(),root=b.node('Robot'),base=b.node('Base',root),turret=b.node('Turret',root),drive=b.node('Turret drive',root),L={};
+  L.frame=b.add(b.node('Frame',base),S.box([-8,-8,1],[8,8,4]));
+  L.gear=b.add(b.node('Turntable gear',turret),S.cylinder({center:[0,0,6],axis:[0,0,1],r:3,length:.25,seg:180}));
+  L.top=b.add(b.node('Turret plate',turret),S.box([-2,-2,6.2],[2,2,6.6]));
+  const d1=3+.75*.94-.04;L.spur=b.add(b.node('Spur gear (20 teeth)',drive),S.cylinder({center:[d1,0,6],axis:[0,0,1],r:.75,length:.4,seg:60}));
+  L.pinion=b.add(b.node('24 Pinion Gear',drive),S.cylinder({center:[d1,0,4.8],axis:[0,0,1],r:.42,length:.4,seg:60}));
+  L.shaft=b.add(b.node('Shaft',drive),S.cylinder({center:[d1,0,5.4],axis:[0,0,1],r:.12,length:1.6,seg:12}));
+  L.big=b.add(b.node('100t Hub Mount Gear',drive),S.cylinder({center:[d1,2.0,4.8],axis:[0,0,1],r:1.62,length:.25,seg:180}));
+  L.hub=b.add(b.node('Servo Hub',drive),S.cylinder({center:[d1,2.0,4.4],axis:[0,0,1],r:.5,length:.3,seg:24}));
+  L.servo=b.add(b.node('Mini Servo',drive),S.box([d1-.8,1.2,3.4],[d1+.8,2.8,4.2]));
+  const meta={id:'abcdefabcdefabcdefabcdefabcdefab.glb',units:'in',front:'+x',top:'+z',parts:[{name:'Base',role:'chassis',key:'Robot/Base',box:[-8,-8,1,8,8,4]},{name:'Turret',role:'shooter',type:'turret',key:'Robot/Turret',box:[-3,-3,5.875,3,3,6.6]}]};
+  return {arrays:b.arrays(),leaves:L,meta,d1};
+}
+test('gears meshing with a turret turn with it, by their tooth ratios, back to the servo (its body stays)',()=>{
+  const r=geared(),ctx=D.prepare(r.arrays),L=r.leaves,mechanisms=Mech.sanitize({enabled:true,shooters:[{type:'turret',pieces:'pollen',mount:'center',parts:['Turret']}],intakes:[]});
+  const {joints,couplings}=D.discover(ctx,{rows:[[1,0,0],[0,1,0],[0,0,1]],unit:1,meta:r.meta,mechanisms}),j=id=>joints.find(x=>x.id===id),leaves=x=>ctx.parts.expand(x.parts);
+  assert.equal(D.teethOfName('Spur gear (20 teeth)'),20);assert.equal(D.teethOfName('100t Hub Mount Gear - 14mm Round Bore (GB)'),100);assert.equal(D.teethOfName('24 Pinion Gear - 8mm REX Bore (GB)'),24);
+  assert.equal(D.teethOfName('8mm REX  MOD 1 (24T) (GB)'),24);assert.equal(D.teethOfName('2302 Series Aluminum, MOD 0.8, Hub Mount Gear (14mm Bore, 108 Tooth)'),108);assert.equal(D.teethOfName('Shaft'),null);
+  const g1=j('turret1gear1'),g2=j('turret1gear2');assert.ok(g1&&g2,JSON.stringify(joints.map(x=>x.id)));
+  assert.ok(leaves(g1).has(L.spur)&&leaves(g1).has(L.pinion),'the 20-tooth gear and the 24-tooth pinion on its shaft turn together');
+  assert.ok(leaves(g2).has(L.big)&&leaves(g2).has(L.hub)&&!leaves(g2).has(L.servo),'the 100-tooth gear and servo hub turn; the servo body stays');
+  near(g1.origin.slice(0,2),[r.d1,0],1e-3);assert.equal(g1.drive,undefined,'they follow, nothing drives them');
+  const c1=couplings.find(c=>c.to==='turret1gear1'),c2=couplings.find(c=>c.to==='turret1gear2'),pitch=.75*20/22;
+  assert.equal(c1.from,'turret1');near(c1.ratio,-(r.d1-pitch)/pitch,.05,'the other way, by the pitch radii');assert.equal(c2.from,'turret1gear1');near(c2.ratio,-24/100,1e-9,'by the tooth counts');
+  const model=K.sanitize({joints,couplings}),q=K.resolve(model,{turret1:[10]});near(q.turret1gear2[0],10*c1.ratio*c2.ratio,1e-6,'a turn of the turret turns the servo hub');
 });
 test('any robot: an arm turns on the hinge that joins it to the frame, a slide moves along its rails, both by route actions',()=>{
   const r=S.armAndSlide(),ctx=D.prepare(r.arrays),{joints}=D.discover(ctx,{rows:[[1,0,0],[0,1,0],[0,0,1]],unit:1,meta:r.meta,mechanisms:Mech.sanitize({})}),L=r.leaves,leaves=j=>ctx.parts.expand(j.parts);

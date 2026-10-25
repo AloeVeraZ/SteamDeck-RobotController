@@ -1714,8 +1714,12 @@ public class MyAuto implements DeckAutonomous {
     // The split depends only on which parts each joint moves and what stand-ins the mechanisms need; other joint settings retune it.
     const k=project.kinematics,game=L().field==='biobuzz'&&project.mechanisms,shape=k.joints.map(j=>[j.id,j.parent,j.parts,j.drive&&j.drive.signal+':'+(j.drive.of||'')]);
     if(!base||!model)return base;const key=JSON.stringify([base.uuid,project.model?.id,k.model,shape,game&&{on:game.enabled,i:game.intakes.map(i=>[i.kind,i.sides,i.parts]),s:game.shooters.map(x=>[x.type,x.mount,x.parts,x.sharesTurret])},chassisFootprint(),project.robot.heightIn]);if(model[slot+'Key']===key)return M().retune(model[slot],k);
-    model[slot]=M().rig(base.clone(),{meta:project.model,mechanisms:L().field==='biobuzz'?project.mechanisms:null,kinematics:project.kinematics,footprint:chassisFootprint(),height:base.userData?.size?.height??project.robot.heightIn});model[slot+'Key']=key;return model[slot];
+    model[slot]=M().rig(base.clone(),{meta:project.model,mechanisms:L().field==='biobuzz'?project.mechanisms:null,kinematics:project.kinematics,footprint:chassisFootprint(),height:base.userData?.size?.height??project.robot.heightIn});model[slot+'Key']=key;
+    M().hitboxes(model[slot],project.hitboxes);return model[slot];
   }
+  // Hitboxes (the 3D view's button and the Moving parts panel's): the field's markers and each moving part's box.
+  function showHitboxes(on){project.hitboxes=!!on;save();$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));for(const slot of ['fieldRig','mechRig'])M()?.hitboxes(model?.[slot],project.hitboxes);
+    view3d?.update(frame,state3d());mechPreview?.resize();}
   const fieldRig=()=>rigOf(fieldBody(),'fieldRig'),mechRig=()=>rigOf(model?.holder,'mechRig');
   function modelUi(){
     const meta=project.model,builtin=model?.builtin;$('#sim-model-box').hidden=!meta&&!builtin;$('#sim-model-drop').classList.toggle('compact',!!meta||!!builtin);
@@ -1986,7 +1990,7 @@ public class MyAuto implements DeckAutonomous {
     draw();
   }
   for(const b of $$('[data-view]'))b.onclick=()=>void setView(b.dataset.view);
-  $('#sim-hitboxes').onclick=()=>{project.hitboxes=!project.hitboxes;save();$('#sim-hitboxes').setAttribute('aria-pressed',String(project.hitboxes));view3d?.update(frame,state3d());};
+  $('#sim-hitboxes').onclick=()=>showHitboxes(!project.hitboxes);
   $('#sim-game-elements').onchange=e=>{L().elements=e.target.checked;save();reload();};
   function selectTab(name){if(tab!==name){pointer=null;drag=null;}tab=name;root.dataset.tab=name;if(name==='plan'&&planningStep==='start')tool='start';for(const b of $$('[data-tab]')){b.setAttribute('aria-selected',String(b.dataset.tab===name));b.tabIndex=b.dataset.tab===name?0:-1;}for(const p of $$('[data-panel]'))p.hidden=p.dataset.panel!==name;$('.simulation-layout').hidden=name==='video';studio?.show(name==='video');$('.field-area').hidden=name==='setup';$('.sim-toolbar [data-tool]').parentElement.hidden=name==='run';$('#sim-telemetry').hidden=name!=='run';$('#sim-run-timing').hidden=name!=='run';$('.sim-planning-steps').hidden=name!=='plan';
     document.body.classList.toggle('sim-workspace',active&&name!=='setup');if($('#sim-live-status'))$('#sim-live-status').hidden=name!=='plan'||!$('#sim-live-status').textContent;activeSetupPanel();window.scrollTo(0,0);if(name==='plan')planningPanel();if(name==='setup')stageMarks();else if(name!=='video')refreshDiagnostics();if(name!=='run'&&frame?.playing)void call('pause');view3d?.resize();modelPreview?.resize?.();}
@@ -2139,7 +2143,8 @@ public class MyAuto implements DeckAutonomous {
   const joints=window.DeckJointsPanel.create({host:$('#mech-joints'),api:{
     kinematics:()=>project.kinematics,mechanisms:()=>L().field==='biobuzz'?project.mechanisms:window.DeckMechanisms.sanitize({}),model:()=>model,meta:()=>project.model,preview:()=>mechPreview,
     commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechModel();view3d?.setModel(fieldRig());reload();},
-    setIntake(n,patch){setMech(m=>{if(m.intakes[n])Object.assign(m.intakes[n],patch);});},refreshPicker(){mechModel();}}});
+    setIntake(n,patch){setMech(m=>{if(m.intakes[n])Object.assign(m.intakes[n],patch);});},setShooting(patch){setMech(m=>{Object.assign(m.shooter,patch);});},footprint:()=>chassisFootprint(),
+    hitboxes:()=>!!project.hitboxes,setHitboxes:showHitboxes,refreshPicker(){mechModel();}}});
   mechanismsPanel();presetPanel();
   // Setup runs in order like Path planning: 1 Field, 2 Robot controller (and its sensing), 3 Robot.
   // Mechanisms are part of the BIOBUZZ game; on an empty field the robot is a chassis that drives the route, so Setup skips them.

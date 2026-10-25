@@ -198,14 +198,19 @@
   // (same vertex buffers, own triangle list, so nothing is copied), in a group whose matrix pose() sets from the
   // joint values. The groups sit straight under the holder: P · W(joint) carries a link from the CAD's rest frame to
   // the robot frame (P is the body's placement, W the joint's motion in the CAD frame). Joints are kept only for the
-  // CAD they were made for. A game mechanism with no CAD parts gets a plain stand-in shape on a joint of its own (in
-  // the robot frame: inches, x forward, y left, z up). userData.kin holds what posing needs, JSON-safe so clones keep it.
+  // CAD they were made for. A game mechanism with no CAD parts gets a joint of its own (in the robot frame: inches,
+  // x forward, y left, z up) so the software still knows it turns: on an imported CAD nothing is drawn for it (the CAD
+  // is the robot), on a bundled chassis a plain stand-in shape is. Each moving CAD link carries its hitbox, a box round
+  // its parts that moves with it (shown by hitboxes()). userData.kin holds what posing needs, JSON-safe so clones keep
+  // it, with kin.boxes (each link's box, CAD frame) and kin.turrets (each drawn turret's shape, for the video cameras).
   const SIDE_DIR={front:[1,0],back:[-1,0],left:[0,1],right:[0,-1]};
   const Kin=()=>globalThis.DeckKinematics||(typeof require==='function'?require('./sim-kinematics.js'):null);
+  // Hitbox colours by what drives the link; links not listed (gears that follow, drive wheels, feeders) get none.
+  const HITBOX={turret:0x8e4ec6,hood:0xf29d38,deploy:0xe5484d,flywheel:0x2fa84f,roller:0x12a5c9,action:0x4ea1ff,steer:0x7a8594};
   function rig(holder,{meta,mechanisms,kinematics,footprint,height=12}={}){
     const {THREE:T}=three(),K=Kin();if(!K)return holder;
     const model=K.sanitize(kinematics),m=mechanisms?.enabled?mechanisms:null;let mesh=null;holder.traverse(o=>{if(o.isMesh&&!mesh&&o.geometry?.attributes?._part)mesh=o;});
-    const cad=mesh&&meta?.id&&model.model===meta.id?model.joints:[],kin={model:{...model,joints:[]},P:null,standIns:[]};
+    const cad=mesh&&meta?.id&&model.model===meta.id?model.joints:[],kin={model:{...model,joints:[]},P:null,standIns:[],boxes:{},turrets:[]};
     holder.updateMatrixWorld(true);const P=mesh?new T.Matrix4().copy(holder.matrixWorld).invert().multiply(mesh.matrixWorld):null;if(P)kin.P=P.toArray();
     if(cad.length){
       const g=mesh.geometry,parts=K.partIndex(g.userData.parts),list=K.order({...model,joints:cad}),owner=new Int16Array(Math.max(1,parts.leafCount)).fill(-1);
@@ -218,35 +223,58 @@
       const piece=index=>{const out=new T.BufferGeometry();for(const [name,a] of Object.entries(g.attributes))out.setAttribute(name,a);out.setIndex(new T.BufferAttribute(index,1));out.userData=g.userData;
         out.boundingSphere=g.boundingSphere||(g.computeBoundingSphere(),g.boundingSphere);out.boundingBox=g.boundingBox;return out;};
       mesh.geometry=piece(lists[0]);
+      const pos=g.attributes.position,boxOf=index=>{const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let i=0;i<index.length;i++){const v=index[i];for(let c=0;c<3;c++){const x=pos.getComponent(v,c);if(x<lo[c])lo[c]=x;if(x>hi[c])hi[c]=x;}}return index.length?{lo,hi}:null;};
+      const materials=new Map(),hitMaterial=color=>{let mat=materials.get(color);if(!mat){mat=new T.LineBasicMaterial({color,depthTest:false,transparent:true,opacity:.9});mat.visible=false;materials.set(color,mat);}return mat;};
       list.forEach((j,i)=>{const group=new T.Group();group.name='DeckLink:'+j.id;group.matrixAutoUpdate=false;group.matrix.copy(P);group.userData.deckLink=j.id;
-        if(lists[i+1].length){const part=new T.Mesh(piece(lists[i+1]),mesh.material);part.castShadow=mesh.castShadow;part.receiveShadow=mesh.receiveShadow;group.add(part);}
+        if(lists[i+1].length){const part=new T.Mesh(piece(lists[i+1]),mesh.material);part.castShadow=mesh.castShadow;part.receiveShadow=mesh.receiveShadow;group.add(part);
+          const b=boxOf(lists[i+1]),color=HITBOX[j.drive?.signal];kin.boxes[j.id]=b&&{lo:b.lo.map(v=>+v.toFixed(4)),hi:b.hi.map(v=>+v.toFixed(4))};
+          // Its hitbox, in the CAD frame like its parts, so it moves with them. Shown only while hitboxes are on.
+          if(b&&color!==undefined){const box=new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(b.hi[0]-b.lo[0]||1e-3,b.hi[1]-b.lo[1]||1e-3,b.hi[2]-b.lo[2]||1e-3)),hitMaterial(color));
+            box.position.set((b.lo[0]+b.hi[0])/2,(b.lo[1]+b.hi[1])/2,(b.lo[2]+b.hi[2])/2);box.name='DeckHitbox:'+j.id;box.userData.deckHitbox=j.id;box.renderOrder=12;box.raycast=()=>{};group.add(box);}}
         holder.add(group);});
       kin.model.joints.push(...list.map(({parts,alternatives,note,...j})=>j));}
-    // Stand-ins for game mechanisms the CAD has no parts (or joint) for.
-    if(m){const driven=new Set(kin.model.joints.map(j=>j.drive&&j.drive.signal+':'+(j.drive.of||'')));
-      m.shooters.forEach((s,n)=>{if(s.type!=='turret'||s.sharesTurret||s.parts?.length||driven.has('turret:shooter:'+n))return;standIn(holder,kin,{kind:'turret',n,shooter:s},footprint,height);});
-      m.intakes.forEach((i,n)=>{if(!['ramp','kicker'].includes(i.kind)||i.parts?.length||driven.has('deploy:intake:'+n))return;standIn(holder,kin,{kind:'deploy',n,intake:i},footprint,height);});}
-    holder.userData.kin=kin;linkCache.delete(holder);return holder;
+    // Game mechanisms the CAD has no parts (or joint) for: a joint the software can turn, drawn only on a bundled chassis.
+    if(m){const driven=new Set(kin.model.joints.map(j=>j.drive&&j.drive.signal+':'+(j.drive.of||''))),drawn=!mesh;
+      m.shooters.forEach((s,n)=>{if(s.type!=='turret'||s.sharesTurret||s.parts?.length||driven.has('turret:shooter:'+n))return;standIn(holder,kin,{kind:'turret',n,shooter:s,drawn},footprint,height);});
+      m.intakes.forEach((i,n)=>{if(!['ramp','kicker'].includes(i.kind)||i.parts?.length||driven.has('deploy:intake:'+n))return;standIn(holder,kin,{kind:'deploy',n,intake:i,drawn},footprint,height);});}
+    holder.userData.kin=kin;linkCache.delete(holder);turretShapes(holder);return holder;
   }
-  // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own.
+  // Each CAD turret's shape at a turret angle of 0, in inches from its pivot (x forward, the way it fires), with what
+  // rides on it, into kin.turrets (after the drawn stand-ins): the run-video cameras ride on it and keep out of it.
+  function turretShapes(holder){
+    const kin=holder.userData.kin,K=Kin(),M=K.math,links=linksOf(holder),stand=new Set(kin.standIns),joints=kin.model.joints;if(!kin.P)return;
+    const key=JSON.stringify(joints.filter(j=>j.drive?.signal==='turret').map(j=>[j.id,j.origin,j.axis,j.zero]));if(kin.turretKey===key)return;kin.turretKey=key;
+    kin.turrets=kin.turrets.filter(t=>stand.has(`standin-turret${t.n+1}`));
+    for(const j of joints){if(j.drive?.signal!=='turret'||stand.has(j.id))continue;const n=+String(j.drive.of||'').split(':')[1]||0,R=M.mul(kin.P,M.about(j.origin,j.axis,-(j.zero||0))),pivot=M.apply(kin.P,j.origin);
+      const riders=new Set([j.id]);let grew=true;while(grew){grew=false;for(const x of joints)if(!riders.has(x.id)&&riders.has(x.parent)){riders.add(x.id);grew=true;}}
+      const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+      for(const id of riders){const part=links.get(id)?.children.find(o=>o.isMesh),index=part?.geometry.index,pos=part?.geometry.attributes.position;if(!index)continue;const step=Math.max(1,Math.floor(index.count/6000));
+        for(let q=0;q<index.count;q+=step){const v=index.getX(q),p=M.apply(R,[pos.getX(v),pos.getY(v),pos.getZ(v)]),d=[p[0]-pivot[0],p[1]-pivot[1],p[2]];for(let c=0;c<3;c++){if(d[c]<lo[c])lo[c]=d[c];if(d[c]>hi[c])hi[c]=d[c];}}}
+      if(lo[0]<=hi[0])kin.turrets.push({n,pivot:[+pivot[0].toFixed(3),+pivot[1].toFixed(3)],z0:+lo[2].toFixed(3),z1:+hi[2].toFixed(3),x0:+lo[0].toFixed(3),x1:+hi[0].toFixed(3),y:+Math.max(-lo[1],hi[1]).toFixed(3),tip:+hi[0].toFixed(3)});}
+  }
+  // Shows or hides a rig's hitboxes. Clones share their materials, so every view of the same rig follows.
+  function hitboxes(holder,on){const seen=new Set();holder?.traverse(o=>{if(o.userData?.deckHitbox&&!seen.has(o.material)){seen.add(o.material);o.material.visible=!!on;}});return seen.size;}
+  // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own; on an imported
+  // CAD only the joint (w.drawn false).
   function standIn(holder,kin,w,footprint,height){
     const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let geometry,joint;
     if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(1,height);
       const base=new T.CylinderGeometry(3.4,3.4,1.4,24);base.rotateX(Math.PI/2);base.translate(ox,oy,top+.7);const body=new T.BoxGeometry(6,4.6,3.2);body.translate(ox+.4,oy,top+3);
       const barrel=new T.CylinderGeometry(1.1,1.1,5,16);barrel.rotateZ(-Math.PI/2);barrel.translate(ox+5.4,oy,top+3.4);geometry=mergeGeometries([base,body,barrel].map(g=>g.toNonIndexed()));
-      joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};}
+      joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};
+      if(w.drawn)kin.turrets.push({n:w.n,pivot:[ox,oy],z0:top,z1:top+4.6,x0:-3.4,x1:3.4,y:3.4,tip:7.9});}
     else{const side=(w.intake.sides||['front'])[0],[dx,dy]=SIDE_DIR[side]||SIDE_DIR.front,e=dx>0?f.front:dx<0?f.rear:f.half,width=Math.min(14,(dx?2*f.half:f.front+f.rear)-2);
       geometry=new T.BoxGeometry(dx?.7:width,dx?width:.7,6.5);geometry.translate(dx*(e+.35),dy*(e+.35),3.6);geometry=geometry.toNonIndexed();
       // Hinged along its inner bottom edge, it folds out and down.
       joint={id,name:`${w.intake.kind==='kicker'?'Kicker':'Ramp'} · intake ${w.n+1}`,type:'revolute',origin:[dx*e,dy*e,.35],axis:[-dy,dx,0],states:{raised:0,lowered:80},drive:{signal:'deploy',of:'intake:'+w.n},source:'standin'};}
     const group=new T.Group();group.name='DeckLink:'+id;group.matrixAutoUpdate=false;group.userData.deckLink=id;
-    const part=new T.Mesh(geometry,new T.MeshStandardMaterial({color:w.kind==='turret'?0x5b6472:0x8a6d3b,roughness:.55,metalness:.2}));part.castShadow=part.receiveShadow=true;group.add(part);holder.add(group);
-    kin.model.joints.push(joint);kin.standIns.push(id);
+    if(w.drawn){const part=new T.Mesh(geometry,new T.MeshStandardMaterial({color:w.kind==='turret'?0x5b6472:0x8a6d3b,roughness:.55,metalness:.2}));part.castShadow=part.receiveShadow=true;group.add(part);}else geometry.dispose();
+    holder.add(group);kin.model.joints.push(joint);kin.standIns.push(id);
   }
   // Settings that do not change which parts move (pivots, positions, speeds, a turret's heading, couplings, loops,
   // actions) update a rig in place, so editing them does not split the body again.
   function retune(holder,kinematics){const kin=holder?.userData?.kin;if(!kin)return holder;const m=Kin().sanitize(kinematics),byId=new Map(m.joints.map(j=>[j.id,j]));
-    kin.model={...m,joints:kin.model.joints.map(j=>{const n=byId.get(j.id);if(!n||kin.standIns.includes(j.id))return j;const {parts,alternatives,note,...rest}=n;return rest;})};return holder;}
+    kin.model={...m,joints:kin.model.joints.map(j=>{const n=byId.get(j.id);if(!n||kin.standIns.includes(j.id))return j;const {parts,alternatives,note,...rest}=n;return rest;})};turretShapes(holder);return holder;}
   // The link groups under a holder (found again on each clone).
   const linkCache=new WeakMap();
   function linksOf(holder){let c=linkCache.get(holder);if(!c){c=new Map();holder.traverse(o=>{if(o.userData.deckLink)c.set(o.userData.deckLink,o);});linkCache.set(holder,c);}return c;}
@@ -439,5 +467,5 @@
     }
     return {update(...a){glowKey=null;glow=[];return update(...a);},look,pick,highlight,markers,gizmos,posed,body:()=>body,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
   }
-  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig,retune,pose,gameValues,linksOf};
+  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig,retune,pose,gameValues,linksOf,hitboxes};
 });

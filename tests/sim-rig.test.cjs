@@ -69,6 +69,29 @@ test('a robot without CAD parts for its mechanisms gets stand-ins that the frame
   assert.deepEqual([...groups.keys()].sort(),['standin-deploy1','standin-turret1']);
   const group=new T.Group();group.add(rigged);R.animate(group,{time:0,truth:{x:0,y:0,heading:0,vx:0,vy:0,omega:0},mechanisms:{turrets:[90],deploy:[0]}});
   const e=new T.Euler().setFromRotationMatrix(groups.get('standin-turret1').matrix);near(e.z,Math.PI/2,1e-9,'turret stand-in faces left at 90°');
+  assert.ok(groups.get('standin-turret1').children.some(o=>o.isMesh),'a bundled chassis draws the stand-in');assert.equal(rigged.userData.kin.turrets.length,1,'and the cameras know its shape');
+});
+test('an imported CAD never gets a stand-in shape: the joint is there for the software, nothing is drawn',{skip},()=>{
+  const {holder,r,footprint}=setup(),mechanisms=Mech.sanitize({enabled:true,intakes:[{kind:'ramp',sides:['front']}],shooters:[{type:'turret',pieces:'pollen',mount:'center'}]});
+  const rigged=R.rig(holder.clone(),{meta:r.meta,mechanisms,kinematics:K.EMPTY(),footprint}),groups=R.linksOf(rigged),kin=rigged.userData.kin;
+  assert.deepEqual([...groups.keys()].sort(),['standin-deploy1','standin-turret1'],'joints the game can turn');
+  assert.ok([...groups.values()].every(g=>!g.children.length),'with nothing in them');assert.equal(kin.turrets.length,0,'and no turret shape for the cameras to ride on');
+  const meshes=[];rigged.traverse(o=>{if(o.isMesh)meshes.push(o);});assert.equal(meshes.length,1,'only the CAD body is drawn');
+});
+test('each moving CAD part has a hitbox round its parts that moves with it, hidden until shown; turrets give the cameras their shape',{skip},()=>{
+  const {T,holder,r,mechanisms,kinematics,footprint}=setup(),rigged=R.rig(holder.clone(),{meta:r.meta,mechanisms,kinematics,footprint}),kin=rigged.userData.kin,L=r.leaves;
+  const boxes=[];rigged.traverse(o=>{if(o.userData.deckHitbox)boxes.push(o);});
+  assert.deepEqual(boxes.map(b=>b.userData.deckHitbox).sort(),['deploy1','flywheel1','hood1','roller1','turret1'],'turret, flywheel, hood, ramp and roller; not the drive wheels');
+  assert.ok(boxes.every(b=>b.material.visible===false),'hidden at first');
+  // The ramp's box: its arms, plate and hinge (CAD frame).
+  near(kin.boxes.deploy1.lo,[7.9,-7,2.5],.15,'ramp box low corner');near(kin.boxes.deploy1.hi,[14,7,5.6],.15,'ramp box high corner');
+  const copy=rigged.clone();R.hitboxes(rigged,true);const shown=[];copy.traverse(o=>{if(o.userData.deckHitbox)shown.push(o.material.visible);});assert.ok(shown.length&&shown.every(Boolean),'a clone (the 3D view’s copy) shows them too');
+  R.pose(rigged,{deploy1:90});rigged.updateMatrixWorld(true);const ramp=boxes.find(b=>b.userData.deckHitbox==='deploy1'),c=new T.Vector3().setFromMatrixPosition(ramp.matrixWorld),P=new T.Matrix4().fromArray(kin.P);
+  const hinge=new T.Vector3(8.5,0,5).applyMatrix4(P),before=new T.Vector3(11,0,4.05).applyMatrix4(P);assert.ok(c.z<before.z-1,`the box swings down with the ramp (${c.z.toFixed(2)})`);near(c.distanceTo(hinge),before.distanceTo(hinge),.05,'about the hinge');
+  // The turret fires toward the back in the CAD (zero 180): at a turret angle of 0 it faces forward, so its shooter is
+  // ahead of the pivot.
+  const t=kin.turrets[0];assert.equal(kin.turrets.length,1);assert.equal(t.n,0);near(t.pivot,new T.Vector3(-3,0,6).applyMatrix4(P).toArray().slice(0,2),1e-3,'pivot on the turntable');
+  near([t.x0,t.x1],[-3,4],.05,'from the back of the gear to the end of the side plate (4 in behind the pivot in the CAD), now facing forward');assert.ok(t.z1>t.z0&&t.tip===t.x1&&t.y>=2.9,JSON.stringify(t));
 });
 test('mecanum wheels roll with sideways motion too: one diagonal pair forward, the other back',{skip},()=>{
   const {T,holder,r,mechanisms,footprint}=setup(),ctx=D.prepare(r.arrays),found=D.discover(ctx,{rows:R.rows(r.meta),unit:1,meta:r.meta,mechanisms});

@@ -225,6 +225,17 @@ The user asked for the CAD's mechanisms to move in the simulator (turrets turnin
 - On the user's lunala CAD: 14 moving parts in ~0.5 s (Node) / ~2 s in the worker; renders of each posed (ramp down to the floor at 71°, turrets on their gears, hoods on the flywheel axles) and a 3D run whose frames carry the joint values.
 - Later passes the same day: step 3 is **Moving parts** on fields other than BIOBUZZ (game mechanisms from part names become route-action parts; arms, claws, wrists, lifts and slides proposed from assembly names); links (Follows by a ratio), loops (Pin it to) and saved actions in the panel, offered in the path and pin action pickers; mecanum wheels roll sideways too; **URDF import** with confirmed joints (`ui/sim-urdf.js`, `package://` meshes); **Check clearance** (`ui/sim-collide.js`: oriented-box sweeps in the worker; on lunala, turret 2's hood servo meets turret 1's pulley at 114°); edits retune the rig in place instead of re-splitting the body. Ten non-FTC robots (UR5 against Denavit–Hartenberg, SCARA, gantry, cascade lift, gripper, lead screw and spool, swerve, humanoid arm IK, quadruped leg, delta) are in `tests/sim-kinematics-robots.test.cjs`. Measured: a 3D run with all 14 lunala joints animating holds 60 fps with no long tasks; the end-to-end UI suite passes.
 
+### The CAD is the robot: real shooters, pitch gears and the LUNALA ramp (25 October, evening)
+
+The user's Mechanisms preview drew made-up turret boxes and a ramp plate over their CAD. They asked for the CAD's own shooters to turn (turret yaw on the turntable gears, pitch through the gear racks on both sides of each hood), the LUNALA ramp to fold on its servo, hitboxes for these, everything configurable on the Mechanisms page, and for it to work on any team's CAD. Design and limits: `docs/MECHANISM_ENGINE.md` (iteration 6); user guide: `docs/SIMULATION.md` (Moving parts).
+
+- Cause: the user's current setup names no CAD assemblies for its shooters and intake, so the finder skipped them and the rig drew stand-ins.
+- `ui/sim-discovery.js`: links game mechanisms to CAD assemblies by role, pieces and place, or by geometry with no names; lists unfound turrets and ramps (`standin`, no parts); finds meshing gears (tooth counts or sizes, branches) as coupled joints; works out each hood's CAD launch angle; keeps hoods within a points clearance sweep (`sim-collide.js` `points`); hood shafts keep their spacers.
+- `ui/sim-robot-model.js`: stand-ins are joints only on an imported CAD; hitbox per moving link (`hitboxes()`), `kin.boxes`, `kin.turrets` from CAD turrets (the camera session's contract).
+- `ui/sim-kinematics.js` + `src/sim-engine.cjs`: a hood with `launch` tilts to `s.hood − launch` within its limits; `finder` version kept.
+- `ui/sim-joints.js`: Not in your CAD yet rows, launch angle and limits for hoods, Pickup box from the ramp, Hitboxes toggle (shared with the 3D view's), older findings made again.
+- On the user's setup (copied, untouched) in the app: 22 moving parts; renders and a 3D run checked. The hood is at its steepest in the CAD (53°/57° launch), so at the game's 70–85° it holds; Play sweeps its 18°/21° range.
+
 ### lunala red auto (the user's request)
 
 - One custom curve replaces the back-off pin.
