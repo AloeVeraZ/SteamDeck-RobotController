@@ -16,6 +16,16 @@ test('preview poses run from the start to the last pin, with distance driven and
   for(let i=1;i<poses.length;i++)assert.ok(poses[i].s>=poses[i-1].s&&poses[i].d>=poses[i-1].d);
 });
 
+test('preview stands still at a pin while it pauses and runs its action; action paths carry theirs while driving',()=>{
+  const start={x:24,y:24,heading:0},route=P.plan({start,zones:[],pins:[{x:64,y:24,wait:1,action:'Shoot',cell:'other'},{x:64,y:84,path:{kind:'action',action:'Intake'}}],style:'sharp',clearance:1},fp);
+  const poses=P.previewPoses(route,fp,start),pause=poses.filter(p=>p.action===''),shot=poses.filter(p=>p.action==='Shoot');
+  assert.ok(pause.length&&shot.length);assert.ok([...pause,...shot].every(p=>near(p.x,64)&&near(p.y,24)&&near(p.d,40)));
+  assert.equal(shot[0].act,0);assert.equal(shot.at(-1).act,1);assert.equal(shot[0].cell,'other');
+  assert.ok(near(pause.at(-1).s-pause[0].s,P.PREVIEW_SPEED),'a 1 s pause takes 1 s of scrubber');assert.ok(near(shot.at(-1).s-shot[0].s,1.5*P.PREVIEW_SPEED),'shoot until done shows 1.5 s');
+  const driving=poses.filter(p=>p.action==='Intake');assert.ok(driving.length>10&&driving.every(p=>p.act===undefined&&p.path===1));
+  for(let i=1;i<poses.length;i++)assert.ok(poses[i].s>=poses[i-1].s);
+});
+
 test('preview headings stay continuous: a spin path adds up to full turns',()=>{
   const start={x:30,y:40,heading:0},route=P.plan({start,zones:[],pins:[{x:110,y:40,path:{rotate:'spin',spins:2}}],clearance:2},fp);
   const poses=P.previewPoses(route,fp,start);

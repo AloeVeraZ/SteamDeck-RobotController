@@ -233,21 +233,29 @@
   // the robot turns on the spot (a segment that starts facing another way, or a pin's turn) the turn is spread over
   // steps of at most 5 degrees. d is inches driven; s is how far a scrubber moves: d plus, for each turn on the spot,
   // the distance the robot's corner sweeps, so turns get visible time. Headings stay continuous, so spins add up.
+  // At a pin that pauses or runs an action the robot stands still for a while (PREVIEW_SPEED s per second, at most
+  // 2.5 s each): those poses carry the action (and its cell) and act, its progress 0..1 ('' for a pause). Poses on
+  // an action path carry the action without act: it runs while driving.
+  const PREVIEW_SPEED=30;
   function previewPoses(route,footprint,start={}){
     const out=[],segments=route?.segments||[],stops=route?.stops||[];if(!segments.length)return out;
     const corner=footprint?Math.hypot(Math.max(footprint.front,footprint.rear),footprint.half):9;let s=0,d=0;
     const push=p=>out.push({...p,s,d});
     const turnTo=(heading,path)=>{const last=out.at(-1),turn=norm(heading-last.heading);if(Math.abs(turn)<.5)return;const n=Math.ceil(Math.abs(turn)/5);
       for(let j=1;j<=n;j++){s+=Math.abs(turn)/n*Math.PI/180*corner;push({x:last.x,y:last.y,heading:last.heading+turn*j/n,path,turning:true});}};
+    const dwell=(seconds,action,cell,path)=>{const last=out.at(-1),n=12,step=Math.min(2.5,seconds)*PREVIEW_SPEED/n;
+      for(let j=0;j<=n;j++){if(j)s+=step;push({x:last.x,y:last.y,heading:last.heading,path,action,cell,act:j/n});}};
     const first=segments[0].points[0];push({x:first.x,y:first.y,heading:[start.heading,segments[0].heading,route.heading].find(finite)??0,path:segments[0].to??0});
     segments.forEach((seg,i)=>{
       const path=seg.to??0,headingOf=t=>{const h=headingAt(seg,t);return finite(h)?h:null;},wraps=seg.tangent||!!seg.target;
+      const moving=stops[path]?.path?.kind==='action'&&stops[path].path.action?{action:stops[path].path.action,cell:stops[path].path.cell}:{};
       let length=0;for(let k=1;k<seg.points.length;k++)length+=dist(seg.points[k],seg.points[k-1]);
       const sweep=finite(seg.endHeading)&&finite(seg.heading)?Math.abs(seg.endHeading-seg.heading):0,n=Math.min(2000,Math.max(4,Math.ceil(length),Math.ceil(sweep/5)));
       let prev=headingOf(0);if(prev!==null)turnTo(prev,path);
       for(let j=1;j<=n;j++){const t=j/n,p=bezier(seg.points,t),h=headingOf(t),last=out.at(-1),step=Math.hypot(p.x-last.x,p.y-last.y);s+=step;d+=step;
-        push({x:p.x,y:p.y,heading:h===null||prev===null?last.heading:last.heading+(wraps?norm(h-prev):h-prev),path});prev=h;}
-      for(const stop of stops)if(stop.segment===i&&finite(stop.turn))turnTo(stop.turn,path);
+        push({x:p.x,y:p.y,heading:h===null||prev===null?last.heading:last.heading+(wraps?norm(h-prev):h-prev),path,...moving});prev=h;}
+      for(const stop of stops)if(stop.segment===i){if(finite(stop.turn))turnTo(stop.turn,path);if(stop.wait>0)dwell(stop.wait,'','start',path);
+        if(stop.action)dwell(finite(stop.actionSeconds)?stop.actionSeconds:/^\s*shoot/i.test(stop.action)?1.5:1,stop.action,stop.cell,path);}
     });
     return out;
   }
@@ -567,5 +575,5 @@
     const pin=raw=>{const p={...raw,...pt(raw)};if(p.target)p.target=pt(p.target);if(finite(p.turn))p.turn=p.turnMode==='relative'?turnBy(p.turn):p.turnMode==='start'||p.turnMode==='track'?p.turn:hd(p.turn);if(p.path)p.path=path(p.path);return p;};
     return {start:layout.start?{...pt(layout.start),heading:hd(layout.start.heading)}:layout.start,pins:(layout.pins||[]).map(pin),zones:(layout.zones||[]).map(zone)};
   }
-  return {allianceRoute,tangentAt,previewPoses,SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
+  return {allianceRoute,tangentAt,previewPoses,PREVIEW_SPEED,SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
 });

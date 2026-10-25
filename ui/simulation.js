@@ -706,12 +706,32 @@ public class MyAuto implements DeckAutonomous {
   let previewAt=0,previewCache=null,previewTimer=0;
   function previewPath(){const route=L().route;if(!route)return null;if(previewCache?.route!==route){const fp=route.footprint||geometry().footprint;previewCache={route,fp,poses:planner.previewPoses(route,fp,start)};}return previewCache.poses.length?previewCache:null;}
   function previewPose(){const c=previewPath();if(!c)return null;const p=c.poses,last=p.at(-1),s=previewAt/1000*last.s;let lo=0,hi=p.length-1;while(lo<hi){const m=(lo+hi)>>1;if(p[m].s<s)lo=m+1;else hi=m;}
-    const b=p[lo],a=p[Math.max(0,lo-1)],t=b.s>a.s?(s-a.s)/(b.s-a.s):1,mix=k=>a[k]+(b[k]-a[k])*t;return {x:mix('x'),y:mix('y'),heading:mix('heading'),d:mix('d'),total:last.d,path:b.path,turning:!!b.turning,fp:c.fp};}
-  function drawPreview(){const q=tab==='plan'&&previewAt>0&&previewPose();$('#sim-preview-note').textContent=q?`Path ${q.path+1}${q.turning?' · turning':''} · ${field.round(q.d)} of ${field.round(q.total)} in`:'';
+    const b=p[lo],a=p[Math.max(0,lo-1)],t=b.s>a.s?(s-a.s)/(b.s-a.s):1,mix=k=>a[k]+(b[k]-a[k])*t;
+    return {x:mix('x'),y:mix('y'),heading:mix('heading'),d:mix('d'),total:last.d,path:b.path,turning:!!b.turning,fp:c.fp,act:previewAct(b,finite(b.act)?(finite(a.act)&&a.action===b.action?mix('act'):b.act):null)};}
+  // What the previewed robot is doing at a pose: a pause ('wait'), the game's shoot/intake/spin/aim or a team action
+  // ('custom'), with progress 0..1 at a pin or null while driving. Shooting and aiming point at the hive cell on
+  // BIOBUZZ, elsewhere straight out of the shooter.
+  function previewAct(pose,progress){if(pose.action===undefined)return null;const kind=pose.action?MECH.action(pose.action).kind:'wait',m=MECH.sanitize(project.mechanisms),l=L();
+    const aims=kind==='shoot'||kind==='aim'||kind==='spin',fixed=m.enabled&&m.shooters.length?m.shooters.map(s=>({mount:s.mount,facing:s.type==='fixed'?MECH.FACING[s.facing]||0:null})):[{mount:'center',facing:null}];
+    return {kind,name:pose.action||'Pause',progress,target:aims&&(l.field==='biobuzz'||m.target)?MECH.target(m,l.field,l.alliance,pose.cell):null,shooters:fixed,
+      intakes:m.enabled&&m.intakes.length?[...new Set(m.intakes.flatMap(i=>i.sides))]:['front'],dims:{length:project.robot.length,width:project.robot.width}};}
+  function drawPreview(){const q=tab==='plan'&&previewAt>0&&previewPose(),act=q?.act;
+    $('#sim-preview-note').textContent=q?`Path ${q.path+1}${act?' · '+act.name:q.turning?' · turning':''} · ${field.round(q.d)} of ${field.round(q.total)} in`:'';
     // The path card being previewed is marked in the list.
     for(const li of $$('#sim-pin-list .sim-path-row'))li.classList.toggle('previewing',!!q&&li.dataset.path===String(q.path));
+    if(project.view==='3d')view3d?.update(frame,state3d());
     if(!q)return $('#sim-preview-ghost').replaceChildren();const r=q.heading*Math.PI/180;
-    $('#sim-preview-ghost').replaceChildren(svg('polygon',{class:'sim-preview-robot',points:pts(planner.body(q,q.fp))}),svg('path',{class:'sim-preview-heading',d:`M${q.x.toFixed(2)} ${q.y.toFixed(2)}L${(q.x+Math.cos(r)*q.fp.front).toFixed(2)} ${(q.y+Math.sin(r)*q.fp.front).toFixed(2)}`}));}
+    $('#sim-preview-ghost').replaceChildren(svg('polygon',{class:'sim-preview-robot'+(act?' acting':''),points:pts(planner.body(q,q.fp))}),svg('path',{class:'sim-preview-heading',d:`M${q.x.toFixed(2)} ${q.y.toFixed(2)}L${(q.x+Math.cos(r)*q.fp.front).toFixed(2)} ${(q.y+Math.sin(r)*q.fp.front).toFixed(2)}`}),...previewActShapes(q));}
+  // The 2D outline's action: pieces flying to the goal along a dashed aim line, the intake side lit, or a ring for a pause.
+  function previewActShapes(q){const a=q.act;if(!a)return [];const h=q.heading*Math.PI/180,c=Math.cos(h),s=Math.sin(h),at=(ox,oy)=>({x:q.x+ox*c-oy*s,y:q.y+ox*s+oy*c}),out=[];
+    const k=a.progress??(performance.now()/900)%1;
+    if(a.kind==='wait'||a.kind==='custom')out.push(svg('circle',{class:'sim-preview-act',cx:q.x,cy:q.y,r:(Math.max(q.fp.front,q.fp.rear,q.fp.half)+2+3*k).toFixed(2),'stroke-opacity':(1-k).toFixed(2)}));
+    if(a.kind==='intake')for(const side of a.intakes){const along=side==='front'||side==='back',sign=side==='front'||side==='left'?1:-1,reach=(along?(sign>0?q.fp.front:q.fp.rear):q.fp.half)+1.5,span=along?q.fp.half:Math.max(q.fp.front,q.fp.rear);
+      const e=along?[at(sign*reach,-span),at(sign*reach,span)]:[at(-span,sign*reach),at(span,sign*reach)];out.push(svg('polyline',{class:'sim-preview-act intake',points:pts(e)}));}
+    if(a.kind==='shoot'||a.kind==='aim')for(const sh of a.shooters){const [ox,oy]=MECH.mountOffset(sh.mount,a.dims),o=at(ox,oy),dir=h+(sh.facing??0)*Math.PI/180,g=sh.facing===null&&a.target?a.target:{x:o.x+Math.cos(dir)*48,y:o.y+Math.sin(dir)*48};
+      out.push(svg('polyline',{class:'sim-preview-act aim',points:pts([o,g])}));
+      if(a.kind==='shoot')for(let n=0;n<3;n++){const f=(k*3+n/3)%1;out.push(svg('circle',{class:'sim-preview-piece',cx:(o.x+(g.x-o.x)*f).toFixed(2),cy:(o.y+(g.y-o.y)*f).toFixed(2),r:1.6}));}}
+    return out;}
   function previewStop(){cancelAnimationFrame(previewTimer);previewTimer=0;$('#sim-preview-play').replaceChildren(Object.assign(document.createElement('span'),{ariaHidden:'true',textContent:'▶'}),' Preview');}
   function controlShapes(){const i=openPath(),q=L().pins[i],c=q?.path?.controls;if(tab!=='plan'||!c?.length)return [];const a=pathStart(i),out=[];
     out.push(svg('polyline',{class:'sim-control-guide',points:pts([a,c[0]])}),svg('polyline',{class:'sim-control-guide',points:pts([c.at(-1),q])}));if(c.length>2)out.push(svg('polyline',{class:'sim-control-guide',points:pts(c)}));
@@ -1844,7 +1864,7 @@ public class MyAuto implements DeckAutonomous {
   // ------------------------------------------------------------------ views
   function script(src){return script.cache[src]||(script.cache[src]=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=resolve;s.onerror=()=>{delete script.cache[src];reject(Error(`Could not load ${src}.`));};document.head.append(s);}));}
   script.cache={};
-  function state3d(){return {layout:L(),start,info,trail,frame,hitboxes:project.hitboxes};}
+  function state3d(){return {layout:L(),start,info,trail,frame,hitboxes:project.hitboxes,preview:tab==='plan'&&previewAt>0&&previewPose()||null};}
   async function setView(next){
     project.view=next;save();pressed('view',next);const three3=next==='3d';$('#sim-3d').hidden=!three3;graph.style.display=three3?'none':'';applyZoom();
     // −/Fit/+ zoom the 2D field only, so 3D shows Hitboxes in their place.

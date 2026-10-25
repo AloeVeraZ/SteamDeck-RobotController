@@ -80,7 +80,67 @@ window.DeckSim3D={create(host,options){
     if(world&&visual?.handles){L.updateBiobuzzField(visual.handles,world);L.updateBiobuzzElements(visual.elements,world);for(const a of ['red','blue'])if(markers?.trays[a])markers.trays[a].rotation.x=L.hiveTiltAngle(world,a)-info.trays[a].reference;}
     if(world&&info?.field==='decode'){const seen=new Set();for(const ball of world.balls){if(['held','stock','scored'].includes(ball.state?.kind))continue;seen.add(ball.id);let mesh=ballMeshes.get(ball.id);if(!mesh){mesh=new THREE.Mesh(new THREE.SphereGeometry(2.5,16,12),new THREE.MeshStandardMaterial({color:ball.color==='purple'?0x9d68cb:0x64bc70,roughness:.7}));mesh.castShadow=true;mesh.receiveShadow=true;ballMeshes.set(ball.id,mesh);ballsHost.add(mesh);}mesh.position.set(ball.pos.x+72,ball.pos.y+72,Math.max(0,ball.z||0)+2.5);}for(const [id,mesh]of ballMeshes)if(!seen.has(id)){ballsHost.remove(mesh);dispose(mesh);ballMeshes.delete(id);}}
     clear(ghost);const e=frame?.estimate;if(e&&info){const c=window.DeckPlanner.body(e,info.footprint);ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c.map(q=>v3(q,7))),new THREE.LineDashedMaterial({color:color('--warning'),dashSize:1.5,gapSize:1})).computeLineDistances());}
-    beams();
+    beams();previewGhost();
+  }
+  // ---------------------------------------------------------------- route preview ghost
+  // Plan → Paths preview: a see-through, low-poly robot drives the planned route without physics. With an imported
+  // model it is that model in coarse blocks; without one, a pushbot chassis. At pins it acts out the action with
+  // see-through pieces: shots arc to the goal, the intake side glows and pulls pieces in, a pause rings the floor.
+  // One hologram blue in both themes: the theme accent is near black in light mode, which reads as solid, not see-through.
+  const GHOST=0x5cc8ff,previewGroup=new THREE.Group(),previewFx=new THREE.Group();scene.add(previewGroup,previewFx);
+  let previewKey='',fx=null;
+  function ghostLook(){const accent=new THREE.Color(GHOST);return {fill:new THREE.MeshStandardMaterial({color:accent,emissive:accent,emissiveIntensity:.4,transparent:true,opacity:.26,depthWrite:false,roughness:.85}),
+    edge:new THREE.LineBasicMaterial({color:accent,transparent:true,opacity:.55,depthWrite:false})};}
+  // The model's surface sampled into cubes about 1/14 of its largest size: a low-poly copy that stays cheap to draw.
+  function blocks(holder,look){
+    holder.updateMatrixWorld(true);const inv=holder.matrixWorld.clone().invert(),size=new THREE.Box3().setFromObject(holder).getSize(new THREE.Vector3()),cell=Math.max(.75,Math.max(size.x,size.y,size.z)/14);
+    const cells=new Map(),m=new THREE.Matrix4(),a=new THREE.Vector3(),b=new THREE.Vector3(),c=new THREE.Vector3(),mark=(x,y,z)=>{const k=[Math.floor(x/cell),Math.floor(y/cell),Math.floor(z/cell)];cells.set(k.join(),k);};
+    let triangles=0;holder.traverse(o=>{if(o.isMesh&&o.geometry?.attributes?.position)triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;});
+    const stride=3*Math.max(1,Math.ceil(triangles/300000));
+    holder.traverse(o=>{if(!o.isMesh||!o.geometry?.attributes?.position)return;m.multiplyMatrices(inv,o.matrixWorld);const pos=o.geometry.attributes.position,idx=o.geometry.index,count=idx?idx.count:pos.count,at=i=>idx?idx.getX(i):i;
+      for(let i=0;i+2<count;i+=stride){a.fromBufferAttribute(pos,at(i)).applyMatrix4(m);b.fromBufferAttribute(pos,at(i+1)).applyMatrix4(m);c.fromBufferAttribute(pos,at(i+2)).applyMatrix4(m);
+        const n=Math.min(24,Math.ceil(Math.max(a.distanceTo(b),b.distanceTo(c),c.distanceTo(a))/(cell*.5)));
+        for(let u=0;u<=n;u++)for(let v=0;v<=n-u;v++){const p=n?u/n:0,q=n?v/n:0;mark(a.x+(b.x-a.x)*p+(c.x-a.x)*q,a.y+(b.y-a.y)*p+(c.y-a.y)*q,a.z+(b.z-a.z)*p+(c.z-a.z)*q);}}});
+    const group=new THREE.Group(),list=[...cells.values()];if(!list.length)return group;
+    const cube=Object.assign(new THREE.InstancedMesh(new THREE.BoxGeometry(cell*.94,cell*.94,cell*.94),look.fill,list.length),{frustumCulled:false}),place=new THREE.Matrix4(),corners=new THREE.EdgesGeometry(new THREE.BoxGeometry(cell,cell,cell)).attributes.position.array,lines=new Float32Array(list.length*corners.length);
+    list.forEach(([i,j,k],n)=>{const x=(i+.5)*cell,y=(j+.5)*cell,z=(k+.5)*cell;cube.setMatrixAt(n,place.makeTranslation(x,y,z));for(let r=0;r<corners.length;r+=3){lines[n*corners.length+r]=corners[r]+x;lines[n*corners.length+r+1]=corners[r+1]+y;lines[n*corners.length+r+2]=corners[r+2]+z;}});
+    const outline=new THREE.BufferGeometry();outline.setAttribute('position',new THREE.BufferAttribute(lines,3));
+    group.add(cube,new THREE.LineSegments(outline,look.edge));return group;
+  }
+  // A pushbot: two rails and cross members, four wheels, a deck and an arm, sized to the footprint.
+  function pushbot(f,look){
+    const group=new THREE.Group(),len=f.front+f.rear,w=2*f.half,mid=(f.front-f.rear)/2;
+    const part=(geometry,x,y,z,turn)=>{const mesh=new THREE.Mesh(geometry,look.fill),edges=new THREE.LineSegments(new THREE.EdgesGeometry(geometry,30),look.edge);for(const o of [mesh,edges]){o.position.set(x,y,z);if(turn)o.rotation.set(...turn);}group.add(mesh,edges);};
+    for(const s of [-1,1])part(new THREE.BoxGeometry(len,1.5,2),mid,s*(f.half-1.5),3);
+    for(const s of [-1,1])part(new THREE.BoxGeometry(1.5,w-4.5,2),mid+s*(len/2-.75),0,3);
+    part(new THREE.BoxGeometry(len-3,w-4.5,.3),mid,0,2.2);
+    for(const sx of [-1,1])for(const sy of [-1,1])part(new THREE.CylinderGeometry(2,2,1.2,10),mid+sx*(len/2-3.2),sy*(f.half-.6),2);
+    part(new THREE.BoxGeometry(1.5,1.5,10),mid-len*.2,0,7.2);part(new THREE.BoxGeometry(len*.55,1.2,1.2),mid-len*.2+len*.27,0,12.2);part(new THREE.BoxGeometry(1.2,4,3),mid-len*.2+len*.55,0,11.2);
+    part(new THREE.ConeGeometry(1.8,3.6,3),f.front-2.5,0,5.2,[0,0,-Math.PI/2]);return group;
+  }
+  function ghostBody(){const f=info?.footprint||{front:9,rear:9,half:9},key=JSON.stringify([body?.uuid||'',f]);if(key===previewKey)return;previewKey=key;
+    clear(previewGroup);const look=ghostLook();previewGroup.add(body?blocks(body,look):pushbot(f,look));previewGroup.traverse(o=>{o.renderOrder=9;});
+    for(const v of Object.values(fx||{}))v.dispose();const accent=new THREE.Color(GHOST),see=o=>new THREE.MeshBasicMaterial({color:accent,transparent:true,depthWrite:false,...o});
+    fx={piece:new THREE.SphereGeometry(1.8,10,8),ring:new THREE.RingGeometry(.92,1,48),torus:new THREE.TorusGeometry(2.6,.35,6,20),slab:new THREE.BoxGeometry(1,1,1),
+      solid:see({opacity:.45}),glow:see({opacity:.2,side:THREE.DoubleSide}),pulse:see({side:THREE.DoubleSide}),
+      line:new THREE.LineDashedMaterial({color:accent,transparent:true,opacity:.7,dashSize:2,gapSize:1.4,depthWrite:false})};}
+  function previewGhost(){
+    // The effects share fx's geometry and materials; only each frame's aim arcs are their own.
+    for(const o of [...previewFx.children]){previewFx.remove(o);if(o.isLine)o.geometry.dispose();}
+    const q=state?.preview;previewGroup.visible=!!q;if(!q)return;ghostBody();
+    previewGroup.position.set(q.x,q.y,0);previewGroup.rotation.set(0,0,q.heading*DEG);
+    const a=q.act;if(!a)return;const h=q.heading*DEG,c=Math.cos(h),s=Math.sin(h),f=q.fp||info?.footprint||{front:9,rear:9,half:9},at=(ox,oy)=>({x:q.x+ox*c-oy*s,y:q.y+ox*s+oy*c});
+    const k=a.progress??(performance.now()/900)%1,keep=o=>{o.renderOrder=10;previewFx.add(o);return o;},mesh=(g,m)=>keep(new THREE.Mesh(g,m));
+    if(a.kind==='wait'||a.kind==='custom'){const ring=mesh(fx.ring,fx.pulse);fx.pulse.opacity=.5*(1-k);ring.scale.setScalar(Math.max(f.front,f.rear,f.half)+2+4*k);ring.position.set(q.x,q.y,.4);}
+    if(a.kind==='intake')for(const side of a.intakes){const along=side==='front'||side==='back',sign=side==='front'||side==='left'?1:-1,edge=along?(sign>0?f.front:f.rear):f.half,span=along?2*f.half:f.front+f.rear;
+      const o=along?at(sign*(edge+1.5),0):at((f.front-f.rear)/2,sign*(edge+1.5)),slab=mesh(fx.slab,fx.glow);slab.scale.set(along?3:span,along?span:3,4);slab.position.set(o.x,o.y,2.5);slab.rotation.set(0,0,h);
+      for(let n=0;n<2;n++){const t=(k*2+n/2)%1,out=edge+12*(1-t),p=along?at(sign*out,(n?-1:1)*f.half*.4*(1-t)):at((n?-1:1)*f.half*.4*(1-t),sign*out),ball=mesh(fx.piece,fx.solid);ball.position.set(p.x,p.y,1.8);}}
+    if(a.kind==='shoot'||a.kind==='aim'||a.kind==='spin')for(const sh of a.shooters){const [ox,oy]=window.DeckMechanisms.mountOffset(sh.mount,a.dims),o=at(ox,oy),dir=h+(sh.facing??0)*DEG;
+      const goal=sh.facing===null&&a.target?{...a.target,z:22}:{x:o.x+Math.cos(dir)*48,y:o.y+Math.sin(dir)*48,z:2},from=new THREE.Vector3(o.x,o.y,12),to=new THREE.Vector3(goal.x,goal.y,goal.z),rise=Math.max(8,from.distanceTo(to)*.3);
+      const arc=t=>from.clone().lerp(to,t).setZ(from.z+(to.z-from.z)*t+4*rise*t*(1-t));
+      if(a.kind==='spin'){const spin=mesh(fx.torus,fx.solid);spin.position.copy(from);spin.rotation.set(Math.PI/2,0,dir+performance.now()/120);continue;}
+      keep(new THREE.Line(new THREE.BufferGeometry().setFromPoints(Array.from({length:25},(_,j)=>arc(j/24))),fx.line)).computeLineDistances();
+      if(a.kind==='shoot')for(let n=0;n<3;n++){const ball=mesh(fx.piece,fx.solid);ball.position.copy(arc((k*3+n/3)%1));}}
   }
   // ---------------------------------------------------------------- run video cameras
   const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a)),follow={ready:false,yaw:0,shot:0,hold:0,goal:null,still:0,wide:0,pos:new THREE.Vector3(),look:new THREE.Vector3()};
