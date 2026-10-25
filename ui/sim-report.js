@@ -49,7 +49,7 @@
     // Suggestions, most useful first. Each names what the run measured.
     const tips=[];
     if(timedOut){const at=out.at(-1);tips.push({pin:at?.pin??null,text:`The route needs more than the ${auto??'autonomous'}${auto?' s':''} period${at?` (it was on ${at.label})`:''}. Remove a path, shorten pauses or raise motor power.`});}
-    if(grouped.size)tips.push({pin:[...grouped.values()][0].pin,text:'Move that path’s points away from what it touched, or raise “Space around obstacles” in Path planning → Paths → Route.'});
+    if(grouped.size)tips.push({pin:[...grouped.values()][0].pin,text:'Move that path’s points away from what it touched, or raise “Space around obstacles” in Path planning → Route options.',setting:'clearance'});
     const slow=out.length>1?out.reduce((a,b)=>b.total>a.total?b:a):null;
     if(slow&&total>0){const parts=[slow.pause>.05&&`${s1(slow.pause)} stopped for ${slow.actions.length?slow.actions.join(', ').toLowerCase():'a pause'}`,slow.turn>.05&&`${s1(slow.turn)} turning in place`,slow.idle>.2&&`${s1(slow.idle)} stopped`].filter(Boolean);
       tips.push({pin:slow.pin,text:`${slow.label} takes the longest: ${s1(slow.total)} of ${s1(total)}${parts.length?`, including ${parts.join(' and ')}`:''}. Changes there save the most time.`});}
@@ -59,7 +59,7 @@
     const def=finite(ctx.defaultPower)?ctx.defaultPower:1;
     for(const l of out){const power=pins[l.index]?.path?.power??def;if(l.pin!==null&&power<.75&&l.drive>=1){tips.push({pin:l.pin,text:`${l.label} drives at ${Math.round(power*100)}% motor power for ${s1(l.drive)}. If your robot stays in control, more power would shorten it.`});break;}}
     if(mech&&mech.shots>mech.landed)tips.push({pin:null,text:`${mech.shots-mech.landed} of ${mech.shots} shot${mech.shots>1?'s':''} missed the hive. Drag the timeline to replay each shot and see where it went.`});
-    if(ctx.optimized===false&&out.length>1)tips.push({pin:null,text:'Optimize (Path planning → Paths → Route) test-drives straight and smooth shapes for your paths and keeps the fastest safe one.'});
+    if(ctx.optimized===false&&out.length>1)tips.push({pin:null,setting:'optimize',text:'Optimize (Path planning → Route options) test-drives straight and smooth shapes for your paths and keeps the fastest safe one.'});
     if(!timedOut&&!issues.length&&auto&&auto-total>5)tips.push({pin:null,text:`${s1(auto-total)} of the autonomous period is left: room for another path or more scoring.`});
     const level=timedOut?'bad':issues.some(i=>i.level==='bad')?'bad':issues.length?'warn':'ok';
     const title=timedOut?'Autonomous ended before the route finished':issues.length?`Route finished in ${s1(total)}, with ${issues.length} thing${issues.length>1?'s':''} to check`:`Route finished cleanly in ${s1(total)}`;
@@ -74,6 +74,8 @@
   // ------------------------------------------------------------------ drawing
   // grow sets flex-grow through the CSSOM: the app's content security policy ignores style attributes.
   const el=(tag,attrs={},children=[])=>{const e=document.createElement(tag);for(const [k,v] of Object.entries(attrs))k==='text'?e.textContent=v:k==='grow'?e.style.flexGrow=String(v):k.startsWith('on')?e[k]=v:e.setAttribute(k,v);e.append(...children);return e;};
+  // Settings a tip can open: onSetting(key) shows it in Path planning → Route options.
+  const SETTINGS={clearance:'Space around obstacles',optimize:'Optimize'};
   const editButton=(pin,label,onEdit)=>el('button',{type:'button',class:'text-button sim-report-edit',onclick:()=>onEdit(pin),text:`Edit ${label} →`});
   // What to do after this run, most likely first: fix the path where something went wrong, or take a clean
   // run to the robot. Each action is {id, label, run}; the page supplies what they do.
@@ -86,9 +88,9 @@
     return steps;
   }
   // report: from build(). onEdit(pinIndex) opens that path in Path planning; onSeek(seconds) replays a moment;
-  // onExport and onOutput open the Export view and the run's step-by-step output; onSelect(leg) is told which
+  // onExport and onOutput open the Export view and the run's step-by-step output; onSetting(key) opens a setting a tip names; onSelect(leg) is told which
   // path's breakdown is shown, and selected (a leg index) keeps that choice when the report is drawn again.
-  function render(host,report,{onEdit,onSeek,onExport,onOutput,onSelect,selected=null}={}){
+  function render(host,report,{onEdit,onSeek,onExport,onOutput,onSelect,onSetting,selected=null}={}){
     if(!report){host.replaceChildren();return;}
     const icon={ok:'✓',warn:'!',bad:'×'}[report.level];
     const head=el('div',{class:'sim-report-verdict '+report.level},[el('span',{class:'sim-report-icon','aria-hidden':'true',text:icon}),el('strong',{text:report.title})]);
@@ -122,7 +124,7 @@
       parts.push(el('h4',{text:`Where the time went${span===report.auto?` · ${report.auto} s autonomous`:''}`}),bar,scale,key,detail);
       choose(report.legs.find(l=>l.index===selected)||report.legs.reduce((a,b)=>b.total>a.total?b:a),false);
     }
-    if(report.tips.length)parts.push(el('h4',{text:'What to try next'}),el('ol',{class:'sim-report-tips'},report.tips.map(t=>el('li',{},[el('span',{text:t.text}),...(t.pin!==null&&onEdit?[editButton(t.pin,`path ${t.pin+1}`,onEdit)]:[])]))));
+    if(report.tips.length)parts.push(el('h4',{text:'What to try next'}),el('ol',{class:'sim-report-tips'},report.tips.map(t=>el('li',{},[el('span',{text:t.text}),...(t.pin!==null&&onEdit?[editButton(t.pin,`path ${t.pin+1}`,onEdit)]:[]),...(t.setting&&onSetting?[el('button',{type:'button',class:'text-button sim-report-edit','data-setting':t.setting,onclick:()=>onSetting(t.setting),text:`Open ${SETTINGS[t.setting]} →`})]:[])]))));
     parts.push(el('p',{class:'hint sim-report-note',text:'Simulated estimate. Battery charge, wheel traction, tuning and field differences change real results, so test on your robot before a match.'}));
     host.replaceChildren(...parts);
   }

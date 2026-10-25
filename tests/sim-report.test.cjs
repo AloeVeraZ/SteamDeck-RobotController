@@ -57,3 +57,9 @@ test('after a run the next step is fixing the path where something went wrong, e
   const late=R.nextSteps(R.build(frames({timeLimit:true}),{pins,autoSeconds:7}),go);assert.equal(late[0].label,'Fix path 3 →');
   assert.deepEqual(R.nextSteps(R.build(frames(),{pins,autoSeconds:30}),{}),[],'no actions without handlers');
 });
+
+test('tips that name a Route options setting say where it is and carry it, so the report can open it',()=>{
+  const tips=[...R.build(frames({contactAt:2.5}),{pins,autoSeconds:30,optimized:false}).tips,...R.build(frames(),{pins:[pins[0],pins[1],{...pins[2],path:{power:1}}],autoSeconds:30,optimized:false}).tips];
+  const named=tips.filter(t=>/Optimize|Space around obstacles/.test(t.text));assert.ok(named.length>=1,tips.map(t=>t.text).join('\n'));
+  for(const t of named){assert.match(t.text,/Path planning → Route options/);assert.ok(['optimize','clearance'].includes(t.setting),t.text);}
+});

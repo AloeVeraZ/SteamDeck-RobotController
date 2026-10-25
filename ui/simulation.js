@@ -504,7 +504,7 @@ public class MyAuto implements DeckAutonomous {
     const frames=runData.frames(),end=[...frames].reverse().find(f=>f.result)?.result,m=frames.at(-1)?.mechanisms,key=JSON.stringify([runAttempt,frames[0]?.time,end?.time,end?.reason,m?.score,m?.landed,m?.shots]);if(key===reportKey)return;reportKey=key;
     const report=lastReport=window.DeckSimReport.build(frames,{pins:L().pins,defaultPower:project.tuning.maxPathSpeed,autoSeconds:project.practice.mode==='teleop'?null:project.practice.autoSeconds,optimized:!!L().tested?.length});
     if(reportShown!==runAttempt)reviewLeg=null;
-    window.DeckSimReport.render($('#sim-run-report'),report,{onEdit:editPath,onSeek:t=>runData.seek(t),onExport:()=>showRunView(1),onOutput:()=>{showDiag('output');showRunView(2);},
+    window.DeckSimReport.render($('#sim-run-report'),report,{onEdit:editPath,onSeek:t=>runData.seek(t),onExport:()=>showRunView(1),onOutput:()=>{showDiag('output');showRunView(2);},onSetting:openSetting,
       selected:reviewLeg?.index??null,onSelect:leg=>{const changed=reviewLeg?.pin!==leg.pin;reviewLeg={index:leg.index,pin:leg.pin};if(changed)draw();}});
     // A new run's report: Results shows it from the top, or its tab is marked when another view is open.
     if(report&&reportShown!==runAttempt){reportShown=runAttempt;const results=runViews?.panes[0];if(runViews?.shown()===0)results.pane.scrollTop=0;else results?.button.classList.add('has-news');}
@@ -522,6 +522,14 @@ public class MyAuto implements DeckAutonomous {
   }
   // A path the route check or the planner flagged; its row in the path list glows amber.
   const pathNeedsChange=i=>diagnostics.some(d=>d.pin===i)||!!planError&&blockedPin===i;
+  // A Route options setting a run report tip names (Optimize, Space around obstacles): open it in Path planning,
+  // on the page of the view that holds it when short screens split it, and focus it.
+  function openSetting(key){
+    const el=$(key==='optimize'?'#sim-optimize':'#sim-clearance');selectTab('plan');setStep('pins');[...$('#sim-route-step').querySelectorAll('[role=tab]')].find(b=>b.textContent==='Route options')?.click();
+    requestAnimationFrame(()=>{const unit=el.closest('.sim-settings-unit'),bar=unit?.parentElement?.querySelector(':scope>.sim-section-pages');
+      if(unit&&bar)for(const pager of [bar.firstElementChild,bar.lastElementChild])for(let i=0;i<8&&unit.hidden&&!pager.disabled;i++)pager.click();
+      el.scrollIntoView({block:'nearest'});el.focus();});
+  }
   function showRunView(i){if(!runViews)return;runViews.choose(i);runViews.panes[i].pane.scrollTop=0;}
   // Results before a run: what Run does in this practice mode and what this view will show. Once the run's clock
   // moves, the replay and graphs take its place, and the report joins them when the route ends.
