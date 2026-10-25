@@ -163,11 +163,13 @@
     // A part's motor: what kind, its gearing (stages from the motor to the joint) and how it moves: at its set speed, as
     // a DC motor against a load (free speed and stall torque from its datasheet, through the gearing), or as a pneumatic
     // cylinder that rests at its ends. What the joint gets is worked out and shown.
+    const fld=(attr,v,{label,unit:u='',min='',step='any'}={})=>`<div><label>${label}${u?' · '+u:''}<input type="number" data-slider="off" ${attr} value="${finite(v)?+(+v).toPrecision(6):''}" min="${min}" step="${step}"></label></div>`;
     function motorBits(j){
-      const k=kin(),a=k.actuators.find(x=>x.joint===j.id),dof=K().dofOf(j);if(!dof.length||j.type==='fixed'||k.couplings.some(c=>c.to===j.id)||(j.drive&&j.drive.signal!=='action'))return '';
+      // Not for a part set by others: one that follows a coupling, one a game signal drives, or one a closed loop solves.
+      const k=kin(),a=k.actuators.find(x=>x.joint===j.id),dof=K().dofOf(j);if(!dof.length||j.type==='fixed'||k.couplings.some(c=>c.to===j.id)||(j.drive&&j.drive.signal!=='action')||(!a&&K().pose(k,{}).solved.includes(j.id)))return '';
       if(!a)return `<details class="sim-mech-code"><summary>Motor and gearing</summary><p class="hint">It moves to its named positions at its own speed. Add its motor to set the gearing and see how fast, and how hard, it can really move.</p><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="motor-add">+ Motor</button></div></details>`;
       const u=dof[a.index||0]==='in'?'in':'°',au=K().actuatorUnit(a,j),force=u==='in'?'N':'N·m',mm=a.motor,response=a.response||'ideal',stages=a.transmission||[];
-      const stage=(st,i)=>`<div class="sim-joint-state" data-stage="${i}"><select aria-label="Stage ${i+1}" data-stage-f="kind">${Object.entries(K().STAGES).map(([v,t])=>`<option value="${v}"${v===st.kind?' selected':''}>${esc(t)}</option>`).join('')}</select>${
+      const stage=(st,i)=>`<div class="sim-joint-line" data-stage="${i}"><select aria-label="Stage ${i+1}" data-stage-f="kind">${Object.entries(K().STAGES).map(([v,t])=>`<option value="${v}"${v===st.kind?' selected':''}>${esc(t)}</option>`).join('')}</select>${
         st.kind==='gearbox'?`<label>Ratio<input type="number" data-slider="off" data-stage-f="ratio" value="${fix(st.ratio,3)}" min="0.01" step="any"> : 1</label>`:
         st.kind==='belt'?`<label>Teeth<input type="number" data-slider="off" data-stage-f="driver" value="${fix(st.driver,0)}" min="1" step="1"> to <input type="number" data-slider="off" aria-label="Driven teeth" data-stage-f="driven" value="${fix(st.driven,0)}" min="1" step="1"></label>`:
         st.kind==='screw'?`<label>Lead<input type="number" data-slider="off" data-stage-f="lead" value="${fix(st.lead,4)}" min="0.001" step="any"> in a turn</label>`:
@@ -180,11 +182,11 @@
           <div><label>Moves<select data-motor="response">${Object.entries(K().RESPONSES).map(([v,t])=>`<option value="${v}"${v===response?' selected':''}>${esc(t)}</option>`).join('')}</select></label></div></div>
         <span class="sim-mech-label">Gearing, motor to ${esc(j.name)}</span>${stages.map(stage).join('')}<button type="button" class="secondary" data-j="stage-add">+ Stage</button>
         <p class="hint">${stages.length?`The motor turns ${fix(Math.abs(a.ratio),3)}${au==='deg'&&u==='in'?'°':'×'} for each ${u==='in'?'inch':'degree'} the part moves${a.ratio<0?', the other way':''}.`:'Straight onto the joint (no gearing).'}</p>
-        ${response==='motor'?`<div class="start-xy">${num('m:free',mm?(au==='deg'?mm.free/6:mm.free):'',{label:'Free speed',unit:au==='deg'?'rpm':'in/s',slider:false}).replace('data-f="m:free"','data-motor="free"')}${num('m:stall',mm?.stall,{label:'Stall torque',unit:au==='deg'?'N·m':'N',slider:false}).replace('data-f="m:stall"','data-motor="stall"')}</div>
-          <div class="start-xy">${num('m:count',mm?.count??1,{label:'Motors',slider:false}).replace('data-f="m:count"','data-motor="count"')}${num('m:load',mm?.load??0,{label:'Load it holds',unit:force+' at the joint',slider:false}).replace('data-f="m:load"','data-motor="load"')}</div>
-          ${num('m:inertia',mm?.inertia,{label:'What it moves (inertia, optional)',unit:u==='in'?'kg':'kg·m²',slider:false}).replace('data-f="m:inertia"','data-motor="inertia"')}${reach}
+        ${response==='motor'?`<div class="start-xy">${fld('data-motor="free"',mm?(au==='deg'?mm.free/6:mm.free):NaN,{label:'Free speed',unit:au==='deg'?'rpm':'in/s',min:0})}${fld('data-motor="stall"',mm?.stall,{label:'Stall torque',unit:au==='deg'?'N·m':'N',min:0})}</div>
+          <div class="start-xy">${fld('data-motor="count"',mm?.count??1,{label:'Motors',min:1,step:1})}${fld('data-motor="load"',mm?.load??0,{label:'Load it holds',unit:force+' at the joint'})}</div>
+          ${fld('data-motor="inertia"',mm?.inertia,{label:'What it moves (inertia, optional)',unit:u==='in'?'kg':'kg·m²',min:0})}${reach}
           <p class="hint">Simulated as a DC motor (torque falls from stall to nothing at free speed): it slows under its load and stalls past it. The load is what you enter, such as gravity on the part; the CAD’s weight is not known.</p>`
-        :`<div class="start-xy">${num('m:speed',a.speed,{label:'Moves at',unit:`${u}/s`,min:.01,slider:false}).replace('data-f="m:speed"','data-motor="speed"')}${num('m:accel',a.accel||0,{label:'Speeds up at',unit:`${u}/s² (0: at once)`,min:0,slider:false}).replace('data-f="m:accel"','data-motor="accel"')}</div>
+        :`<div class="start-xy">${fld('data-motor="speed"',a.speed,{label:'Moves at',unit:`${u}/s`,min:.01})}${fld('data-motor="accel"',a.accel||0,{label:'Speeds up at',unit:`${u}/s² (0: at once)`,min:0})}</div>
           ${response==='pneumatic'?'<p class="hint">It goes all the way out or all the way in, never stopping between (its named positions, else its limits, are the ends).</p>':''}`}
         <div class="sim-joint-buttons"><button type="button" class="secondary" data-j="motor-remove">Remove the motor</button></div></details>`;
     }
@@ -234,7 +236,7 @@
       const k=kin();if(!moverList().length)return '';
       return `<div class="sim-joint-actions"><div class="sim-joints-head"><h4>Poses</h4><button type="button" class="secondary" data-j="pose-save">+ Pose from the preview</button></div>
         <p class="hint">Put the parts where you want them with Try it or Show, then save the pose. Going to a pose moves every part in it so they all arrive at the same time.</p>
-        ${(k.poses||[]).map((p,i)=>`<div class="sim-joint-state" data-pose="${i}"><input aria-label="Pose name" data-pose-f="name" maxlength="40" value="${esc(p.name)}"><span class="hint">${Object.keys(p.values).length} part${Object.keys(p.values).length===1?'':'s'}</span><button type="button" class="secondary" data-j="pose-show" data-v="${i}">Show</button><button type="button" class="icon-button" data-j="pose-remove" data-v="${i}" aria-label="Remove ${esc(p.name)}">×</button></div>`).join('')}</div>`;
+        ${(k.poses||[]).map((p,i)=>`<div class="sim-joint-line" data-pose="${i}"><input aria-label="Pose name" data-pose-f="name" maxlength="40" value="${esc(p.name)}"><span class="hint">${Object.keys(p.values).length} part${Object.keys(p.values).length===1?'':'s'}</span><button type="button" class="secondary" data-j="pose-show" data-v="${i}">Show</button><button type="button" class="icon-button" data-j="pose-remove" data-v="${i}" aria-label="Remove ${esc(p.name)}">×</button></div>`).join('')}</div>`;
     }
     // Sensors read the simulated motion, not the command: an encoder counts turns, a limit switch closes at a position,
     // an angle or distance sensor reads it, a speed sensor reads a motor's speed. An action step can wait for one.
@@ -243,7 +245,7 @@
       return `<div class="sim-joint-actions"><div class="sim-joints-head"><h4>Sensors</h4><button type="button" class="secondary" data-j="sensor-add">+ Sensor</button></div>
         <p class="hint">They read how the robot actually moves in the simulation, not what it was told. An action step can wait for one.</p>
         ${(k.sensors||[]).map((x,i)=>{const at=x.actuator?'a:'+x.actuator:'j:'+x.joint,kinds=Object.entries(K().SENSORS).filter(([v])=>v!=='velocity'||x.actuator);
-          return `<div class="sim-joint-state" data-sensor="${i}"><input aria-label="Sensor name" data-sensor-f="name" maxlength="80" value="${esc(x.name)}"><select aria-label="Kind" data-sensor-f="kind">${kinds.map(([v,t])=>`<option value="${v}"${v===x.kind?' selected':''}>${esc(t)}</option>`).join('')}</select>
+          return `<div class="sim-joint-line" data-sensor="${i}"><input aria-label="Sensor name" data-sensor-f="name" maxlength="80" value="${esc(x.name)}"><select aria-label="Kind" data-sensor-f="kind">${kinds.map(([v,t])=>`<option value="${v}"${v===x.kind?' selected':''}>${esc(t)}</option>`).join('')}</select>
             <select aria-label="On" data-sensor-f="on">${on.map(o=>`<option value="${esc(o.id)}"${o.id===at?' selected':''}>${esc(o.name)}</option>`).join('')}</select>
             ${x.kind==='encoder'?`<label>Counts a turn<input type="number" data-slider="off" data-sensor-f="cpr" min="1" step="any" value="${fix(x.cpr,1)}"></label>`:x.kind==='limit'?`<label>Closes at<input type="number" data-slider="off" data-sensor-f="at" step="any" value="${fix(x.at,2)}"></label><label>within<input type="number" data-slider="off" data-sensor-f="band" min="0" step="any" value="${fix(x.band,2)}"></label>`:''}
             <button type="button" class="icon-button" data-j="sensor-remove" data-v="${i}" aria-label="Remove ${esc(x.name)}">×</button></div>`;}).join('')}</div>`;

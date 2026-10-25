@@ -393,6 +393,9 @@
 .sim-joint-needs{color:var(--warning,#d4a72c)}
 .sim-joint-try{display:flex;align-items:center;gap:10px;margin:10px 0 4px}.sim-joint-try input{flex:1}
 .sim-joint-state{display:grid;grid-template-columns:minmax(0,1fr) 90px auto auto;gap:6px;align-items:center;margin:4px 0}
+/* A gearing stage, a pose or a sensor: one line of small controls that wraps on a narrow screen. */
+.sim-joint-line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0}.sim-joint-line>select{min-height:32px;flex:1 1 150px;min-width:0}.sim-joint-line>input:not([type=number]){flex:1 1 140px;min-width:0}
+.sim-joint-line label{display:flex;gap:4px;align-items:center;font-size:12px;white-space:nowrap}.sim-joint-line input[type=number]{width:88px}.sim-joint-action-head label{display:flex;gap:4px;align-items:center;font-size:12px}.sim-joint-action-head input[type=number]{width:52px;flex:none}
 .sim-joint-alts{margin:4px 0;padding-left:18px;font-size:12px;color:var(--muted)}
 .sim-joint-parent{display:flex;align-items:center;gap:6px}.sim-joint-parent select{min-height:32px}
 .driver-station .sim-joint-remove{margin-top:10px;color:var(--danger)}
@@ -402,4 +405,4 @@
 .sim-joint-action{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:8px 10px;margin:8px 0}
 .sim-joint-action-head{display:flex;gap:6px;align-items:center}.sim-joint-action-head input{flex:1;min-width:0}
 .sim-joint-action ol{margin:8px 0;padding-left:20px;display:grid;gap:6px;font-size:12px}
-.sim-joint-action li{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.sim-joint-action li select{min-height:32px;max-width:100%}.sim-joint-action li input[type=number]{width:64px}
+.sim-joint-action li{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.sim-joint-action li select{min-height:32px;max-width:100%;width:auto;flex:1 1 130px;min-width:0}.sim-joint-action li input[type=number]{width:64px}

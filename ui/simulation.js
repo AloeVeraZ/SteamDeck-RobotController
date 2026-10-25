@@ -1786,8 +1786,10 @@ public class MyAuto implements DeckAutonomous {
   // set); a size outside 4–48 in usually means the file's units are wrong, so it is left for the team to set.
   function sizeFromModel(){
     if(!project.model?.autoSize)return null;const n=model?.holder?.userData.nativeSize,q=v=>Math.round(v*4)/4;if(!n)return null;
-    if(![n.length,n.width].every(v=>v>=4&&v<=48))return null;
-    Object.assign(project.robot,{length:q(n.length),width:q(n.width),...(n.height>=1&&n.height<=48?{heightIn:q(n.height)}:{})});save();robotPanel();void placeModel();
+    // A robot file with joints keeps its true size in the views, so its footprint follows it as far as the 4–48 in allowed.
+    const exact=['urdf','sdf','mjcf','usd'].includes(project.model.source),c=v=>exact?Math.min(48,Math.max(4,v)):v;
+    if(!exact&&![n.length,n.width].every(v=>v>=4&&v<=48))return null;
+    Object.assign(project.robot,{length:q(c(n.length)),width:q(c(n.width)),...(n.height>=1&&n.height<=48?{heightIn:q(n.height)}:{})});save();robotPanel();void placeModel();
     return `${project.robot.length} × ${project.robot.width} × ${project.robot.heightIn} in`;
   }
   function setUpFromCad({replace=false}={}){
@@ -1816,7 +1818,7 @@ public class MyAuto implements DeckAutonomous {
       const drive=MECH.drivetrainFromNames(result.names||[]);if(drive&&C.drives[drive]){project.robot.drivetrain=drive;cad?.found.unshift(`Drivetrain: ${C.drives[drive].name}`);}
       save();robotPanel();mechanismsPanel();presetPanel();
       if(!stay){selectTab('setup');showSetupStep('robot');}await placeModel();const sized=sizeFromModel();reload();
-      importStatus(`Imported ${body.parts} part${body.parts===1?'':'s'} in ${Math.round((Date.now()-began)/1000)} s${result.cached?' (from the last import of this file)':''}.${sized?` Size from the CAD: ${sized}.`:''}${cad?.found.length?` From the assembly names: ${cad.found.join('; ')}.`:body.kinematics?'':' Name the assemblies Chassis, Intake, Shooter (or Turret, Pollen shooter, Nectar shooter) and Indexer in your CAD to set the robot up from them.'} Check the front and top with the cube below.${body.kinematics?` Its ${body.kinematics.joints.filter(j=>j.type!=='fixed').length} joints come from the ${body.format||'file'} (Setup → Moving parts).`:''}${body.missing?.length?` Not drawn: ${body.missing.slice(0,4).join('; ')}${body.missing.length>4?'…':''}.`:''}${body.notes?.length?` Not read from the file: ${body.notes.slice(0,2).join(' ')}${body.notes.length>2?` (and ${body.notes.length-2} more)`:''}`:''}`);
+      importStatus(`Imported ${body.parts} part${body.parts===1?'':'s'} in ${Math.round((Date.now()-began)/1000)} s${result.cached?' (from the last import of this file)':''}.${sized?` Size from the CAD: ${sized}.`:''}${cad?.found.length?` From the assembly names: ${cad.found.join('; ')}.`:body.kinematics?'':' Name the assemblies Chassis, Intake, Shooter (or Turret, Pollen shooter, Nectar shooter) and Indexer in your CAD to set the robot up from them.'} Check the front and top with the cube below.${body.kinematics?` Its ${body.kinematics.joints.filter(j=>j.type!=='fixed').length} joints come from the ${body.format?body.format+' file':'file'} (Setup → Moving parts).`:''}${body.missing?.length?` Not drawn: ${body.missing.slice(0,4).join('; ')}${body.missing.length>4?'…':''}.`:''}${body.notes?.length?` Not read from the file: ${body.notes.slice(0,2).join(' ')}${body.notes.length>2?` (and ${body.notes.length-2} more)`:''}`:''}`);
     }catch(e){importStatus(`Could not import the robot: ${e.message}`);}finally{clearInterval(ticking);$('#sim-model-drop').classList.remove('busy');}
   }
   // The robot is simulated as its CAD is posed, so nothing is read until the user confirms it is the starting configuration.

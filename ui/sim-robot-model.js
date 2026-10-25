@@ -183,7 +183,9 @@
     holder.updateMatrixWorld(true);
     const box=new T.Box3().setFromObject(holder),c=box.getCenter(new T.Vector3()),f=footprint||{front:9,rear:9,half:9};
     const size=box.getSize(new T.Vector3()),chassis=partBoxes(m)?.chassis,fit=chassis||{x:c.x,y:c.y,length:size.x,width:size.y};
-    const sx=2*f.rear/Math.max(fit.length,.001),sy=2*f.half/Math.max(fit.width,.001);
+    // A robot file with joints (URDF, SDFormat, MuJoCo, USD) is drawn at its true size: stretching it to the footprint
+    // would shear every link that turns.
+    const exact=['urdf','sdf','mjcf','usd'].includes(m.source),sx=exact?1:2*f.rear/Math.max(fit.length,.001),sy=exact?1:2*f.half/Math.max(fit.width,.001);
     inner.scale.set(sx,sy,1);inner.position.set(-fit.x*sx,-fit.y*sy,-box.min.z);holder.updateMatrixWorld(true);
     holder.userData.modelScale={x:sx,y:sy,F,L,c:{x:fit.x,y:fit.y}};holder.userData.nativeSize={length:size.x,width:size.y,height:size.z};holder.userData.size={length:2*f.rear,width:2*f.half,height:size.z};return holder;
   }
