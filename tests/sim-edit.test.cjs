@@ -92,3 +92,9 @@ test('suggested cuts follow the run and are ordinary clips, at least the minimum
 test('timecode shows minutes, seconds and the frame',()=>{
   assert.equal(E.timecode(0),'0:00.00');assert.equal(E.timecode(4.5),'0:04.15');assert.equal(E.timecode(61+1/30),'1:01.01');assert.equal(E.timecode(2,60),'0:02.00');
 });
+
+test('2D recordings edit with the top-down view, which cuts and survives a saved project like any camera',()=>{
+  const ed=new E.Editor(fresh());ed.change('Cut',d=>E.ops.cut(d,5,'top'));assert.deepEqual(v1(ed.doc).map(c=>[c.start,c.camera]),[[0,'main'],[5,'top']]);
+  assert.equal(E.sanitize(JSON.parse(JSON.stringify(ed.doc))).clips.find(c=>c.start===5).camera,'top');
+  assert.equal(E.videoClip({camera:'nowhere'}).camera,'main','an unknown camera falls back to the main one');
+});

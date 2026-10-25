@@ -5,7 +5,8 @@
   // edited video's own clock. Placing a clip overwrites whatever was under it on its track, the way an editor's
   // overwrite edit does; every change is one undo step.
   const VERSION=1,EPS=1e-6,MIN=1/30,finite=Number.isFinite,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const CAMERA_IDS=['main','mech','turret','chase','intake'];
+  // The five run cameras (sim-cameras.js) and the top-down view of the whole field that 2D recordings film.
+  const CAMERA_IDS=['main','mech','turret','chase','intake','top'];
   // Top to bottom as the timeline shows them; video tracks higher up cover the ones below.
   const TRACKS=[{id:'T1',kind:'text',name:'Titles'},{id:'V2',kind:'video',name:'Video 2'},{id:'V1',kind:'video',name:'Video 1'},{id:'A1',kind:'audio',name:'Audio 1'},{id:'A2',kind:'audio',name:'Audio 2'}];
   const OVERLAYS={match:'Period, clock & points',camera:'Camera name',position:'Position & heading',velocity:'Speed',turret:'Turret angle',mechanism:'Mechanism state',shots:'Shot markers',path:'Path map',timestamp:'Run time'};

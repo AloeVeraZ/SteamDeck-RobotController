@@ -1,0 +1,109 @@
+/* The Video tab: preview and settings on top, the timeline across the bottom. It only shows once a run is recorded. */
+.sim-tabs>button[data-tab=video] span{background:var(--danger);color:#1b0c0e}
+#sim-panel-video[hidden]{display:none!important}
+#sim-panel-video{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;gap:8px;min-height:0;flex:1;text-align:left}
+.studio-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.studio-name{display:flex;align-items:baseline;gap:10px;min-width:0;flex:1}
+.studio-name input{flex:0 1 320px;min-width:120px;height:34px;min-height:34px;font:700 15px var(--font);padding:4px 9px}
+.studio-name .hint{margin:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.studio-head-actions{display:flex;gap:6px;flex:none}
+#sim-panel-video button{min-height:32px;margin:0;padding:4px 11px;font-size:12px;white-space:nowrap}
+#sim-panel-video button.danger{border-color:var(--danger);color:var(--danger)}
+.studio-body{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;min-height:0}
+.studio-viewer{display:flex;flex-direction:column;gap:6px;min-height:0;min-width:0}
+.studio-screen{position:relative;flex:1;min-height:120px;border-radius:8px;background:#000;overflow:hidden}
+.studio-screen canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block}
+.studio-loading{position:absolute;inset:auto 0 45% 0;margin:0;text-align:center;color:#c9ced6;font-size:13px}
+.studio-loading[hidden]{display:none}
+.studio-transport{display:flex;align-items:center;gap:5px;flex:none;min-width:0}
+#sim-panel-video .studio-transport button{min-width:36px;padding:4px 8px}
+#sim-panel-video #studio-play{min-width:76px}
+.studio-time{font:600 13px var(--mono);font-variant-numeric:tabular-nums;margin-left:6px;white-space:nowrap}
+.studio-status{margin:0 0 0 8px;font-size:12px;min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.studio-side{display:flex;flex-direction:column;gap:2px;min-height:0;border:1px solid var(--line);border-radius:10px;background:var(--surface);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:10px 12px 12px}
+.studio-intro{margin:0 0 4px;font-size:12px;line-height:1.4;color:var(--muted)}
+.studio-intro strong{color:var(--text)}
+.studio-pane{font-size:12px}
+.studio-pane[hidden]{display:none}
+.studio-clip-pane{margin:4px -12px 6px;padding:8px 12px 10px;background:var(--raised);border-block:1px solid var(--line-strong)}
+.studio-clip-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.studio-clip-head .hint{font:11px var(--mono);margin-left:4px}
+.studio-remove{display:block;margin-top:8px;color:var(--danger);font-size:12px}
+.studio-fold{margin-top:6px;border-top:1px solid var(--line);padding-top:6px}
+.studio-fold>summary,.studio-tune>summary{cursor:pointer;font-size:12px;font-weight:600;padding:4px 0}
+#sim-panel-video .studio-export-go{width:100%;min-height:34px;margin-top:10px}
+#studio-progress{width:110px;align-self:center}
+#studio-progress[hidden]{display:none}
+.studio-spacer{flex:1}
+.studio-more{display:contents}
+.studio-more[hidden]{display:none}
+.studio-pane .hint{font-size:12px;margin:2px 0 8px}
+.studio-pane label{display:block;font-size:12px;margin:8px 0 3px;color:var(--muted)}
+.studio-pane label>input:not([type=checkbox]):not([type=range]),.studio-pane label>select{display:block;width:100%;margin-top:3px;height:32px;min-height:32px;font-size:13px;padding:3px 8px;box-sizing:border-box}
+.studio-pane input[type=range]{display:block;width:100%;margin:2px 0 0}
+.studio-pane label output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
+.studio-pane .studio-check{display:flex;align-items:center;gap:8px;color:var(--text);margin:9px 0}
+.studio-pane .studio-check input{width:16px;height:16px;margin:0}
+.studio-sub{margin:10px 0 2px;font-size:13px}
+.studio-cams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:4px 0}
+#sim-panel-video .studio-cam{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:48px;padding:5px 8px;border:1px solid var(--line-strong);border-left:4px solid var(--c);border-radius:7px;background:var(--raised);color:var(--text);text-align:left;white-space:normal;line-height:1.15}
+#sim-panel-video .studio-cam:hover{background:var(--hover,#222)}
+#sim-panel-video .studio-cam[aria-pressed=true]{background:color-mix(in srgb,var(--c) 22%,var(--raised));border-color:var(--c)}
+.studio-cam kbd{font:600 10px var(--mono);color:var(--muted)}
+.studio-cams.small{grid-template-columns:repeat(3,minmax(0,1fr))}
+#sim-panel-video .studio-cams.small .studio-cam{min-height:38px}
+.studio-cam-hint{min-height:3em}
+.studio-row-buttons{display:grid;grid-template-columns:1fr auto;gap:5px;margin:4px 0 8px}
+.studio-tune{margin:4px 0}
+.studio-tune summary{font-size:12px}
+.studio-moments{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:2px}
+#sim-panel-video .studio-moments button{display:flex;gap:8px;width:100%;min-height:28px;padding:3px 8px;border:0;border-left:3px solid var(--c);border-radius:4px;background:none;color:var(--text);text-align:left;font-size:12px}
+#sim-panel-video .studio-moments button:hover{background:var(--raised)}
+.studio-moments span{font:12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.studio-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.studio-num{display:flex;align-items:center;gap:5px;margin-top:3px}
+.studio-num input{flex:1;min-width:0;height:32px;min-height:32px;font-size:13px;padding:3px 8px}
+.studio-num span{color:var(--muted)}
+.studio-keys{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:6px 0;font-size:12px}
+.studio-keys dt{font:600 11px var(--mono);color:var(--text)}
+.studio-keys dd{margin:0;color:var(--muted)}
+/* The timeline: track names stay put while the lanes scroll under them. */
+.studio-timeline{display:flex;flex-direction:column;gap:5px;min-height:0;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:6px}
+.studio-tools{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+#sim-panel-video .studio-tools button{min-height:28px;padding:2px 9px}
+.studio-sep{width:1px;height:20px;background:var(--line-strong);margin:0 3px}
+.studio-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;border-radius:6px;background:var(--well)}
+.studio-tracks{position:relative;min-width:100%;user-select:none;-webkit-user-select:none;touch-action:none}
+.studio-row{display:flex;height:36px;border-bottom:1px solid var(--line)}
+.studio-row:last-of-type{border-bottom:0}
+.studio-ruler-row{height:24px}
+.studio-headcell{position:sticky;left:0;z-index:3;flex:none;width:96px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:0 6px 0 8px;background:var(--surface);border-right:1px solid var(--line);font-size:11px;font-weight:600;color:var(--muted)}
+.studio-corner{font:11px var(--mono);font-variant-numeric:tabular-nums}
+.studio-lane,.studio-ruler{position:relative;flex:1}
+.studio-ruler{cursor:col-resize;background:linear-gradient(var(--surface),var(--well))}
+.studio-tick{position:absolute;bottom:0;height:5px;border-left:1px solid var(--line-strong);font-size:0}
+.studio-tick.major{height:20px;padding:1px 0 0 3px;font:10px/10px var(--mono);color:var(--muted);white-space:nowrap}
+.studio-range{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 25%,transparent);border-inline:2px solid var(--accent)}
+.studio-clip{position:absolute;top:3px;bottom:3px;box-sizing:border-box;display:flex;align-items:center;border-radius:5px;background:color-mix(in srgb,var(--c) 34%,#14171b);border:1px solid color-mix(in srgb,var(--c) 70%,#000);border-left:3px solid var(--c);overflow:hidden;cursor:grab;font-size:11px;color:#eef1f5}
+.studio-clip.text{color:#211d14;background:color-mix(in srgb,var(--c) 85%,#000)}
+.studio-clip.selected{box-shadow:0 0 0 2px var(--text);z-index:1}
+.studio-clip-name{flex:1;min-width:0;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.studio-trim{flex:none;align-self:stretch;width:7px;cursor:ew-resize}
+.studio-trim:hover,.studio-clip.selected .studio-trim{background:rgb(255 255 255 / .22)}
+.studio-fx{position:absolute;left:0;top:0;bottom:0;width:14px;background:linear-gradient(90deg,rgb(255 255 255 / .5),transparent);pointer-events:none}
+.studio-playhead{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-1px;background:var(--danger);z-index:4;pointer-events:none;will-change:transform}
+.studio-playhead::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top:7px solid var(--danger)}
+/* Short windows (Steam Deck) keep the preview as large as they can. */
+@media(max-height:820px){#sim-panel-video{gap:6px}.studio-row{height:32px}.studio-name .hint{display:none}}
+@media(max-height:640px){.studio-row{height:28px}.studio-ruler-row{height:20px}}
+/* Narrow windows: one column that scrolls, the preview full width. */
+@media(max-width:900px){
+ .studio-body{grid-template-columns:minmax(0,1fr)}
+ .studio-screen{flex:none;aspect-ratio:16/9;min-height:0}
+ .studio-side{max-height:none}
+ .studio-head{flex-wrap:wrap}
+ .studio-head-actions{flex-wrap:wrap}
+ .sim-workspace #simulation-view[data-tab=video]{overflow-y:auto}
+ #sim-panel-video{flex:none;grid-template-rows:auto auto auto}
+ .studio-status{display:none}
+}

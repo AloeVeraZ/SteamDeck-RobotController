@@ -130,16 +130,19 @@
     }
     function scrub(){const span=duration();if(cursor!==null)cursor=Math.max(0,Math.min(span,cursor));const f=cursor===null?frames.at(-1):at(cursor);onScrub(live?null:f);render(f);}
     function render(f=live?frames.at(-1):at(cursor??0)){
+      clearTimeout(trailing);stale=false;
       const span=duration();range.max=String(Math.max(0,span).toFixed(2));range.value=live?range.max:String(cursor??0);clock.textContent=`${(live?span:cursor||0).toFixed(2)} s of ${span.toFixed(2)} s${live?' · live':''}`;liveButton.disabled=live;
       if(frames.length&&span){const stops=[];let phase=frames[0].practice?.phase,from=0;for(let i=1;i<=frames.length;i++){const p=frames[i]?.practice?.phase;if(i===frames.length||p!==phase){const a=(frames[from].time-t0())/span*100,b=(frames[i-1].time-t0())/span*100,c=PHASES[phase]?PHASES[phase]+'66':'transparent';stops.push(`${c} ${a}%`,`${c} ${b}%`);from=i;phase=p;}}track.style.background=`linear-gradient(90deg,${stops.join(',')})`;}else track.style.background='';
       empty.hidden=!!frames.length;recorded.hidden=!frames.length;
       if(frames.length){summary.replaceChildren(list(analysis(frames)));graphs(f);}
       if(moment.open)views(f);
     }
-    let renderTimer=0;
+    // Graphs redraw 4 times a second while the robot moves, once a second while it stands still.
+    let renderTimer=0,trailing=0,stale=false,onScreen=true,still=0;
+    if(typeof IntersectionObserver==='function')new IntersectionObserver(seen=>{onScreen=seen.some(e=>e.isIntersecting);if(onScreen&&stale){stale=false;render();}}).observe(panelHost);
     return {
-      record(f){if(!f?.truth)return;const last=frames.at(-1);if(last&&f.time<last.time-1e-6)frames=[];if(last&&Math.abs(f.time-last.time)<1e-6)frames[frames.length-1]=f;else frames.push(f);if(frames.length>24000)frames.splice(0,4000);
-        if(live){const now=performance.now();if(now-renderTimer>120){renderTimer=now;render();}}},
+      record(f){if(!f?.truth)return;const last=frames.at(-1);still=last?.truth&&last.truth.x===f.truth.x&&last.truth.y===f.truth.y&&last.truth.heading===f.truth.heading?still+1:0;if(last&&f.time<last.time-1e-6)frames=[];if(last&&Math.abs(f.time-last.time)<1e-6)frames[frames.length-1]=f;else frames.push(f);if(frames.length>24000)frames.splice(0,4000);
+        if(live){if(!onScreen){stale=true;return;}const now=performance.now(),every=still>15?1000:250;if(now-renderTimer>every){renderTimer=now;render();}else{clearTimeout(trailing);trailing=setTimeout(()=>{renderTimer=performance.now();render();},260);}}},
       reset(){frames=[];cursor=null;live=true;render();},
       // Replay the moment `seconds` after the run started, as dragging the timeline there would.
       seek(seconds){if(!frames.length)return;live=false;cursor=seconds;scrub();},

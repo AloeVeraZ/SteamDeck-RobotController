@@ -162,6 +162,20 @@ The user's goal: plug into the Control Hub, press one button, and everything for
 - Then about 3.4× faster on a 24-barrier field (2.45 s to 0.72 s): the visibility graph only tests corner pairs whose line leaves both corners along a tangent (a reduced visibility graph).
   - Real setups plan identically and 20–35% faster.
   - On 133 random fields that planned, 130 routes are identical. The other 3 are ties between equal-length routes: one with the same length, two spline routes 0.008–0.024 in shorter.
+- Lag during and after runs (25 October), measured with CPU profiles and Chrome traces of the real app at 1280×800:
+  - `fitSettings` laid out the whole page after every change in the side panel (graphs, readouts and clock change many times a second). It now runs only for changes inside a paged section.
+  - The 3D view rebuilt its overlay on every trail point, so the GPU recompiled shaders while the robot drove (840 ms per 6 s). The trail now has its own line with kept materials. 3D running: worst frame 100 ms → 33 ms, main thread idle 49% → 76%.
+  - The 2D field no longer rebuilds zones, route and pins with every frame (`drawRun`), moves piece circles instead of recreating them, and sets attributes only when they change.
+  - Frames that show the same picture (the practice clock keeps sending them after the robot stops) are not drawn; readouts update twice a second and graphs once a second while the robot stands still, and graphs off screen wait until they are seen.
+  - After a run, main-thread work fell from about 50% to about 15%, and page updates from ~31 to ~3 a second.
+
+### Video editor (25 October)
+
+- A **Video editor** tab beside Run & review, shown only while a recording exists; a finished recording opens it. Editing is optional: **Save video…** saves straight away.
+- Built on the earlier `video-studio` foundations (`sim-cameras.js`, `sim-edit.js`, `sim-encode.js`), merged into `testing`; `ui/sim-studio.js` and `ui/sim-studio.css` are the tab. A top-down camera was added for 2D recordings.
+- Kept simple for students: camera buttons, Pick cameras for me, Split / Delete / + Text, and Save video; the rest sits under More, More tools and the folds.
+- The app's CSP blocks `style` attributes in markup, so the timeline sets positions through `data-css` and the style object.
+- Verified in Electron: record → tab opens → auto cameras, a camera cut and a title → a 1280×720 H.264 MP4 of 11.5 s saved in about 7–10 s → Discard hides the tab.
 
 ### lunala red auto (the user's request)
 

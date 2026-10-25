@@ -17,7 +17,7 @@ window.DeckSim3D={create(host,options){
   const navigator=video?null:window.DeckRobotModel.viewCube(host.querySelector('.sim-field-cube'),direction=>{const d=[...direction];if(!d[0]&&!d[1])d[0]=-.0001;const distance=Math.min(controls.maxDistance,Math.max(controls.minDistance,camera.position.distanceTo(controls.target)));camera.position.copy(new THREE.Vector3(...d).normalize().multiplyScalar(distance)).add(controls.target);controls.update();schedule();},{controls,orbit:(dx,dy)=>{window.DeckRobotModel.orbitCamera(camera,controls,dx,dy);schedule();}});
   scene.add(new THREE.HemisphereLight(0xffffff,0x8b96a5,2.8),new THREE.AmbientLight(0xffffff,.5));const sun=new THREE.DirectionalLight(0xffffff,1.8);sun.position.set(130,-40,220);scene.add(sun);
   sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);sun.shadow.camera.left=-180;sun.shadow.camera.right=180;sun.shadow.camera.top=180;sun.shadow.camera.bottom=-180;sun.shadow.bias=-.0005;
-  const fieldGroup=new THREE.Group(),overlay=new THREE.Group(),robotGroup=new THREE.Group(),ghost=new THREE.Group();scene.add(fieldGroup,overlay,robotGroup,ghost);
+  const fieldGroup=new THREE.Group(),overlay=new THREE.Group(),trailGroup=new THREE.Group(),robotGroup=new THREE.Group(),ghost=new THREE.Group();scene.add(fieldGroup,overlay,trailGroup,robotGroup,ghost);
   let info=null,frame=null,state=null,body=null,raf=0,lastOverlay='',fieldKey='',fieldSequence=0,visual=null,markers=null,disposed=false;
   const markersHost=new THREE.Group(),ballsHost=new THREE.Group(),elementMarkers=new THREE.Group();scene.add(markersHost,ballsHost,elementMarkers);const ballMeshes=new Map(),ballWires=new Map();
   const css=name=>getComputedStyle(options.style||host).getPropertyValue(name).trim()||'#888',color=name=>new THREE.Color(css(name));
@@ -37,7 +37,7 @@ window.DeckSim3D={create(host,options){
       try{const next=await window.DeckFieldArt.build3d(temporary,info,THREE,L,{surface:color('--surface').lerp(color('--muted'),.18),line:color('--line-strong')},{own:!!video});if(disposed||sequence!==fieldSequence)return;fieldGroup.add(...temporary.children);visual=next;host.dataset.fieldReady=info.field;host.setAttribute('aria-busy','false');}
       catch(e){if(sequence===fieldSequence){fieldKey='';note.textContent='Field model could not load: '+e.message;host.setAttribute('aria-busy','false');}return;}}
     note.textContent=!info?'':info.physics==='3d'?'3D physics':'Flat (2D) physics, shown in 3D';
-    lastOverlay='';robotModel();schedule();
+    lastOverlay='';trailKey='';trailMaterials.themed=false;robotModel();schedule();
   }
   function robotModel(){
     clear(robotGroup);
@@ -49,7 +49,7 @@ window.DeckSim3D={create(host,options){
   }
   function setModel(holder){body=holder||null;robotModel();schedule();}
   function overlays(){
-    const s=state;if(!s)return;const l=s.layout,signature=JSON.stringify([l.zones,l.pins,l.route?.samples?.length,l.route?.length,s.trail.length,s.start,info?.footprint]);if(signature===lastOverlay)return;lastOverlay=signature;clear(overlay);
+    const s=state;if(!s)return;const l=s.layout,signature=JSON.stringify([l.zones,l.pins,l.route?.samples?.length,l.route?.length,s.start,info?.footprint]);if(signature===lastOverlay)return;lastOverlay=signature;clear(overlay);
     const red=new THREE.MeshStandardMaterial({color:color('--danger'),transparent:true,opacity:.45});
     for(const z of l.zones){const p=window.DeckPlanner.polygon(z);
       if(p.length===2){const [a,b]=p,m=new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(b.x-a.x,b.y-a.y),1,3),red);m.position.set((a.x+b.x)/2,(a.y+b.y)/2,1.5);m.rotation.z=Math.atan2(b.y-a.y,b.x-a.x);overlay.add(m);}
@@ -59,9 +59,17 @@ window.DeckSim3D={create(host,options){
       overlay.add(line(points,material,.6));}}
     const pin=new THREE.MeshStandardMaterial({color:color('--accent')}),stop=new THREE.MeshStandardMaterial({color:color('--warning')});
     for(const q of l.pins){const m=new THREE.Mesh(new THREE.CylinderGeometry(1.6,1.6,4,16),q.wait>0?stop:pin);m.rotation.x=Math.PI/2;m.position.set(q.x,q.y,2);overlay.add(m);}
-    if(s.trail.length>1)overlay.add(line(s.trail,new THREE.LineBasicMaterial({color:color('--text')}),.4));
-    const est=s.trail.filter(t=>t.e).map(t=>t.e);if(est.length>1)overlay.add(line(est,new THREE.LineDashedMaterial({color:color('--warning'),dashSize:2,gapSize:1.5}),.5));
     if(s.start&&info){const c=window.DeckPlanner.body(s.start,info.footprint);overlay.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(c.map(p=>v3(p,.3))),new THREE.LineBasicMaterial({color:color('--muted')})));}
+  }
+  // The run's trail (and the sensor estimate's) grow with every frame: their lines are replaced on their own, with
+  // materials that are kept, so the rest of the overlay is rebuilt (and its shaders compiled) only when the route changes.
+  const trailMaterials={};let trailKey='';
+  function trails(){
+    const t=state?.trail||[],key=`${t.length}|${t.at(-1)?.x}|${t.at(-1)?.y}`;if(key===trailKey)return;trailKey=key;
+    trailMaterials.line??=new THREE.LineBasicMaterial();trailMaterials.estimate??=new THREE.LineDashedMaterial({dashSize:2,gapSize:1.5});
+    if(!trailMaterials.themed){trailMaterials.themed=true;trailMaterials.line.color.copy(color('--text'));trailMaterials.estimate.color.copy(color('--warning'));}
+    for(const c of [...trailGroup.children]){trailGroup.remove(c);c.geometry.dispose();}
+    if(t.length>1)trailGroup.add(line(t,trailMaterials.line,.4));const est=t.filter(p=>p.e).map(p=>p.e);if(est.length>1)trailGroup.add(line(est,trailMaterials.estimate,.5));
   }
   function update(nextFrame,nextState){frame=nextFrame;state=nextState||state;schedule();}
   function schedule(){if(!raf&&!video)raf=requestAnimationFrame(render);}
@@ -71,7 +79,7 @@ window.DeckSim3D={create(host,options){
   }
   // Puts the robot, pieces and overlays where the frame shown now has them.
   function prepare(){
-    overlays();if(video)renderer.shadowMap.needsUpdate=true;
+    overlays();trails();if(video)renderer.shadowMap.needsUpdate=true;
     const t=frame?.truth,p=t||state?.start;if(!robotGroup.children.length)robotModel();
     if(p){robotGroup.position.set(p.x,p.y,t?.z||0);robotGroup.rotation.set(0,0,p.heading*DEG);window.DeckRobotModel?.animate(robotGroup,frame);if(markers){markers.robot.position.copy(robotGroup.position);markers.robot.rotation.copy(robotGroup.rotation);}}
     markersHost.visible=!!state?.hitboxes;

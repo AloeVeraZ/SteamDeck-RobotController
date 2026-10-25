@@ -362,8 +362,11 @@
 .sim-run-row .sim-record.recording{background:var(--danger);border-color:var(--danger);color:var(--bg)}
 .sim-run-row .sim-record.recording::before{background:var(--bg)}
 #sim-record-status{margin:4px 0 8px}
-/* The finished take: it plays here with Save and Discard until it is saved elsewhere or dropped. */
-.sim-record-result{display:grid;gap:8px;margin:4px 0 12px;padding:10px;border:1px solid var(--danger);border-radius:8px}
-.sim-record-result video{width:100%;aspect-ratio:16/9;border-radius:6px;background:#000}
-.sim-record-result-text .hint{margin:2px 0 0}
-.sim-record-result .button-row{margin:0}
+/* The finished take: Edit video opens the Video editor tab; Discard drops it. */
+.sim-record-result{display:grid;gap:8px;margin:12px 0 2px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;background:var(--well)}
+.sim-record-result-text{display:grid;gap:1px;min-width:0;padding:0 2px}
+.sim-record-result-text strong{font-size:13px}
+#sim-record-meta{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#simulation-view .sim-record-result-text .hint{margin:4px 0 0}
+.sim-record-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+#simulation-view .sim-record-actions button{min-height:34px;margin:0;white-space:nowrap}
