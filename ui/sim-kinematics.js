@@ -92,7 +92,8 @@
   }
   // ---------------------------------------------------------------- the stored model
   const ID=/^[A-Za-z][\w-]{0,31}$/;
-  const vec=(v,d)=>Array.isArray(v)&&v.length===3&&v.every(finite)?v.map(x=>+x.toFixed(5)):d;
+  // Points keep 9 decimals of the CAD unit: a nanometre in a metre CAD (URDF, SDFormat, MJCF), as fine as a millimetre one.
+  const vec=(v,d)=>Array.isArray(v)&&v.length===3&&v.every(finite)?v.map(x=>+x.toFixed(9)):d;
   const text=(v,n=80)=>typeof v==='string'?v.trim().slice(0,n):'';
   const num=(v,d,a=-1e6,b=1e6)=>finite(v)?clamp(v,a,b):d;
   // Part refs: an assembly node's key (every part under it) or "#n" for one part instance (a leaf).
@@ -271,7 +272,8 @@
     if(!free.length)return {q,error:residualNorm(model,q),solved:[]};
     const list=order(model),slots=free.flatMap(id=>dofOf(byId.get(id)).map((u,i)=>({id,i,unit:u})));
     const read=()=>slots.map(s=>q[s.id][s.i]),write=x=>{slots.forEach((s,k)=>{q[s.id][s.i]=x[k];});};
-    const residual=()=>{applyCouplings(model,q);const W=worlds(model,q,list),r=[];for(const l of model.loops){const pa=apply(l.a.joint?W.get(l.a.joint):I4(),l.a.point),pb=apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point);r.push(...sub(pa,pb));}return r;};
+    // In inches whatever the CAD unit, so the damping and the stopping point mean the same for a metre or a millimetre CAD.
+    const u=model.unit||1,residual=()=>{applyCouplings(model,q);const W=worlds(model,q,list),r=[];for(const l of model.loops){const pa=apply(l.a.joint?W.get(l.a.joint):I4(),l.a.point),pb=apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point);r.push(...scale(sub(pa,pb),u));}return r;};
     // Homotopy: the given joints move from home to their values in steps of at most 10° (or 0.5 in).
     const target=Object.fromEntries(Object.keys(given).map(id=>[id,q[id].slice()])),home=Object.fromEntries(Object.keys(given).map(id=>[id,valuesOf(byId.get(id),byId.get(id).home||0)]));
     let span=0;for(const id of Object.keys(target))target[id].forEach((v,i)=>{span=Math.max(span,Math.abs(v-home[id][i])/(dofOf(byId.get(id))[i]==='in'?.5:10));});
@@ -294,11 +296,12 @@
     }
     applyCouplings(model,q);return {q,error:err,solved:free};
   }
-  function residualNorm(model,q){const W=worlds(model,q);let s=0;for(const l of model.loops){const d=sub(apply(l.a.joint?W.get(l.a.joint):I4(),l.a.point),apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point));s+=dot(d,d);}return Math.sqrt(s);}
+  function residualNorm(model,q){const W=worlds(model,q);let s=0;for(const l of model.loops){const d=sub(apply(l.a.joint?W.get(l.a.joint):I4(),l.a.point),apply(l.b.joint?W.get(l.b.joint):I4(),l.b.point));s+=dot(d,d);}return Math.sqrt(s)*(model.unit||1);}
   // Gaussian elimination with partial pivoting (small systems).
   function solve(A,b){const n=b.length,M=A.map((r,i)=>[...r,b[i]]);for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;if(Math.abs(M[p][c])<1e-14)return null;[M[c],M[p]]=[M[p],M[c]];
     for(let r=0;r<n;r++){if(r===c)continue;const f=M[r][c]/M[c][c];if(f)for(let k=c;k<=n;k++)M[r][k]-=f*M[c][k];}}return M.map((r,i)=>r[n]/r[i]);}
   // The whole pose: values, solved loops, and each link's motion. given: {jointId: q} for the joints commanded.
+  // loopError: how far apart (inches) the points of the loops still are.
   function pose(model,given={}){const q=resolve(model,given),loop=solveLoops(model,q,{given});return {q,W:worlds(model,q),loopError:loop.error,solved:loop.solved};}
   // ---------------------------------------------------------------- actuators
   // An actuator moves its joint toward a target at up to `speed` units a second, speeding up and slowing down at

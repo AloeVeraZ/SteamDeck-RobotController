@@ -1,0 +1,47 @@
+<!-- The same four-bar in MJCF (angles in radians): the rocker hangs from the world, and an equality connect pins the
+     coupler's end to it. A finger below couples its last joint to the one before by a fixed tendon held at zero
+     length: 2·pip − 3·dip = 0. -->
+<mujoco model="mjcf_fourbar">
+  <compiler angle="radian" autolimits="true"/>
+  <worldbody>
+    <body name="crank">
+      <joint name="crank" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.010000000000000002 0.017320508075688773 0" size="0.002"/>
+      <body name="coupler" pos="0.010000000000000002 0.017320508075688773 0">
+        <joint name="coupler" type="hinge" axis="0 0 1" range="-3 3"/>
+        <geom type="capsule" fromto="0 0 0 0.05032015300873866 0.032678466934315135 0" size="0.002"/>
+      </body>
+    </body>
+    <body name="rocker" pos="0.06 0 0">
+      <joint name="rocker" type="hinge" axis="0 0 1"/>
+      <geom type="capsule" fromto="0 0 0 0.00032015300873866614 0.04999897501000391 0" size="0.002"/>
+    </body>
+    <body name="palm" pos="0 -0.1 0" quat="0.7071067811865476 0 0 0.7071067811865476">
+      <geom type="box" size="0.02 0.02 0.005"/>
+      <body name="proximal" pos="0.02 0 0">
+        <joint name="mcp" axis="0 1 0" range="0 1.6"/>
+        <geom type="capsule" fromto="0 0 0 0.03 0 0" size="0.006"/>
+        <body name="middle" pos="0.03 0 0">
+          <joint name="pip" axis="0 1 0" range="0 1.6"/>
+          <geom type="capsule" fromto="0 0 0 0.02 0 0" size="0.005"/>
+          <body name="distal" pos="0.02 0 0">
+            <joint name="dip" axis="0 1 0" range="0 1.2"/>
+            <geom type="capsule" fromto="0 0 0 0.015 0 0" size="0.004"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <tendon>
+    <fixed name="couple"><joint joint="pip" coef="2"/><joint joint="dip" coef="-3"/></fixed>
+  </tendon>
+  <equality>
+    <connect body1="coupler" body2="rocker" anchor="0.05032015300873866 0.032678466934315135 0"/>
+    <tendon tendon1="couple"/>
+  </equality>
+  <actuator>
+    <motor joint="crank"/>
+    <position joint="mcp" kp="10"/>
+    <position joint="pip" kp="10"/>
+  </actuator>
+</mujoco>

@@ -54,20 +54,32 @@ class SimulationHost{
     if(size>MODEL_LIMIT)throw Error(`${path.basename(file)} is larger than 200 MB.`);
     if(STEP_TYPES.includes(ext))return {kind:'step',...await this.convertStep(file)};
     if(ext==='.urdf')return this.readUrdf(file);
-    if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), URDF (.urdf), .glb, .gltf, .stl or .obj file.');
+    if(['.sdf','.world','.mjcf','.xml'].includes(ext))return this.readDescription(file);
+    if(!MESH_TYPES[ext])throw Error('Use a STEP (.step/.stp), URDF (.urdf), SDFormat (.sdf), MuJoCo (.xml), .glb, .gltf, .stl or .obj file.');
     return {kind:'mesh',name:path.basename(file),format:MESH_TYPES[ext],bytes:new Uint8Array(fs.readFileSync(file))};
   }
-  // A URDF and the mesh files it names (package://name/... is looked for in the folders above it, as ROS finds packages).
-  // Only mesh files are read; a Collada (.dae) mesh is reported, and its link's collision shapes are drawn instead.
+  // A URDF and the mesh files it names.
   readUrdf(file){
-    const U=require('../ui/sim-urdf.js'),xml=fs.readFileSync(file,'utf8'),u=U.parse(xml),dir=path.dirname(file),files=[],missing=[];let total=Buffer.byteLength(xml);
-    const find=ref=>{const pkg=/^(?:package|model):\/\/([^/]+)\/(.*)$/.exec(ref);
+    const U=require('../ui/sim-urdf.js'),xml=fs.readFileSync(file,'utf8'),u=U.parse(xml);
+    return {kind:'urdf',name:path.basename(file),xml,...this.meshesFor(U.meshFiles(u),path.dirname(file),Buffer.byteLength(xml))};
+  }
+  // An SDFormat or MuJoCo robot (an .xml file is told apart by its root element) and the mesh files it names.
+  readDescription(file){
+    const F=require('../ui/sim-robot-formats.js'),xml=fs.readFileSync(file,'utf8'),kind=F.kindOf(file,xml);
+    if(kind==='urdf')return this.readUrdf(file);if(!kind)throw Error(`${path.basename(file)} is not a URDF, SDFormat or MuJoCo robot.`);
+    return {kind,name:path.basename(file),xml,...this.meshesFor(F.meshFiles(F.parse(kind,xml)),path.dirname(file),Buffer.byteLength(xml))};
+  }
+  // Reads the mesh files a robot file names: package://name/... and model://name/... are looked for in the folders above
+  // it (as ROS finds packages and Gazebo models), file:// as given, anything else relative to the file. Only mesh files
+  // are read; a Collada (.dae) mesh is reported, and its link's collision shapes are drawn instead.
+  meshesFor(refs,dir,total){
+    const files=[],missing=[],find=ref=>{const pkg=/^(?:package|model):\/\/([^/]+)\/(.*)$/.exec(ref);
       if(pkg){for(let d=dir;;d=path.dirname(d)){for(const c of [path.join(d,pkg[1],pkg[2]),path.basename(d)===pkg[1]?path.join(d,pkg[2]):null])if(c&&fs.existsSync(c))return c;if(d===path.dirname(d))return null;}}
       if(/^file:\/\//.test(ref))return require('node:url').fileURLToPath(ref);return path.resolve(dir,ref);};
-    for(const ref of U.meshFiles(u)){const at=find(ref),kind=at&&MESH_TYPES[path.extname(at).toLowerCase()];
+    for(const ref of refs){const at=find(ref),kind=at&&MESH_TYPES[path.extname(at).toLowerCase()];
       if(!at||!fs.existsSync(at)){missing.push(`${ref} (not found)`);continue;}if(!kind){missing.push(`${ref} (${path.extname(at).slice(1)} meshes are not read)`);continue;}
       const size=fs.statSync(at).size;if(total+size>MODEL_LIMIT){missing.push(`${ref} (over 200 MB in all)`);continue;}total+=size;files.push({ref,format:kind,bytes:new Uint8Array(fs.readFileSync(at))});}
-    return {kind:'urdf',name:path.basename(file),xml,files,missing};
+    return {files,missing};
   }
   exportsFile(){return path.join(this.dataDir,'simulation','exports.json');}
   exportTargets(){try{const v=JSON.parse(fs.readFileSync(this.exportsFile(),'utf8'));return v&&typeof v==='object'?v:{};}catch{return {};}}
@@ -97,7 +109,7 @@ class SimulationHost{
     if(action==='robot-log-open'){const file=await open('Compare with a robot log',[{name:'Robot log',extensions:['wpilog','csv','txt']}],64*1024*1024);return file&&{name:path.basename(file),bytes:new Uint8Array(fs.readFileSync(file))};}
     if(action==='java-open'){const file=await open('Choose a Java autonomous program',[{name:'Java source',extensions:['java']}],SOURCE_LIMIT);return file&&{name:path.basename(file),source:fs.readFileSync(file,'utf8')};}
     // Only picks the file: the window confirms it is the robot's starting position before model-drop reads it.
-    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','urdf','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
+    if(action==='model-pick'){const file=await open('Import your robot',[{name:'Robot CAD or mesh',extensions:['step','stp','urdf','sdf','world','xml','mjcf','glb','gltf','stl','obj']}],MODEL_LIMIT);return file&&{file,name:path.basename(file)};}
     // A file dropped on the window: the path comes from Electron's own File-to-path lookup.
     if(action==='model-drop'){const file=typeof data==='string'?data:data?.file;if(typeof file!=='string'||!path.isAbsolute(file)||!fs.existsSync(file))throw Error('That file could not be opened.');return this.readModel(file);}
     if(action==='model-save'){
