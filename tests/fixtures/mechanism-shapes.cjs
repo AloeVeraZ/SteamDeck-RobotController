@@ -45,8 +45,9 @@ function plateWithHole({center,axis,size,t,hole,seg=48}){
 }
 // An FTC robot (robot frame = CAD frame: x forward, y left, z up, inches; the floor at z = 0): a drivetrain with four
 // wheels, a turret on a turntable gear with a flywheel and a concentric hood, and a front intake whose arm and ramp
-// plate hinge on a servo hub shaft above a fixed roller.
-function ftcRobot(){
+// plate hinge on a servo hub shaft above a fixed roller. hoodStop: a block 0.2 in past the hood's lower end, which it
+// meets when it tilts about 3.5° steeper.
+function ftcRobot({hoodStop=false}={}){
   const b=builder(),root=b.node('Robot'),drive=b.node('Drivetrain',root),turret=b.node('Turret',root),shooter=b.node('Pollen shooter',root),intake=b.node('Front intake',root);
   const n=(name,parent)=>b.node(name,parent),L={};
   L.chassis=b.add(n('Frame',drive),box([-8,-8,1],[8,8,4]));
@@ -64,6 +65,7 @@ function ftcRobot(){
   L.roller=b.add(n('Roller',intake),cylinder({center:[9.5,0,1.6],axis:[0,1,0],r:1,length:12}));
   L.rollerAxle=b.add(n('Roller axle',intake),cylinder({center:[9.5,0,1.6],axis:[0,1,0],r:.15,length:13,seg:12}));
   L.sides=[[6.2,6.4],[-6.4,-6.2]].map(([y0,y1])=>b.add(n('Side plate',intake),box([5,y0,.5],[10,y1,5.5])));
+  if(hoodStop)L.stop=b.add(n('Stop block',drive),box([-3.29,-1.5,5.134],[-2.79,1.5,5.634]));
   const meta={id:'0123456789abcdef0123456789abcdef.glb',units:'in',front:'+x',top:'+z',parts:[{name:'Drivetrain',role:'chassis',key:'Robot/Drivetrain'},{name:'Turret',role:'shooter',type:'turret',key:'Robot/Turret'},
     {name:'Pollen shooter',role:'shooter',type:'fixed',pieces:'pollen',key:'Robot/Pollen shooter'},{name:'Front intake',role:'intake',kind:'ramp',key:'Robot/Front intake'}]};
   const mechanisms={enabled:true,intakes:[{kind:'ramp',sides:['front'],parts:['Front intake']}],shooters:[{type:'turret',pieces:'pollen',mount:'back',parts:['Pollen shooter','Turret']}]};

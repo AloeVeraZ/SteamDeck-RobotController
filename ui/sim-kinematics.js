@@ -98,7 +98,8 @@
   const num=(v,d,a=-1e6,b=1e6)=>finite(v)?clamp(v,a,b):d;
   // Part refs: an assembly node's key (every part under it) or "#n" for one part instance (a leaf).
   const refs=v=>Array.isArray(v)?[...new Set(v.filter(r=>typeof r==='string'&&r&&r.length<=400))].slice(0,4000):[];
-  const PROVENANCE={metadata:'From the file',inferred:'Found in your CAD',user:'Set by you',standin:'Stand-in shape'};
+  // standin: a game mechanism the CAD has no parts for yet; the software knows it moves, nothing is drawn for it.
+  const PROVENANCE={metadata:'From the file',inferred:'Found in your CAD',user:'Set by you',standin:'Not in your CAD yet'};
   function sanitizeJoint(raw,ids){
     if(!raw||typeof raw!=='object'||!ID.test(raw.id)||ids.has(raw.id))return null;ids.add(raw.id);
     const type=Object.hasOwn(TYPES,raw.type)?raw.type:'revolute',n=TYPES[type].dof.length,axis=unit(vec(raw.axis,[0,0,1]));
@@ -117,6 +118,8 @@
       ...(finite(raw.speed)&&raw.speed>0?{speed:clamp(raw.speed,.01,1e5)}:{}),...(finite(raw.rpm)&&raw.rpm>0?{rpm:clamp(raw.rpm,.1,60000)}:{}),
       // A turret's heading in the CAD (degrees counterclockwise from the robot's front, seen from above).
       ...(finite(raw.zero)?{zero:+(((raw.zero%360)+540)%360-180).toFixed(3)}:{}),
+      // A hood's launch angle as the CAD has it (degrees above level); it tilts by the difference to the game's.
+      ...(finite(raw.launch)?{launch:+clamp(raw.launch,0,90).toFixed(2)}:{}),
       ...(finite(raw.radius)&&raw.radius>0?{radius:+raw.radius.toFixed(4)}:{}),
       // How a drive wheel rolls: a plain wheel only forward and back; a mecanum wheel's rollers also take sideways motion.
       ...(['mecanum','omni'].includes(raw.roll)?{roll:raw.roll}:{}),
@@ -160,7 +163,7 @@
     const poses=(Array.isArray(r.poses)?r.poses:[]).slice(0,32).map(p=>{if(!p||typeof p.name!=='string'||!p.name.trim())return null;const values={};
       for(const [k,v] of Object.entries(p.values&&typeof p.values==='object'?p.values:{}).slice(0,32))if(movable.has(k)&&finite(v))values[k]=+v;return Object.keys(values).length?{name:text(p.name,40),values}:null;}).filter(Boolean);
     if(poses.length)out.poses=poses;
-    if(r.discovered===true)out.discovered=true;return out;
+    if(r.discovered===true)out.discovered=true;if(finite(r.finder))out.finder=Math.round(r.finder);return out;
   }
   // An action: steps that command actuators. Each step starts `delay` seconds after the step it follows ends (or after
   // the action starts), so steps run together, in sequence or staggered. A position step ends when its actuator gets
@@ -419,8 +422,9 @@
     busy(name){const key=String(name).trim().toLowerCase();return this.running.some(r=>r.action.name.toLowerCase()===key)||this.moves.some(m=>m.key===key&&!m.axis.done);}
     tick(dt,s={}){
       this.time+=dt;const m=this.model;
-      // Hoods head for their shooting position while the shooter spins up, aims or feeds, and back to rest after.
-      for(const j of m.joints)if(j.drive?.signal==='hood')this.axes.get('hood:'+j.id).to((s.spin||s.aim||s.feed)?j.states?.shoot??0:j.states?.rest??0);
+      // Hoods head for their shooting position while the shooter spins up, aims or feeds, and back to rest after. A hood
+      // whose CAD launch angle is known tilts by the difference to the game's launch angle (s.hood), within its limits.
+      for(const j of m.joints)if(j.drive?.signal==='hood')this.axes.get('hood:'+j.id).to((s.spin||s.aim||s.feed)?(finite(j.launch)&&finite(s.hood)?clamp(s.hood-j.launch,j.lower??-180,j.upper??180):j.states?.shoot??0):j.states?.rest??0);
       for(const [,axis] of this.axes)axis.step(dt);this.moves=this.moves.filter(m=>!m.axis.done);
       for(const j of m.joints){const axis=this.axes.get('joint:'+j.id);if(axis)this.q[j.id]=axis.q;}
       for(const a of m.actuators){const axis=this.axes.get(a.id),j=m.joints.find(x=>x.id===a.joint),v=valuesOf(j,this.q[j.id]);v[a.index]=axis.q;this.q[j.id]=v.length===1?v[0]:v;}

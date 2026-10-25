@@ -33,8 +33,10 @@
   }
   // Which link each part belongs to (the deepest joint naming it), or null for the robot's frame.
   function owners(ctx,model){const own=new Map(),list=K().order(model);for(const j of list)for(const k of ctx.parts.expand(j.parts))own.set(k,j.id);return own;}
-  // Prepares a check of one joint: its link's parts (and its children's) against everything else.
-  function checker(ctx,model,jointId,{tol=.01}={}){
+  // Prepares a check of one joint: its link's parts (and its children's) against everything else. points: a contact
+  // also needs a point of the moving part's own surface inside the other part's boxes, which leaves out the slack of
+  // the moving part's boxes (a curved hood's boxes reach far past the hood).
+  function checker(ctx,model,jointId,{tol=.01,points=false}={}){
     const own=owners(ctx,model),byId=new Map(model.joints.map(j=>[j.id,j]));
     // The moving set: the joint and the joints riding on it.
     const riding=new Set([jointId]);let grew=true;while(grew){grew=false;for(const j of model.joints)if(j.parent&&riding.has(j.parent)&&!riding.has(j.id)){riding.add(j.id);grew=true;}}
@@ -52,13 +54,18 @@
       // The new contacts in a pose ({jointId: value}): pairs of parts as [moving part, other part].
       at(values){const p=K().pose(model,values),hits=[],W=k=>{const id=own.get(k);return id?p.W.get(id):null;};
         const boxes=new Map();const box=k=>{if(!boxes.has(k)){const w=W(k);boxes.set(k,w?moved(rest.get(k),w):rest.get(k));}return boxes.get(k);};
-        for(const a of mine)for(const b of near){if(restPairs.has(a+':'+b))continue;if(touch(box(a),box(b),tol))hits.push([a,b]);}
+        for(const a of mine)for(const b of near){if(restPairs.has(a+':'+b))continue;if(touch(box(a),box(b),tol)&&(!points||pierces(a,W(a),box(b))))hits.push([a,b]);}
         return hits;}};
+    // Some of the moving part's surface points (triangle corners and centres), moved, inside every box of the other part
+    // (less tol).
+    function pierces(a,w,boxes){const key='pts:'+a;let pts=ctx.cache.get(key);
+      if(!pts){const t=ctx.trisOf(a),step=Math.max(1,Math.floor(t.length/300));pts=[];for(let i=0;i<t.length;i+=step){const c=ctx.index3(t[i]).map(ctx.P);pts.push(...c,[0,1,2].map(n=>(c[0][n]+c[1][n]+c[2][n])/3));}ctx.cache.set(key,pts);}
+      const M=K().math;for(const p of pts){const q=w?M.apply(w,p):p;if(boxes.every(b=>b.A.every((ax,i)=>Math.abs(dot([q[0]-b.c[0],q[1]-b.c[1],q[2]-b.c[2]],ax))<=b.h[i]-tol)))return true;}return false;}
   }
   // Sweeps a one-value joint from its current value toward each end (or through its named positions) in steps, and
   // reports the first contact each way: {free:[low, high] reached without contact, hits:[{at, parts}]}.
-  function sweep(ctx,model,jointId,{from=0,lower=-180,upper=180,step=2,values={}}={}){
-    const c=checker(ctx,model,jointId),out={free:[from,from],hits:[]};
+  function sweep(ctx,model,jointId,{from=0,lower=-180,upper=180,step=2,values={},points=false}={}){
+    const c=checker(ctx,model,jointId,{points}),out={free:[from,from],hits:[]};
     for(const dir of [-1,1]){const end=dir<0?lower:upper;for(let q=from;dir<0?q>=end:q<=end;q+=dir*step){const hits=c.at({...values,[jointId]:q});
       if(hits.length){out.hits.push({at:+q.toFixed(2),parts:hits});break;}out.free[dir<0?0:1]=+q.toFixed(2);}}
     return out;
