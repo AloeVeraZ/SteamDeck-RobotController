@@ -13,12 +13,13 @@ import com.pedropathing.revhub.localizers.PinpointLocalizer;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 
 /**
  * STARTING VALUES for Pedro Pathing 3.0.2, estimated by Deck Driver Station from the robot set up in its
  * simulator (mecanum, goBILDA Pinpoint). They are not measurements of your robot.
- * Before driving fast: check the motor names and directions, measure the localizer offsets, then run
- * the Pedro Quickstart tuners and replace the Foresight numbers with what they measure.
+ * Before driving fast: run Deck's guided check (it finds the motor directions and where the odometry sits)
+ * and export again, then run the Pedro Quickstart tuners and replace the Foresight numbers with what they measure.
  * To use it: in pedro/Constants.java, return DeckStarterConstants.create(h);
  */
 public class DeckStarterConstants {
@@ -36,12 +37,14 @@ public class DeckStarterConstants {
         });
     }
 
-    /** goBILDA Pinpoint "pinpoint". MEASURE the pod offsets and check both pod directions. */
+    /** goBILDA Pinpoint "pinpoint": its pods as set up in Deck (the guided check TeleOp measures them). */
     public static PinpointConfig localizer() {
         return new PinpointConfig(c -> {
             c.name.set("pinpoint");
-            c.xPodOffset.set(0.0);
-            c.yPodOffset.set(0.0);
+            c.offsetUnits.set(DistanceUnit.INCH);
+            c.xPodOffset.set(4.0);
+            c.yPodOffset.set(-3.0);
+            c.podType.set(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
             c.xPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
             c.yPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
         });

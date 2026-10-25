@@ -12,10 +12,10 @@ const start={x:24,y:24,heading:0},layout={name:'Pedro runtime',field:'empty',wid
 
 // pace: one simulation tick per 1/60 s of wall time. Pedro's pod localizers measure velocity with System.nanoTime,
 // so they only read the simulated robot correctly when the simulation runs in real time.
-async function drive(localization,pins,{defaultPower=.8,seconds=20,onTick,pace=false}={}){
+async function drive(localization,pins,{defaultPower=.8,seconds=20,onTick,pace=false,odometry}={}){
   const {SimEngine}=require('../src/sim-engine.cjs'),e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-pedro-')),now:()=>0});
   try{
-    const info=await e.load({field:'empty',start,robot:{drivetrain:'mecanum',length:17,width:17,driveRpm:500},sensors:{localization,noise:0,gyroDrift:0,scaleError:0}});
+    const info=await e.load({field:'empty',start,robot:{drivetrain:'mecanum',length:17,width:17,driveRpm:500,odometry},sensors:{localization,noise:0,gyroDrift:0,scaleError:0}});
     const route=P.plan({start,zones:[],pins,style:'spline',clearance:2,defaultPower},info.footprint,[],info.bounds),out=Pedro.files({route,layout,robot:info.robot,defaultPower});
     const files={...out.files,'org/firstinspires/ftc/teamcode/pedro/Constants.java':Pedro.starterConstants({hardware:F.hardware(info.robot,localization),tuning:info.tuning,className:'Constants'})};
     const started=await e.run({kind:'opmode',files,opMode:out.opMode,classpath:jars});assert.equal(started.ok,true,JSON.stringify(started));
@@ -70,6 +70,16 @@ test('Pedro runs with its two-pod and three-pod odometry localizers too',{skip},
   for(const localization of ['odometry','odometry3']){
     const r=await drive(localization,[{x:90,y:24},{x:100,y:80,path:{rotate:'turn',heading:90}}],{seconds:14,pace:true});
     try{assert.ok(r.doneAt!==null,`${localization}: ${r.phases.join(' → ')}`);const t=r.truth;assert.ok(Math.hypot(t.x-100,t.y-80)<2,`${localization} ended at (${t.x.toFixed(2)}, ${t.y.toFixed(2)})`);assert.ok(Math.abs(Math.atan2(Math.sin(t.heading-Math.PI/2),Math.cos(t.heading-Math.PI/2)))<Math.PI/36,`${localization} heading ${(t.heading*180/Math.PI).toFixed(1)}°`);}
+    finally{r.dispose();}
+  }
+});
+
+// The virtual Pinpoint and OTOS are mounted where the setup says, and Pedro's own localizers are configured from the same
+// settings: off centre, turned, a reversed pod and swingarm pods all have to reach Pedro the way it reads them.
+test('Pedro\'s own Pinpoint and OTOS localizers use where the odometry sits: off centre, turned, reversed, swingarm pods',{skip},async()=>{
+  for(const [localization,odometry] of [['fused',{pinpoint:{xOffset:-2.5,yOffset:5,yReversed:true,pods:'swingarm'}}],['optical',{otos:{x:3,y:-2,heading:90,linearScalar:1.02}}]]){
+    const r=await drive(localization,[{x:90,y:24},{x:100,y:80,path:{rotate:'turn',heading:90}}],{seconds:14,odometry});
+    try{assert.ok(r.doneAt!==null,`${localization}: ${r.phases.join(' → ')}`);const t=r.truth;assert.ok(Math.hypot(t.x-100,t.y-80)<1.5,`${localization} ended at (${t.x.toFixed(2)}, ${t.y.toFixed(2)})`);assert.ok(Math.abs(Math.atan2(Math.sin(t.heading-Math.PI/2),Math.cos(t.heading-Math.PI/2)))<Math.PI/36,`${localization} heading ${(t.heading*180/Math.PI).toFixed(1)}°`);}
     finally{r.dispose();}
   }
 });

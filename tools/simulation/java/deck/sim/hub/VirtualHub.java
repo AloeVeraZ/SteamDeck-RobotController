@@ -127,15 +127,17 @@ public final class VirtualHub {
         }
         if (hub.has("pods")) for (JsonElement e : hub.getAsJsonArray("pods")) {
             JsonObject p = e.getAsJsonObject();
-            SimMotor encoder = new SimMotor(port++, 1);
+            // A pod that counts backward as the robot drives its way is mounted reversed.
+            SimMotor encoder = new SimMotor(port++, p.has("reversed") && p.get("reversed").getAsBoolean() ? -1 : 1);
             pods.add(new Pod(encoder, p.get("x").getAsDouble(), p.get("y").getAsDouble(), p.get("ticksPerInch").getAsDouble(), "forward".equals(p.get("axis").getAsString())));
             map.put(p.get("name").getAsString(), encoder);
         }
         gyro = heading;
         imu.heading = heading;
         map.put(hub.has("imu") ? hub.get("imu").getAsString() : "imu", imu);
-        if (hub.has("pinpoint")) { pinpoint = new SimSensors.Pinpoint(); pinpoint.gyro = heading; map.put(hub.get("pinpoint").getAsString(), pinpoint); }
-        if (hub.has("otos")) { otos = new SimSensors.Otos(); otos.gyro = heading; map.put(hub.get("otos").getAsString(), otos); }
+        // The Pinpoint and OTOS mounted as the setup says (pinpointMount, otosMount); older exports carry only their names.
+        if (hub.has("pinpoint")) { pinpoint = new SimSensors.Pinpoint(hub.has("pinpointMount") ? hub.getAsJsonObject("pinpointMount") : null); map.put(hub.get("pinpoint").getAsString(), pinpoint); }
+        if (hub.has("otos")) { otos = new SimSensors.Otos(hub.has("otosMount") ? hub.getAsJsonObject("otosMount") : null); map.put(hub.get("otos").getAsString(), otos); }
         map.put("Control Hub", new SimSensors.Battery());
         if (hub.has("mechanisms")) {
             JsonObject mech = hub.getAsJsonObject("mechanisms");
@@ -318,8 +320,8 @@ public final class VirtualHub {
             for (int i = 0; i < 4; i++) { SimMotor m = drive.get(corners[i]); if (m != null) m.advance(travel[i] * wheelTicksPerInch, dt); }
         }
         for (Pod p : pods) p.port.advance((p.forward ? dx - p.y * turn : dy + p.x * turn) * p.ticksPerInch, dt);
-        if (pinpoint != null) { pinpoint.gyro = heading; pinpoint.tracker.advance(dx, dy, heading, dt); }
-        if (otos != null) { otos.gyro = heading; otos.tracker.advance(dx, dy, heading, dt); }
+        if (pinpoint != null) pinpoint.advance(dx, dy, turn, dt);
+        if (otos != null) otos.advance(dx, dy, turn, dt);
         if (!OpModeHost.step(2000)) throw new HubException("loop", "The OpMode ran for more than 2 s without calling opModeIsActive(), idle() or sleep().", List.of(), null);
         check("loop");
     }

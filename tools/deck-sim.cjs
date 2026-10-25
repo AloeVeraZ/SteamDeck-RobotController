@@ -31,6 +31,8 @@ const writeSetup=(file,setup)=>fs.writeFileSync(file,JSON.stringify(setup,null,2
 const layoutOf=setup=>setup.layouts.find(l=>l.id===setup.active)||setup.layouts[0];
 const holonomic=setup=>C.drives[setup.robot?.drivetrain]?.holonomic!==false;
 const power=setup=>setup.tuning?.maxPathSpeed??.8;
+// The --odometry keys: each odometry setting by its dotted name (pinpoint.xOffset, otos.heading, pods.perp.reversed).
+const odometryKeys=()=>Object.entries(C.odometryOf({})).flatMap(([group,v])=>group==='pods'?Object.entries(v).flatMap(([pod,p])=>Object.keys(p).map(k=>`pods.${pod}.${k}`)):Object.keys(v).map(k=>`${group}.${k}`));
 
 // ------------------------------------------------------------------ the simulator
 let Engine=null;
@@ -235,6 +237,10 @@ Fields and setups
                      [--hub-logo up --hub-usb forward]   how the Control Hub is mounted (for its IMU)
                      [--names frontLeft=leftFront,imu=imu]   the robot's names for drive motors and sensors (keys: ${C.DEVICE_KEYS.join(', ')})
                      [--reversed frontLeft=off,frontRight=on]   drive motors that turn the other way (Deck reverses the left side)
+                     [--odometry pinpoint.xOffset=-2.5,pinpoint.yReversed=on]   where the pods, Pinpoint or OTOS sit
+                                 (inches from the centre: x forward, y left) and which way they count. Keys:
+                                 pinpoint.{pods,xOffset,yOffset,xReversed,yReversed}, otos.{x,y,heading,linearScalar,
+                                 angularScalar}, pods.{par,perp,par_left,par_right}.{x,y,reversed}; on/off for reversed
   start <setup.json> <x> <y> <heading>     Starting pose (checked against walls and field parts)
   alliance <setup.json> red|blue [--keep]  BIOBUZZ alliance: which hive shots aim at and score for; moves the
                                            route to that side (turned 180° about the centre) unless --keep
@@ -365,10 +371,19 @@ async function main(argv){
         if(flags.names!==undefined)for(const [key,value] of pairs('names',(k,v)=>{if(!C.deviceName(v||''))throw Error(`--names ${k}= needs a name of letters, digits, spaces, _ . or -.`);}))entry(key).name=value;
         if(flags.reversed!==undefined)for(const [key,value] of pairs('reversed',(k,v)=>{if(!C.DEVICE_KEYS.slice(0,6).includes(k)||!['on','off'].includes(v))throw Error('--reversed takes drive motors (frontLeft, frontRight, backLeft, backRight, left, right) with on or off.');}))entry(key).reversed=value==='on';
         setup.robot.devices=devices;}
+      // Where the odometry sits and which way it counts: --odometry pinpoint.xOffset=-2.5,pinpoint.pods=swingarm,pods.perp.reversed=on.
+      if(flags.odometry!==undefined){const odo=C.odometryOf(setup.robot),keys=odometryKeys();
+        for(const entry of String(flags.odometry).split(',').filter(Boolean)){const [key,value='']=entry.split('=').map(v=>v.trim());if(!keys.includes(key))throw Error(`--odometry keys are ${keys.join(', ')}.`);
+          const at=key.split('.'),last=at.pop(),obj=at.reduce((o,k)=>o[k],odo);
+          if(typeof obj[last]==='boolean'){if(!['on','off'].includes(value))throw Error(`--odometry ${key}= takes on or off.`);obj[last]=value==='on';}
+          else if(last==='pods'){if(!Object.hasOwn(C.POD_TYPES,value))throw Error(`--odometry ${key}= is one of: ${Object.keys(C.POD_TYPES).join(', ')}.`);obj[last]=value;}
+          else{const v=num(value||undefined,'--odometry '+key),[min,max]=/Scalar$/.test(last)?C.OTOS_SCALARS:last==='heading'?[-Infinity,Infinity]:[-36,36];if(v<min||v>max)throw Error(`--odometry ${key}= is from ${min} to ${max}.`);obj[last]=v;}}
+        setup.robot.odometry=C.odometry(odo);if(!Object.keys(setup.robot.odometry).length)delete setup.robot.odometry;}
       let cadFound=[];if(flags.cad){const box=await cadBox(path.resolve(flags.cad),flags);Object.assign(setup.robot,pickSize(box,flags));setup.deckCli={...setup.deckCli,model:cadRef(flags)};cadFound=setUpFromCad(setup,box,setup.deckCli.model);}
       else Object.assign(setup.robot,pickSize({},flags));
       const own=C.devices(setup.robot.devices),named=Object.entries(own).map(([k,v])=>`${k}${v.name?` "${v.name}"`:''}${v.reversed!==undefined?` ${v.reversed?'reversed':'forward'}`:''}`);
-      return changed(setup,`Robot: ${setup.robot.drivetrain} ${setup.robot.length} x ${setup.robot.width} x ${setup.robot.heightIn} in${setup.deckCli?.model?` from ${path.basename(setup.deckCli.model.file)}`:''}.${named.length?` Names on the robot: ${named.join(', ')}.`:''}${cadFound.length?`
+      const odo=C.odometry(setup.robot.odometry),odoSet=Object.entries(odo).flatMap(([group,v])=>group==='pods'?Object.entries(v).flatMap(([pod,p])=>Object.entries(p).map(([k,x])=>`pods.${pod}.${k}=${x===true?'on':x}`)):Object.entries(v).map(([k,x])=>`${group}.${k}=${x===true?'on':x}`));
+      return changed(setup,`Robot: ${setup.robot.drivetrain} ${setup.robot.length} x ${setup.robot.width} x ${setup.robot.heightIn} in${setup.deckCli?.model?` from ${path.basename(setup.deckCli.model.file)}`:''}.${named.length?` Names on the robot: ${named.join(', ')}.`:''}${odoSet.length?` Odometry: ${odoSet.join(', ')}.`:''}${cadFound.length?`
 From the CAD assembly names: ${cadFound.join('; ')}.`:''}`);}
     case'start':{const setup=readSetup(file),l=layoutOf(setup),[x,y,heading]=rest.map((v,i)=>num(v,['x','y','heading'][i]));const {e,info}=await load(setup,{...l,start:{x,y,heading}});
       try{if(!P.safePose({x,y,heading},info.fieldZones,info.footprint,info.bounds))throw Error(`The robot overlaps a wall or field part at (${x}, ${y}). Field bounds ${JSON.stringify(info.bounds)}; robot reaches ${info.footprint.front} in forward, ${info.footprint.rear} back, ${info.footprint.half} to each side.`);}finally{e.dispose();}

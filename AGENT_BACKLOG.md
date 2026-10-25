@@ -32,12 +32,13 @@
 
 ## One-button setup (see docs/MECHANISM_ACTIONS.md)
 
-Phase 2 is done: configurations for missing devices, the guided check, and Drive preselect. Next:
+Phases 2 and 3 are done: configurations for missing devices, the guided check, Drive preselect, and where the odometry sits (with the check's floor steps). Next:
 
 1. Try Send to robot and the guided check on a real Control Hub. Only the simulated one has been used. Watch:
    - how long the robot's web server takes to answer after the configuration restart;
-   - the real telemetry line format (`caption : value`).
-2. Settings for Pinpoint and OTOS (encoder directions, offsets, pod type) and for odometry pod directions, with a check step that pushes the robot by hand.
+   - the real telemetry line format (`caption : value`);
+   - the odometry steps on a real floor: whether `getEncoderX`/`getEncoderY` give the pods' own counts with both directions set forward, how straight a push by hand is, and whether a 30% spin turns the robot cleanly on carpet tiles.
+2. A Road Runner export could take the same odometry settings (`parYTicks`, `perpXTicks`, the OTOS and Pinpoint offsets).
 3. Use an Expansion Hub that is plugged in but missing from the configuration when ports run out (a scanned hub can be added as a new `LynxModule` element).
 4. Piece sensors (stop intaking when full, shoot until empty), and an adjustable hood servo.
 

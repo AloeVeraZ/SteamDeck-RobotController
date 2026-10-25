@@ -27,6 +27,17 @@
   - `fromPP` adds it back. A Visualizer file without `deckOrigin` gets the wall offset on game fields.
 - **The Visualizer's own code is the oracle for `.pp` behaviour.** Its `.ts` modules (cloned at commit f953ee0) ran under the Electron Node with type stripping. Re-clone it and copy `utils/normalize.ts`, `pathTraversal.ts`, `headingInterpolation.ts`, `animation.ts` and their imports, with `.ts` added to the import specifiers.
 
+## Odometry conventions (before touching the Pinpoint, OTOS or Pedro constants)
+
+- Deck's robot frame is x forward, y left, heading counterclockwise. `robot.odometry` (in `ui/sim-config.js`) stores only what differs from `ODOMETRY`.
+- **Pinpoint:** goBILDA's own `setOffsets` terms. `xOffset` is the forward X pod's inches left of centre, and `yOffset` the strafe Y pod's inches forward. Pedro's `PinpointConstants` take them as they are.
+- **OTOS:** SparkFun's offset. `heading` is where the chip's X axis points, in degrees counterclockwise from the front; -90 (the Y arrow forward) is the default.
+  - RobotDrive uses it as it is.
+  - Pedro's `OTOSLocalizer` adds π/2 to both the offset heading and the pose, so the starter constants pass `Pose(y, -x, h - 180°)`.
+  - `tests/sim-pedro-runtime.test.cjs` would catch a wrong mapping. Three wrong ones were tried, and each failed.
+- **Virtual hub:** `SimSensors.Pinpoint` and `SimSensors.Otos` are mounted from `hardware().pinpointMount` and `otosMount` (the truth). They compute the pose from what the code configured, so a wrong export setting shows up as a wrong pose. The guided-check tests rely on this.
+- **Guided check:** it measures with both Pinpoint pods set FORWARD, and with the OTOS offset at 0 and its scalars at 1. Each reading's change is fit against the turn (least squares over the spin). The 48 in push gives the pod type or the linear scalar.
+
 ## The user's request: optimize "lunala red auto"
 
 Done and committed (`examples/lunala-red-auto.json` plus exports in `examples/lunala-red-auto/`).

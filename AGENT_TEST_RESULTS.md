@@ -14,6 +14,7 @@ All commands run on this Windows laptop with the repo's Electron as Node:
 | After drag-to-pan, the field map and the two-view Paths panel | **325/325.** `tests/simulation-ui.cjs` passes too. |
 | After mechanism hardware and Send to robot (24 October, afternoon) | **343/343** (one OnBot test updated for the check TeleOp beside the autonomous). New: `sim-mechanism-hardware` (7), `robot-link` (6). `tests/simulation-ui.cjs` passes all 16 sections. |
 | After one-button setup, phase 2 (24 October, evening) | **350/350**. New: `sim-guided-check` (3), and 4 more `robot-link` tests (10 in all). The check TeleOp test in `sim-mechanism-hardware` was rewritten for the guided check. `tests/robot-setup-app.cjs` passes, and `tests/simulation-ui.cjs` passes all 16 sections. |
+| After phase 3, where the odometry sits (24 October, night) | **357/357**. New: 6 in `sim-guided-check` (the settings, `deck-sim robot --odometry`, and the check on four mis-mounted robots), 1 in `sim-pedro-runtime`. The plain check in `sim-mechanism-hardware` now has the Pinpoint step. `tests/robot-setup-app.cjs` passes, and `tests/simulation-ui.cjs` passes all 16 sections. |
 
 New test files:
 - `sim-pedro`
@@ -59,6 +60,12 @@ Run again after the guided check replaced the check TeleOp (24 October, evening)
 - every example and the swerve Pedro case.
 
 The guided check now uses the IMU (`RevHubOrientationOnRobot`, `YawPitchRollAngles`) and `Locale`, and it compiles in all of them. Stand-ins: 240 members match.
+
+Run again after phase 3, where the odometry sits (24 October, night). It passed with no warnings:
+- every TeamCode, OnBot Java and Pedro case, the mechanism cases, every example and swerve;
+- the Pinpoint export now calls `setOffsets`, `setEncoderResolution` and `setEncoderDirections`, the OTOS export `setOffset` and its scalars, and the check uses `getEncoderX`/`getEncoderY`.
+
+Stand-ins: 246 members match. New: `getEncoderX`, `getEncoderY`, `getLinearScalar`, `getAngularScalar`, `MIN_SCALAR`, `MAX_SCALAR`.
 
 ## Mechanism hardware on the virtual Control Hub (`tests/sim-mechanism-hardware.test.cjs`)
 
@@ -114,9 +121,31 @@ MotionModule (its runtime, Python 3.12): continuous-servo rollers, a second flyw
 - at Steam Deck size (1280×800) the port list fits the panel with full labels (the selects stack);
 - Space stopped a running check.
 
+## One-button setup, phase 3: where the odometry sits (24 October, night)
+
+**The guided check's floor steps on the virtual Control Hub** (`tests/sim-guided-check.test.cjs`, 4 new tests). The virtual robot is mounted as the "true" settings say, and the check is exported from the plain settings. A scripted person pushes the robot 48 in forward and 24 in left, then lets it spin. The autonomous is then run on a route with a turn, from the check's settings and from the plain ones:
+
+| Robot | The check found | Route end, check's settings | Plain settings |
+|---|---|---|---|
+| Pinpoint: swingarm pods, Y pod reversed, offsets -2.5 / 5 in | swingarm, Y reversed, -2.500, 5.000 | 0.37 in | 44.8 in |
+| OTOS: 90°, at (3, -1) in, linear 1.02, angular 0.99 | 90.1°, (2.979, -0.988), 1.0124, 0.990 | 0.27 in | 80.6 in |
+| Two pods: forward at 5 in left, sideways reversed at 5 in back | 5.000, reversed, -5.000 | 0.48 in | 52.7 in |
+| Three pods: 6.5 in left, 5.5 in right and reversed | 6.500, -5.500, reversed | 0.49 in | 90.3 in |
+
+The OTOS needed 1.02 / 1.005 = 1.0149 (the simulator's optical model reads 0.5% long on top); the test allows ±0.006.
+
+Also new: the settings unit test (defaults dropped, out-of-range values refused, heading normalized), and `deck-sim robot --odometry` (sets, clears and refuses bad keys, ranges and values).
+
+**Pedro's own localizers with the mounting** (`tests/sim-pedro-runtime.test.cjs`, 1 new test). Pedro's `PinpointLocalizer` (swingarm pods, reversed Y pod, offsets) and `OTOSLocalizer` (off centre, turned 90°, linear scalar 1.02) both end a route with a turn within 1.5 in and 5°. Three wrong mappings were tried in a scratch copy, and each missed:
+- the OTOS offset passed unturned;
+- the right position with the wrong heading;
+- the Pinpoint's offsets swapped.
+
+**Setup UI** (Playwright probe at 1280×800). The panel appears for Pinpoint, OTOS, two pods and three pods, and hides for drive encoders. Every field saves to `robot.odometry` and reads back; the right pod shows inches right of centre. An out-of-range offset (99) is refused with a message. At 420 px wide there is no horizontal overflow.
+
 ## Pedro Pathing 3.0.2's real Follower on the virtual Control Hub (`tests/sim-pedro-runtime.test.cjs`)
 
-8/8 pass:
+9/9 pass:
 - Pinpoint: pause, turn, end within 1.5 in and 3°.
 - OTOS.
 - Stop mid-path zeroes the drive.
@@ -125,6 +154,7 @@ MotionModule (its runtime, Python 3.12): continuous-servo rollers, a second flyw
 - A custom curve with `.tangent()`.
 - Two pods and three pods. These runs are paced in real time, because Pedro's pod localizers time velocity with `System.nanoTime`.
 - A speed-limit leg boundary is driven straight through.
+- Pinpoint and OTOS mounted off centre, turned and reversed, as the odometry settings say.
 
 ## Scenarios
 

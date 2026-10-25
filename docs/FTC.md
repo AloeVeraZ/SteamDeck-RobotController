@@ -107,7 +107,9 @@ the robot is opened. It never starts the autonomous.
 
 Its **Guided check** runs the check TeleOp from the same panel: INIT and START as a Driver Station,
 each question shown with buttons that press gamepad 1 on the robot (Controller 1 answers too), STOP
-or Space to stop. The answers are put into the setup. Close the robot in Drive first, because only
+or Space to stop. With odometry pods, a Pinpoint or an OTOS, its last steps are on the floor: two
+pushes by hand and one turn on the spot find which way each pod counts and where each one sits.
+The answers are put into the setup. Close the robot in Drive first, because only
 one Driver Station can talk to a robot at a time. See
 [the simulator guide](SIMULATION.md#send-to-robot).
 

@@ -15,6 +15,7 @@ public abstract class SparkFunOTOS implements HardwareDevice {
         public Pose2D(Pose2D pose) { this(pose.x, pose.y, pose.h); }
         public void set(Pose2D pose) { x = pose.x; y = pose.y; h = pose.h; }
     }
+    public static final double MIN_SCALAR = 0.872, MAX_SCALAR = 1.127;
     protected SparkFunOTOS() {}
     public abstract DistanceUnit getLinearUnit();
     public abstract void setLinearUnit(DistanceUnit unit);
@@ -26,6 +27,8 @@ public abstract class SparkFunOTOS implements HardwareDevice {
     public abstract void setOffset(Pose2D pose);
     public abstract boolean setLinearScalar(double scalar);
     public abstract boolean setAngularScalar(double scalar);
+    public abstract double getLinearScalar();
+    public abstract double getAngularScalar();
     public abstract Pose2D getPosition();
     public abstract void setPosition(Pose2D pose);
     public abstract Pose2D getVelocity();

@@ -411,8 +411,15 @@ public class BiobuzzRedAuto extends LinearOpMode {
         // How the Control Hub is mounted (Deck: Setup → Robot controller). If this is wrong, every turn and heading is wrong.
         imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.UP,RevHubOrientationOnRobot.UsbFacingDirection.FORWARD)));
         pinpoint=map.get(GoBildaPinpointDriver.class,"pinpoint");
+        // The Pinpoint's pods: X is the forward pod (its offset: inches left of the robot's centre), Y the strafe pod (inches
+        // forward of it). Resetting also calibrates its IMU, so the robot must be still at INIT. The reset takes about 0.25 s
+        // and a position set before it ends is lost, so wait for it (Pedro's PinpointLocalizer waits 0.5 s too).
+        pinpoint.setOffsets(4.0,-3.0,DistanceUnit.INCH);
+        pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
+        pinpoint.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.FORWARD,GoBildaPinpointDriver.EncoderDirection.FORWARD);
+        pinpoint.resetPosAndIMU();
+        try{Thread.sleep(500);}catch(InterruptedException e){Thread.currentThread().interrupt();}
         otos=null;
-        if(otos!=null){otos.setLinearUnit(DistanceUnit.INCH);otos.setAngularUnit(AngleUnit.RADIANS);}
         setPose(DeckFollower.Pose.zero());
     }
     public DeckFollower.MotionState state(){return state;}
@@ -422,14 +429,14 @@ public class BiobuzzRedAuto extends LinearOpMode {
         for(int i=0;i<pods.length;i++)podBefore[i]=pods[i].getCurrentPosition();
         oldImu=imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);lastTime=clock.seconds();
         if(pinpoint!=null)pinpoint.setPosition(new Pose2D(DistanceUnit.INCH,p.x(),p.y(),AngleUnit.RADIANS,p.heading()));
-        if(otos!=null)otos.setPosition(new SparkFunOTOS.Pose2D(p.x(),p.y(),p.heading()+Math.PI/2));
+        if(otos!=null)otos.setPosition(new SparkFunOTOS.Pose2D(p.x(),p.y(),p.heading()));
         state=DeckFollower.MotionState.ofVelocity(p,DeckFollower.Velocity.zero());
     }
     public void update(){
         double now=clock.seconds(),dt=now-lastTime;if(dt<=0)return;lastTime=now;DeckFollower.Pose p=state.pose(),next;
         double yaw=imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS),dh=DeckFollower.angle(yaw-oldImu);oldImu=yaw;
         if(pinpoint!=null){pinpoint.update();next=new DeckFollower.Pose(pinpoint.getPosX(DistanceUnit.INCH),pinpoint.getPosY(DistanceUnit.INCH),pinpoint.getHeading(AngleUnit.RADIANS));}
-        else if(otos!=null){SparkFunOTOS.Pose2D q=otos.getPosition();next=new DeckFollower.Pose(q.x,q.y,q.h-Math.PI/2);}
+        else if(otos!=null){SparkFunOTOS.Pose2D q=otos.getPosition();next=new DeckFollower.Pose(q.x,q.y,q.h);}
         else {
             double[] d=new double[motors.length];for(int i=0;i<d.length;i++){int ticks=motors[i].getCurrentPosition();d[i]=(ticks-before[i])*0.0238888;before[i]=ticks;}
             double forward=(d[0]+d[1]+d[2]+d[3])/4,left=(-d[0]+d[1]+d[2]-d[3])/4;

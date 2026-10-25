@@ -24,6 +24,8 @@ public abstract class GoBildaPinpointDriver implements HardwareDevice {
     public abstract void resetPosAndIMU();
     public abstract void recalibrateIMU();
     public abstract void setPosition(Pose2D pos);
+    public abstract int getEncoderX();
+    public abstract int getEncoderY();
     public abstract double getPosX(DistanceUnit distanceUnit);
     public abstract double getPosY(DistanceUnit distanceUnit);
     public abstract double getHeading(AngleUnit angleUnit);

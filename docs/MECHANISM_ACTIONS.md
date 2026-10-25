@@ -3,7 +3,7 @@
 How Intake, Spin up, Aim and Shoot get from Path planning to the motors and servos on a real robot,
 what could stop that from working, what other path planners do, and how a Control Hub is set up
 with one button. Written 24 October 2026; phase 2 (configurations, the guided check, Drive
-selection) added the same day.
+selection) and phase 3 (where the odometry sits) added the same day.
 
 ## Short answer
 
@@ -28,8 +28,9 @@ selection) added the same day.
   against the robot, takes the robot's own names, and adds any missing device to a new configuration
   with the port to plug it into. It then uploads and builds the code and selects the autonomous in
   Drive. What settings cannot tell (which way each motor turns, servo positions, the real flywheel
-  speed, the turret's encoder) needs the robot itself. The guided check finds each one from a yes or
-  no answer, or a servo moved into place, and puts it into the setup.
+  speed, the turret's encoder, where the odometry sits) needs the robot itself. The guided check
+  finds each one from a yes or no answer, a servo moved into place, or the robot pushed by hand and
+  turned on the spot, and puts it into the setup.
 
 ## How an action runs today
 
@@ -202,6 +203,8 @@ send** (or **Upload and build**) then does steps 5 to 7.
 8. **Check on the robot.** **Start the guided check…** runs the check TeleOp from the same panel.
    Each step turns one device or moves one servo, and the panel asks what happened, with buttons for
    the answers. Controller 1's buttons answer too, and so does a gamepad on any Driver Station.
+   With pods, a Pinpoint or an OTOS, the last steps are on the floor: two pushes by hand and one
+   turn on the spot find which way each pod counts and where each one sits.
    **Use these settings and send…** stops the check and puts the answers into the setup. It then
    runs Send to robot again, so only **Upload and build** is left to press.
 9. **Drive.** INIT, START.
@@ -214,7 +217,7 @@ send** (or **Upload and build**) then does steps 5 to 7.
 | Motor directions | Depends on how each motor is mounted. | Done: the guided check turns each one and asks. "No, the other way" flips its setting. |
 | Servo positions, turret calibration, flywheel speed | Physical measurements. | Done: the guided check moves each servo with the D-pad until the person saves it. It points the turret straight ahead, then a quarter turn left, and measures the flywheel's top speed for REV's PIDF. The results come back over telemetry. |
 | IMU mounting | Depends on how the Control Hub is mounted. | Reported, not fixed: the check says when the hub reads the robot as tilted, or a left turn as a right turn. The mounting setting has to be changed by hand. |
-| Odometry pod, Pinpoint and OTOS directions and offsets | Deck has no settings for them yet. | Later. |
+| Odometry pod, Pinpoint and OTOS directions and offsets | Depend on where each one is mounted and which way it faces. | Done: settings in Setup → Robot controller → Where the odometry sits. The guided check finds them on the floor. A push forward and a push left give each direction, and the Pinpoint's pod type or the OTOS's distance scalar. A turn on the spot gives the offsets and the OTOS's turn scalar. |
 | Shot speed for a distance | Needs real shots. | Test shots on the field. |
 | Firmware, Wi-Fi channel | Outside the autonomous. | The REV Hardware Client. |
 
@@ -231,8 +234,9 @@ send** (or **Upload and build**) then does steps 5 to 7.
   - The guided check: directions answered with yes or no, servo positions, turret calibration and
     flywheel PIDF coming back from telemetry, run from Deck or any Driver Station.
   - Selecting the new autonomous in Drive after the build.
-- **Later:**
+- **Phase 3 (done):**
   - Pinpoint, OTOS and odometry pod directions and offsets, as settings the check can find.
+- **Later:**
   - Piece sensors (stop intaking when full, shoot until empty).
   - An adjustable hood.
   - TeamCode upload with ADB for Android Studio teams.
@@ -322,6 +326,45 @@ send** (or **Upload and build**) then does steps 5 to 7.
   - Drive opened with the autonomous selected;
   - a robot with no configuration got one with all ten devices.
 
+## What was built (phase 3)
+
+| Piece | Where |
+| --- | --- |
+| Where the odometry sits: each pod's position and direction, the Pinpoint's offsets, pod type and directions, the OTOS's position, X-axis heading and scalars. Only what differs from Deck's defaults is stored. | `ui/sim-config.js` (`odometry`, `odometryOf`), Setup → Robot controller → Where the odometry sits, `deck-sim robot --odometry` |
+| The exports set the hardware up with them: `setOffsets`, `setEncoderResolution` and `setEncoderDirections` for the Pinpoint, `setOffset` and the scalars for the OTOS, a sign per pod. Pedro's starter constants use the same settings. | `ui/sim-ftc.js` (`hardware`, `robotDrive`), `ui/sim-pedro.js` |
+| The guided check's last steps, on the floor: a 48 in push forward, a push left, then one turn on the spot. A least-squares fit of each reading against the turn gives each offset. | `ui/sim-ftc.js` (`checkOpMode`, `applyCheck`) |
+| The virtual Control Hub's Pinpoint and OTOS work as the chips do. They are mounted where the setup says, and they compute the pose with what the code configured, so wrong settings put the robot off course. | `tools/simulation/java/deck/sim/hub/SimSensors.java`, `VirtualHub.java` |
+
+The OTOS offset now follows SparkFun's definition: where the chip sits and which way its X axis
+points, with the robot's X forward. The export used to add a quarter turn to the OTOS's heading
+instead. Pedro's `OTOSLocalizer` adds that quarter turn itself, so its starter constants get the
+offset turned to match.
+
+### How it was checked (phase 3)
+
+- **The guided check on the virtual Control Hub** (`tests/sim-guided-check.test.cjs`). The virtual
+  robot is mounted one way, and the check is exported from the plain settings. A scripted person
+  pushes the robot 48 in forward and 24 in left, then lets it turn. Then the autonomous is run on a
+  route with a turn, once from the check's settings and once from the plain ones:
+
+  | Robot | The check found | End of route, check's settings | Plain settings |
+  | --- | --- | --- | --- |
+  | Pinpoint: swingarm pods, the strafe pod reversed, pods at -2.5 in and 5 in | swingarm, Y reversed, -2.500 in, 5.000 in | 0.37 in | 44.8 in |
+  | OTOS: half a turn from the usual way (90°, its Y arrow backward), 3 in forward and 1 in right, reading 2% short and turns 1% long | 90.1°, 2.979 in, -0.988 in, scalars 1.0124 and 0.990 | 0.27 in | 80.6 in |
+  | Two pods: the forward one at 5 in left, the sideways one reversed at 5 in back | 5.000 in, reversed, -5.000 in | 0.48 in | 52.7 in |
+  | Three pods: 6.5 in left, 5.5 in right and reversed | 6.500 in, -5.500 in, reversed | 0.49 in | 90.3 in |
+
+  The OTOS's distance scalar needed was 1.0149, because the simulator's optical sensor also reads
+  0.5% long; the check found 1.0124.
+- **Pedro's own localizers** (`tests/sim-pedro-runtime.test.cjs`). Pedro's `PinpointLocalizer` and
+  `OTOSLocalizer` drive a route with a turn, configured from the same settings the virtual chips are
+  mounted by: swingarm pods, a reversed strafe pod and offsets for the Pinpoint, and an OTOS off
+  centre and turned. Both end within 1.5 in. With the OTOS offset passed to Pedro unturned, or the
+  Pinpoint's offsets swapped, the run misses.
+- **Compiled against the real FTC SDK 12.0 and Pedro 3.0.2** for every localizer. The stand-ins'
+  new members (`getEncoderX`, `getEncoderY`, the OTOS scalars and their limits) match the real
+  SDK.
+
 ## Limits
 
 - No physical robot was available. The protocol details come from FIRST's own SDK classes, and the
@@ -336,7 +379,12 @@ send** (or **Upload and build**) then does steps 5 to 7.
   plugged in but not configured, or a Servo Hub, is not used; when ports run out, Deck says so.
   An I2C sensor gets a bus of its own.
 - The guided check covers what Deck has settings for. It reports a wrong Control Hub mounting but
-  does not work out the right one. It does not check odometry pods, Pinpoint or OTOS yet.
+  does not work out the right one.
+- The odometry steps need room on the floor and straight pushes. The pod type and the OTOS's
+  distance scalar come from the 48 in push, so they are only as good as that measurement. A push of
+  another length still finds the directions. The robot turns on the spot under its own power at
+  30% for one full turn. The OTOS's turn scalar is measured against the hub's IMU, so it is only as
+  good as that IMU.
 - After saving a configuration the robot restarts. Deck waits up to 8 s for OnBot Java to answer
   again before uploading.
 

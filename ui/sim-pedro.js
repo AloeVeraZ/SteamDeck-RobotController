@@ -425,8 +425,8 @@ public class ${o.opMode} extends LinearOpMode {
     // strafe pod's as its distance in front of centre; ticks per inch from the pod wheels Deck assumes (goBILDA 32 mm, 2000 counts).
     const pods=hardware.pods||[],fwd=pods.filter(p=>p.axis==='forward'),side=pods.find(p=>p.axis==='strafe'),ticks=p=>(1/(p?.ticksPerInch||1)).toPrecision(6),hub=hardware.hub||{logo:'UP',usb:'FORWARD'},imuLine=`new RevHubIMU(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.${hub.logo}, RevHubOrientationOnRobot.UsbFacingDirection.${hub.usb}))`;
     if(loc==='odometry'&&(fwd.length!==1||!side))throw Error('Two-pod odometry needs one forward and one strafe pod.');if(loc==='odometry3'&&(fwd.length!==2||!side))throw Error('Three-pod odometry needs two forward pods and one strafe pod.');
-    const left=fwd.slice().sort((a,b)=>b.y-a.y)[0],right=fwd.slice().sort((a,b)=>a.y-b.y)[0];
-    const podLocalizer=loc!=='odometry'&&loc!=='odometry3'?'':loc==='odometry'?`    /** Two odometry pods ("${comment(fwd[0].name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}". MEASURE the pod offsets and check the directions. */
+    const left=fwd.slice().sort((a,b)=>b.y-a.y)[0],right=fwd.slice().sort((a,b)=>a.y-b.y)[0],encoder=p=>`Encoder.${p?.reversed?'REVERSE':'FORWARD'}`;
+    const podLocalizer=loc!=='odometry'&&loc!=='odometry3'?'':loc==='odometry'?`    /** Two odometry pods ("${comment(fwd[0].name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}": their offsets and directions as set up in Deck (the guided check TeleOp measures them). */
     public static TwoWheelConfig localizer() {
         return new TwoWheelConfig(c -> {
             c.xPodName.set(${javaString(fwd[0].name)});
@@ -438,10 +438,10 @@ public class ${o.opMode} extends LinearOpMode {
             c.yPodOffset.set(${dbl(side.x)});
             c.forwardTicksToInches.set(${ticks(fwd[0])});
             c.strafeTicksToInches.set(${ticks(side)});
-            c.xPodDirection.set(Encoder.FORWARD);
-            c.yPodDirection.set(Encoder.FORWARD);
+            c.xPodDirection.set(${encoder(fwd[0])});
+            c.yPodDirection.set(${encoder(side)});
         });
-    }`:`    /** Three odometry pods ("${comment(left.name)}" and "${comment(right.name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}". MEASURE the pod offsets and check the directions. */
+    }`:`    /** Three odometry pods ("${comment(left.name)}" and "${comment(right.name)}" forward, "${comment(side.name)}" sideways) and the hub IMU "${comment(hardware.imu)}": their offsets and directions as set up in Deck (the guided check TeleOp measures them). */
     public static ThreeWheelIMUConfig localizer() {
         return new ThreeWheelIMUConfig(c -> {
             c.leftEncoderName.set(${javaString(left.name)});
@@ -456,25 +456,34 @@ public class ${o.opMode} extends LinearOpMode {
             c.forwardTicksToInches.set(${ticks(left)});
             c.strafeTicksToInches.set(${ticks(side)});
             c.turnTicksToRadians.set(${ticks(left)});
-            c.leftEncoderDirection.set(Encoder.FORWARD);
-            c.rightEncoderDirection.set(Encoder.FORWARD);
-            c.strafeEncoderDirection.set(Encoder.FORWARD);
+            c.leftEncoderDirection.set(${encoder(left)});
+            c.rightEncoderDirection.set(${encoder(right)});
+            c.strafeEncoderDirection.set(${encoder(side)});
         });
     }`;
-    const localizer=loc==='odometry'||loc==='odometry3'?podLocalizer:pinpoint?`    /** ${STARTER_LOCALIZERS.fused} "${comment(hardware.pinpoint)}". MEASURE the pod offsets and check both pod directions. */
+    // The Pinpoint takes goBILDA's offsets as they are: the forward (X) pod's inches left of centre, the strafe (Y)
+    // pod's inches forward of it. Pedro's OTOS localizer turns the offset (and every pose) by 90° itself, so SparkFun's
+    // offset (x forward, y left, the sensor's X axis heading) goes in as (y, -x, heading - 180°).
+    const pp=hardware.pinpointMount||{pods:'4bar',xOffset:0,yOffset:0},ot=hardware.otosMount||{x:0,y:0,heading:-90,linearScalar:1,angularScalar:1};
+    const localizer=loc==='odometry'||loc==='odometry3'?podLocalizer:pinpoint?`    /** ${STARTER_LOCALIZERS.fused} "${comment(hardware.pinpoint)}": its pods as set up in Deck (the guided check TeleOp measures them). */
     public static PinpointConfig localizer() {
         return new PinpointConfig(c -> {
             c.name.set(${javaString(hardware.pinpoint)});
-            c.xPodOffset.set(0.0);
-            c.yPodOffset.set(0.0);
-            c.xPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
-            c.yPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
+            c.offsetUnits.set(DistanceUnit.INCH);
+            c.xPodOffset.set(${dbl(pp.xOffset)});
+            c.yPodOffset.set(${dbl(pp.yOffset)});
+            c.podType.set(GoBildaPinpointDriver.GoBildaOdometryPods.${pp.pods==='swingarm'?'goBILDA_SWINGARM_POD':'goBILDA_4_BAR_POD'});
+            c.xPodDirection.set(GoBildaPinpointDriver.EncoderDirection.${pp.xReversed?'REVERSED':'FORWARD'});
+            c.yPodDirection.set(GoBildaPinpointDriver.EncoderDirection.${pp.yReversed?'REVERSED':'FORWARD'});
         });
-    }`:`    /** ${STARTER_LOCALIZERS.optical} "${comment(hardware.otos)}". MEASURE its offset from the robot's centre and calibrate the linear and angular scalars. */
+    }`:`    /** ${STARTER_LOCALIZERS.optical} "${comment(hardware.otos)}": where it sits and its scalars as set up in Deck (the guided check TeleOp measures them). */
     public static OTOSConfig localizer() {
         return new OTOSConfig(c -> {
             c.name.set(${javaString(hardware.otos)});
-            c.offset.set(new Pose(0, 0, 0));
+            c.linearUnit.set(DistanceUnit.INCH);
+            c.offset.set(new Pose(${dbl(ot.y)}, ${dbl(-ot.x)}, Math.toRadians(${dbl(ot.heading-180)})));
+            c.linearScalar.set(${dbl(ot.linearScalar)});
+            c.angularScalar.set(${dbl(ot.angularScalar)});
         });
     }`;
     return `package ${packageName};
@@ -489,13 +498,13 @@ import com.pedropathing.revhub.drivetrains.Mecanum;
 import com.pedropathing.revhub.drivetrains.MecanumConfig;
 ${loc==='odometry'?'import com.pedropathing.revhub.localizers.Encoder;\nimport com.pedropathing.revhub.localizers.RevHubIMU;\nimport com.pedropathing.revhub.localizers.TwoWheelConfig;\nimport com.pedropathing.revhub.localizers.TwoWheelLocalizer;\nimport com.qualcomm.hardware.rev.RevHubOrientationOnRobot;':loc==='odometry3'?'import com.pedropathing.revhub.localizers.Encoder;\nimport com.pedropathing.revhub.localizers.RevHubIMU;\nimport com.pedropathing.revhub.localizers.ThreeWheelIMUConfig;\nimport com.pedropathing.revhub.localizers.ThreeWheelIMULocalizer;\nimport com.qualcomm.hardware.rev.RevHubOrientationOnRobot;':pinpoint?'import com.pedropathing.revhub.localizers.PinpointConfig;\nimport com.pedropathing.revhub.localizers.PinpointLocalizer;\nimport com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;':'import com.pedropathing.revhub.localizers.OTOSConfig;\nimport com.pedropathing.revhub.localizers.OTOSLocalizer;'}
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
-import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.HardwareMap;${pinpoint||loc==='optical'?'\nimport org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;':''}
 
 /**
  * STARTING VALUES for Pedro Pathing ${PEDRO_VERSION}, estimated by Deck Driver Station from the robot set up in its
  * simulator (mecanum, ${STARTER_LOCALIZERS[loc]}). They are not measurements of your robot.
- * Before driving fast: check the motor names and directions, measure the localizer offsets, then run
- * the Pedro Quickstart tuners and replace the Foresight numbers with what they measure.
+ * Before driving fast: run Deck's guided check (it finds the motor directions and where the odometry sits)
+ * and export again, then run the Pedro Quickstart tuners and replace the Foresight numbers with what they measure.
  * To use it: in pedro/Constants.java, return ${className}.create(h);
  */
 public class ${className} {

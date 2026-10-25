@@ -21,7 +21,7 @@ Branch `testing`, local commits only (see `git log 4c1c039..HEAD`). Nothing was 
   - Per-path power becomes Foresight `maxPathSpeed`.
   - The OpMode runs its legs once, checks `opModeIsActive()` in every loop, and stops in `finally`.
 - **Compiled against the real libraries.** `tools/simulation/check-ftc-sdk.cjs` downloads FTC SDK 12.0.0 and Pedro core/revhub 3.0.2 (SHA-1 verified) and compiles every export. That includes the examples' mechanism code, which had never been compiled against the real SDK before.
-- **Run with Pedro's real Follower.** `deck-sim test --code pedro` and `tests/sim-pedro-runtime.test.cjs` (8 tests) cover Pinpoint, OTOS, two pods, three pods, Stop, zero power, tangent, speed limits and the BIOBUZZ example with mechanisms.
+- **Run with Pedro's real Follower.** `deck-sim test --code pedro` and `tests/sim-pedro-runtime.test.cjs` (9 tests) cover Pinpoint, OTOS (also mounted off centre and turned), two pods, three pods, Stop, zero power, tangent, speed limits and the BIOBUZZ example with mechanisms.
 - **`DeckStarterConstants.java`.** Pedro's Mecanum plus Pinpoint, OTOS, TwoWheel or ThreeWheelIMU, with Foresight filled from the simulated robot. Clearly labelled as estimates.
 - **Readiness checklist** in the Export tab: verified items versus team setup, calibration and physical testing.
 - **`.pp` files** now use the current Pedro Visualizer schema.
@@ -124,6 +124,17 @@ The user's goal: plug into the Control Hub, press one button, and everything for
   - It runs from the Send panel (`runCheck`: INIT, START, button presses, STOP, and Controller 1 passed through), and from any Driver Station.
 - **Virtual hub:** gamepad input for team code (`SimEngine.setGamepad`) and a per-device readout of what each device physically does (`hubDevices`), so a scripted operator can answer the check as a person would.
 - **Simulated hub** (`tools/ftc-sim.cjs`): Scan, discovery, Save, Activate, op modes from what OnBot Java built (`listBuilt`), `--empty`, and `CheckScript`, a stand-in for the check TeleOp.
+
+### One-button setup, phase 3: where the odometry sits (24 October, night)
+
+- **Settings** (`robot.odometry` in `ui/sim-config.js`; only non-defaults are stored).
+  - Pinpoint: X pod inches left of centre, Y pod inches forward, pod type, each pod's direction (goBILDA's `setOffsets` terms).
+  - OTOS: chip position, X-axis heading (SparkFun's offset: degrees counterclockwise from the front, -90 = Y arrow forward), linear and angular scalars (0.872 to 1.127).
+  - Pods: position and direction of each.
+  - Edited in Setup → Robot controller → Where the odometry sits, or `deck-sim robot --odometry pinpoint.xOffset=-2.5,...`.
+- **Exports.** RobotDrive configures the Pinpoint (offsets, resolution, directions, `resetPosAndIMU`) and the OTOS (`setOffset`, scalars, `calibrateImu`, `resetTracking`), and signs each pod. The OTOS pose is now plain SparkFun; the old +π/2 on its heading is gone. Pedro's starter constants map the OTOS offset to Pedro's frame: Pose(y, -x, h - 180°).
+- **Guided check, last steps on the floor.** Push 48 in forward, push left, then a 30% spin on the spot for a full turn. Each pod reading is fit against the turn by least squares for the offsets. Applied with `applyCheck` (problems: swapped pods, no reading, a mirrored OTOS, a push that does not match either pod type). A drive wheel the check finds reversed is flipped right away, so the spin works.
+- **Virtual hub chips** (`SimSensors.java`). The Pinpoint gets raw counts from its pods as mounted, and computes the pose with the configured offsets, directions and resolution. The OTOS measures in its own axes as mounted, and reports through the configured offset and scalars. Pods are mounted reversed when the setup says so.
 
 ### Bugs fixed
 

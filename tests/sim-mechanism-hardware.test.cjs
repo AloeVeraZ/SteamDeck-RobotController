@@ -91,8 +91,8 @@ test('the check TeleOp is a guided check of every device: drive wheels, rollers,
   // OnBot Java: the check is its own file and uses the autonomous file's Mechanisms.
   const one=exportFor(m,'onBotJava');assert.deepEqual(Object.keys(one.files),[dir+'PlannedRouteAuto.java',dir+'PlannedRouteCheck.java']);
   assert.match(one.check.source,/PlannedRouteAuto\.Mechanisms mech = new PlannedRouteAuto\.Mechanisms\(\);/);assert.match(one.check.source,/hardwareMap\.tryGet\(DcMotorSimple\.class, PlannedRouteAuto\.Mechanisms\.INTAKE_1\)/);assert.doesNotMatch(one.source,/class PlannedRouteCheck/);
-  // Without mechanisms the check still tests the IMU and the drive.
-  const plain=exportFor(Mech.sanitize({})).files[dir+'PlannedRouteCheck.java'];assert.match(plain,/private static final int STEPS = 5;/);assert.doesNotMatch(plain,/Mechanisms|intake/);
+  // Without mechanisms the check still tests the IMU, the drive and (last, on the floor) the Pinpoint.
+  const plain=exportFor(Mech.sanitize({})).files[dir+'PlannedRouteCheck.java'];assert.match(plain,/private static final int STEPS = 6;/);assert.match(plain,/next\("Pinpoint \(\\"pinpoint\\"\)"\);/);assert.doesNotMatch(plain,/Mechanisms|intake/);
   // Pedro: the same check beside the Pedro OpMode.
   const route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5}),pedro=Pedro.files({route,layout:{name:'Hardware',start,zones:[]},setupName:'Hardware test',robot,mechanisms:m,target,defaultPower:.8,hardware:F.hardware(robot,'fused')});
   assert.match(pedro.files[dir+'PlannedRouteCheck.java'],/Mechanisms mech = new Mechanisms\(\);/);

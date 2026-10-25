@@ -28,8 +28,12 @@
     // motors set to turn the other way. mount is the physical truth the virtual Control Hub drives: -1 is REVERSE.
     const own=robot.devices||{},named=(key,fallback)=>own[key]?.name||fallback;
     const motors=Object.fromEntries(Object.entries(drivetrain==='tank2'?DIFF:MOTORS).map(([key,m])=>[key,{name:named(key,m.name),mount:typeof own[key]?.reversed==='boolean'?(own[key].reversed?-1:1):m.mount}]));
+    // Odometry as mounted (Setup → Robot controller → Odometry): pod positions and directions, the Pinpoint's pod
+    // offsets, directions and pod type, and the OTOS's position, rotation and scalars.
+    const C=globalThis.DeckSimConfig||require('./sim-config.js'),odo=C.odometryOf(robot);
     return {localization,imu:named('imu','imu'),hub:{logo:mount.hubLogo.toUpperCase(),usb:mount.hubUsb.toUpperCase()},drive:{kind:tank?'tank':'mecanum',ticksPerInch:ticksPerRev(rpm)/inches,ticksPerRev:ticksPerRev(rpm),halfLength:robot.length/2,halfWidth:robot.width/2,motors},
-      pods:(PODS[localization]||[]).map(p=>({...p,name:named(p.name,p.name),ticksPerInch:POD_TICKS_PER_INCH})),...(localization==='fused'?{pinpoint:named('pinpoint','pinpoint')}:{}),...(localization==='optical'?{otos:named('otos','sensor_otos')}:{})};
+      pods:(PODS[localization]||[]).map(p=>{const m=odo.pods[p.name];return {...p,key:p.name,x:m.x,y:m.y,name:named(p.name,p.name),ticksPerInch:POD_TICKS_PER_INCH,...(m.reversed?{reversed:true}:{})};}),
+      ...(localization==='fused'?{pinpoint:named('pinpoint','pinpoint'),pinpointMount:{...odo.pinpoint,ticksPerMm:C.POD_TYPES[odo.pinpoint.pods].ticksPerMm}}:{}),...(localization==='optical'?{otos:named('otos','sensor_otos'),otosMount:odo.otos}:{})};
   }
   // Deck's own name for each drive and sensor device a robot of this kind uses, keyed as robot.devices keys them, with
   // what it is (for the robot configuration check and the Robot controller step).
@@ -83,7 +87,8 @@ public final class Constants {
     public static void motorPower(double p) { config.maxPathSpeed=p; hardware.limit=p; }
 }
 `;}
-  function robotDrive(h,options){const motors=Object.entries(h.drive.motors),pods=h.pods,kind=h.drive.kind;
+  function robotDrive(h,options){const motors=Object.entries(h.drive.motors),pods=h.pods,kind=h.drive.kind,pp=h.pinpointMount,ot=h.otosMount;
+    const PODS_ENUM={'4bar':'goBILDA_4_BAR_POD',swingarm:'goBILDA_SWINGARM_POD'},direction=r=>`GoBildaPinpointDriver.EncoderDirection.${r?'REVERSED':'FORWARD'}`;
     return `package ${options.packageName}.drive;
 import deck.pathing.DeckFollower;
 import deck.pathing.DeckFollower.*;
@@ -95,12 +100,14 @@ import com.qualcomm.robotcore.util.ElapsedTime;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose2D;
-/** Set motor names, directions, wheel gearing and sensor offsets to match your real robot.
- * Gains measured in simulation are starting values; calibrate distances and turns on the field.
- * IMU mounting below assumes logo up, USB forward; edit it for your Control Hub mounting. */
+/** Motor names and directions, wheel gearing, the Control Hub's mounting and the odometry come from Deck's settings
+ * (Setup → Robot controller); the guided check TeleOp finds the directions and odometry offsets on the robot.
+ * Gains measured in simulation are starting values; calibrate distances and turns on the field. */
 public final class RobotDrive implements Drivetrain, Localizer {
     private final DcMotorEx[] motors = new DcMotorEx[${motors.length}], pods = new DcMotorEx[${pods.length}];
-    private final IMU imu;
+${pods.length?`    /** Each odometry pod's count direction: -1 for a pod that counts backward as the robot drives its way. */
+    private static final int[] POD_SIGN = {${pods.map(p=>p.reversed?-1:1).join(', ')}};
+`:''}    private final IMU imu;
     private final GoBildaPinpointDriver pinpoint;
     private final SparkFunOTOS otos;
     private final ElapsedTime clock = new ElapsedTime();
@@ -115,9 +122,22 @@ ${pods.map((p,i)=>`        pods[${i}]=map.get(DcMotorEx.class,${javaString(p.nam
         imu=map.get(IMU.class,${javaString(h.imu)});
         // How the Control Hub is mounted (Deck: Setup → Robot controller). If this is wrong, every turn and heading is wrong.
         imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(RevHubOrientationOnRobot.LogoFacingDirection.${h.hub.logo},RevHubOrientationOnRobot.UsbFacingDirection.${h.hub.usb})));
-        pinpoint=${h.localization==='fused'?`map.get(GoBildaPinpointDriver.class,${javaString(h.pinpoint)})`:'null'};
-        otos=${h.localization==='optical'?`map.get(SparkFunOTOS.class,${javaString(h.otos)})`:'null'};
-        if(otos!=null){otos.setLinearUnit(DistanceUnit.INCH);otos.setAngularUnit(AngleUnit.RADIANS);}
+        pinpoint=${h.localization==='fused'?`map.get(GoBildaPinpointDriver.class,${javaString(h.pinpoint)})`:'null'};${pp?`
+        // The Pinpoint's pods: X is the forward pod (its offset: inches left of the robot's centre), Y the strafe pod (inches
+        // forward of it). Resetting also calibrates its IMU, so the robot must be still at INIT. The reset takes about 0.25 s
+        // and a position set before it ends is lost, so wait for it (Pedro's PinpointLocalizer waits 0.5 s too).
+        pinpoint.setOffsets(${n(pp.xOffset)},${n(pp.yOffset)},DistanceUnit.INCH);
+        pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.${PODS_ENUM[pp.pods]});
+        pinpoint.setEncoderDirections(${direction(pp.xReversed)},${direction(pp.yReversed)});
+        pinpoint.resetPosAndIMU();
+        try{Thread.sleep(500);}catch(InterruptedException e){Thread.currentThread().interrupt();}`:''}
+        otos=${h.localization==='optical'?`map.get(SparkFunOTOS.class,${javaString(h.otos)})`:'null'};${ot?`
+        // Where the OTOS sits (inches forward and left of the robot's centre) and where its X axis points (counterclockwise
+        // from the robot's front), as SparkFun's offset takes them; then its scalars, and its IMU calibrated at INIT.
+        otos.setLinearUnit(DistanceUnit.INCH);otos.setAngularUnit(AngleUnit.RADIANS);
+        otos.setOffset(new SparkFunOTOS.Pose2D(${n(ot.x)},${n(ot.y)},Math.toRadians(${n(ot.heading)})));
+        otos.setLinearScalar(${n(ot.linearScalar)});otos.setAngularScalar(${n(ot.angularScalar)});
+        otos.calibrateImu();otos.resetTracking();`:''}
         setPose(Pose.zero());
     }
     public MotionState state(){return state;}
@@ -127,18 +147,18 @@ ${pods.map((p,i)=>`        pods[${i}]=map.get(DcMotorEx.class,${javaString(p.nam
         for(int i=0;i<pods.length;i++)podBefore[i]=pods[i].getCurrentPosition();
         oldImu=imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);lastTime=clock.seconds();
         if(pinpoint!=null)pinpoint.setPosition(new Pose2D(DistanceUnit.INCH,p.x(),p.y(),AngleUnit.RADIANS,p.heading()));
-        if(otos!=null)otos.setPosition(new SparkFunOTOS.Pose2D(p.x(),p.y(),p.heading()+Math.PI/2));
+        if(otos!=null)otos.setPosition(new SparkFunOTOS.Pose2D(p.x(),p.y(),p.heading()));
         state=MotionState.ofVelocity(p,Velocity.zero());
     }
     public void update(){
         double now=clock.seconds(),dt=now-lastTime;if(dt<=0)return;lastTime=now;Pose p=state.pose(),next;
         double yaw=imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS),dh=DeckFollower.angle(yaw-oldImu);oldImu=yaw;
         if(pinpoint!=null){pinpoint.update();next=new Pose(pinpoint.getPosX(DistanceUnit.INCH),pinpoint.getPosY(DistanceUnit.INCH),pinpoint.getHeading(AngleUnit.RADIANS));}
-        else if(otos!=null){SparkFunOTOS.Pose2D q=otos.getPosition();next=new Pose(q.x,q.y,q.h-Math.PI/2);}
+        else if(otos!=null){SparkFunOTOS.Pose2D q=otos.getPosition();next=new Pose(q.x,q.y,q.h);}
         else {
             double[] d=new double[motors.length];for(int i=0;i<d.length;i++){int ticks=motors[i].getCurrentPosition();d[i]=(ticks-before[i])*${n(1/h.drive.ticksPerInch)};before[i]=ticks;}
             double forward=${kind==='tank'?'('+motors.map((_,i)=>`d[${i}]`).join('+')+')/'+motors.length:'(d[0]+d[1]+d[2]+d[3])/4'},left=${kind==='tank'?'0':'(-d[0]+d[1]+d[2]-d[3])/4'};
-${pods.length?`            double[] pod=new double[pods.length];for(int i=0;i<pods.length;i++){int ticks=pods[i].getCurrentPosition();pod[i]=ticks-podBefore[i];podBefore[i]=ticks;}
+${pods.length?`            double[] pod=new double[pods.length];for(int i=0;i<pods.length;i++){int ticks=pods[i].getCurrentPosition();pod[i]=(ticks-podBefore[i])*POD_SIGN[i];podBefore[i]=ticks;}
             forward=(${pods.map((p,i)=>p.axis==='forward'?`pod[${i}]*${n(1/p.ticksPerInch)}+${n(p.y)}*dh`:null).filter(Boolean).map(t=>'('+t+')').join('+')})/${pods.filter(p=>p.axis==='forward').length};
             left=${pods.map((p,i)=>p.axis==='strafe'?`pod[${i}]*${n(1/p.ticksPerInch)}-(${n(p.x)})*dh`:null).filter(Boolean).join('+')};`:''}
             double mid=p.heading()+dh/2;next=new Pose(p.x()+forward*Math.cos(mid)-left*Math.sin(mid),p.y()+forward*Math.sin(mid)+left*Math.cos(mid),p.heading()+dh);
@@ -790,7 +810,12 @@ ${motorTurrets.map(x=>`        ${x.field}.setPower(0);`).join('\n')}
       gets.push(`        DcMotorEx[] drive = new DcMotorEx[DRIVE.length];`,`        for (int i = 0; i < DRIVE.length; i++) {`,`            drive[i] = hardwareMap.tryGet(DcMotorEx.class, DRIVE[i]);`,
         `            if (drive[i] != null) { drive[i].setDirection(direction(DRIVE_REVERSED[i])); drive[i].setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER); }`,`        }`);
       motors.forEach(([k,x],i)=>step(`${DRIVE_LABELS[k]} ("${x.name}")`,`        if (drive[${i}] == null) result("robot.${k}.reversed", "?missing");
-        else direction("robot.${k}.reversed", DRIVE_REVERSED[${i}], turn(drive[${i}], 0.3, TURN_SECONDS, ${say(`Did the ${DRIVE_LABELS[k]} turn so the robot would drive FORWARD?`)}));`));
+        else {
+            int answer = turn(drive[${i}], 0.3, TURN_SECONDS, ${say(`Did the ${DRIVE_LABELS[k]} turn so the robot would drive FORWARD?`)});
+            direction("robot.${k}.reversed", DRIVE_REVERSED[${i}], answer);
+            // The odometry steps turn the robot with its wheels, so a wheel found backward is turned the right way now.
+            if (answer == NO) drive[${i}].setDirection(direction(!DRIVE_REVERSED[${i}]));
+        }`));
     }
     // A device by its Mechanisms constant, with the direction the code sets for it.
     const device=(x,type,setup='')=>{gets.push(`        ${type} ${x.field} = hardwareMap.tryGet(${type}.class, ${M}.${x.constant});`,...(setup?[`        if (${x.field} != null) ${setup}`]:[]));};
@@ -866,6 +891,217 @@ ${motorTurrets.map(x=>`        ${x.field}.setPower(0);`).join('\n')}
             }`}
             ${x.field}.setPower(0);
         }`);});
+    // ---- Odometry, last, with the robot on the floor: two pushes by hand find which way the pods count (and a measured
+    // 48 in push their pod type or the OTOS's linear scalar), and one turn on the spot finds where they sit.
+    const loc=h?.localization,odo=['fused','optical','odometry','odometry3'].includes(loc)&&motors.length?loc:null,helpers=[],consts=[];
+    const floor='Put the robot on the floor with room around it. Push it straight FORWARD by hand, exactly 48 inches (two field tiles) if you can measure it, then press A.';
+    const leftPush='Now push it straight to its LEFT by hand, about 24 inches (one tile), then press A.',spinAsk='Next the robot turns on the spot by itself, one full turn counterclockwise, to find where the odometry sits. Keep clear of it.';
+    if(odo){
+      consts.push(`    /** Which drive motors are on the left (they turn backward to spin the robot counterclockwise). */`,`    private static final boolean[] DRIVE_LEFT = {${motors.map(([k])=>String(/left/i.test(k))).join(', ')}};`,
+        '    private static final double SPIN_POWER = 0.3;','    private static final String PUSHED = "A: pushed it 48 in | X: pushed it another distance | B: skip";');
+      helpers.push(`
+    /** The drive turning the robot on the spot: left wheels backward, right wheels forward (counterclockwise). */
+    private static void spin(DcMotorEx[] drive, double power) {
+        for (int i = 0; i < drive.length; i++) if (drive[i] != null) drive[i].setPower(DRIVE_LEFT[i] ? -power : power);
+    }`);
+    }
+    // One turn on the spot. Each loop adds the turn (radians, from heading) and every reading's change; sums[0] is the
+    // turn so far, sums[1] the sum of squared turns and sums[2 + i] each reading's change times the turn, so reading i
+    // changes sums[2 + i] / sums[1] per radian. extra: Java run every loop with the turn d (radians) and the change of
+    // each reading in delta[].
+    const spinLoop=(read,heading,extra='')=>`        double[] last = ${read}, sums = new double[2 + last.length];
+        double heading = ${heading};
+        ElapsedTime time = new ElapsedTime(), coast = new ElapsedTime();
+        boolean braking = false;
+        spin(drive, SPIN_POWER);
+        while (opModeIsActive() && time.seconds() < 15 && !(braking && coast.seconds() > 1)) {
+            if (!braking && Math.abs(sums[0]) >= 2 * Math.PI) { spin(drive, 0); braking = true; coast.reset(); }
+            double[] now = ${read};
+            double h = ${heading}, d = AngleUnit.normalizeRadians(h - heading);
+            double[] delta = new double[now.length];
+            for (int i = 0; i < now.length; i++) { delta[i] = now[i] - last[i]; sums[2 + i] += d * delta[i]; }
+            sums[0] += d; sums[1] += d * d;${extra}
+            heading = h; last = now;
+            show(String.format(Locale.US, "Turning on the spot: %.0f of 360 degrees.", Math.toDegrees(Math.abs(sums[0]))), "");
+        }
+        spin(drive, 0);`;
+    if(odo==='fused'){const pp=h.pinpointMount,ENUM={'4bar':'goBILDA_4_BAR_POD',swingarm:'goBILDA_SWINGARM_POD'};
+      gets.push(`        GoBildaPinpointDriver pinpoint = hardwareMap.tryGet(GoBildaPinpointDriver.class, ${say(h.pinpoint)});`,
+        '        // Measured with both pods counting forward: what the check sees is how the pods are mounted.',
+        `        if (pinpoint != null) { pinpoint.setEncoderDirections(GoBildaPinpointDriver.EncoderDirection.FORWARD, GoBildaPinpointDriver.EncoderDirection.FORWARD); pinpoint.setEncoderResolution(GoBildaPinpointDriver.GoBildaOdometryPods.${ENUM[pp.pods]}); pinpoint.resetPosAndIMU(); }`);
+      consts.push(`    /** The Pinpoint's pods as set up in Deck (${pp.pods==='swingarm'?'goBILDA swingarm':'goBILDA 4-bar'} pods), and their directions until the pushes measure them. */`,
+        `    private static final double PINPOINT_TICKS_PER_MM = ${pp.ticksPerMm}, PINPOINT_TICKS_PER_INCH = PINPOINT_TICKS_PER_MM * 25.4;`,`    private static final boolean PINPOINT_X_REVERSED = ${!!pp.xReversed}, PINPOINT_Y_REVERSED = ${!!pp.yReversed};`);
+      helpers.push(`
+    private static double[] counts(GoBildaPinpointDriver pinpoint) {
+        pinpoint.update();
+        return new double[] {pinpoint.getEncoderX(), pinpoint.getEncoderY()};
+    }
+
+    /** The pod type that reads a 48 in push as 48 in, and its ticks per inch (the setting's when neither type does). */
+    private double podType(double inches) {
+        double pods = inches / 48 * PINPOINT_TICKS_PER_MM;
+        if (Math.abs(pods / 19.894367218017578 - 1) < 0.08) { result("pinpoint.pods", "4bar"); return 19.894367218017578 * 25.4; }
+        if (Math.abs(pods / 13.262911796569824 - 1) < 0.08) { result("pinpoint.pods", "swingarm"); return 13.262911796569824 * 25.4; }
+        result("pinpoint.distance", "?" + Math.round(inches));
+        return PINPOINT_TICKS_PER_INCH;
+    }`);
+      step(`Pinpoint ("${h.pinpoint}")`,`        if (pinpoint == null) result("pinpoint", "?missing");
+        else {
+            int signX = PINPOINT_X_REVERSED ? -1 : 1, signY = PINPOINT_Y_REVERSED ? -1 : 1;
+            double tpi = PINPOINT_TICKS_PER_INCH;
+            double[] from = counts(pinpoint);
+            int pushed = ask(${say(floor)}, PUSHED);
+            double[] to = counts(pinpoint);
+            double fx = (to[0] - from[0]) / tpi, fy = (to[1] - from[1]) / tpi;
+            if (pushed == YES || pushed == NOTHING) {
+                if (Math.abs(fx) < 2 && Math.abs(fy) >= 2) result("pinpoint.pods", "?swapped");
+                else if (Math.abs(fx) < 2) result("pinpoint.xReversed", "?none");
+                else {
+                    signX = fx > 0 ? 1 : -1;
+                    result("pinpoint.xReversed", String.valueOf(fx < 0));
+                    if (pushed == YES) tpi = podType(Math.abs(fx));
+                }
+            }
+            from = counts(pinpoint);
+            pushed = ask(${say(leftPush)}, "A: pushed it | B: skip");
+            to = counts(pinpoint);
+            fy = (to[1] - from[1]) / tpi;
+            if (pushed == YES) {
+                if (Math.abs(fy) < 2) result("pinpoint.yReversed", "?none");
+                else { signY = fy > 0 ? 1 : -1; result("pinpoint.yReversed", String.valueOf(fy < 0)); }
+            }
+            if (ask(${say(spinAsk)}, "A: turn it | B: skip") == YES) {
+${spinLoop('counts(pinpoint)','pinpoint.getHeading(AngleUnit.RADIANS)').replace(/^/gm,'        ')}
+                if (Math.abs(sums[0]) < Math.PI) result("pinpoint.xOffset", "?none");
+                else {
+                    // A pod counts the turn times how far it sits from the centre, across its direction of travel.
+                    result("pinpoint.xOffset", number(-sums[2] / sums[1] / (signX * tpi)));
+                    result("pinpoint.yOffset", number(sums[3] / sums[1] / (signY * tpi)));
+                }
+            }
+        }`);}
+    if(odo==='odometry'||odo==='odometry3'){const pods=h.pods;
+      gets.push(`        DcMotorEx[] pods = new DcMotorEx[POD_NAMES.length];`,`        for (int i = 0; i < pods.length; i++) pods[i] = hardwareMap.tryGet(DcMotorEx.class, POD_NAMES[i]);`);
+      consts.push('    /** The odometry pods, which are forward pods (the others measure sideways), and their directions as set up in Deck. */',
+        `    private static final String[] POD_NAMES = ${names(pods.map(p=>p.name))}, POD_KEYS = ${names(pods.map(p=>p.key))};`,
+        `    private static final boolean[] POD_FORWARD = {${pods.map(p=>String(p.axis==='forward')).join(', ')}}, POD_REVERSED = {${pods.map(p=>String(!!p.reversed)).join(', ')}};`,`    private static final double POD_TICKS_PER_INCH = ${n(pods[0].ticksPerInch)};`);
+      helpers.push(`
+    private static double[] counts(DcMotorEx[] pods) {
+        double[] c = new double[pods.length];
+        for (int i = 0; i < pods.length; i++) c[i] = pods[i] == null ? 0 : pods[i].getCurrentPosition();
+        return c;
+    }`);
+      step('odometry pods',`        boolean missing = false;
+        for (int i = 0; i < pods.length; i++) if (pods[i] == null) { result("pods." + POD_KEYS[i] + ".reversed", "?missing"); missing = true; }
+        if (!missing && imu != null) {
+            int[] sign = new int[pods.length];
+            for (int i = 0; i < pods.length; i++) sign[i] = POD_REVERSED[i] ? -1 : 1;
+            double[] from = counts(pods);
+            int pushed = ask(${say(floor)}, PUSHED);
+            double[] to = counts(pods);
+            if (pushed == YES || pushed == NOTHING) {
+                double travel = 0;
+                for (int i = 0; i < pods.length; i++) {
+                    if (!POD_FORWARD[i]) continue;
+                    double inches = (to[i] - from[i]) / POD_TICKS_PER_INCH;
+                    if (Math.abs(inches) < 2) { result("pods." + POD_KEYS[i] + ".reversed", "?none"); continue; }
+                    sign[i] = inches > 0 ? 1 : -1;
+                    result("pods." + POD_KEYS[i] + ".reversed", String.valueOf(inches < 0));
+                    travel = Math.max(travel, Math.abs(inches));
+                }
+                if (pushed == YES && travel > 0 && Math.abs(travel / 48 - 1) > 0.08) result("pods.distance", "?" + Math.round(travel));
+            }
+            from = counts(pods);
+            pushed = ask(${say(leftPush)}, "A: pushed it | B: skip");
+            to = counts(pods);
+            if (pushed == YES) for (int i = 0; i < pods.length; i++) {
+                if (POD_FORWARD[i]) continue;
+                double inches = (to[i] - from[i]) / POD_TICKS_PER_INCH;
+                if (Math.abs(inches) < 2) result("pods." + POD_KEYS[i] + ".reversed", "?none");
+                else { sign[i] = inches > 0 ? 1 : -1; result("pods." + POD_KEYS[i] + ".reversed", String.valueOf(inches < 0)); }
+            }
+            if (ask(${say(spinAsk)}, "A: turn it | B: skip") == YES) {
+${spinLoop('counts(pods)','imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS)').replace(/^/gm,'        ')}
+                if (Math.abs(sums[0]) >= Math.PI) for (int i = 0; i < pods.length; i++) {
+                    // A forward pod counts minus the turn times how far left it sits; a sideways pod plus how far forward.
+                    double perRadian = sums[2 + i] / sums[1] / (sign[i] * POD_TICKS_PER_INCH);
+                    result("pods." + POD_KEYS[i] + (POD_FORWARD[i] ? ".y" : ".x"), number(POD_FORWARD[i] ? -perRadian : perRadian));
+                }
+                else result("pods.turn", "?none");
+            }
+        }`);}
+    if(odo==='optical'){
+      gets.push(`        SparkFunOTOS otos = hardwareMap.tryGet(SparkFunOTOS.class, ${say(h.otos)});`,
+        '        // Measured with no offset and no scalars: what the check sees is how the chip is mounted.',
+        '        if (otos != null) { otos.setLinearUnit(DistanceUnit.INCH); otos.setAngularUnit(AngleUnit.RADIANS); otos.setOffset(new SparkFunOTOS.Pose2D(0, 0, 0)); otos.setLinearScalar(1.0); otos.setAngularScalar(1.0); otos.calibrateImu(); otos.resetTracking(); }');
+      consts.push(`    /** Where the OTOS's X axis points as set up in Deck, until the push measures it (degrees counterclockwise from the robot's front). */`,`    private static final double OTOS_HEADING = ${n(h.otosMount.heading)};`);
+      helpers.push(`
+    private static double[] reading(SparkFunOTOS otos) {
+        SparkFunOTOS.Pose2D p = otos.getPosition();
+        return new double[] {p.x, p.y};
+    }
+
+    /** Which way the OTOS moved, in its own axes at the heading it had, in radians. */
+    private static double bearing(double[] from, double[] to, double heading) {
+        double dx = to[0] - from[0], dy = to[1] - from[1];
+        return Math.atan2(-dx * Math.sin(heading) + dy * Math.cos(heading), dx * Math.cos(heading) + dy * Math.sin(heading));
+    }`);
+      step(`OTOS ("${h.otos}")`,`        if (otos == null) result("otos", "?missing");
+        else {
+            double mounted = Math.toRadians(OTOS_HEADING), forward = Double.NaN, linear = 1;
+            double[] from = reading(otos);
+            double start = otos.getPosition().h;
+            int pushed = ask(${say(floor)}, PUSHED);
+            double[] to = reading(otos);
+            double moved = Math.hypot(to[0] - from[0], to[1] - from[1]);
+            if (pushed == YES || pushed == NOTHING) {
+                if (moved < 2) result("otos.heading", "?none");
+                else {
+                    // With no offset the OTOS reports its own motion, in its own axes: the robot's front is minus where it moved.
+                    forward = bearing(from, to, start);
+                    mounted = -forward;
+                    result("otos.heading", String.format(Locale.US, "%.1f", Math.toDegrees(mounted)));
+                    if (pushed == YES) {
+                        double scalar = 48 / moved;
+                        boolean fits = scalar >= SparkFunOTOS.MIN_SCALAR && scalar <= SparkFunOTOS.MAX_SCALAR;
+                        if (fits) linear = scalar;
+                        result("otos.linearScalar", fits ? String.format(Locale.US, "%.4f", scalar) : "?" + Math.round(moved));
+                    }
+                }
+            }
+            from = reading(otos);
+            start = otos.getPosition().h;
+            pushed = ask(${say(leftPush)}, "A: pushed it | B: skip");
+            to = reading(otos);
+            if (pushed == YES && !Double.isNaN(forward) && Math.hypot(to[0] - from[0], to[1] - from[1]) >= 2) {
+                // Its left is a quarter turn counterclockwise from its front, unless it sees the floor mirrored.
+                double left = AngleUnit.normalizeRadians(bearing(from, to, start) - forward);
+                if (left < 0) result("otos.mirror", "?mirrored");
+            }
+            if (ask(${say(spinAsk)}, "A: turn it | B: skip") == YES) {
+                double imuStart = imu == null ? Double.NaN : imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS), imuTurn = 0, imuLast = imuStart, rx = 0, ry = 0;
+${spinLoop('reading(otos)','otos.getPosition().h',`
+                double mid = heading + d / 2;
+                // The move in the OTOS's own axes at that heading.
+                rx += d * (delta[0] * Math.cos(mid) + delta[1] * Math.sin(mid));
+                ry += d * (-delta[0] * Math.sin(mid) + delta[1] * Math.cos(mid));
+                if (imu != null) { double y = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS); imuTurn += AngleUnit.normalizeRadians(y - imuLast); imuLast = y; }`).replace(/^/gm,'        ')}
+                if (Math.abs(sums[0]) < Math.PI) result("otos.x", "?none");
+                else {
+                    // The hub's IMU measures the turn the OTOS should have seen: their ratio is its angular scalar.
+                    double angular = 1;
+                    if (imu != null && Math.abs(imuTurn) > Math.PI) {
+                        double scalar = imuTurn / sums[0];
+                        if (scalar >= SparkFunOTOS.MIN_SCALAR && scalar <= SparkFunOTOS.MAX_SCALAR) { angular = scalar; result("otos.angularScalar", String.format(Locale.US, "%.4f", scalar)); }
+                    }
+                    // Turning moves the chip around the robot's centre: back in the robot's frame (its distances and turn
+                    // corrected by the scalars), that is where it sits.
+                    double sx = rx / sums[1] * linear / angular, sy = ry / sums[1] * linear / angular, c = Math.cos(mounted), s = Math.sin(mounted);
+                    result("otos.x", number(s * sx + c * sy));
+                    result("otos.y", number(-(c * sx - s * sy)));
+                }
+            }
+        }`);}
     const stops=[...motors.length?['        for (DcMotorEx motor : drive) if (motor != null) motor.setPower(0);']:[],...d.filter(x=>x.device!=='servo').map(x=>`        if (${x.field} != null) ${x.field}.setPower(0);`)];
     return `package ${options.packageName};
 
@@ -875,16 +1111,20 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;${h?`
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
-import com.qualcomm.robotcore.hardware.IMU;`:''}
+import com.qualcomm.robotcore.hardware.IMU;`:''}${odo==='fused'?`
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;`:odo==='optical'?`
+import com.qualcomm.hardware.sparkfun.SparkFunOTOS;`:''}
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import java.util.Locale;${h?`
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;${odo==='optical'?`
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;`:''}
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;`:''}
 
 /**
  * A guided check of the hardware the "${comment(options.layoutName||'route')}" autonomous uses, generated by Deck Driver Station
- * with it. Run it before the autonomous, with the robot on blocks: the wheels and mechanisms move.
+ * with it. Run it before the autonomous, with the robot on blocks: the wheels and mechanisms move.${odo?`
+ * The last steps check the odometry with the robot on the floor: two pushes by hand, then one turn on the spot.`:''}
  *
  * Each step turns one device or moves one servo, then asks on the Driver Station. Answer on gamepad 1:
  *  - a device that turned: A yes, B no (it turned the other way), X nothing moved, Y run it again;
@@ -902,7 +1142,7 @@ public class ${name} extends LinearOpMode {
     private static final double TURN_SECONDS = 1.5;
     private static final int STOPPED = 0, YES = 1, NO = 2, NOTHING = 3, AGAIN = 4;
     private static final String TURNED = "A: yes | B: no, the other way | X: nothing moved | Y: again";
-    /** The answers as Deck settings: "v1", then key=value for each (a value starting with ? is a problem). */
+${consts.length?consts.join('\n')+'\n':''}    /** The answers as Deck settings: "v1", then key=value for each (a value starting with ? is a problem). */
     private final StringBuilder results = new StringBuilder("v1");
     private int step;
     private String title = "";
@@ -1093,7 +1333,7 @@ ${flywheels.length&&velocity?`
         }
         return Double.NaN;
     }
-`:''}}
+`:''}${helpers.join('\n')}${helpers.length?'\n':''}}
 `.replace(/\n\n\n+/g,'\n\n');}
   // The guided check's "Deck results" line read back ("v1 key=value ..."; a value starting with ? is a problem), or
   // null when the text is not one.
@@ -1118,10 +1358,38 @@ ${flywheels.length&&velocity?`
     const PROBLEMS={'imu.level':'reads the robot tilted: the Control Hub mounting in Deck (Setup → Robot controller) does not match the robot.',
       'imu.turn':{'?backward':'read the quarter turn left as a turn right: the Control Hub mounting in Deck (Setup → Robot controller) is wrong.','?none':'did not see the quarter turn. Check the IMU name and the Control Hub mounting.'},
       'shooter.topSpeed':'encoder read no speed at full power: check the flywheel motor\'s encoder cable.','shooter.rpm':'top speed is below the shooting speed: lower the shooter RPM in Mechanisms.'};
+    // Odometry: the Pinpoint's pods, the OTOS's mounting and scalars, each pod's position and direction.
+    const Cfg=globalThis.DeckSimConfig||require('./sim-config.js'),odo=Cfg.odometryOf(r),before=JSON.stringify(odo);
+    const POD_LABELS={par:'Forward odometry pod',perp:'Sideways odometry pod',par_left:'Left odometry pod',par_right:'Right odometry pod'},inch=v=>`${num(v)} in`;
+    const ODO_PROBLEMS={'pinpoint.pods:?swapped':'The Pinpoint\'s pods look swapped: its Y (strafe) pod counted when the robot went forward. Swap the two pod cables at the Pinpoint.',
+      'pinpoint.xReversed:?none':'The Pinpoint\'s X (forward) pod did not count: check its cable, and that its wheel touches the floor.','pinpoint.yReversed:?none':'The Pinpoint\'s Y (strafe) pod did not count: check its cable, and that its wheel touches the floor.',
+      'pinpoint.xOffset:?none':'The robot did not turn on the spot, so the Pinpoint\'s pod offsets were not measured: check the drive motors.','otos.heading:?none':'The OTOS did not see the robot move: check that it faces the floor, about 10 mm above it.',
+      'otos.mirror:?mirrored':'The OTOS sees the floor mirrored, as if it were mounted upside down.','otos.x:?none':'The robot did not turn on the spot, so the OTOS\'s position was not measured: check the drive motors.',
+      'pods.turn:?none':'The robot did not turn on the spot, so the pod positions were not measured: check the drive motors.'};
+    const odoProblem=(key,value)=>{if(ODO_PROBLEMS[`${key}:${value}`])return ODO_PROBLEMS[`${key}:${value}`];const n=value.slice(1);
+      if(key==='pinpoint.distance')return `The Pinpoint's pods read ${n} in for the 48 in push: check the pod type, and that the robot moved exactly 48 in.`;
+      if(key==='otos.linearScalar')return `The OTOS read ${n} in for the 48 in push, more than its scalar can correct: check its height above the floor.`;
+      if(key==='pods.distance')return `The pods read ${n} in for the 48 in push: check the pod wheel size (Deck assumes goBILDA 32 mm wheels, 2000 counts a turn).`;
+      const p=/^pods\.(\w+)\./.exec(key);if(p&&value==='?none')return `${POD_LABELS[p[1]]||p[1]} did not count: check its cable, and that its wheel touches the floor.`;
+      if(p&&value==='?missing')return `${POD_LABELS[p[1]]||p[1]} is not on the robot: its name is not in the robot configuration.`;
+      if((key==='pinpoint'||key==='otos')&&value==='?missing')return `The ${key==='otos'?'OTOS':'Pinpoint'} is not on the robot: its name is not in the robot configuration, or it is another kind of device there.`;
+      return null;};
     for(const [key,value] of Object.entries(values||{})){
-      if(value.startsWith('?')){const own=PROBLEMS[key],text=typeof own==='string'?own:own?.[value];
-        problems.push(`${labelOf(key)} ${text||(value==='?missing'?'is not on the robot: its name is not in the robot configuration, or it is another kind of device there.':'did not move. Check its cable and port, and that the robot configuration has it on that port.')}`);continue;}
+      if(value.startsWith('?')){const own=PROBLEMS[key],text=typeof own==='string'?own:own?.[value],odoText=odoProblem(key,value);
+        problems.push(odoText||`${labelOf(key)} ${text||(value==='?missing'?'is not on the robot: its name is not in the robot configuration, or it is another kind of device there.':'did not move. Check its cable and port, and that the robot configuration has it on that port.')}`);continue;}
       let k;const flag=value==='true'?true:value==='false'?false:null,n=Number(value);
+      if((k=/^pinpoint\.(xReversed|yReversed)$/.exec(key))&&flag!==null){if(odo.pinpoint[k[1]]!==flag){odo.pinpoint[k[1]]=flag;changes.push(`Pinpoint ${k[1][0]==='x'?'X (forward)':'Y (strafe)'} pod: counts backward ${flag?'on':'off'}.`);}continue;}
+      if(key==='pinpoint.pods'){if(Cfg.POD_TYPES[value]&&odo.pinpoint.pods!==value){changes.push(`Pinpoint pods: ${Cfg.POD_TYPES[odo.pinpoint.pods].name} → ${Cfg.POD_TYPES[value].name}.`);odo.pinpoint.pods=value;}continue;}
+      if((k=/^pinpoint\.(xOffset|yOffset)$/.exec(key))&&Number.isFinite(n)&&Math.abs(n)<=36){if(Math.abs(odo.pinpoint[k[1]]-n)>.1){changes.push(k[1]==='xOffset'?`Pinpoint X (forward) pod: ${inch(odo.pinpoint.xOffset)} → ${inch(n)} left of centre.`:`Pinpoint Y (strafe) pod: ${inch(odo.pinpoint.yOffset)} → ${inch(n)} forward of centre.`);odo.pinpoint[k[1]]=num(n);}continue;}
+      if((k=/^otos\.(heading|x|y|linearScalar|angularScalar)$/.exec(key))&&Number.isFinite(n)){const o=odo.otos,f=k[1];
+        if(f==='heading'){const h=((((n+180)%360)+360)%360)-180,diff=Math.abs(((((h-o.heading)+180)%360)+360)%360-180);if(diff>.5){changes.push(`OTOS X axis: ${+o.heading.toFixed(1)}° → ${+h.toFixed(1)}° (counterclockwise from the robot's front).`);o.heading=+h.toFixed(1);}}
+        else if(f==='x'||f==='y'){if(Math.abs(n)<=36&&Math.abs(o[f]-n)>.1){changes.push(`OTOS position: ${inch(o[f])} → ${inch(n)} ${f==='x'?'forward':'left'} of centre.`);o[f]=num(n);}}
+        else if(n>=Cfg.OTOS_SCALARS[0]&&n<=Cfg.OTOS_SCALARS[1]&&Math.abs(o[f]-n)>.002){changes.push(`OTOS ${f==='linearScalar'?'linear':'angular'} scalar: ${+o[f].toFixed(4)} → ${+n.toFixed(4)}.`);o[f]=+n.toFixed(4);}
+        continue;}
+      if((k=/^pods\.(\w+)\.(reversed|x|y)$/.exec(key))&&odo.pods[k[1]]){const p=odo.pods[k[1]],label=POD_LABELS[k[1]]||k[1];
+        if(k[2]==='reversed'){if(flag!==null&&p.reversed!==flag){p.reversed=flag;changes.push(`${label}: counts backward ${flag?'on':'off'}.`);}}
+        else if(Number.isFinite(n)&&Math.abs(n)<=36&&Math.abs(p[k[2]]-n)>.1){changes.push(`${label}: ${inch(p[k[2]])} → ${inch(n)} ${k[2]==='x'?'forward':'left'} of centre.`);p[k[2]]=num(n);}
+        continue;}
       if((k=/^robot\.(\w+)\.reversed$/.exec(key))&&h?.drive.motors[k[1]]&&flag!==null){
         if((h.drive.motors[k[1]].mount<0)!==flag){devices[k[1]]={...devices[k[1]],reversed:flag};changes.push(`${labelOf(key)}: turns the other way ${flag?'on':'off'}.`);}}
       // Only for a device the setup has: a position for its kicker, ramp or servo feeder, a direction for its motor or roller.
@@ -1134,7 +1402,7 @@ ${flywheels.length&&velocity?`
         else if(key==='turret.servoDegrees'&&Math.abs(m.turret.servoDegrees-n)>.5){changes.push(`Turret servo range: ${+m.turret.servoDegrees.toFixed(1)} → ${+n.toFixed(1)} degrees.`);m.turret.servoDegrees=+n.toFixed(1);}
         else if(key==='turret.ticksPerDegree'&&Math.abs(m.turret.ticksPerDegree-n)>.005){changes.push(`Turret encoder: ${num(m.turret.ticksPerDegree)} → ${num(n)} ticks per degree.`);m.turret.ticksPerDegree=num(n);}}
     }
-    r.devices=devices;return {robot:r,mechanisms:m,changes,problems};
+    r.devices=devices;if(JSON.stringify(odo)!==before)r.odometry=odo;return {robot:r,mechanisms:m,changes,problems};
   }
   // Every TeamCode file for the Control Hub, keyed by path under TeamCode/src/main/java. RobotActions
   // is listed in keep: it is written only when it does not exist yet.
