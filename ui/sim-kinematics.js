@@ -187,6 +187,7 @@
       steps.push({actuator:s.actuator,command,after:Number.isInteger(s.after)&&s.after>=0&&s.after<steps.length?s.after:null,delay:num(s.delay,0,0,600),...(finite(s.seconds)?{seconds:clamp(s.seconds,0,600)}:{})});}
     return steps.length?{name:text(raw.name,40),steps,...(Number.isInteger(raw.repeat)&&raw.repeat>1?{repeat:Math.min(100,raw.repeat)}:{})}:null;};
   const EMPTY=()=>sanitize({});
+  const statesOf=(model,a)=>a.states||model.joints.find(x=>x.id===a.joint)?.states||{};
   // Transmission stages from actuator to joint. A stage's factor is how far its input turns per unit of its output.
   function sanitizeStages(v){if(!Array.isArray(v))return null;
     const out=v.slice(0,8).map(s=>{if(!s||!Object.hasOwn(STAGES,s.kind))return null;const rev=s.reverse===true?{reverse:true}:{};
@@ -216,9 +217,9 @@
       ...['p','i','d'].reduce((o,k)=>finite(m[k])&&m[k]>=0?{...o,[k]:+m[k]}:o,{}),...(finite(m.power)?{power:clamp(+m.power,0,1)}:{})};}
   // A table of [input, output] points, sorted, one output per input.
   const curveOf=v=>{if(!Array.isArray(v))return null;const pts=v.filter(p=>Array.isArray(p)&&finite(p[0])&&finite(p[1])).map(p=>[+p[0],+p[1]]).sort((a,b)=>a[0]-b[0]).filter((p,i,a)=>!i||p[0]>a[i-1][0]).slice(0,256);return pts.length>=2?pts:null;};
-  // What an action step moves: an actuator, or a part moved by route actions (its own speed and named positions).
-  function mover(model,id){const a=model.actuators.find(x=>x.id===id);if(a){const j=model.joints.find(x=>x.id===a.joint),l=limitsOf(j)[a.index],st=Object.values(a.states||{}).filter(finite);
-      return {...a,home:finite(a.home)?a.home:valuesOf(j,j?.home||0)[a.index]??0,...(a.response==='pneumatic'?{ends:st.length>=2?[Math.min(...st),Math.max(...st)]:l&&l.every(finite)?l:null}:{})};}
+  // What an action step moves: an actuator (its named positions, else its joint's), or a part moved by route actions.
+  function mover(model,id){const a=model.actuators.find(x=>x.id===id);if(a){const j=model.joints.find(x=>x.id===a.joint),l=limitsOf(j)[a.index],states=statesOf(model,a),st=Object.values(states).filter(finite);
+      return {...a,states,home:finite(a.home)?a.home:valuesOf(j,j?.home||0)[a.index]??0,...(a.response==='pneumatic'?{ends:st.length>=2?[Math.min(...st),Math.max(...st)]:l&&l.every(finite)?l:null}:{})};}
     const j=model.joints.find(x=>x.id===id);return j?{id,speed:j.speed||90,accel:0,states:j.states||{},home:valuesOf(j,j.home||0)[0]??0,joint:id}:null;}
   // ---------------------------------------------------------------- part refs against the CAD's assembly tree
   // tree: the stored body's parts ({nodes:[{name,parent}], leaf:[node index of each leaf]}).
@@ -402,7 +403,7 @@
       // Actuators move in their joint's units (targets, named positions and speeds as the team thinks of them: degrees or
       // inches), within its end stops; a motor model's own free speed and stall torque come through the transmission.
       for(const a of model.actuators){const j=model.joints.find(x=>x.id===a.joint),home=valuesOf(j,j.home||0)[a.index]??0,l=limitsOf(j)[a.index]||[-Infinity,Infinity];
-        const st=Object.values(a.states||{}).filter(finite),ends=st.length>=2?[Math.min(...st),Math.max(...st)]:l.every(finite)?l:null;
+        const st=Object.values(statesOf(model,a)).filter(finite),ends=st.length>=2?[Math.min(...st),Math.max(...st)]:l.every(finite)?l:null;
         this.axes.set(a.id,new Axis(finite(a.home)?a.home:home,{speed:a.speed,accel:a.accel,lower:l[0],upper:l[1],response:a.response,motor:motorAtJoint(a,j),si:dofOf(j)[a.index]==='in'?.0254:DEG,ends}));}
       // The joints this driver moves; values() gives only these.
       this.driven=new Set([...model.joints.filter(j=>j.drive).map(j=>j.id),...model.actuators.map(a=>a.joint)]);
@@ -416,8 +417,10 @@
     // positions ("Lift up") moves that joint there. Returns false when the name means neither.
     start(name){const key=String(name).trim().toLowerCase(),action=this.model.actions.find(a=>a.name.toLowerCase()===key);
       if(action){const r=this.run(action);this.running.push(r);this.stepAction(r);return true;}
-      for(const j of this.model.joints){const axis=this.axes.get('joint:'+j.id),own=j.name.toLowerCase();if(!axis||!key.startsWith(own+' '))continue;
-        const state=Object.keys(j.states||{}).find(k=>k.toLowerCase()===key.slice(own.length+1).trim());if(state===undefined)continue;axis.to(j.states[state]);this.moves.push({key,axis});return true;}
+      const named=[...this.model.joints.map(j=>({axis:this.axes.get('joint:'+j.id),names:[j.name],states:j.states||{}})),
+        ...this.model.actuators.map(a=>({axis:this.axes.get(a.id),names:[a.name,this.model.joints.find(x=>x.id===a.joint)?.name].filter(Boolean),states:statesOf(this.model,a)}))];
+      for(const {axis,names,states} of named){if(!axis)continue;for(const name of names){const own=name.toLowerCase();if(!key.startsWith(own+' '))continue;
+        const state=Object.keys(states).find(k=>k.toLowerCase()===key.slice(own.length+1).trim());if(state===undefined)continue;axis.to(states[state]);this.moves.push({key,axis});return true;}}
       return false;}
     busy(name){const key=String(name).trim().toLowerCase();return this.running.some(r=>r.action.name.toLowerCase()===key)||this.moves.some(m=>m.key===key&&!m.axis.done);}
     tick(dt,s={}){
@@ -607,6 +610,6 @@
   // What the engine needs: the joints with a drive, actuators and actions, without part lists.
   function forEngine(model){const m=sanitize(model);return {...m,joints:m.joints.map(({parts,alternatives,note,...j})=>j)};}
   return {TYPES,ACTUATORS,MODES,COUPLINGS,SIGNALS,PROVENANCE,RESPONSES,STAGES,SENSORS,SHOW_SPIN,sanitize,EMPTY,mover,partIndex,order,resolve,worlds,motion,frame,dofOf,valuesOf,limitsOf,couple,applyCouplings,solveLoops,pose,reach,Axis,moveSeconds,Driver,timeline,sampleTimeline,reindex,forEngine,
-    stagesRatio,actuatorUnit,rigging,planetary,
+    stagesRatio,actuatorUnit,motorAtJoint,rigging,planetary,
     math:{sub,add,scale,dot,cross,len,unit,perpendicular,I4,mul,apply,applyDir,trans,rot,about,invert}};
 });

@@ -39,6 +39,7 @@
     const leavesOf=j=>{const c=ctx();return c?c.parts.expand(j.parts||[]):new Set();};
     const joints=()=>kin().joints;
     // ---- changes
+    function motorChange(jointId,fn){const next=structuredClone(kin()),a=next.actuators.find(x=>x.joint===jointId);if(!a)return;fn(a,next);api.commit(next);}
     function change(id,fn,{note}={}){const next=structuredClone(kin()),j=next.joints.find(x=>x.id===id);if(!j)return;fn(j,next);if(['inferred','metadata','standin'].includes(j.source))j.source='user';api.commit(next,note);}
     // Finds the joints of this CAD. Joints the team set stay; found ones replace the old finds.
     // The finder and the clearance sweep run in a worker (sim-discovery-worker.js) so a big CAD does not stall the page;
@@ -118,7 +119,7 @@
       else if(d==='action'||!d){const st=Object.entries(j.states||{});
         roleBits=`<span class="sim-mech-label">Named positions</span>${st.map(([k,v])=>`<div class="sim-joint-state"><input aria-label="Position name" data-state-name="${esc(k)}" value="${esc(k)}"><input type="number" data-slider="off" aria-label="${esc(k)} value" data-state-value="${esc(k)}" value="${fix(v,2)}" step="any"><button type="button" class="secondary" data-j="show" data-v="${esc(k)}">Show</button><button type="button" class="icon-button" data-j="unstate" data-v="${esc(k)}" aria-label="Remove ${esc(k)}">×</button></div>`).join('')}
           <button type="button" class="secondary" data-j="state">+ Position</button>${j.type==='revolute'||j.type==='prismatic'?`<div class="start-xy">${num('lower',j.lower,{label:'Lowest',unit:j.type==='prismatic'?'in':'°'})}${num('upper',j.upper,{label:'Highest',unit:j.type==='prismatic'?'in':'°'})}</div>`:''}
-          ${num('speed',j.speed??90,{label:'Moves at',unit:j.type==='prismatic'?'in/s':'°/s',min:.01})}<p class="hint">A route action with this joint’s name and a position (for example “${esc(j.name)} ${esc(st[0]?.[0]||'up')}”) moves it there.</p>`;}
+          ${kin().actuators.some(a=>a.joint===j.id)?'':num('speed',j.speed??90,{label:'Moves at',unit:j.type==='prismatic'?'in/s':'°/s',min:.01})}<p class="hint">A route action with this joint’s name and a position (for example “${esc(j.name)} ${esc(st[0]?.[0]||'up')}”) moves it there.</p>`;}
       const range=j.type==='prismatic'?[j.lower??-6,j.upper??6]:j.type==='revolute'?[j.lower??-180,j.upper??180]:[-180,180],dof=K().dofOf(j).length;
       const alt=(j.alternatives||[]).map((a,i)=>`<li>${esc(a.note||'Another pivot')} <button type="button" class="secondary" data-j="alt" data-v="${i}">Use it</button></li>`).join('');
       return `<div class="sim-joint-body">
@@ -132,6 +133,7 @@
           <button type="button" class="secondary" data-j="flip">Flip direction</button></div>
         ${alt?`<ul class="sim-joint-alts">${alt}</ul>`:''}
         ${roleBits}
+        ${motorBits(j)}
         ${dof===1?`<label class="sim-joint-try">Try it<input type="range" data-try min="${range[0]}" max="${range[1]}" step="0.5" value="${fix(K().valuesOf(j,values[j.id]??j.home??0)[0],1)}"></label>`:''}
         ${clearanceBits(j)}
         <span class="sim-mech-label">Parts</span><p class="hint">Moves ${parts} part${parts===1?'':'s'}${j.parent?` and rides on ${esc(joints().find(x=>x.id===j.parent)?.name||j.parent)}`:''}.</p>
@@ -158,18 +160,93 @@
           <button type="button" class="secondary" data-j="loop" aria-pressed="${pin}">${pin?'Click the shared pin on the model…':'Pick the shared pin'}</button></div>
         ${loops.length?'<p class="hint">Set Driven by to Nothing on the parts the loop moves; they are worked out to keep it closed.</p>':''}</details>`;
     }
-    // Saved actions: steps that move parts together, one after another or after a wait. A route action with the name runs it.
+    // A part's motor: what kind, its gearing (stages from the motor to the joint) and how it moves: at its set speed, as
+    // a DC motor against a load (free speed and stall torque from its datasheet, through the gearing), or as a pneumatic
+    // cylinder that rests at its ends. What the joint gets is worked out and shown.
+    function motorBits(j){
+      const k=kin(),a=k.actuators.find(x=>x.joint===j.id),dof=K().dofOf(j);if(!dof.length||j.type==='fixed'||k.couplings.some(c=>c.to===j.id)||(j.drive&&j.drive.signal!=='action'))return '';
+      if(!a)return `<details class="sim-mech-code"><summary>Motor and gearing</summary><p class="hint">It moves to its named positions at its own speed. Add its motor to set the gearing and see how fast, and how hard, it can really move.</p><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="motor-add">+ Motor</button></div></details>`;
+      const u=dof[a.index||0]==='in'?'in':'°',au=K().actuatorUnit(a,j),force=u==='in'?'N':'N·m',mm=a.motor,response=a.response||'ideal',stages=a.transmission||[];
+      const stage=(st,i)=>`<div class="sim-joint-state" data-stage="${i}"><select aria-label="Stage ${i+1}" data-stage-f="kind">${Object.entries(K().STAGES).map(([v,t])=>`<option value="${v}"${v===st.kind?' selected':''}>${esc(t)}</option>`).join('')}</select>${
+        st.kind==='gearbox'?`<label>Ratio<input type="number" data-slider="off" data-stage-f="ratio" value="${fix(st.ratio,3)}" min="0.01" step="any"> : 1</label>`:
+        st.kind==='belt'?`<label>Teeth<input type="number" data-slider="off" data-stage-f="driver" value="${fix(st.driver,0)}" min="1" step="1"> to <input type="number" data-slider="off" aria-label="Driven teeth" data-stage-f="driven" value="${fix(st.driven,0)}" min="1" step="1"></label>`:
+        st.kind==='screw'?`<label>Lead<input type="number" data-slider="off" data-stage-f="lead" value="${fix(st.lead,4)}" min="0.001" step="any"> in a turn</label>`:
+        `<label>${st.kind==='rack'?'Pinion':'Spool'} across<input type="number" data-slider="off" data-stage-f="diameter" value="${fix(st.diameter,3)}" min="0.01" step="any"> in</label>`}<button type="button" class="icon-button" data-j="stage-remove" data-v="${i}" aria-label="Remove stage ${i+1}">×</button></div>`;
+      let reach='';
+      if(response==='motor'&&mm){const at=K().motorAtJoint(a,j),load=mm.load||0,loaded=at.free*Math.max(0,1-load/at.stall);
+        reach=`<p class="hint">At the joint: up to ${fix(at.free,1)} ${u}/s with no load and ${fix(at.stall,2)} ${force} before it stalls${load?`; holding its ${fix(load,2)} ${force} load, ${load>=at.stall?'<strong>it cannot hold it</strong>':`${fix(loaded,1)} ${u}/s`}`:''}.</p>`;}
+      return `<details class="sim-mech-code" open><summary>Motor and gearing</summary>
+        <div class="start-xy"><div><label>Motor<select data-motor="kind">${Object.entries(K().ACTUATORS).filter(([v])=>v!=='none').map(([v,t])=>`<option value="${v}"${v===a.kind?' selected':''}>${esc(t)}</option>`).join('')}</select></label></div>
+          <div><label>Moves<select data-motor="response">${Object.entries(K().RESPONSES).map(([v,t])=>`<option value="${v}"${v===response?' selected':''}>${esc(t)}</option>`).join('')}</select></label></div></div>
+        <span class="sim-mech-label">Gearing, motor to ${esc(j.name)}</span>${stages.map(stage).join('')}<button type="button" class="secondary" data-j="stage-add">+ Stage</button>
+        <p class="hint">${stages.length?`The motor turns ${fix(Math.abs(a.ratio),3)}${au==='deg'&&u==='in'?'°':'×'} for each ${u==='in'?'inch':'degree'} the part moves${a.ratio<0?', the other way':''}.`:'Straight onto the joint (no gearing).'}</p>
+        ${response==='motor'?`<div class="start-xy">${num('m:free',mm?(au==='deg'?mm.free/6:mm.free):'',{label:'Free speed',unit:au==='deg'?'rpm':'in/s',slider:false}).replace('data-f="m:free"','data-motor="free"')}${num('m:stall',mm?.stall,{label:'Stall torque',unit:au==='deg'?'N·m':'N',slider:false}).replace('data-f="m:stall"','data-motor="stall"')}</div>
+          <div class="start-xy">${num('m:count',mm?.count??1,{label:'Motors',slider:false}).replace('data-f="m:count"','data-motor="count"')}${num('m:load',mm?.load??0,{label:'Load it holds',unit:force+' at the joint',slider:false}).replace('data-f="m:load"','data-motor="load"')}</div>
+          ${num('m:inertia',mm?.inertia,{label:'What it moves (inertia, optional)',unit:u==='in'?'kg':'kg·m²',slider:false}).replace('data-f="m:inertia"','data-motor="inertia"')}${reach}
+          <p class="hint">Simulated as a DC motor (torque falls from stall to nothing at free speed): it slows under its load and stalls past it. The load is what you enter, such as gravity on the part; the CAD’s weight is not known.</p>`
+        :`<div class="start-xy">${num('m:speed',a.speed,{label:'Moves at',unit:`${u}/s`,min:.01,slider:false}).replace('data-f="m:speed"','data-motor="speed"')}${num('m:accel',a.accel||0,{label:'Speeds up at',unit:`${u}/s² (0: at once)`,min:0,slider:false}).replace('data-f="m:accel"','data-motor="accel"')}</div>
+          ${response==='pneumatic'?'<p class="hint">It goes all the way out or all the way in, never stopping between (its named positions, else its limits, are the ends).</p>':''}`}
+        <div class="sim-joint-buttons"><button type="button" class="secondary" data-j="motor-remove">Remove the motor</button></div></details>`;
+    }
+    // What actions move: parts moved by route actions without a motor of their own, and motors (with their part's
+    // named positions when they have none).
+    function moverList(){const k=kin();return [...k.joints.filter(j=>j.drive?.signal==='action'&&K().dofOf(j).length===1&&!k.actuators.some(a=>a.joint===j.id)).map(j=>({id:j.id,name:j.name,states:Object.keys(j.states||{})})),
+      ...k.actuators.map(a=>({id:a.id,name:a.name,states:Object.keys(a.states||k.joints.find(x=>x.id===a.joint)?.states||{})}))];}
+    // A mover's value in the preview, and setting it.
+    function moverValue(id){const k=kin(),a=k.actuators.find(x=>x.id===id),j=k.joints.find(x=>x.id===(a?a.joint:id));if(!j)return NaN;return K().valuesOf(j,values[j.id]??j.home??0)[a?a.index||0:0];}
+    function setMover(id,x){const k=kin(),a=k.actuators.find(y=>y.id===id),j=k.joints.find(y=>y.id===(a?a.joint:id));if(!j)return;const q=K().valuesOf(j,values[j.id]??j.home??0);q[a?a.index||0:0]=x;values={...values,[j.id]:q.length===1?q[0]:q};}
+    // A new step of a kind, or null (with a reason) when there is nothing to make it from yet.
+    function newStep(kind,self){const k=kin(),movers=moverList(),sensors=k.sensors||[],poses=k.poses||[],others=k.actions.filter(a=>a.name!==self);
+      if(kind==='move')return movers[0]?{actuator:movers[0].id,command:{state:movers[0].states[0]||''}}:null;
+      if(kind==='pose'){if(!poses.length){status('Save a pose first (Poses, below).');return null;}return {pose:poses[0].name};}
+      if(kind==='wait'){if(!sensors.length){status('Add a sensor first (Sensors, below).');return null;}return {wait:{sensor:sensors[0].id,is:true},timeout:10};}
+      if(kind==='pause')return {wait:{},timeout:1};
+      if(kind==='action'){if(!others.length){status('Make another action first.');return null;}return {action:others[0].name};}
+      return null;}
+    // Saved actions: steps that move parts together, one after another or after a wait; go to a pose; wait for a sensor;
+    // run another action. A route action with the name runs it, and it can repeat (a cycle, a gait).
     function actionsSection(){
-      const k=kin(),movers=[...k.joints.filter(j=>j.drive?.signal==='action'&&K().dofOf(j).length===1).map(j=>({id:j.id,name:j.name,states:Object.keys(j.states||{})})),...k.actuators.map(a=>({id:a.id,name:a.name,states:Object.keys(a.states||{})}))];
+      const k=kin(),movers=moverList(),sensors=k.sensors||[],poses=k.poses||[];
       if(!movers.length)return '';
+      const kindOf=st=>st.pose!==undefined?'pose':st.reach!==undefined?'reach':st.action!==undefined?'action':st.wait!==undefined?(st.wait.sensor?'wait':'pause'):'move';
+      const KINDS={move:'Move a part',pose:'Go to a pose',wait:'Wait for a sensor',pause:'Wait',action:'Run an action'};
+      const opt=(v,t,on)=>`<option value="${esc(v)}"${on?' selected':''}>${esc(t)}</option>`;
+      const stepBits=(a,st)=>{const kind=kindOf(st);
+        if(kind==='move'){const mv=movers.find(x=>x.id===st.actuator);return `<select aria-label="Part" data-step-f="actuator">${movers.map(x=>opt(x.id,x.name,x.id===st.actuator)).join('')}</select><select aria-label="Position" data-step-f="state">${(mv?.states||[]).map(x=>opt(x,x,x===st.command.state)).join('')}</select>`;}
+        if(kind==='pose')return `<select aria-label="Pose" data-step-f="pose">${poses.map(p=>opt(p.name,p.name,p.name.toLowerCase()===st.pose.toLowerCase())).join('')}</select>`;
+        if(kind==='action')return `<select aria-label="Action" data-step-f="run">${k.actions.filter(x=>x!==a).map(x=>opt(x.name,x.name,x.name.toLowerCase()===st.action.toLowerCase())).join('')}</select>`;
+        if(kind==='reach')return `<span class="hint">to a point (from the file)</span>`;
+        if(kind==='pause')return `<label>for<input type="number" data-slider="off" aria-label="Seconds" data-step-f="timeout" min="0" step="any" value="${fix(st.timeout??0,2)}"> s</label>`;
+        const w=st.wait,cond=w.is===true?'is':w.is===false?'not':'above' in w?'above':'below';
+        return `<select aria-label="Sensor" data-step-f="sensor">${sensors.map(x=>opt(x.id,x.name,x.id===w.sensor)).join('')}</select><select aria-label="Until it" data-step-f="cond">${opt('is','closes',cond==='is')}${opt('not','opens',cond==='not')}${opt('above','reads at least',cond==='above')}${opt('below','reads at most',cond==='below')}</select>
+          ${cond==='above'||cond==='below'?`<input type="number" data-slider="off" aria-label="Reading" data-step-f="value" step="any" value="${fix(w.above??w.below,2)}">`:''}<label>at most<input type="number" data-slider="off" aria-label="Give up after, seconds" data-step-f="timeout" min="0" step="any" value="${fix(st.timeout??10,1)}"> s</label>`;};
       return `<div class="sim-joint-actions"><div class="sim-joints-head"><h4>Actions</h4><button type="button" class="secondary" data-j="action-add">+ Action</button></div>
         <p class="hint">Steps that move parts together, one after another or after a wait. A route action with the action’s name runs it; at a pin the robot waits until it is done.</p>
-        ${k.actions.map((a,i)=>`<section class="sim-joint-action" data-action="${i}"><div class="sim-joint-action-head"><input aria-label="Action name" data-act="name" maxlength="40" value="${esc(a.name)}"><button type="button" class="secondary" data-j="action-play">Play</button><button type="button" class="icon-button" data-j="action-remove" aria-label="Remove ${esc(a.name)}">×</button></div>
-          <ol>${a.steps.map((st,n)=>{const mv=movers.find(x=>x.id===st.actuator);return `<li data-step="${n}"><select aria-label="Part" data-step-f="actuator">${movers.map(x=>`<option value="${esc(x.id)}"${x.id===st.actuator?' selected':''}>${esc(x.name)}</option>`).join('')}</select>
-            <select aria-label="Position" data-step-f="state">${(mv?.states||[]).map(x=>`<option${x===st.command.state?' selected':''}>${esc(x)}</option>`).join('')}</select>
+        ${k.actions.map((a,i)=>`<section class="sim-joint-action" data-action="${i}"><div class="sim-joint-action-head"><input aria-label="Action name" data-act="name" maxlength="40" value="${esc(a.name)}"><label>Repeat<input type="number" data-slider="off" data-act="repeat" min="1" max="100" step="1" value="${a.repeat||1}">×</label><button type="button" class="secondary" data-j="action-play">Play</button><button type="button" class="icon-button" data-j="action-remove" aria-label="Remove ${esc(a.name)}">×</button></div>
+          <ol>${a.steps.map((st,n)=>`<li data-step="${n}"><select aria-label="Step ${n+1}" data-step-f="kind">${Object.entries(KINDS).map(([v,t])=>opt(v,t,v===kindOf(st))).join('')}${kindOf(st)==='reach'?opt('reach','Reach (from the file)',true):''}</select>${stepBits(a,st)}
             <select aria-label="Starts" data-step-f="after"><option value="">at the start</option>${a.steps.slice(0,n).map((_,m)=>`<option value="${m}"${st.after===m?' selected':''}>after step ${m+1}</option>`).join('')}</select>
-            <label>+<input type="number" data-slider="off" aria-label="Wait first, seconds" data-step-f="delay" min="0" max="60" step="any" value="${fix(st.delay,2)}"> s</label><button type="button" class="icon-button" data-j="step-remove" aria-label="Remove step ${n+1}">×</button></li>`;}).join('')}</ol>
+            <label>+<input type="number" data-slider="off" aria-label="Wait first, seconds" data-step-f="delay" min="0" max="60" step="any" value="${fix(st.delay,2)}"> s</label><button type="button" class="icon-button" data-j="step-remove" aria-label="Remove step ${n+1}">×</button></li>`).join('')}</ol>
           <button type="button" class="secondary" data-j="step-add">+ Step</button></section>`).join('')}</div>`;
+    }
+    // Poses: where several parts are at once ("Home", "Over the bin"), saved from the preview. A step going to one moves
+    // every part in it so all arrive together.
+    function posesSection(){
+      const k=kin();if(!moverList().length)return '';
+      return `<div class="sim-joint-actions"><div class="sim-joints-head"><h4>Poses</h4><button type="button" class="secondary" data-j="pose-save">+ Pose from the preview</button></div>
+        <p class="hint">Put the parts where you want them with Try it or Show, then save the pose. Going to a pose moves every part in it so they all arrive at the same time.</p>
+        ${(k.poses||[]).map((p,i)=>`<div class="sim-joint-state" data-pose="${i}"><input aria-label="Pose name" data-pose-f="name" maxlength="40" value="${esc(p.name)}"><span class="hint">${Object.keys(p.values).length} part${Object.keys(p.values).length===1?'':'s'}</span><button type="button" class="secondary" data-j="pose-show" data-v="${i}">Show</button><button type="button" class="icon-button" data-j="pose-remove" data-v="${i}" aria-label="Remove ${esc(p.name)}">×</button></div>`).join('')}</div>`;
+    }
+    // Sensors read the simulated motion, not the command: an encoder counts turns, a limit switch closes at a position,
+    // an angle or distance sensor reads it, a speed sensor reads a motor's speed. An action step can wait for one.
+    function sensorsSection(){
+      const k=kin(),on=[...k.actuators.map(a=>({id:'a:'+a.id,name:a.name+' (motor)'})),...k.joints.filter(j=>K().dofOf(j).length&&j.type!=='fixed').map(j=>({id:'j:'+j.id,name:j.name}))];if(!on.length)return '';
+      return `<div class="sim-joint-actions"><div class="sim-joints-head"><h4>Sensors</h4><button type="button" class="secondary" data-j="sensor-add">+ Sensor</button></div>
+        <p class="hint">They read how the robot actually moves in the simulation, not what it was told. An action step can wait for one.</p>
+        ${(k.sensors||[]).map((x,i)=>{const at=x.actuator?'a:'+x.actuator:'j:'+x.joint,kinds=Object.entries(K().SENSORS).filter(([v])=>v!=='velocity'||x.actuator);
+          return `<div class="sim-joint-state" data-sensor="${i}"><input aria-label="Sensor name" data-sensor-f="name" maxlength="80" value="${esc(x.name)}"><select aria-label="Kind" data-sensor-f="kind">${kinds.map(([v,t])=>`<option value="${v}"${v===x.kind?' selected':''}>${esc(t)}</option>`).join('')}</select>
+            <select aria-label="On" data-sensor-f="on">${on.map(o=>`<option value="${esc(o.id)}"${o.id===at?' selected':''}>${esc(o.name)}</option>`).join('')}</select>
+            ${x.kind==='encoder'?`<label>Counts a turn<input type="number" data-slider="off" data-sensor-f="cpr" min="1" step="any" value="${fix(x.cpr,1)}"></label>`:x.kind==='limit'?`<label>Closes at<input type="number" data-slider="off" data-sensor-f="at" step="any" value="${fix(x.at,2)}"></label><label>within<input type="number" data-slider="off" data-sensor-f="band" min="0" step="any" value="${fix(x.band,2)}"></label>`:''}
+            <button type="button" class="icon-button" data-j="sensor-remove" data-v="${i}" aria-label="Remove ${esc(x.name)}">×</button></div>`;}).join('')}</div>`;
     }
     function render(){
       const k=kin(),m=meta(),cadOk=!!arrays()&&!!m?.id,list=k.model===m?.id?k.joints:[];
@@ -178,7 +255,7 @@
       host.hidden=!cadOk&&!list.length;
       host.innerHTML=`<div class="sim-joints-head"><h3>Moving parts</h3><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="find">${list.length?'Find again':'Find moving parts'}</button><button type="button" class="secondary" data-j="add">+ Add</button>${list.length?`<button type="button" class="secondary" data-j="demo" aria-pressed="${!!demo}">${demo?'Stop':'Play'}</button><button type="button" class="secondary" data-j="hitboxes" aria-pressed="${!!api.hitboxes?.()}" title="A box round each moving part's CAD parts, moving with it">Hitboxes</button>`:''}</div></div>
         <p class="hint sim-joints-status" role="status"></p>
-        ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id;return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}${list.length?actionsSection():''}`;
+        ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id;return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}${list.length?actionsSection()+posesSection()+sensorsSection():''}`;
       // Colours go in through the style object (the page allows no inline style attributes).
       for(const dot of host.querySelectorAll("[data-color]"))dot.style.background=dot.dataset.color;
       highlight();gizmos();
@@ -231,14 +308,14 @@
     // Plays a saved action on the preview, along its timeline.
     function playAction(i){
       const k=kin(),a=k.actions[i];if(!a)return;if(demo){cancelAnimationFrame(demo);demo=0;}const tl=K().timeline(k,a),t0=performance.now();
-      const step=now=>{const t=(now-t0)/1000,v=K().sampleTimeline(k,tl,Math.min(t,tl.duration)),out={...values};for(const [id,x] of Object.entries(v)){const act=k.actuators.find(y=>y.id===id);out[act?act.joint:id]=act?x/act.ratio:x;}
+      const step=now=>{const t=(now-t0)/1000,v=K().sampleTimeline(k,tl,Math.min(t,tl.duration)),out={...values};for(const [id,x] of Object.entries(v)){const act=k.actuators.find(y=>y.id===id);if(!act){out[id]=x;continue;}const jj=k.joints.find(y=>y.id===act.joint),q=K().valuesOf(jj,out[act.joint]??jj?.home??0);q[act.index||0]=x;out[act.joint]=q.length===1?q[0]:q;}
         values=out;showPose();if(t<tl.duration+.4)demo=requestAnimationFrame(step);else demo=0;};demo=requestAnimationFrame(step);status(`Playing “${a.name}” (${fix(tl.duration,2)} s).`);
     }
     // ---- the demo: every joint through its motion in a loop
     function play(){
       if(demo){cancelAnimationFrame(demo);demo=0;values={};showPose();render();return;}
-      const t0=performance.now(),step=now=>{const t=(now-t0)/1000,ph=(Math.sin(t*1.4)+1)/2,v={};
-        for(const j of joints()){const d=j.drive?.signal;
+      const solved=new Set(K().pose(kin(),{}).solved),t0=performance.now(),step=now=>{const t=(now-t0)/1000,ph=(Math.sin(t*1.4)+1)/2,v={};
+        for(const j of joints()){const d=j.drive?.signal;if(solved.has(j.id))continue;
           if(d==='turret')v[j.id]=60*Math.sin(t*.9);else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;v[j.id]=a+(b-a)*ph;}
           // A hood with limits shows its whole pitch range; else it goes between resting and shooting.
           else if(d==='hood'){const lim=finite(j.lower)&&finite(j.upper)&&j.upper-j.lower>1,a=lim?j.lower:j.states?.rest??0,b=lim?j.upper:shootTilt(j,api.mechanisms().shooter?.hood);v[j.id]=a+(b-a)*ph;}else if(['flywheel','roller','feeder','wheel'].includes(d))v[j.id]=(t*240)%360;
@@ -254,6 +331,13 @@
         let name='Action '+(next.actions.length+1);next.actions.push({name,steps:[{actuator:first.id,command:{state:Object.keys(first.states||{})[0]||''}}]});api.commit(next);return;}
       if(what==='action-remove'){const next=structuredClone(kin());next.actions.splice(ai,1);api.commit(next);return;}
       if(what==='action-play'){playAction(ai);return;}
+      if(what==='pose-save'){const next=structuredClone(kin()),vals={};for(const mv of moverList()){const x=moverValue(mv.id);if(finite(x))vals[mv.id]=+x.toFixed(3);}
+        let name='Pose '+((next.poses||[]).length+1);next.poses=[...(next.poses||[]),{name,values:vals}];api.commit(next);status(`Saved “${name}”: where ${Object.keys(vals).length} part${Object.keys(vals).length===1?' is':'s are'} in the preview now.`);return;}
+      if(what==='pose-show'){const p=kin().poses?.[+b.dataset.v];if(!p)return;for(const [id2,x] of Object.entries(p.values))setMover(id2,x);showPose();return;}
+      if(what==='pose-remove'){const next=structuredClone(kin());next.poses.splice(+b.dataset.v,1);api.commit(next);return;}
+      if(what==='sensor-add'){const next=structuredClone(kin()),on=next.actuators[0]?{actuator:next.actuators[0].id}:{joint:moverList()[0]?.id||next.joints[0]?.id};let n=(next.sensors||[]).length+1,sid='sensor'+n;while([...next.joints,...next.actuators,...(next.sensors||[])].some(x=>x.id===sid))sid+='b';
+        next.sensors=[...(next.sensors||[]),{id:sid,name:'Sensor '+n,kind:on.actuator?'encoder':'limit',...on,...(on.actuator?{cpr:537.7}:{at:0,band:.5})}];api.commit(next);return;}
+      if(what==='sensor-remove'){const next=structuredClone(kin());next.sensors.splice(+b.dataset.v,1);api.commit(next);return;}
       if(what==='step-add'){const next=structuredClone(kin()),a=next.actions[ai],last=a.steps.at(-1);a.steps.push({...structuredClone(last),after:a.steps.length-1,delay:0});api.commit(next);return;}
       if(what==='step-remove'){const next=structuredClone(kin()),a=next.actions[ai],n=+b.closest('[data-step]').dataset.step;a.steps.splice(n,1);for(const st of a.steps)if(st.after!==null&&st.after>=n)st.after=st.after>n?st.after-1:null;if(!a.steps.length)next.actions.splice(ai,1);api.commit(next);return;}
       if(what==='demo'){play();return;}
@@ -271,6 +355,15 @@
       if(what==='show'){const v=j.drive?.signal==='hood'&&b.dataset.v==='shoot'?shootTilt(j,api.mechanisms().shooter?.hood):j.states?.[b.dataset.v];if(finite(v)){values={...values,[id]:v};showPose();const r=li.querySelector('[data-try]');if(r)r.value=v;}return;}
       if(what==='unlaunch'){change(id,x=>{x.states={...x.states,shoot:+shootTilt(x,api.mechanisms().shooter?.hood).toFixed(2)};delete x.launch;});return;}
       if(what==='pickup'){pickupBox(j);return;}
+      if(what==='motor-add'){const next=structuredClone(kin());let mid=j.id+'_motor';while(next.actuators.some(x=>x.id===mid))mid+='b';
+        next.actuators.push({id:mid,name:j.name,joint:j.id,kind:'dcmotor',mode:'position',speed:j.speed??90});
+        // Steps that moved the part now move its motor.
+        for(const a of next.actions)for(const st of a.steps)if(st.actuator===j.id)st.actuator=mid;for(const p of next.poses||[])if(j.id in p.values){p.values[mid]=p.values[j.id];delete p.values[j.id];}
+        api.commit(next);status('Motor added. Set its gearing, and its free speed and stall torque from its datasheet to see what it can do.');return;}
+      if(what==='motor-remove'){const next=structuredClone(kin()),a=next.actuators.find(x=>x.joint===id);if(!a)return;next.actuators=next.actuators.filter(x=>x!==a);
+        for(const ac of next.actions)for(const st of ac.steps)if(st.actuator===a.id)st.actuator=id;for(const p of next.poses||[])if(a.id in p.values){p.values[id]=p.values[a.id];delete p.values[a.id];}next.sensors=(next.sensors||[]).filter(x=>x.actuator!==a.id);api.commit(next);return;}
+      if(what==='stage-add'){motorChange(id,a=>{a.transmission=[...(a.transmission||[]),{kind:'gearbox',ratio:20}];});return;}
+      if(what==='stage-remove'){motorChange(id,a=>{a.transmission.splice(+b.dataset.v,1);if(!a.transmission.length){delete a.transmission;a.ratio=1;}});return;}
       if(what==='floor'){const c=ctx();if(!c)return;const u=up();let floor=Infinity;for(const x of [c.lo[0],c.hi[0]])for(const y of [c.lo[1],c.hi[1]])for(const z of [c.lo[2],c.hi[2]])floor=Math.min(floor,x*u[0]+y*u[1]+z*u[2]);
         const a=D().swingToFloor(c,[...leavesOf(j)],j.origin,j.axis,{up:u,floor,clearance:.02/unit()});if(a===null)return status('It does not reach the floor within 150°; type how far it goes down.');
         change(id,x=>{x.states={...x.states,lowered:a};});values={...values,[id]:a};status(`Down set to ${a}°, where it touches the floor.`);return;}
@@ -288,11 +381,26 @@
       const el=e.target,act=el.closest('[data-action]');
       if(act&&!el.closest('[data-id]')){const i=+act.dataset.action,next=structuredClone(kin()),a=next.actions[i];if(!a)return;
         if(el.dataset.act==='name'){const name=el.value.trim();if(name)a.name=name;}
-        else{const st=a.steps[+el.closest('[data-step]').dataset.step],f2=el.dataset.stepF;
-          if(f2==='actuator'){st.actuator=el.value;const mv=next.joints.find(x=>x.id===el.value)||next.actuators.find(x=>x.id===el.value);st.command={state:Object.keys(mv?.states||{})[0]||''};}
-          else if(f2==='state')st.command={state:el.value};else if(f2==='after')st.after=el.value===''?null:+el.value;else if(f2==='delay'&&finite(el.valueAsNumber))st.delay=el.valueAsNumber;}
+        else if(el.dataset.act==='repeat'){const n=Math.round(el.valueAsNumber);if(n>1)a.repeat=Math.min(100,n);else delete a.repeat;}
+        else{const n=+el.closest('[data-step]').dataset.step,st=a.steps[n],f2=el.dataset.stepF,v=el.value,num2=el.valueAsNumber;
+          if(f2==='kind'){const fresh=newStep(v,a.name);if(!fresh)return;a.steps[n]={...fresh,after:st.after,delay:st.delay};}
+          else if(f2==='actuator'){st.actuator=v;const mv=moverList().find(x=>x.id===v);st.command={state:mv?.states[0]||''};}
+          else if(f2==='state')st.command={state:v};else if(f2==='pose')st.pose=v;else if(f2==='run')st.action=v;else if(f2==='sensor')st.wait.sensor=v;
+          else if(f2==='cond'){const keep=st.wait.above??st.wait.below??0;st.wait={sensor:st.wait.sensor,...(v==='is'?{is:true}:v==='not'?{is:false}:{[v]:keep})};}
+          else if(f2==='value'&&finite(num2)){if('above' in st.wait)st.wait.above=num2;else if('below' in st.wait)st.wait.below=num2;}
+          else if(f2==='timeout'&&finite(num2))st.timeout=Math.max(0,num2);else if(f2==='after')st.after=v===''?null:+v;else if(f2==='delay'&&finite(num2))st.delay=num2;}
         api.commit(next);return;}
+      const pose=el.closest('[data-pose]');if(pose&&el.dataset.poseF==='name'){const next=structuredClone(kin()),p=next.poses[+pose.dataset.pose],name=el.value.trim();if(p&&name){p.name=name;api.commit(next);}return;}
+      const sensor=el.closest('[data-sensor]');if(sensor){const next=structuredClone(kin()),x=next.sensors[+sensor.dataset.sensor],f3=el.dataset.sensorF;if(!x)return;
+        if(f3==='name'){const name=el.value.trim();if(name)x.name=name;}else if(f3==='kind'){x.kind=el.value;if(x.kind==='encoder')x.cpr??=537.7;if(x.kind==='limit'){x.at??=0;x.band??=.5;}}
+        else if(f3==='on'){const [t,ref]=[el.value.slice(0,1),el.value.slice(2)];delete x.actuator;delete x.joint;delete x.index;x[t==='a'?'actuator':'joint']=ref;}
+        else if(finite(el.valueAsNumber))x[f3]=el.valueAsNumber;api.commit(next);return;}
       const li=el.closest('[data-id]'),id=li?.dataset.id,j=joints().find(x=>x.id===id);if(!j)return;const f=el.dataset.f;
+      if(el.dataset.motor){const f4=el.dataset.motor,v=el.type==='number'?el.valueAsNumber:el.value;if(el.type==='number'&&!finite(v)&&el.value.trim()!=='')return;
+        motorChange(id,a=>{if(f4==='kind')a.kind=v;else if(f4==='response'){a.response=v;if(v==='motor')a.motor=a.motor||{free:(a.speed||90)*Math.abs(a.ratio||1),stall:1};}
+          else if(f4==='speed'||f4==='accel'){if(finite(v))a[f4]=v;}else{a.motor=a.motor||{free:600,stall:1};if(el.value.trim()==='')delete a.motor[f4];else a.motor[f4]=f4==='free'&&K().actuatorUnit(a,j)==='deg'?v*6:v;}});return;}
+      const stage=el.closest('[data-stage]');if(stage){const i=+stage.dataset.stage,f5=el.dataset.stageF;motorChange(id,a=>{const st=a.transmission[i];if(!st)return;
+        if(f5==='kind'){a.transmission[i]={kind:el.value,...{gearbox:{ratio:20},belt:{driver:20,driven:40},spool:{diameter:1.5},rack:{diameter:1},screw:{lead:.315}}[el.value]};}else if(finite(el.valueAsNumber)&&el.valueAsNumber>0)st[f5]=el.valueAsNumber;});return;}
       if(el.dataset.link==='from'){const next=structuredClone(kin());next.couplings=next.couplings.filter(c=>c.to!==id);if(el.value)next.couplings.push({kind:'mimic',from:el.value,to:id,ratio:1,offset:0});api.commit(next);return;}
       if(el.matches('[data-loop-other]')){if(mode?.kind==='loop'&&mode.joint===id)mode.other=el.value;return;}
       if(el.dataset.stateName!==undefined){const old=el.dataset.stateName,name=el.value.trim().slice(0,24);if(!name||name===old)return;change(id,x=>{const v=x.states[old];delete x.states[old];x.states[name]=v;});return;}

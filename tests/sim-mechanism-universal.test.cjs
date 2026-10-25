@@ -290,3 +290,11 @@ test('a repeating action: a quadruped trots three cycles, diagonal legs together
   near(t,tl.duration,6/240,'the driver keeps the planned time over every cycle');assert.ok(flips>=5,`the front-left leg swung back and forth each cycle (${flips} swings)`);
   near(d.values().fl_hip,-15,1e-9,'ends in pose B');
 });
+
+test('a motor added to a part keeps its named positions and its route actions ("Lift up")',()=>{
+  const m=model({joints:[{id:'lift',name:'Lift',type:'prismatic',axis:[0,0,1],lower:0,upper:20,states:{down:0,up:12},speed:6,drive:{signal:'action'}}],
+    actuators:[{id:'lift_motor',name:'Lift motor',joint:'lift',kind:'dcmotor',speed:8,transmission:[{kind:'gearbox',ratio:20},{kind:'spool',diameter:1.5}]}],actions:[{name:'Raise',steps:[{actuator:'lift_motor',command:{state:'up'}}]}]});
+  assert.equal(m.actuators[0].states,undefined,'no positions of its own');assert.deepEqual(K.mover(m,'lift_motor').states,{down:0,up:12},'it uses the lift’s');
+  const d=new K.Driver(m);assert.equal(d.start('lift up'),true,'the part’s name and position');let t=0;while(d.busy('lift up')&&t<10){d.tick(.01,{});t+=.01;}near(t,1.5,.02,'12 in at the motor’s 8 in/s');near(d.values().lift,12,1e-9);
+  assert.equal(d.start('Lift motor down'),true,'or the motor’s own name');near(K.timeline(m,m.actions[0]).duration,1.5,1e-12);
+});
