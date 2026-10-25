@@ -231,7 +231,7 @@
   // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own.
   function standIn(holder,kin,w,footprint,height){
     const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let geometry,joint;
-    if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(6,height);
+    if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(1,height);
       const base=new T.CylinderGeometry(3.4,3.4,1.4,24);base.rotateX(Math.PI/2);base.translate(ox,oy,top+.7);const body=new T.BoxGeometry(6,4.6,3.2);body.translate(ox+.4,oy,top+3);
       const barrel=new T.CylinderGeometry(1.1,1.1,5,16);barrel.rotateZ(-Math.PI/2);barrel.translate(ox+5.4,oy,top+3.4);geometry=mergeGeometries([base,body,barrel].map(g=>g.toNonIndexed()));
       joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};}
@@ -243,6 +243,10 @@
     const part=new T.Mesh(geometry,new T.MeshStandardMaterial({color:w.kind==='turret'?0x5b6472:0x8a6d3b,roughness:.55,metalness:.2}));part.castShadow=part.receiveShadow=true;group.add(part);holder.add(group);
     kin.model.joints.push(joint);kin.standIns.push(id);
   }
+  // Settings that do not change which parts move (pivots, positions, speeds, a turret's heading, couplings, loops,
+  // actions) update a rig in place, so editing them does not split the body again.
+  function retune(holder,kinematics){const kin=holder?.userData?.kin;if(!kin)return holder;const m=Kin().sanitize(kinematics),byId=new Map(m.joints.map(j=>[j.id,j]));
+    kin.model={...m,joints:kin.model.joints.map(j=>{const n=byId.get(j.id);if(!n||kin.standIns.includes(j.id))return j;const {parts,alternatives,note,...rest}=n;return rest;})};return holder;}
   // The link groups under a holder (found again on each clone).
   const linkCache=new WeakMap();
   function linksOf(holder){let c=linkCache.get(holder);if(!c){c=new Map();holder.traverse(o=>{if(o.userData.deckLink)c.set(o.userData.deckLink,o);});linkCache.set(holder,c);}return c;}
@@ -435,5 +439,5 @@
     }
     return {update(...a){glowKey=null;glow=[];return update(...a);},look,pick,highlight,markers,gizmos,posed,body:()=>body,resize:draw,select(side){for(const f of cubeHost.querySelectorAll('.face'))f.classList.toggle('selected',f.dataset.side===side);},dispose(){cancelAnimationFrame(raf);navigator.dispose();controls.dispose();renderer.dispose();renderer.forceContextLoss();host.replaceChildren();}};
   }
-  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig,pose,gameValues,linksOf};
+  return {partTree,meshesBox,partBoxes,AXES,UNITS,SIDES,orientation,rows,modelAxisAt,setFront,setTop,assignSide,turnBetween,meta,bodyFromImport,toGlb,fromGlb,lighten,place,silhouette,preview,viewCube,cubeGeometry,orbitCamera,builtin,animate,rig,retune,pose,gameValues,linksOf};
 });

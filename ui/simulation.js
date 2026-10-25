@@ -1711,8 +1711,10 @@ public class MyAuto implements DeckAutonomous {
   // lighter copy) and the Mechanisms preview (every triangle, for picking). Made again only when the body, its joints or
   // the mechanisms change.
   function rigOf(base,slot){
-    if(!base||!model)return base;const key=JSON.stringify([base.uuid,project.model?.id,project.kinematics,L().field==='biobuzz'&&project.mechanisms,chassisFootprint(),project.robot.heightIn]);if(model[slot+'Key']===key)return model[slot];
-    model[slot]=M().rig(base.clone(),{meta:project.model,mechanisms:L().field==='biobuzz'?project.mechanisms:null,kinematics:project.kinematics,footprint:chassisFootprint(),height:project.robot.heightIn});model[slot+'Key']=key;return model[slot];
+    // The split depends only on which parts each joint moves and what stand-ins the mechanisms need; other joint settings retune it.
+    const k=project.kinematics,game=L().field==='biobuzz'&&project.mechanisms,shape=k.joints.map(j=>[j.id,j.parent,j.parts,j.drive&&j.drive.signal+':'+(j.drive.of||'')]);
+    if(!base||!model)return base;const key=JSON.stringify([base.uuid,project.model?.id,k.model,shape,game&&{on:game.enabled,i:game.intakes.map(i=>[i.kind,i.sides,i.parts]),s:game.shooters.map(x=>[x.type,x.mount,x.parts,x.sharesTurret])},chassisFootprint(),project.robot.heightIn]);if(model[slot+'Key']===key)return M().retune(model[slot],k);
+    model[slot]=M().rig(base.clone(),{meta:project.model,mechanisms:L().field==='biobuzz'?project.mechanisms:null,kinematics:project.kinematics,footprint:chassisFootprint(),height:base.userData?.size?.height??project.robot.heightIn});model[slot+'Key']=key;return model[slot];
   }
   const fieldRig=()=>rigOf(fieldBody(),'fieldRig'),mechRig=()=>rigOf(model?.holder,'mechRig');
   function modelUi(){

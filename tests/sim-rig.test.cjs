@@ -79,3 +79,9 @@ test('mecanum wheels roll with sideways motion too: one diagonal pair forward, t
   const spin=k=>{const w=r.leaves.wheels[k],c=[[5,7.5],[5,-7.5],[-5,7.5],[-5,-7.5]][k],p=drawn(T,group,w,[c[0],c[1],4]);return Math.sign(p[0]-c[0]);};
   assert.deepEqual([0,1,2,3].map(spin),[-1,1,1,-1],'front-left back, front-right forward, back-left forward, back-right back');
 });
+test('retuning a rig takes new pivots and positions without splitting the body again',{skip},()=>{
+  const {T,holder,r,mechanisms,kinematics,footprint}=setup(),rigged=R.rig(holder.clone(),{meta:r.meta,mechanisms,kinematics,footprint}),meshes=[];rigged.traverse(o=>{if(o.isMesh)meshes.push(o.geometry);});
+  const moved=structuredClone(kinematics);moved.joints.find(j=>j.id==='turret1').origin=[0,0,0];R.retune(rigged,moved);
+  const after=[];rigged.traverse(o=>{if(o.isMesh)after.push(o.geometry);});assert.ok(after.every((g,i)=>g===meshes[i]),'same meshes');
+  R.pose(rigged,{turret1:90});const p=drawn(T,rigged,r.leaves.flywheel,[-4.5,0,9]);near(p.slice(0,2),[0,-4.5],1e-6,'now turning about the new pivot (the origin)');
+});
