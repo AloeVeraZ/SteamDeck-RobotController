@@ -103,6 +103,19 @@ body.sim-workspace{overflow:hidden}
 .sim-workspace .sim-panel .sim-export-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
 .sim-workspace .sim-panel .sim-export-buttons button{min-width:0;white-space:normal;overflow-wrap:anywhere}
 .sim-workspace .sim-panel .sim-export-buttons .primary{grid-column:1/-1}
+/* Export: Send to robot first, then the one file to save and upload, then the folded extras. */
+.sim-workspace #sim-panel-run #sim-export-title{margin:0 0 8px;font-size:14px}
+.sim-workspace #sim-panel-run .sim-send{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px}
+.sim-workspace #sim-panel-run .sim-send h3{margin:0 0 4px;font-size:13px}
+.sim-export-or{margin:14px 0 6px;font-size:12px;font-weight:650;color:var(--muted)}.sim-export-or[hidden]{display:none!important}
+.sim-workspace .sim-panel .sim-export-main{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}.sim-export-main[hidden]{display:none!important}
+.sim-workspace .sim-panel .sim-export-main button{min-width:0;white-space:normal;overflow-wrap:anywhere}
+#sim-panel-run #sim-execution-note{margin:6px 0 0}#sim-panel-run #sim-export-status:empty{display:none}
+#sim-export-more .sim-export-buttons{margin-top:0}
+/* The guided check folds under Send to robot until a send has built on the robot. */
+.sim-check-fold{margin-top:12px;padding-top:8px;border-top:1px solid var(--line)}.sim-check-fold>summary{cursor:pointer;padding:2px 0;font-size:13px}
+.sim-check-fold .sim-check{margin-top:6px;padding-top:0;border-top:0}
+#sim-send-status:empty,#sim-send .sim-send-devices:empty,#sim-check-status:empty{display:none}
 .sim-workspace .sim-panel button{min-height:30px;padding-block:5px}
 .sim-settings-tabs{display:flex;gap:6px;margin:0 0 14px}
 .sim-workspace .sim-settings-tabs>button{flex:1;min-width:0;padding:5px 6px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
