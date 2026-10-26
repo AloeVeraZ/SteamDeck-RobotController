@@ -11,7 +11,7 @@ function builder(){
     // Same-named parts under one assembly share a node, as the STEP importer files them.
     node(name,parent=-1){const at=nodes.findIndex(x=>x.name===name&&x.parent===parent);if(at>=0)return at;nodes.push({name,parent});return nodes.length-1;},
     // Adds one part (leaf) under a node; returns its leaf id.
-    add(node,{positions,index}){const base=pos.length/3,k=leaf.length;leaf.push(node);pos.push(...positions);for(let i=0;i<positions.length/3;i++)part.push(k);for(const i of index)idx.push(i+base);return k;},
+    add(node,{positions,index}){const base=pos.length/3,k=leaf.length;leaf.push(node);for(const v of positions)pos.push(v);for(let i=0;i<positions.length/3;i++)part.push(k);for(const i of index)idx.push(i+base);return k;},
     arrays(){return {positions:new Float32Array(pos),index:new Uint32Array(idx),part:new Float32Array(part),tree:{nodes,leaf}};}};
 }
 // A closed cylinder (or tube when inner > 0) about `axis` through `center`, `length` long.
@@ -95,3 +95,58 @@ function armAndSlide(){
   return {arrays:b.arrays(),leaves:L,meta};
 }
 module.exports.armAndSlide=armAndSlide;
+// A flat plate with holes and slots, standing across `axis` (here y) at `y`: x0..x1 by z0..z1 (inches), t thick, made of
+// small cells so any outline works; a cell is kept when its centre lies outside every hole and slot. holes: [x, z, r];
+// slots: {c:[x, z], radius, half, from, to} (an arc slot of half-width `half` centred on c, degrees from +x toward +z).
+function plateWithSlots({y,t=.12,x0,x1,z0,z1,holes=[],slots=[],cell=.03}){
+  const P=[],I=[],open=(x,z)=>holes.some(([hx,hz,r])=>Math.hypot(x-hx,z-hz)<r)||slots.some(s=>{const dx=x-s.c[0],dz=z-s.c[1],a=Math.atan2(dz,dx)*180/Math.PI,d=Math.hypot(dx,dz);
+    if(a>=s.from&&a<=s.to&&Math.abs(d-s.radius)<s.half)return true;return [s.from,s.to].some(e=>{const ex=s.c[0]+s.radius*Math.cos(e*Math.PI/180),ez=s.c[1]+s.radius*Math.sin(e*Math.PI/180);return Math.hypot(x-ex,z-ez)<s.half;});});
+  for(let x=x0;x<x1-1e-9;x+=cell)for(let z=z0;z<z1-1e-9;z+=cell){if(open(x+cell/2,z+cell/2))continue;const X=Math.min(x+cell,x1),Z=Math.min(z+cell,z1);
+    for(const yy of [y-t/2,y+t/2]){const s=P.length/3;P.push(x,yy,z,X,yy,z,X,yy,Z,x,yy,Z);I.push(s,s+1,s+2,s,s+2,s+3);}}
+  return {positions:P,index:I};
+}
+// A front intake whose roller rides on two arm plates that turn on the drive axle behind it (x 8, z 3), between side
+// plates at y ±6.5. slot: the side plates have an arc slot about the drive axle that lets the roller's axle go 30° up
+// from where it sits (x 10, z 3); without it they hold the roller's axle in a round hole, so nothing swings.
+function swingArmIntake({slot=true}={}){
+  const b=builder(),root=b.node('Robot'),drive=b.node('Drivetrain',root),intake=b.node('Front intake',root),n=name=>b.node(name,intake),L={};
+  L.chassis=b.add(b.node('Frame',drive),box([-8,-8,1],[6,8,4]));
+  L.roller=b.add(n('Intake Roller'),cylinder({center:[10,0,3],axis:[0,1,0],r:1,length:10}));
+  L.rollerAxle=b.add(n('Roller shaft'),cylinder({center:[10,0,3],axis:[0,1,0],r:.15,length:14,seg:12}));
+  L.rollerBearings=[-6.5,-5.5,5.5,6.5].map(y=>b.add(n('Bearing'),cylinder({center:[10,y,3],axis:[0,1,0],r:.3,length:.25,seg:24})));
+  L.axle=b.add(n('Drive shaft'),cylinder({center:[8,0,3],axis:[0,1,0],r:.15,length:14,seg:12}));
+  L.axleBearings=[-6.5,-5.5,5.5,6.5].map(y=>b.add(n('Bearing'),cylinder({center:[8,y,3],axis:[0,1,0],r:.3,length:.25,seg:24})));
+  L.pulley=b.add(n('Pulley 30T'),cylinder({center:[8,7.2,3],axis:[0,1,0],r:.5,length:.3}));
+  L.arms=[-5.5,5.5].map(y=>b.add(n('Roller arm'),plateWithSlots({y,x0:7.4,x1:10.5,z0:2.4,z1:3.6,holes:[[8,3,.3],[10,3,.3]]})));
+  L.bar=b.add(n('Crossbar'),box([10.5,-5.44,2.7],[10.9,5.44,3.3]));
+  L.sides=[-6.5,6.5].map(y=>b.add(n('Side plate'),plateWithSlots({y,x0:6,x1:11.5,z0:1.5,z1:5.5,holes:[[8,3,.3],...(slot?[]:[[10,3,.3]])],slots:slot?[{c:[8,3],radius:2,half:.3,from:0,to:30}]:[]})));
+  const meta={id:'00112233445566778899aabbccddeeff.glb',units:'in',front:'+x',top:'+z',parts:[{name:'Drivetrain',role:'chassis',key:'Robot/Drivetrain',box:[-8,-8,1,6,8,4]},{name:'Front intake',role:'intake',kind:'sweeper',key:'Robot/Front intake',box:[6,-7.35,1.5,11.5,7.35,5.5]}]};
+  return {arrays:b.arrays(),leaves:L,meta,mechanisms:{enabled:true,intakes:[{kind:'sweeper',sides:['front'],parts:['Front intake']}],shooters:[]}};
+}
+module.exports.plateWithSlots=plateWithSlots;module.exports.swingArmIntake=swingArmIntake;
+// A star (flex) wheel: `spokes` flat spokes (bars through the centre, so spokes/2 of them) w wide out to r, t thick
+// along y, centred at `center`.
+function starWheel({center,r,spokes=6,w=.15,t=.25}){const bars=spokes/2;
+  const P=[],I=[];for(let i=0;i<bars;i++){const th=i/bars*Math.PI,c=Math.cos(th),s=Math.sin(th),base=P.length/3;
+    // A bar through the centre along (c, s) in the x-z plane: corners at ±r along it and ±w/2 across, ±t/2 in y.
+    for(const y of [-t/2,t/2])for(const [along,side] of [[-r,-w/2],[r,-w/2],[r,w/2],[-r,w/2]])P.push(center[0]+along*c-side*s,center[1]+y,center[2]+along*s+side*c);
+    for(const f of [[0,1,2,3],[4,7,6,5],[0,4,5,1],[1,5,6,2],[2,6,7,3],[3,7,4,0]])I.push(base+f[0],base+f[1],base+f[2],base+f[0],base+f[2],base+f[3]);}
+  return {positions:P,index:I};
+}
+// An indexer whose front axle carries three star wheels (named only "Blue Version") and a square bearing block centred on
+// it, between side plates; one gecko wheel axle behind it.
+function starFeeder(){
+  const b=builder(),root=b.node('Robot'),drive=b.node('Drivetrain',root),ix=b.node('Indexer',root),n=name=>b.node(name,ix),L={};
+  L.chassis=b.add(b.node('Frame',drive),box([-8,-8,1],[8,8,4]));
+  L.shaft=b.add(n('shaft'),cylinder({center:[4,0,7],axis:[0,1,0],r:.15,length:8,seg:12}));
+  L.bearings=[-3.8,3.8].map(y=>b.add(n('Bearing'),cylinder({center:[4,y,7],axis:[0,1,0],r:.3,length:.25,seg:24})));
+  L.pulley=b.add(n('Pulley 45T'),cylinder({center:[4,3.2,7],axis:[0,1,0],r:.6,length:.3}));
+  L.stars=[-2,0,2].map(y=>b.add(n('Blue Version'),starWheel({center:[4,y,7],r:.7})));
+  L.block=b.add(n('Bearing block'),box([3.4,-3.2,6.4],[4.6,-2.7,7.6]));
+  L.sides=[-4,4].map(y=>b.add(n('Side plate'),box([2,y-.06,5],[6,y+.06,9])));
+  L.gecko=b.add(n('48mm Gecko Wheel'),cylinder({center:[1,0,8],axis:[0,1,0],r:.95,length:.6}));
+  L.geckoAxle=b.add(n('shaft'),cylinder({center:[1,0,8],axis:[0,1,0],r:.15,length:8,seg:12}));
+  const meta={id:'ffeeddccbbaa99887766554433221100.glb',units:'in',front:'+x',top:'+z',parts:[{name:'Drivetrain',role:'chassis',key:'Robot/Drivetrain',box:[-8,-8,1,8,8,4]},{name:'Indexer',role:'indexer',key:'Robot/Indexer',box:[0,-4.1,5,6,4.1,9]}]};
+  return {arrays:b.arrays(),leaves:L,meta,mechanisms:{enabled:false,intakes:[],shooters:[]}};
+}
+module.exports.starWheel=starWheel;module.exports.starFeeder=starFeeder;

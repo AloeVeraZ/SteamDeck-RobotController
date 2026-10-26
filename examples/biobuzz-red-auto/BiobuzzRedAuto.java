@@ -751,7 +751,7 @@ public class BiobuzzRedAuto extends LinearOpMode {
         return motor;
     }
 
-    /** Intake on or off: rollers run at their power; kickers and ramps go down, and back up when it stops. */
+    /** Intake on or off: rollers run at their power; kickers go down, and back up when it stops. */
     public void intake(boolean on) {
         if (on) lastIntake = clock.seconds();
         intake1.setPower(on ? INTAKE_1_POWER : 0);
@@ -785,6 +785,11 @@ public class BiobuzzRedAuto extends LinearOpMode {
     /** Every turret to this angle, degrees from the robot's front (counterclockwise). The mechanism check uses it. */
     public void turnTurrets(double degrees) {
         turnTurret1(degrees);
+    }
+
+    /** The turret of shooter n (0 the first) to this angle, degrees from the robot's front (counterclockwise). */
+    public void turnTurret(int shooter, double degrees) {
+        if (shooter == 0) turnTurret1(degrees);
     }
 
     /** Degrees from the robot's front (counterclockwise) to (x, y), from a turret at (dx, dy) on the robot. */

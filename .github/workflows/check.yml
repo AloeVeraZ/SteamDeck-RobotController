@@ -13,6 +13,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # The tests load the git-ignored simulator bundles (ui/vendor, sim-runtime), so build them first.
+      - name: Build the offline simulator (public assets only)
+        run: |
+          node tools/simulation/fetch.cjs --targets linux-x64
+          node tools/simulation/build.cjs --public
       - run: node --test tests/*.test.cjs
       - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
       - run: mkdir -p test-results && bash tests/update-linux.sh
@@ -45,10 +50,11 @@ jobs:
         shell: bash
         run: |
           case "${{ matrix.target }}" in steamdeck) t=linux-x64;; windows) t=win32-x64;; macos-arm64) t=darwin-arm64;; esac
-          node tools/simulation/fetch.cjs --targets "$t"
-          node tools/simulation/build.cjs --public
+          mkdir -p test-results/ci
+          { node tools/simulation/fetch.cjs --targets "$t" && node tools/simulation/build.cjs --public; } 2>&1 | tee test-results/ci/simulator-build.log
       - name: Unit tests on this OS
-        run: node --test tests/*.test.cjs
+        shell: bash
+        run: node --test tests/*.test.cjs 2>&1 | tee test-results/ci/unit-tests.log
       - name: Build two versions (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -79,8 +85,8 @@ jobs:
       - name: Install and update end to end
         shell: bash
         run: |
-          if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node tests/install-e2e.cjs dist 9.0.0 9.0.1
-          else node tests/install-e2e.cjs dist 9.0.0 9.0.1; fi
+          { if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node tests/install-e2e.cjs dist 9.0.0 9.0.1
+          else node tests/install-e2e.cjs dist 9.0.0 9.0.1; fi; } 2>&1 | tee test-results/ci/install-e2e.log
       - name: Check simulation in native Windows and Apple Silicon Electron
         if: runner.os != 'Linux'
         shell: bash
@@ -98,16 +104,22 @@ jobs:
           else
             export DECK_ELECTRON="$(node -p 'require("path").resolve(".cache/runtime-win32-x64-"+require("./package.json").devDependencies.electron+"/electron.exe")')"
           fi
-          node tests/simulation-ui.cjs
+          node tests/simulation-ui.cjs 2>&1 | tee test-results/ci/simulation-ui.log
       - uses: actions/upload-artifact@v4
         if: always() && runner.os != 'Linux'
         with:
           name: simulation-${{ matrix.target }}
           path: test-results/simulation/*.png
+      # Job logs need a signed-in viewer; annotations do not.
+      - name: Show failures as annotations
+        if: failure()
+        shell: bash
+        run: node tools/ci-annotate.cjs test-results/ci/*.log
   desktop:
     needs: verify
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         target: [steamdeck, windows, macos-arm64]
     steps:
@@ -124,9 +136,10 @@ jobs:
         shell: bash
         run: |
           case "${{ matrix.target }}" in steamdeck) t=linux-x64;; windows) t=win32-x64;; macos-arm64) t=darwin-arm64;; esac
-          node tools/simulation/fetch.cjs --targets "$t"
-          node tools/simulation/build.cjs --public
-      - run: python3 tools/package.py --target ${{ matrix.target }}
+          mkdir -p test-results/ci
+          { node tools/simulation/fetch.cjs --targets "$t" && node tools/simulation/build.cjs --public; } 2>&1 | tee test-results/ci/simulator-build.log
+      - run: python3 tools/package.py --target ${{ matrix.target }} 2>&1 | tee test-results/ci/package.log
+        shell: bash
         env:
           PYTHONUTF8: '1'
       - run: bash tests/installer-linux.sh
@@ -149,11 +162,14 @@ jobs:
         if: matrix.target == 'steamdeck'
         env:
           DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          DECK_TEST_SOFTWARE_GL: '1'
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        shell: bash
         run: |
           npm install --prefix .cache/ui-check --no-save playwright@1.62.1
           export DECK_PLAYWRIGHT="$PWD/.cache/ui-check/node_modules/playwright"
           export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          {
           DECK_UI_LAYOUT_ONLY=1 xvfb-run -a node tests/ui.cjs
           xvfb-run -a node tests/controller-ui.cjs
           xvfb-run -a node tests/layout-audit.cjs
@@ -166,6 +182,7 @@ jobs:
           DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/robot-fullscreen.cjs
           DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/touch-ui.cjs
           xvfb-run -a node tests/controller-compatibility.cjs
+          } 2>&1 | tee test-results/ci/linux-ui.log
       - uses: actions/upload-artifact@v4
         if: matrix.target == 'steamdeck' && always()
         with:
@@ -196,8 +213,13 @@ jobs:
           python3 -m pip install --target .cache/motionmodule-test-deps 'Flask>=3.1,<4' 'smbus2>=0.5,<1' 'pyserial>=3.5,<4'
           export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
           export DECK_MOTIONMODULE_SOURCE="$PWD/.cache/motionmodule-source"
-          xvfb-run -a node tests/motionmodule-app.cjs
+          xvfb-run -a node tests/motionmodule-app.cjs 2>&1 | tee test-results/ci/motionmodule-app.log
+        shell: bash
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-installer
           path: dist/*
+      - name: Show failures as annotations
+        if: failure()
+        shell: bash
+        run: node tools/ci-annotate.cjs test-results/ci/*.log

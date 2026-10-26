@@ -23,6 +23,8 @@ app.setName('Deck Driver Station');
 // Offline simulator: a utility process started by the Simulation view, never connected to a robot.
 const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;const robotLink=require('./robot-link.cjs');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
+// UI checks on GPU-less CI displays: Chromium's software WebGL, which it no longer falls back to on its own.
+if(process.env.DECK_TEST_SOFTWARE_GL==='1')app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 if(!app.requestSingleInstanceLock())app.quit();app.on('second-instance',(_event,argv)=>{win?.show();win?.focus();terminalSetup(argv);});
 // Terminal integration: `tools/deck-sim.cjs show` launches the app (or reaches the running one
 // through the single-instance hand-off) with --deck-sim-open=<setup.json>. The setup opens in

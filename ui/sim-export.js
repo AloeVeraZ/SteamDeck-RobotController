@@ -13,6 +13,7 @@
   // an action or a turn; where an action path starts or ends; and, on turning routes, where the next
   // segment needs a heading the robot does not have yet (it stops and turns in place first).
   // After leg i the robot settles, turns to legs[i].turn if set, pauses, then runs the pin's action.
+  const many=steps=>Array.isArray(steps)&&steps.length>1?steps.map(x=>({action:x.action,seconds:finite(x.seconds)?x.seconds:null,cell:x.cell==='other'?1:0})):null;
   function legs(route){
     const segs=route.segments,stops=route.stops||[],turning=!!(route.nonholonomic||route.turns||segs.some(s=>finite(s.heading)));
     const to=pathIndex(route),pathOf=k=>stops[k]?.path||{},powerOf=k=>finite(pathOf(k).power)?Math.max(0,Math.min(1,pathOf(k).power)):null,acting=k=>pathOf(k).kind==='action',out=[];let from=0;
@@ -22,9 +23,10 @@
       const end=!next||wait>0||!!action||turn!==null||(turning&&Math.abs(norm(next.heading-endOf(s)))>1e-6)||(to[i+1]!==to[i]&&(acting(to[i])||acting(to[i+1])||powerOf(to[i])!==powerOf(to[i+1])));
       if(!end)return;
       const first=segs[from],path=pathOf(to[i]);
-      out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,actionSeconds,cell,note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
+      // steps: the pin's steps, one after another (two or more; one step is the action itself). moving.steps: together.
+      out.push({segments:segs.slice(from,i+1),pin:here.length?here.at(-1).k+1:0,path:to[i]+1,wait,action,actionSeconds,cell,steps:many(acting_?.steps),note:here.map(p=>p.note).filter(Boolean).join(' '),turn,
         power:powerOf(to[i]),heading:finite(first.heading)?first.heading:route.heading,endHeading:finite(endOf(s))?endOf(s):route.heading,
-        moving:path.kind==='action'?{action:path.action||'',note:path.note||'',seconds:finite(path.actionSeconds)?path.actionSeconds:null,cell:path.cell==='other'?1:0}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='tangent'?'faces along the path':path.rotate==='reverse'?'faces backwards along the path':path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
+        moving:path.kind==='action'?{action:path.action||'',note:path.note||'',seconds:finite(path.actionSeconds)?path.actionSeconds:null,cell:path.cell==='other'?1:0,steps:many(path.steps)}:null,rotate:path.rotate==='spin'?`spins ${Math.abs(path.spins)} turn${Math.abs(path.spins)>1?'s':''} ${path.spins>0?'counter-clockwise':'clockwise'}`:path.rotate==='relative'?`turns by ${n(path.angle)}°`:path.rotate==='start'?'returns to the starting heading':path.rotate==='track'?`tracks target (${n(path.target?.x)}, ${n(path.target?.y)})`:path.rotate==='tangent'?'faces along the path':path.rotate==='reverse'?'faces backwards along the path':path.rotate==='turn'?`turns to ${n(path.heading)}°`:''});
       from=i+1;
     });
     return out;
@@ -43,12 +45,19 @@
     // Names that differ only in case or punctuation (Shoot, shoot) share a slot; every one of them is listed in names.
     const map=new Map(),add=(name,where)=>{const id=slot(name);if(!id)return;if(!map.has(id))map.set(id,{slot:id,py:pySlot(name),name,names:[],uses:[]});const a=map.get(id);if(!a.names.includes(name))a.names.push(name);a.uses.push(where);};
     const all=legs(route);
+    // A list of steps gives each step its own slot; sequences() has the lists themselves.
     for(const [i,l] of all.entries()){
-      if(l.moving?.action&&!all.slice(0,i).some(o=>o.path===l.path&&o.moving))add(l.moving.action,{moving:true,path:l.path,note:l.moving.note,rotate:l.rotate});
-      if(l.action)add(l.action,{moving:false,pin:l.pin,wait:l.wait,note:l.note});
+      if(l.moving?.action&&!all.slice(0,i).some(o=>o.path===l.path&&o.moving))for(const name of l.moving.steps?l.moving.steps.map(x=>x.action):[l.moving.action])add(name,{moving:true,path:l.path,note:l.moving.note,rotate:l.rotate});
+      if(l.action)for(const name of l.steps?l.steps.map(x=>x.action):[l.action])add(name,{moving:false,pin:l.pin,wait:l.wait,note:l.note});
     }
     return [...map.values()];
   }
+  // Every list of steps the route runs as one action, by the name its legs give it: {name, together (while driving)
+  // or one after another (at a pin), steps: [{action, seconds (null: until done, or the whole path), cell}]}.
+  function sequences(route){const map=new Map();
+    for(const l of legs(route)){if(l.steps&&!map.has(l.action))map.set(l.action,{name:l.action,together:false,steps:l.steps});
+      if(l.moving?.steps&&!map.has(l.moving.action))map.set(l.moving.action,{name:l.moving.action,together:true,steps:l.moving.steps});}
+    return [...map.values()];}
   const where=u=>u.moving?`while driving the path to pin ${u.path}${u.rotate?` (the robot ${u.rotate})`:''}`:`stopped at pin ${u.pin}${u.wait>0?`, pause ${n(u.wait)} s`:''}`;
   function describe(l,i){
     const parts=[`Leg ${i+1}: ${l.moving?`ACTION PATH${l.moving.action?` "${comment(l.moving.action)}"`:''}`:'drive'} to ${l.pin?`pin ${l.pin}`:'a turn point'}`];
@@ -181,6 +190,8 @@ ${parts.map(leg).join(',\n')}
   }
   // The Pedro Visualizer's field runs from the inside of the perimeter wall (141.5 in). Deck's game fields keep the wall
   // inside a 144 in square, so a game field's .pp is shifted by the wall (options.bounds); deckOrigin records the shift.
+  // A list of steps in a .pp line (Deck's own field): {action, seconds?, cell?}.
+  const ppSteps=steps=>steps.map(x=>({action:x.action,...(finite(x.seconds)?{seconds:+n(x.seconds)}:{}),...(x.cell==='other'||x.cell===1?{cell:'other'}:{})}));
   function pp(route,layout,options={}){
     const o=layout.field&&layout.field!=='empty'&&options.bounds?{x:options.bounds.x0,y:options.bounds.y0}:{x:0,y:0},P=q=>({x:+n(q.x-o.x),y:+n(q.y-o.y)});
     const constant={heading:'constant',degrees:+n(route.heading)},parts=legs(route),endsLeg=new Map(),to=pathIndex(route),stops=route.stops||[];
@@ -190,8 +201,8 @@ ${parts.map(leg).join(',\n')}
       if(s.tangent){line.endPoint={...end,heading:'tangential',reverse:!!s.reverse};}
       if(s.target){line.endPoint.heading='target';line.targetTracking=P(s.target);}
       if(s.type==='curve')line.controlPoints=s.points.slice(1,-1).map(P);
-      const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;}
-      const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;if(finite(l.actionSeconds))line.actionSeconds=+n(l.actionSeconds);}
+      const path=stops[to[i]]?.path;line.motorPower=path?.power??route.defaultPower??.8;if(path?.kind==='action'){line.actionPath=true;if(path.action)line.actionName=path.action;if(path.steps?.length>1)line.deckMovingSteps=ppSteps(path.steps);}
+      const l=endsLeg.get(i);if(l){if(l.turn!==null)line.turnAfterDegrees=+n(l.turn);if(l.wait>0)line.waitAfterMs=Math.round(l.wait*1000);if(l.action)line.waitAfterName=l.action;if(finite(l.actionSeconds))line.actionSeconds=+n(l.actionSeconds);if(l.steps)line.deckSteps=ppSteps(l.steps);}
       // The Visualizer's own fields: an atomic path, its heading as an object, a colour per Deck path.
       line.kind='atomic';line.color=COLORS[to[i]%COLORS.length];line.deckPath=to[i];if(s.custom)line.deckCurve='custom';if(!line.controlPoints)line.controlPoints=[];
       line.heading=s.tangent?{type:'tangential',reverse:!!s.reverse}:s.target?{type:'piecewise',piecewiseHeading:{segments:[{startProgress:0,endProgress:1,interpolationType:'facing-point',parameters:{point:P(s.target)}}]}}:finite(s.endHeading)?linearHeading(s):{type:'constant',degrees:+n(s.heading??route.heading)};
@@ -255,10 +266,10 @@ ${parts.map(leg).join(',\n')}
       else if(segs.length){const last=segs.at(-1),t=last.interpolationType;notes.push(`${label}: a heading in ${segs.length} parts; Deck uses its last part.`);
         if(t==='facing-point'&&at(last.parameters?.point))Object.assign(path,{rotate:'track',target:at(last.parameters.point)});else if(t==='tangential')Object.assign(path,{rotate:last.reversed?'reverse':'tangent'});else if(t==='constant')Object.assign(path,{rotate:'turn',heading:normDeg(+last.parameters?.degrees||0)});else Object.assign(path,{rotate:'turn',heading:normDeg(+last.parameters?.endDeg||0)});}
       // Deck's own fields, when the file came from Deck.
-      if(finite(+p.motorPower)&&p.motorPower!==null)path.power=Math.max(0,Math.min(1,+p.motorPower));if(p.actionPath){path.kind='action';if(p.actionName)path.action=String(p.actionName).slice(0,40);}
+      if(finite(+p.motorPower)&&p.motorPower!==null)path.power=Math.max(0,Math.min(1,+p.motorPower));if(p.actionPath){path.kind='action';if(Array.isArray(p.deckMovingSteps))path.steps=p.deckMovingSteps;else if(p.actionName)path.action=String(p.actionName).slice(0,40);}
       const pin={x:a.end.x,y:a.end.y,path};
       const after=Math.max(0,+(p.waitAfterMs??p.waitAfter?.durationMs)||0)+(a.extraWait||0),afterName=p.waitAfterName||p.waitAfter?.name||a.extraName||'';
-      if(after)pin.wait=+(after/1000).toFixed(3);if(afterName)pin.action=String(afterName).slice(0,40);if(afterName&&finite(+p.actionSeconds)&&+p.actionSeconds>0)pin.actionSeconds=+p.actionSeconds;if(finite(+p.turnAfterDegrees)&&p.turnAfterDegrees!==null){pin.turn=normDeg(+p.turnAfterDegrees);pin.turnMode='absolute';}
+      if(after)pin.wait=+(after/1000).toFixed(3);if(Array.isArray(p.deckSteps))pin.steps=p.deckSteps;else if(afterName)pin.action=String(afterName).slice(0,40);if(afterName&&finite(+p.actionSeconds)&&+p.actionSeconds>0)pin.actionSeconds=+p.actionSeconds;if(finite(+p.turnAfterDegrees)&&p.turnAfterDegrees!==null){pin.turn=normDeg(+p.turnAfterDegrees);pin.turnMode='absolute';}
       // Lines of one Deck path that Deck routed itself (corners and smoothing, not a hand-drawn curve) are one pin again;
       // Deck re-plans that path, as a spline when it was one.
       const routed=l=>l&&finite(l.deckPath)&&l.deckCurve!=='custom',last=pins.at(-1);
@@ -276,5 +287,5 @@ ${parts.map(leg).join(',\n')}
     const drawn=[+data.settings?.rWidth,+data.settings?.rHeight];if(robot&&drawn.every(v=>finite(v)&&v>0)&&finite(robot.length)&&finite(robot.width)){const a=[...drawn].sort((x,y)=>x-y),b=[robot.length,robot.width].sort((x,y)=>x-y);if(Math.abs(a[0]-b[0])>.5||Math.abs(a[1]-b[1])>.5)notes.push(`The file was drawn for a ${round3(drawn[0])} × ${round3(drawn[1])} in robot; this one is ${round3(robot.length)} × ${round3(robot.width)} in, so check the clearances Deck reports.`);}
     return {start,pins,zones,notes,exact:false};
   }
-  return {legs,java,pp,fromPP,validName,actions,slot,pySlot,where,describe,pathIndex};
+  return {legs,java,pp,fromPP,validName,actions,sequences,slot,pySlot,where,describe,pathIndex};
 });

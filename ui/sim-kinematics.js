@@ -44,7 +44,7 @@
   const COUPLINGS={gear:'Gears',belt:'Belt or chain',rack:'Rack and pinion',screw:'Lead screw',cable:'Cable or spool',mimic:'Follows another joint',
     differential:'Differential (sum or difference)',planetary:'Planetary gearset',tendon:'Tendon (several joints)',cam:'Cam (follows a profile)',sequence:'Stages one after another',linkage:'Linkage (follows a table)'};
   // What a game can drive a joint with. The simulator's mechanism model gives these each tick.
-  const SIGNALS={turret:'Turret angle',hood:'Hood (rest / shooting)',flywheel:'Flywheel speed',roller:'Intake rollers',deploy:'Deploys while intaking',feeder:'Feeder',wheel:'Drive wheel',steer:'Swerve steering',action:'Route actions'};
+  const SIGNALS={turret:'Turret angle',hood:'Hood (rest / shooting)',flywheel:'Flywheel speed',roller:'Intake rollers',deploy:'Deploys while intaking',float:'Floats over pieces',feeder:'Feeder',wheel:'Drive wheel',steer:'Swerve steering',action:'Route actions'};
   // Spinning parts are drawn turning at most this fast (degrees a second) so a 3000 rpm flywheel does not strobe.
   const SHOW_SPIN=540;
   // ---------------------------------------------------------------- vectors and 4×4 matrices (column-major, as three.js)
@@ -114,6 +114,8 @@
       // cylinder's stroke, a universal joint's two angles. (A ball joint's per-angle stops approximate a cone.)
       ...(n&&type!=='revolute'&&type!=='prismatic'&&Array.isArray(raw.limits)?(l=>l.some(Boolean)?{limits:l}:{})(Array.from({length:n},(_,i)=>{const x=raw.limits[i];return Array.isArray(x)&&finite(x[0])&&finite(x[1])&&x[0]<=x[1]?[+x[0],+x[1]]:null;})):{}),
       ...(Object.keys(states).length?{states}:{}),...(drive?{drive}:{}),
+      // What the part is (a claw, a lift, a turret: DeckMechanismTypes), for its defaults and the panel's labels.
+      ...(typeof raw.kind==='string'&&/^[a-z][a-z0-9-]{0,31}$/.test(raw.kind)?{kind:raw.kind}:{}),
       // How fast it moves to a position (units a second), or how fast it spins at full speed (rpm).
       ...(finite(raw.speed)&&raw.speed>0?{speed:clamp(raw.speed,.01,1e5)}:{}),...(finite(raw.rpm)&&raw.rpm>0?{rpm:clamp(raw.rpm,.1,60000)}:{}),
       // A turret's heading in the CAD (degrees counterclockwise from the robot's front, seen from above).
@@ -124,6 +126,8 @@
       // How a drive wheel rolls: a plain wheel only forward and back; a mecanum wheel's rollers also take sideways motion.
       ...(['mecanum','omni'].includes(raw.roll)?{roll:raw.roll}:{}),
       source:Object.hasOwn(PROVENANCE,raw.source)?raw.source:'user',...(finite(raw.confidence)?{confidence:clamp(+raw.confidence.toFixed(2),0,1)}:{}),...(text(raw.note,300)?{note:text(raw.note,300)}:{}),
+      // A mechanism the team added and Configure from CAD found: the CAD assembly it was matched to.
+      ...(text(raw.matched,120)?{matched:text(raw.matched,120)}:{}),
       ...(Array.isArray(raw.alternatives)?{alternatives:raw.alternatives.slice(0,3).filter(a=>a&&vec(a.origin)&&vec(a.axis)).map(a=>({origin:vec(a.origin),axis:unit(vec(a.axis)),note:text(a.note,200)}))}:{})};
   }
   function sanitize(raw){
@@ -138,7 +142,7 @@
       const transmission=sanitizeStages(a.transmission),response=Object.hasOwn(RESPONSES,a.response)?a.response:'ideal',motor=response==='motor'?sanitizeMotor(a.motor):null;
       return {id:a.id,name:text(a.name)||a.id,kind:Object.hasOwn(ACTUATORS,a.kind)?a.kind:'servo',joint:a.joint,index:Math.round(num(a.index,0,0,n-1)),mode:Object.hasOwn(MODES,a.mode)?a.mode:'position',
         speed:num(a.speed,90,.001,1e5),accel:num(a.accel,0,0,1e7),ratio:transmission?stagesRatio(transmission):num(a.ratio,1,-1e4,1e4)||1,...(finite(a.home)?{home:a.home}:{}),...(Object.keys(states).length?{states}:{}),...(finite(a.effort)?{effort:clamp(a.effort,-1,1)}:{}),
-        ...(transmission?{transmission}:{}),...(response!=='ideal'&&(response!=='motor'||motor)?{response,...(motor?{motor}:{})}:{})};}).filter(Boolean);
+        ...(transmission?{transmission}:{}),...(response!=='ideal'&&(response!=='motor'||motor)?{response,...(motor?{motor}:{})}:{}),...hardwareOf(a)};}).filter(Boolean);
     const term=t=>t&&jointRef(t.from)?{from:t.from,ratio:num(t.ratio,1,-1e4,1e4),...(finite(t.fromIndex)?{fromIndex:Math.max(0,Math.round(t.fromIndex))}:{})}:null;
     const couplings=(Array.isArray(r.couplings)?r.couplings:[]).slice(0,96).map(c=>{if(!c||!jointRef(c.from)||!jointRef(c.to)||c.from===c.to)return null;
       const plus=(Array.isArray(c.plus)?c.plus:[]).slice(0,7).map(term).filter(t=>t&&t.from!==c.to),curve=curveOf(c.curve),poly=Array.isArray(c.poly)?c.poly.slice(0,3).map(v=>finite(v)?v:0):[];while(poly.length&&!poly.at(-1))poly.pop();
@@ -215,6 +219,19 @@
   function sanitizeMotor(m){if(!m||!finite(m.free)||!(m.free>0)||!finite(m.stall)||!(m.stall>0))return null;
     return {free:clamp(+m.free,.01,1e7),stall:clamp(+m.stall,1e-6,1e6),...(Number.isInteger(m.count)&&m.count>1?{count:Math.min(8,m.count)}:{}),...(finite(m.load)?{load:clamp(+m.load,-1e6,1e6)}:{}),...(finite(m.inertia)&&m.inertia>0?{inertia:+m.inertia}:{}),
       ...['p','i','d'].reduce((o,k)=>finite(m[k])&&m[k]>=0?{...o,[k]:+m[k]}:o,{}),...(finite(m.power)?{power:clamp(+m.power,0,1)}:{})};}
+  // What the robot code needs to drive an actuator (DeckActuators): the motor or servo model it is, its name in the robot
+  // configuration and whether it turns the other way; a servo's positions (0–1: the lowest and highest it may go to, and
+  // the one that holds its part where the CAD has it), the degrees (inches for a linear servo) it turns across its rated
+  // pulses and the pulses the hub sends for 0 and 1; a DC motor's encoder counts per turn of its output and its power.
+  const DEVICE=/^[A-Za-z][\w .-]{0,39}$/,unitNum=v=>finite(v)?clamp(+v,0,1):null;
+  function hardwareOf(a){
+    const out={};if(typeof a.model==='string'&&/^[a-z0-9][a-z0-9-]{0,47}$/.test(a.model))out.model=a.model;
+    if(typeof a.device==='string'&&DEVICE.test(a.device.trim()))out.device=a.device.trim();if(a.reversed===true)out.reversed=true;
+    const s=a.servo;if(s&&typeof s==='object'){const pulses=v=>Array.isArray(v)&&v.length===2&&v.every(finite)&&v[0]>=100&&v[1]<=3000&&v[1]-v[0]>=50?[+v[0],+v[1]]:null;
+      let lo=unitNum(s.min)??0,hi=unitNum(s.max)??1;if(lo>hi)[lo,hi]=[hi,lo];
+      out.servo={min:lo,max:hi,center:clamp(unitNum(s.center)??.5,lo,hi),range:num(s.range,300,1,7200),...(pulses(s.pwm)?{pwm:pulses(s.pwm)}:{}),...(pulses(s.pulse)?{pulse:pulses(s.pulse)}:{})};}
+    if(finite(a.cpr)&&a.cpr>0)out.cpr=clamp(+a.cpr,.01,1e7);if(finite(a.power)&&a.power>0)out.power=clamp(+a.power,.01,1);
+    return out;}
   // A table of [input, output] points, sorted, one output per input.
   const curveOf=v=>{if(!Array.isArray(v))return null;const pts=v.filter(p=>Array.isArray(p)&&finite(p[0])&&finite(p[1])).map(p=>[+p[0],+p[1]]).sort((a,b)=>a[0]-b[0]).filter((p,i,a)=>!i||p[0]>a[i-1][0]).slice(0,256);return pts.length>=2?pts:null;};
   // What an action step moves: an actuator (its named positions, else its joint's), or a part moved by route actions.
@@ -395,7 +412,7 @@
   // ---------------------------------------------------------------- driving joints from a game and from actions
   // The engine runs one Driver per simulation. Each tick it reads the game's signals and steps the actuators, and
   // values() gives every driven joint's value (what the 3D view draws and recordings keep).
-  //   signals: {turrets:[deg], flywheel:0..1, kick:[0..1|null per intake], intake, spin, aim, feed, rpm}
+  //   signals: {turrets:[deg], flywheel:0..1, kick:[0..1|null per intake], lift:[0..1 per intake], intake, spin, aim, feed, rpm}
   class Driver{
     constructor(model){
       this.model=model;this.q={};this.axes=new Map();this.time=0;this.running=[];
@@ -419,8 +436,11 @@
       if(action){const r=this.run(action);this.running.push(r);this.stepAction(r);return true;}
       const named=[...this.model.joints.map(j=>({axis:this.axes.get('joint:'+j.id),names:[j.name],states:j.states||{}})),
         ...this.model.actuators.map(a=>({axis:this.axes.get(a.id),names:[a.name,this.model.joints.find(x=>x.id===a.joint)?.name].filter(Boolean),states:statesOf(this.model,a)}))];
+      // "Lift to 30°" or "Slide to 4 in" moves it to that value in its own units (degrees or inches), within its end stops.
       for(const {axis,names,states} of named){if(!axis)continue;for(const name of names){const own=name.toLowerCase();if(!key.startsWith(own+' '))continue;
-        const state=Object.keys(states).find(k=>k.toLowerCase()===key.slice(own.length+1).trim());if(state===undefined)continue;axis.to(states[state]);this.moves.push({key,axis});return true;}}
+        const rest=key.slice(own.length+1).trim(),to=/^to\s+(-?\d+(?:\.\d+)?)\s*(?:°|deg|degrees|in|inches)?$/.exec(rest);
+        if(to){axis.to(clamp(Number(to[1]),axis.lower,axis.upper));this.moves.push({key,axis});return true;}
+        const state=Object.keys(states).find(k=>k.toLowerCase()===rest);if(state===undefined)continue;axis.to(states[state]);this.moves.push({key,axis});return true;}}
       return false;}
     busy(name){const key=String(name).trim().toLowerCase();return this.running.some(r=>r.action.name.toLowerCase()===key)||this.moves.some(m=>m.key===key&&!m.axis.done);}
     tick(dt,s={}){
@@ -434,6 +454,8 @@
       for(const j of m.joints){const d=j.drive;if(!d)continue;const n=+String(d.of||'').split(':')[1]||0,rate=rpm=>Math.min(SHOW_SPIN,Math.abs(rpm)*6)*Math.sign(rpm);
         if(d.signal==='turret')this.q[j.id]=(s.turrets?.[n]??0)-(j.zero||0);
         else if(d.signal==='deploy'){const f=clamp(s.kick?.[n]??0,0,1),up=j.states?.raised??0,down=j.states?.lowered??0;this.q[j.id]=up+(down-up)*f;}
+        // A roller on a swing arm rests where it sits and rides up over a piece as the intake takes it in.
+        else if(d.signal==='float'){const f=clamp(s.lift?.[n]??0,0,1),rest=j.states?.rest??0,top=j.states?.up??rest;this.q[j.id]=rest+(top-rest)*f;}
         else if(d.signal==='hood')this.q[j.id]=this.axes.get('hood:'+j.id).q;
         else if(d.signal==='flywheel')this.q[j.id]=wrap360(this.q[j.id]+rate((s.flywheel||0)*(j.rpm||s.rpm||3000))*dt);
         else if(d.signal==='roller')this.q[j.id]=wrap360(this.q[j.id]+rate(s.intake?(j.rpm||300):0)*dt);

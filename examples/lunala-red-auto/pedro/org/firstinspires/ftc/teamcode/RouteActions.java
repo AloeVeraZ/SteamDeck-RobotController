@@ -14,7 +14,8 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  *    so set the pause in the simulator to how long the action takes on the real robot.
  *  - On an action path the robot keeps driving. The action is called until it returns true or the
  *    path ends; if the path ends first it gets one final call with step.last = true.
- * The same name at several pins or paths runs the same method.
+ * The same name at several pins or paths runs the same method. A pin or path with several steps runs each
+ * step's method in turn (at a pin) or together (while driving); see Steps below.
  *
  * Actions in this route:
  *   spinUp(): "Spin up", while driving the path to pin 1 (Off the start, pollen flywheel spinning up); while driving the path to pin 3 (the robot turns to -180°) (One custom curve from the garden up the left side, bowing away from the wall while turning to face it)

@@ -26,6 +26,8 @@ const pad=(id,index,y=0)=>({id,index,connected:true,mapping:'standard',axes:[0,y
   await page.evaluate(()=>window.deck.network());await page.waitForFunction(()=>wifi.ssid==='Touch test network (simulated)'&&scanPromise===null);
   await tap(page,page.locator('#settings-tab'));await page.waitForFunction(()=>state.page==='settings');
   console.log('Touch check: Settings opened with a real touch event.');
+  // The on-screen keyboard is off by default; switch it on as the three-dot menu does.
+  await page.evaluate(()=>{const on=document.querySelector('#touch-keyboard-auto');if(!on.checked)document.querySelector('#menu-keyboard').click();});
   const undersized=await page.evaluate(()=>[...document.querySelectorAll('button,input:not([type=checkbox]),select,summary')].filter(e=>e.getClientRects().length&&!e.disabled).map(e=>({id:e.id||e.textContent.trim().slice(0,20),rect:e.getBoundingClientRect()})).filter(e=>e.rect.height<43.5||e.rect.width<43.5).map(e=>e.id));assert.deepEqual(undersized,[],'small touch targets');
   await tap(page,page.locator('#wifi-picker'));await page.waitForFunction(()=>document.querySelectorAll('.wifi-row').length===25);
   const box=await page.locator('#wifi-list').boundingBox(),session=await cdp(page),x=box.x+box.width/2,from=box.y+box.height-30,to=box.y+30;

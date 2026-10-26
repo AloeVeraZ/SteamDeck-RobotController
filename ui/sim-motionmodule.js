@@ -12,6 +12,15 @@
   const doc=s=>String(s).replace(/"""/g,'').replace(/\\/g,'\\\\');
   // The timed plan as MotionModule PLAN steps. Forward/strafe are fractions of DRIVE_SPEED; strafe is
   // positive to the right (MotionModule's convention); turns are degrees left of the start heading.
+  // The Python call that runs a built-in action (the Mechanisms settings), or '' for the team's own.
+  // The app loads this file before sim-mechanisms.js, so the mechanisms module is looked up when it is needed.
+  const Mechs=()=>Mech||globalThis.DeckMechanisms;
+  function builtIn(name,mech){if(/^\s*wait\s*$/i.test(String(name||'')))return 'step.last or step.duration <= 0';const M=Mechs(),k=mech&&M?M.action(name):null;if(!k)return '';const shooter=mech.shooter.type!=='none';
+    if(k.kind==='intake'||shooter&&['spin','aim','shoot'].includes(k.kind))return `MECHANISMS.run(${pyString(k.kind)}, ${k.count||0}, step)`;
+    if(k.kind==='ramp'&&mech.intakes.some(i=>i.kind==='ramp'))return `MECHANISMS.run("ramp", ${k.down?1:0}, step)`;
+    if(k.kind==='turret'&&mech.shooters.some(s=>s.type==='turret')){const own=mech.shooters.map(s=>s.type==='turret'&&!s.sharesTurret),place=k.turret===null?null:own[k.turret]?own.slice(0,k.turret).filter(Boolean).length:-1;
+      return place===-1?'':`MECHANISMS.run("turret", (${place===null?'None':place}, ${num(k.degrees)}), step)`;}
+    return '';}
   function plan(route,timing,options={}){
     const compiled=Timed.compile(route,timing),start=route.heading||0,power=compiled.config.power,steps=[],aims={},movingSeconds={},aimAt=aimer(route,options.mechanisms,options.target,options.robot);let target=start/DEG,lastPower=null;
     for(const s of compiled.steps){
@@ -104,17 +113,20 @@ def load_actions():
     spec.loader.exec_module(actions)
     return actions
 
-${list.map(a=>{const k=mech?Mech.action(a.name):null,built=k&&(k.kind==='intake'||(mech.shooter.type!=='none'&&['spin','aim','shoot'].includes(k.kind)));return built?`
+${list.map(a=>{const built=builtIn(a.name,mech);return built?`
 def ${a.py}(step):
     """"${doc(a.name.replace(/"/g,"'"))}": run by the Mechanisms settings."""
-    return MECHANISMS.run(${pyString(k.kind)}, ${k.count||0}, step)
+    return ${built}
 `:`
 def ${a.py}(step):
     """Placeholder for "${doc(a.name.replace(/"/g,"'"))}" until robot_actions.py defines ${a.py}(step)."""
     return True
 `;}).join('')}
 # Actions the simulator's Mechanisms settings run; robot_actions.py cannot replace them.
-BUILT_IN = {${list.filter(a=>{const k=mech?Mech.action(a.name):null;return k&&(k.kind==='intake'||(mech.shooter.type!=='none'&&['spin','aim','shoot'].includes(k.kind)));}).map(a=>pyString(a.py)).join(', ')}}
+BUILT_IN = {${list.filter(a=>builtIn(a.name,mech)).map(a=>pyString(a.py)).join(', ')}}
+# Pins and paths with several steps, by the name the route runs them under: (together while driving, or one after
+# another at the pin; each step's name and seconds, 0 for until it returns True, or the whole path while driving).
+STEPS = {${Export.sequences(route).map(q=>`\n    ${pyString(q.name)}: (${q.together?'True':'False'}, (${q.steps.map(x=>`(${pyString(x.action)}, ${num(x.seconds||0)})`).join(', ')},)),`).join('')}${Export.sequences(route).length?'\n':''}}
 MECHANISMS = None
 ${mech?mechanismsPython(mech):''}
 # The reference robot's confirmed mixer turns clockwise for positive rotation,
@@ -172,12 +184,43 @@ class PlannedRoute:
 
     def call_action(self, name, step):
         """One call of an action: robot_actions.py's function, else the placeholder. True when finished."""
+        if name in STEPS:
+            return self.call_steps(name, step)
         slot = ACTIONS.get(name)
         if not slot:
             return True
         function = globals()[slot] if slot in BUILT_IN else getattr(self.actions, slot, None) or globals()[slot]
         self.progress = {**self.progress, "action": name}
         return bool(function(step))
+
+    def call_steps(self, name, step):
+        """One call of a list of steps: at a pin one after another, while driving together. True when all are done."""
+        together, parts = STEPS[name]
+        if step.first or getattr(step, "steps", None) is None:
+            step.steps = {"at": 0, "started": [None] * len(parts), "done": [False] * len(parts)}
+        state = step.steps
+
+        def one(i, elapsed, first):
+            part, seconds = parts[i]
+            over = seconds > 0 and elapsed >= seconds
+            sub = SimpleNamespace(**{k: v for k, v in vars(step).items() if k != "steps"})
+            sub.elapsed, sub.first, sub.last, sub.duration = elapsed, first, over or step.last, seconds
+            return self.call_action(part, sub) or over
+
+        if together:
+            for i in range(len(parts)):
+                if not state["done"][i]:
+                    state["done"][i] = one(i, step.elapsed, step.first)
+            return all(state["done"])
+        while state["at"] < len(parts):
+            i = state["at"]
+            first = state["started"][i] is None
+            if first:
+                state["started"][i] = step.elapsed
+            if not one(i, step.elapsed - state["started"][i], first):
+                return False
+            state["at"] += 1
+        return True
 
     def drive_for(self, forward, strafe, seconds, stop, moving=None, coast=False):
         """Drive at a set power for a set time while holding the heading (running an action path's action).
@@ -440,7 +483,7 @@ def create_autonomous(module, drive):
   }
   // robot_actions.py: the team's mechanism code, created once next to autonomous.py and never overwritten.
   function actionsFile(route,options={}){
-    const mech=options.mechanisms?.enabled?options.mechanisms:null,list=Export.actions(route).filter(a=>{const k=mech?Mech.action(a.name):null;return !(k&&(k.kind==='intake'||(mech.shooter.type!=='none'&&['spin','aim','shoot'].includes(k.kind))));}),name=doc(options.name||'Planned route');
+    const mech=options.mechanisms?.enabled?options.mechanisms:null,list=Export.actions(route).filter(a=>!builtIn(a.name,mech)),name=doc(options.name||'Planned route');
     return `"""Your mechanism code for the autonomous actions of ${name}.
 
 Deck Driver Station created this file once and never overwrites it. autonomous.py
@@ -492,7 +535,7 @@ def stop(module):
     // MotionModule turrets are servos; with a servo turret set in Deck its center and range come from there.
     const center=m.turret.kind==='servo'?m.turret.servoCenter*180:90,perDegree=m.turret.kind==='servo'?180/m.turret.servoDegrees:1;
     if(m.shooters.length)out.shooters=m.shooters.map(s=>{
-      const kind=s.indexerKind,indexer=kind==='crservo'?{channel:crservo++,servo:true,mount:mount(s.indexerReversed)}:Mech.servoFeeder(kind)?{channel:servo++,positional:true,kind,feed:+(s.feedPos*180).toFixed(3),rest:+(s.restPos*180).toFixed(3)}:{channel:next(),servo:false,mount:mount(s.indexerReversed)};
+      const kind=s.indexerKind,indexer=kind==='crservo'?{channel:crservo++,servo:true,mount:mount(s.indexerReversed)}:Mechs().servoFeeder(kind)?{channel:servo++,positional:true,kind,feed:+(s.feedPos*180).toFixed(3),rest:+(s.restPos*180).toFixed(3)}:{channel:next(),servo:false,mount:mount(s.indexerReversed)};
       return {indexer,flywheels:[{channel:next(),mount:mount(s.reversed)},...(s.motor2?[{channel:next(),mount:mount(s.reversed2)}]:[])],...(s.type==='turret'&&!s.sharesTurret?{turret:{servo:servo++,center,perDegree,mount:mount(s.turretReversed)}}:{})};});
     return out;
   }
@@ -507,7 +550,7 @@ def stop(module):
     // cell 'other': the hive cell that faces up after the first tip, mirrored across the pivot.
     return (segment,heading,cell)=>{const end=route.segments?.[segment]?.points?.at(-1);if(!end||!Number.isFinite(heading))return undefined;
       const t=cell==='other'?{x:target.x,y:144-target.y}:target;
-      if(turrets.length>1)return turrets.map(s=>clamp(Mech.bearingFrom(Mech.mountOffset(s.mount,robot),{x:end.x,y:end.y,heading},t)));
+      if(turrets.length>1)return turrets.map(s=>clamp(Mechs().bearingFrom(Mechs().mountOffset(s.mount,robot),{x:end.x,y:end.y,heading},t)));
       return clamp(((Math.atan2(t.y-end.y,t.x-end.x)-heading)*DEG%360+540)%360-180);};
   }
   function mechanismsPython(m){
@@ -539,17 +582,19 @@ class Mechanisms:
     INTAKES = ${list((hw.intakes||[]).map((r,k)=>`(${pyString(rollerNames[k][0])}, ${py(r.channel)}, ${num(rollerNames[k][1]*r.mount)}, ${r.servo?'True':'False'})`))}
     # (hardware.py name, fallback servo channel, angle down, angle up) for each kicker: it swings down while an Intake runs.
     KICKERS = ${list(m.intakes.filter(i=>i.kind==='kicker').map((i,k)=>`(${pyString(i.servo)}, ${hw.kickers[k].servo}, ${num(i.downPos*180)}, ${num(i.upPos*180)})`))}
-    KICKER_UP_SECONDS = ${num(Mech.liftSeconds(m))}
-    # (hardware.py name, fallback servo channel, angle down, angle up) for each ramp: it folds down while an Intake runs (its rollers are in INTAKES).
+    KICKER_UP_SECONDS = ${num(Mechs().liftSeconds(m))}
+    # (hardware.py name, fallback servo channel, angle down, angle up) for each ramp: Ramp down and Ramp up move it and it
+    # stays there; Intake runs only its rollers (in INTAKES). RAMP_DOWN_SECONDS / RAMP_UP_SECONDS: how long it takes.
     RAMPS = ${list(m.intakes.filter(i=>i.kind==='ramp').map((i,k)=>`(${pyString(i.servo)}, ${hw.ramps[k].servo}, ${num(i.downPos*180)}, ${num(i.upPos*180)})`))}
+    RAMP_DOWN_SECONDS, RAMP_UP_SECONDS = ${num(Math.max(0,...m.intakes.filter(i=>i.kind==='ramp').map(i=>i.down)))}, ${num(Math.max(0,...m.intakes.filter(i=>i.kind==='ramp').map(i=>i.up)))}
     # Each shooter: its flywheel motors [(name, channel, direction)], its feeder (name, channel, kind, direction,
     # angle feeding, angle at rest) and its turret servo (name, channel, direction), or None when fixed (or on the first
     # shooter's turret). Feeder kinds: motor, crservo (continuous servo), pusher (pushes each piece in) and gate (opens).
     SHOOTERS = ${list(m.shooters.map((s,k)=>{const h=hw.shooters[k],x=h.indexer,names=[s.motor,s.motor2].filter(Boolean);
       return `([${h.flywheels.map((f,i)=>`(${pyString(names[i])}, ${py(f.channel)}, ${f.mount})`).join(', ')}], (${pyString(s.indexer)}, ${py(x.channel)}, "${s.indexerKind}", ${x.mount??1}, ${x.positional?`${num(x.feed)}, ${num(x.rest)}`:'None, None'}), ${h.turret?`(${pyString(s.turretMotor)}, ${h.turret.servo}, ${h.turret.mount})`:'None'})`;}))}
     INDEXER_POWER, SHOOTER_POWER = ${num(m.indexer.power)}, ${num(m.shooter.control==='power'?m.shooter.power:1)}
-    TRANSFER_SECONDS, INDEX_SECONDS, FIRE_MARGIN_SECONDS = ${num(m.transfer.seconds)}, ${num(m.indexer.seconds)}, ${num(Mech.FIRE_MARGIN)}
-    FEED_CYCLE_SECONDS, LAST_SHOT_SECONDS, PUSH_SECONDS = ${num(pusher?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds)}, ${num(Mech.shootSeconds(m,1))}, ${num(m.indexer.pushSeconds)}
+    TRANSFER_SECONDS, INDEX_SECONDS, FIRE_MARGIN_SECONDS = ${num(m.transfer.seconds)}, ${num(m.indexer.seconds)}, ${num(Mechs().FIRE_MARGIN)}
+    FEED_CYCLE_SECONDS, LAST_SHOT_SECONDS, PUSH_SECONDS = ${num(pusher?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds)}, ${num(Mechs().shootSeconds(m,1))}, ${num(m.indexer.pushSeconds)}
     SPIN_UP_SECONDS, STORAGE = ${num(m.shooter.spinUp)}, ${m.storage}
     TURRET_SERVO_CENTER, TURRET_SERVO_PER_DEGREE = ${num(m.turret.kind==='servo'?m.turret.servoCenter*180:90)}, ${num(m.turret.kind==='servo'?180/m.turret.servoDegrees:1)}
     TURRET_MIN, TURRET_MAX, TURRET_SPEED = ${num(m.turret.min)}, ${num(m.turret.max)}, ${num(m.turret.speed)}
@@ -582,11 +627,19 @@ class Mechanisms:
         self.aim(0.0)
 
     def run(self, kind, count, step):
-        """One call of a built-in action. True when it has finished."""
+        """One call of a built-in action. True when it has finished. count: shots for Shoot N, 1 down or 0 up for a
+        ramp, and (turret, degrees) for Turret to: turret None for every one, else its place among the turrets."""
         if kind == "intake":
             done = step.last or (not step.moving and step.duration <= 0)
             self.intake(not done)
             return done
+        if kind == "ramp":
+            self.ramp(count == 1)
+            return step.moving or step.elapsed >= (self.RAMP_DOWN_SECONDS if count == 1 else self.RAMP_UP_SECONDS)
+        if kind == "turret":
+            which, degrees = count
+            self.aim(degrees if which is None else [degrees if i == which else a for i, a in enumerate(self.turret_angle)])
+            return step.moving or self.aimed()
         if not self.flywheels:
             return True
         if kind == "spin":
@@ -607,8 +660,13 @@ class Mechanisms:
                 roller.set_pulse_us(1500 + 500 * power if on else 1500)  # continuous servo: 1500 us stops it
             else:
                 roller.set(power if on else 0)
-        for servo, down, up in self.kickers + self.ramps:
+        for servo, down, up in self.kickers:
             servo.set_angle(down if on else up)
+
+    def ramp(self, down):
+        """Ramps down (True) or up; they stay there until the next Ramp down or Ramp up."""
+        for servo, angle_down, angle_up in self.ramps:
+            servo.set_angle(angle_down if down else angle_up)
 
     def feed(self, on, t=0.0):
         """The feeders t seconds into a volley: rollers run and gates stay open while feeding; a pusher

@@ -77,7 +77,7 @@ function fieldFacts(info){
       startRules:'Touch the wall, stay on your own half, not in a LOADING ZONE, not touching a FLOWER, 4 pollen preloaded.'});
   }
   if(info.goals?.length)facts.goals=info.goals;
-  facts.actions={Intake:'run the intake (pin: --for S seconds after its --wait pause; path: the whole path or --path-for S)','Spin up':'start the flywheel early',Aim:'point the turret at the target',Shoot:'spin up, aim and shoot: at a pin until empty or --for S; on a path the whole path or --path-for S'};
+  facts.actions={Intake:'run the intake rollers (pin: --for S seconds after its --wait pause; path: the whole path or --path-for S)','Ramp down':'fold the ramp down (it stays down; needed to reach flower pollen)','Ramp up':'fold the ramp back up','Turret to DEG':'turn every turret to an angle from the robot front (Turret 2 to DEG for the second)','Spin up':'start the flywheel early',Aim:'point the turret at the target',Shoot:'spin up, aim and shoot: at a pin until empty or --for S; on a path the whole path or --path-for S',steps:'several in one --action (one after another) or --path-action (together), separated by ";", each may end in "for S"'};
   return facts;
 }
 
@@ -113,19 +113,23 @@ function setUpFromCad(setup,box,ref){
 
 // ------------------------------------------------------------------ pins
 // A pin is a stop on the route; its `path` describes the drive that reaches it.
+// Several steps in one --action or --path-action, separated by ";" (each may end in "for S"): "Shoot; Ramp down; Intake for 1.5".
+// --for and --cell apply to a single step.
+// A single action keeps the plain fields (action, actionSeconds, cell).
+function stepsInto(target,text,seconds,cell){const parts=String(text).split(';').map(t=>t.trim()).filter(Boolean);
+  if(parts.length<2){target.action=parts[0]||'';if(seconds!==null)target.actionSeconds=seconds;if(cell==='other')target.cell='other';return;}
+  target.steps=parts.map(t=>{const m=/^(.*?)\s+for\s+(\d+(?:\.\d+)?)\s*s?$/i.exec(t);return {action:m?m[1]:t,seconds:m?Number(m[2]):null,cell:'start'};});}
 function pinFrom(flags,x,y){
-  const pin={x:num(x,'x'),y:num(y,'y'),wait:flags.wait!==undefined?num(flags.wait,'--wait'):0,action:typeof flags.action==='string'?flags.action:'',path:{}};
-  if(flags.for!==undefined)pin.actionSeconds=num(flags.for,'--for');
-  if(flags.cell==='other')pin.cell='other';
+  const pin={x:num(x,'x'),y:num(y,'y'),wait:flags.wait!==undefined?num(flags.wait,'--wait'):0,action:'',path:{}};
+  if(typeof flags.action==='string')stepsInto(pin,flags.action,flags.for!==undefined?num(flags.for,'--for'):null,flags.cell);
+  else{if(flags.for!==undefined)pin.actionSeconds=num(flags.for,'--for');if(flags.cell==='other')pin.cell='other';}
   if(flags.note)pin.note=String(flags.note);
   if(flags.turn!==undefined){pin.turn=num(flags.turn,'--turn');pin.turnMode=flags['turn-mode']||'absolute';}
   if(flags.face){pin.turnMode='track';pin.turn=0;pin.target=point(flags.face,'--face');}
   const p=pin.path;
   if(flags.power!==undefined)p.power=num(flags.power,'--power');
   if(flags.style)p.style=flags.style;
-  if(typeof flags['path-action']==='string'){p.kind='action';p.action=flags['path-action'];}
-  if(flags['path-for']!==undefined)p.actionSeconds=num(flags['path-for'],'--path-for');
-  if(flags['path-cell']==='other')p.cell='other';
+  if(typeof flags['path-action']==='string'){p.kind='action';stepsInto(p,flags['path-action'],flags['path-for']!==undefined?num(flags['path-for'],'--path-for'):null,flags['path-cell']);}
   if(flags.track){p.rotate='track';p.target=point(flags.track,'--track');}
   else if(flags.heading!==undefined){p.rotate='turn';p.heading=num(flags.heading,'--heading');}
   else if(flags.spin!==undefined){p.rotate='spin';p.spins=num(flags.spin,'--spin');}
@@ -139,9 +143,10 @@ function pinFrom(flags,x,y){
 // Same rules the app's editors apply, so a terminal-made pin is never something the app rejects.
 function clean(raw){
   if(!raw||!finite(raw.x)||!finite(raw.y))throw Error('Each pin needs numeric x and y.');
-  const e=P.pinEffects(raw),pin={x:raw.x,y:raw.y,wait:e.wait,action:e.action};if(e.actionSeconds!==null)pin.actionSeconds=e.actionSeconds;if(e.cell==='other')pin.cell='other';
+  // Several steps are kept as steps; the joined name is kept too, for older versions of the app.
+  const e=P.pinEffects(raw),pin={x:raw.x,y:raw.y,wait:e.wait,action:e.action};if(e.actionSeconds!==null)pin.actionSeconds=e.actionSeconds;if(e.cell==='other')pin.cell='other';if(e.steps.length>1)pin.steps=e.steps;
   if(e.note)pin.note=e.note;if(e.turn!==null){pin.turn=e.turn;pin.turnMode=e.turnMode;}if(e.target)pin.target=e.target;
-  const p=e.path,path={};if(p.kind==='action'){path.kind='action';path.action=p.action;if(p.actionSeconds!==null)path.actionSeconds=p.actionSeconds;if(p.cell==='other')path.cell='other';}if(p.style)path.style=p.style;if(p.controls)path.controls=p.controls;if(p.power!==null)path.power=p.power;if(p.note)path.note=p.note;
+  const p=e.path,path={};if(p.kind==='action'){path.kind='action';path.action=p.action;if(p.actionSeconds!==null)path.actionSeconds=p.actionSeconds;if(p.cell==='other')path.cell='other';if(p.steps.length>1)path.steps=p.steps;}if(p.style)path.style=p.style;if(p.controls)path.controls=p.controls;if(p.power!==null)path.power=p.power;if(p.note)path.note=p.note;
   if(p.rotate!=='keep'){path.rotate=p.rotate;if(p.rotate==='turn')path.heading=p.heading;if(p.rotate==='relative')path.angle=p.angle;if(p.rotate==='spin')path.spins=p.spins;if(p.rotate==='track')path.target=p.target;}
   if(Object.keys(path).length)pin.path=path;return pin;
 }
@@ -263,10 +268,13 @@ Mechanisms (BIOBUZZ parts: intakes, shooters, storage, preloads)
        [--flywheel-control velocity|power] [--flywheel-power 1] [--at-speed 5 (percent)] [--pidf p,i,d,f|default]
        [--turret-kind motor|servo] [--turret-servo-center 0.5] [--turret-servo-degrees 300] [--turret-reversed on|off]
   Two shooters: the first takes pollen and the second nectar; they spin, aim and feed together.
-  A ramp intake is rollers on a ramp a servo folds down while Intake runs; only a ramp that is down picks up, and it reaches flower pollen.
-  Route actions the mechanisms run: Intake, Spin up, Aim, Shoot (once per storage slot) or Shoot N.
+  A ramp intake is rollers with a ramp a servo folds down: the rollers pick up off the floor either way; Ramp down
+  and Ramp up move the ramp, which stays where it was sent, and only a ramp that is down reaches flower pollen.
+  Route actions the mechanisms run: Intake, Ramp down, Ramp up, Turret to DEG, Spin up, Aim, Shoot (once per storage slot) or Shoot N.
   At a pin the robot pauses (--wait), runs the --action (for --for seconds, or until done), then drives on.
   A path's --path-action runs from the start of the path, for --path-for seconds or the whole path.
+  Several steps: --action "Shoot; Ramp down; Intake for 1.5" runs them one after another at the pin;
+  --path-action "Intake; Ramp down" runs them together while driving.
   info <setup.json>                        Setup, start and pins
 
 Route

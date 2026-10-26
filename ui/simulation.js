@@ -219,14 +219,16 @@ public class MyAuto implements DeckAutonomous {
         <div class="sim-robot-file sim-robot-save"><button type="button" class="secondary" id="sim-robot-save">Save robot to file…</button><p class="hint">Keeps this robot (size, motors, CAD, sensors and mechanisms) to load into any setup with “Load robot from file” at the top.</p></div>
 </div>
         <div class="sim-setup-nav"><button type="button" class="secondary" data-setup-go="field">← Back</button><button type="button" class="primary" data-setup-go="mechanisms">Next: mechanisms →</button></div></section>
-        <section class="sim-setup-page" data-setup-page="mechanisms" aria-labelledby="sim-setup-step-mechanisms" hidden><h2>Mechanisms</h2><p class="hint">What your robot does with game pieces. Routes run them with Intake, Spin up, Aim and Shoot.</p>
+        <section class="sim-setup-page" data-setup-page="mechanisms" aria-labelledby="sim-setup-step-mechanisms" hidden><h2>Mechanisms</h2><p class="hint">Everything on your robot that moves.</p>
         <p id="mech-field-note" class="hint"></p>
         <div class="sim-mech-layout"><div class="sim-mech-main">
         <div id="mech-preset" class="sim-mech-preset" hidden><p id="mech-preset-text"></p></div>
-        <h3>Intakes</h3><p class="hint">Grabs pieces off the floor. Add one per intake motor.</p>
-        <div id="mech-intakes"></div><button type="button" class="secondary sim-mech-add" data-mech-add="intake">+ Add intake</button>
-        <h3>Shooters</h3><p class="hint">Flywheels that launch pieces at your hive. Up to two; they spin up, aim and fire together.</p>
-        <div id="mech-shooters"></div><button type="button" class="secondary sim-mech-add" data-mech-add="shooter">+ Add shooter</button>
+        <div class="sim-mech-toolbar"><button type="button" class="primary" id="mech-add" aria-expanded="false" aria-controls="mech-picker">+ Add mechanism</button><button type="button" class="secondary" id="mech-from-cad">Configure from CAD</button></div>
+        <p id="mech-list-status" class="hint sim-mech-status" role="status"></p><p id="mech-cad-note" class="hint"></p>
+        <div id="mech-picker" hidden></div>
+        <div id="mech-intakes"></div><div id="mech-shooters"></div><div id="mech-parts"></div>
+        <p id="mech-count" class="hint sim-mech-count"></p>
+        <p id="mech-empty" class="hint sim-mech-empty" hidden>No mechanisms yet. Press + Add mechanism and pick what your robot has (an intake, a lift, a claw…), then Configure from CAD finds each one in your robot’s CAD.</p>
         <section id="mech-timing"><h3>Shooter timing</h3>
         <label for="mech-spinup">Spin-up time · s</label><input id="mech-spinup" type="number" min="0" max="10" step="any" data-slider-max="3" data-slider-step="0.05">        <div class="start-xy"><div><label for="mech-transfer">Transfer time · s</label><input id="mech-transfer" type="number" min="0" max="10" step="any" data-slider-max="4" data-slider-step="0.05"></div><div><label for="mech-index">Indexing time · s</label><input id="mech-index" type="number" min="0" max="5" step="any" data-slider-max="2" data-slider-step="0.05"></div></div>
         <div id="mech-turret-timing" class="start-xy"><div><label for="mech-turret-speed">Turret turn speed · °/s</label><input id="mech-turret-speed" type="number" min="5" max="2000" step="any" data-slider-max="720" data-slider-step="5"></div><div><label for="mech-turret-range">Turret turns up to · ± °</label><input id="mech-turret-range" type="number" min="5" max="180" step="1"></div></div>
@@ -246,7 +248,7 @@ public class MyAuto implements DeckAutonomous {
         <p id="mech-nectar-note" class="hint"></p>
         <label for="mech-preload">Pollen it starts with</label><input id="mech-preload" type="number" min="0" max="4" step="1"></section>
         </div><aside class="sim-mech-aside">
-          <div id="mech-model-box" class="sim-mech-model" hidden><div id="mech-model-preview" class="sim-model-preview"></div><ul id="mech-model-key" class="sim-mech-key"></ul><div id="mech-cad" class="sim-mech-cad" hidden><button type="button" class="secondary" id="mech-from-cad">Set up from your CAD</button><p class="hint" id="mech-cad-note"></p></div><p id="mech-model-help" class="hint">Each part is marked. Choose “Place on model” on a part, then click it here. Set the front in step 2.</p><section id="mech-joints" class="sim-joints" aria-label="Moving parts" hidden></section></div>
+          <div id="mech-model-box" class="sim-mech-model" hidden><div id="mech-model-preview" class="sim-model-preview"></div><ul id="mech-model-key" class="sim-mech-key"></ul><p id="mech-model-help" class="hint">Each part is marked. Choose “Place on model” on a part, then click it here. Set the front in step 2.</p><section id="mech-joints" class="sim-joints" aria-label="Moving parts" hidden></section></div>
         </aside></div>
         <div class="sim-setup-nav"><button type="button" class="secondary" data-setup-go="robot">← Back</button><button type="button" class="primary" data-setup-go="controller">Next: robot controller →</button></div></section></div>
       <div data-panel="plan" id="sim-panel-plan" role="tabpanel" aria-labelledby="sim-tab-plan" hidden>
@@ -347,6 +349,8 @@ public class MyAuto implements DeckAutonomous {
   // ------------------------------------------------------------------ engine
   // Nearest clear pose to the left-wall default, scanning inward and along the wall.
   function clearStart(g,heading=start.heading){
+    // Nothing to check against while the engine reloads (info is cleared); callers fall back to the wall pose.
+    if(!info)return null;
     const edge=field.edgePose(heading,g);let best=null,bestD=Infinity;
     for(let dx=0;dx<=48;dx+=2)for(let dy=-60;dy<=60;dy+=3){const p=field.constrain({x:edge.x+dx,y:edge.y+dy,heading},g),d=Math.hypot(p.x-edge.x,p.y-edge.y);
       if(d<bestD&&planner.safePose(p,info.fieldZones,info.footprint,info.bounds)){best=p;bestD=d;}}
@@ -850,7 +854,7 @@ public class MyAuto implements DeckAutonomous {
     const p=effects.session.draft;targetPick=null;tooltip.hidden=true;p.path=planner.pathEffects(p.path);
     const box=$('#sim-effects'),isPath=target.kind==='path',path=p.path,holonomic=C.drives[project.robot.drivetrain].holonomic;
     effects.index=k;selected={kind:target.kind,index:k};box.setAttribute('aria-label',isPath?'Path settings':'Pin settings');
-    const title=isPath?`Path ${k+1}`:`End of path ${k+1}`;
+    const title=isPath?`Path ${k+1}`:`Pin ${k+1}`;
     box.innerHTML=`<div class="sim-pop-head" title="Drag to move this editor"><h3>${title}</h3><span class="sim-editor-grip" aria-label="Drag editor" title="Drag editor">⠿</span></div>
       <div class="sim-settings-tabs" role="tablist" aria-label="${isPath?'Path':'Pin'} settings"></div>
       <section class="sim-pop-sec" data-sec="main">${isPath?`
@@ -858,11 +862,11 @@ public class MyAuto implements DeckAutonomous {
         <label for="eff-path-power">Motor power · 0–1</label><input id="eff-path-power" type="number" min="0" max="1" step="any">
         <p class="hint">Applies to this entire path. 0 stops here; 0.5 caps motor power at 50%.</p>
         <label for="eff-path-shape">Path shape</label><select id="eff-path-shape"><option value="">Use route default</option><option value="sharp">Straight segments</option><option value="spline">Smooth spline</option><option value="custom">Custom curve (drag handles)</option></select>
-        <h4 class="sim-pop-label">While driving this path</h4>${actionPicker('path')}`:`
-        <ol class="sim-pop-steps"><li>Arrive (and turn, if set)</li><li>Pause</li><li>Do the action</li><li>Drive on</li></ol>
+        <h4 class="sim-pop-label">While driving this path</h4><div class="sim-steps" id="eff-steps"></div>`:`
+        <ol class="sim-pop-steps"><li>Arrive (and turn, if set)</li><li>Pause</li><li>Run the steps, in order</li><li>Drive on</li></ol>
         <label for="eff-wait">Pause first · s</label><input id="eff-wait" type="number" min="0" step="any">
-        <h4 class="sim-pop-label">Then do</h4>${actionPicker('pin')}
-        <p class="hint">Power, shape, heading and the action while driving are in Path options.</p>`}</section>
+        <h4 class="sim-pop-label">Then, in order</h4><div class="sim-steps" id="eff-steps"></div>
+        <p class="hint">Power, shape, heading and the steps while driving are in Path options.</p>`}</section>
       <section class="sim-pop-sec" data-sec="heading" hidden>
         <label for="eff-heading-mode">${isPath?'While driving this path':'Turn in place at this pin'}</label>
         <select id="eff-heading-mode"><option value="keep">${isPath?'Hold inherited heading':'No turn'}</option><option value="relative">Turn by… (relative)</option><option value="${isPath?'turn':'absolute'}">Face field heading…</option><option value="start">Return to starting heading</option><option value="track">${isPath?'Track a field target':'Aim at a field target'}</option>${isPath?'<option value="spin">Full spins</option><option value="tangent">Face along the path (tangent)</option><option value="reverse">Face backwards along the path</option>':''}</select>
@@ -891,64 +895,30 @@ public class MyAuto implements DeckAutonomous {
     for(const axis of ['x','y'])readNumber('#eff-target-'+axis,v=>{subject.target={x:Number(q('#eff-target-x').value),y:Number(q('#eff-target-y').value),[axis]:v};});
     q('#eff-note').onchange=e=>{subject.note=e.target.value.slice(0,160);commit();};
     if(isPath){q('#eff-path-shape').value=path.controls?'custom':path.style||'';q('#eff-path-shape').onchange=e=>{const v=e.target.value;if(v==='custom'){path.controls=path.controls||startControls(k);path.style=null;}else{path.controls=null;path.style=v||null;}path.shapeAuto=false;commit();};
-      wireActionPicker(q,'path',path,commit);
+      stepsEditor(q('#eff-steps'),'path',path,commit,'eff-steps');
       q('#eff-power-inherit').onchange=e=>{path.power=e.target.checked?null:project.tuning.maxPathSpeed??.8;commit();};readNumber('#eff-path-power',v=>path.power=v,0,1);
-    }else{q('#eff-wait').value=p.wait||0;readNumber('#eff-wait',v=>p.wait=v,0);wireActionPicker(q,'pin',p,commit);}
+    }else{q('#eff-wait').value=p.wait||0;readNumber('#eff-wait',v=>p.wait=v,0);stepsEditor(q('#eff-steps'),'pin',p,commit,'eff-steps');}
     q('#eff-pick-target').onclick=()=>{targetPick={...target};q('#eff-pick-target').textContent='Click target on field…';draw();};
     effects.pickPoint=point=>{subject.target={x:field.round(point.x),y:field.round(point.y)};q('#eff-target-x').value=subject.target.x;q('#eff-target-y').value=subject.target.y;q('#eff-pick-target').textContent='Pick target on field';targetPick=null;commit();draw();};
-    q('[data-reset]').onclick=()=>{if(isPath)p.path=planner.pathEffects({});else Object.assign(p,{wait:0,action:'',actionSeconds:null,note:'',turn:null,turnMode:'absolute',target:null});openEffects(target,{clientX:parseFloat(box.style.left)-24,clientY:parseFloat(box.style.top)+30},true);};
+    q('[data-reset]').onclick=()=>{if(isPath)p.path=planner.pathEffects({});else Object.assign(p,{wait:0,action:'',actionSeconds:null,steps:[],note:'',turn:null,turnMode:'absolute',target:null});openEffects(target,{clientX:parseFloat(box.style.left)-24,clientY:parseFloat(box.style.top)+30},true);};
     q('[data-close]').onclick=finishEditor;
-    const tabs=q('.sim-settings-tabs');for(const [key,label]of [['main',isPath?'Power & action':'Pause & action'],['heading','Heading'],['notes','Notes']]){const b=document.createElement('button');b.type='button';b.role='tab';b.className='secondary';b.textContent=label;b.onclick=()=>{for(const sec of box.querySelectorAll('[data-sec]'))sec.hidden=sec.dataset.sec!==key;for(const other of tabs.children)other.setAttribute('aria-selected',String(other===b));clampEditor(box,parseFloat(box.style.left)||4,parseFloat(box.style.top)||4);};tabs.append(b);}tabs.firstElementChild.click();
+    const tabs=q('.sim-settings-tabs');for(const [key,label]of [['main',isPath?'Power & steps':'Pause & steps'],['heading','Heading'],['notes','Notes']]){const b=document.createElement('button');b.type='button';b.role='tab';b.className='secondary';b.textContent=label;b.onclick=()=>{for(const sec of box.querySelectorAll('[data-sec]'))sec.hidden=sec.dataset.sec!==key;for(const other of tabs.children)other.setAttribute('aria-selected',String(other===b));clampEditor(box,parseFloat(box.style.left)||4,parseFloat(box.style.top)||4);};tabs.append(b);}tabs.firstElementChild.click();
     const header=q('.sim-pop-head');let grab=null;
     header.onpointerdown=e=>{if(e.button!==0||e.target.closest('button'))return;e.preventDefault();const r=box.getBoundingClientRect();grab={x:e.clientX-r.left,y:e.clientY-r.top};header.setPointerCapture(e.pointerId);};
     header.onpointermove=e=>{if(grab)clampEditor(box,e.clientX-grab.x,e.clientY-grab.y);};header.onpointerup=header.onpointercancel=()=>grab=null;
     show();box.hidden=false;clampEditor(box,(at?.clientX??innerWidth/2)+24,(at?.clientY??150)-30);draw();
     q(isPath?'#eff-path-power':'#eff-wait').focus({preventScroll:true});
   }
-  // Actions offered for this field (the game's own, run by the Mechanisms settings), plus your own by name.
-  const ACTION_INFO={Intake:'Runs the intake. At a pin it runs for the time set; while driving, for the whole path or the time set.',
-    Shoot:'Spins the flywheel up, aims and shoots. At a pin it shoots until the robot is empty unless a time is set; while driving, for the whole path or the time set.',
-    'Spin up':'Starts the flywheel early, so a later Shoot fires right away. It keeps spinning until that Shoot.',
-    Aim:'Turns the turret to point at the hive, so a later Shoot does not wait for it.'};
-  const gameActions=()=>{if(L().field!=='biobuzz')return [];const m=project.mechanisms;return ['Intake','Shoot','Spin up',...(!m.enabled||MECH.hasTurret(m)?['Aim']:[])];};
-  // The moving parts' own actions (Setup → Moving parts): saved actions, and each part routed by actions to each of its positions.
-  const partActions=()=>{const k=project.kinematics,out=[...k.actions.map(a=>a.name)];for(const j of k.joints)if(j.drive?.signal==='action')for(const st of Object.keys(j.states||{}))out.push(`${j.name} ${st}`);return [...new Set(out)].slice(0,16);};
-  function actionPicker(where){
-    return `<div class="sim-chips sim-action-chips" role="group" aria-label="Action">${['None',...gameActions(),...partActions(),'Other…'].map(a=>`<button type="button" class="sim-chip" data-pick-action="${a}" aria-pressed="false">${a}</button>`).join('')}</div>
-      <div data-custom hidden><label for="eff-${where}-action">Action name</label><input id="eff-${where}-action" maxlength="40" placeholder="e.g. Raise lift" autocomplete="off"></div>
-      <div data-for hidden><span class="sim-pop-label">How long</span><div class="sim-chips"><button type="button" class="sim-chip" data-for-mode="all" aria-pressed="false">${where==='path'?'Whole path':'Until done'}</button><button type="button" class="sim-chip" data-for-mode="time" aria-pressed="false">For a set time</button></div>
-        <div data-for-time hidden><label for="eff-${where}-for">Seconds${where==='path'?' from the start of the path':''}</label><input id="eff-${where}-for" type="number" min="0.05" max="30" step="any" data-slider-max="5" data-slider-step="0.05"></div></div>
-      <div data-cell hidden><span class="sim-pop-label">Aim at</span><div class="sim-chips"><button type="button" class="sim-chip" data-cell-pick="start" aria-pressed="false">Cell up at the start</button><button type="button" class="sim-chip" data-cell-pick="other" aria-pressed="false">Other cell</button></div>
-        <p class="hint">The hive tips once enough pieces land in its up cell, and the other cell then faces up. Your alliance’s start cell already holds 3 nectar, so 3 pollen tip it; the other cell takes 8. Each tip scores 20.</p></div>
-      <p class="hint" data-action-hint></p>`;
-  }
-  // Wires a picker to the pin (or path) draft: subject.action and subject.actionSeconds.
-  function wireActionPicker(q,where,subject,commit){
-    const name=q(`#eff-${where}-action`),secs=q(`#eff-${where}-for`),known=a=>[...gameActions(),...partActions()].some(g=>g.toLowerCase()===String(a).trim().toLowerCase());
-    let custom=!!subject.action&&!known(subject.action);
-    const render=()=>{const a=subject.action||'',k=gameActions().find(g=>g.toLowerCase()===a.toLowerCase()),part=partActions().find(g=>g.toLowerCase()===a.toLowerCase());
-      for(const b of q('.sim-action-chips').children)b.setAttribute('aria-pressed',String(b.dataset.pickAction==='None'?!a&&!custom:b.dataset.pickAction==='Other…'?custom:b.dataset.pickAction===(k||part)&&!custom));
-      q('[data-custom]').hidden=!custom;if(document.activeElement!==name)name.value=custom?a:'';
-      // Intake needs a time at a pin; Spin up and Aim are quick. Anything else may run for a time.
-      const timed=!!a&&!(k==='Spin up'||k==='Aim'),needsTime=where==='pin'&&k==='Intake';q('[data-for]').hidden=!timed;
-      q('[data-cell]').hidden=!(L().field==='biobuzz'&&(k==='Shoot'||k==='Aim'));for(const b of q('[data-cell]').querySelectorAll('[data-cell-pick]'))b.setAttribute('aria-pressed',String((subject.cell||'start')===b.dataset.cellPick));
-      const hasTime=finite(subject.actionSeconds);q('[data-for-mode=all]').hidden=needsTime;
-      q('[data-for-mode=all]').setAttribute('aria-pressed',String(!hasTime));q('[data-for-mode=time]').setAttribute('aria-pressed',String(hasTime));q('[data-for-time]').hidden=!hasTime;
-      if(hasTime&&document.activeElement!==secs){secs.value=subject.actionSeconds;window.DeckNumberSliders?.sync(secs);}
-      const mech=project.mechanisms.enabled?'':' Set up mechanisms (Setup → 3) to run it in the simulator and the exported code.';
-      q('[data-action-hint]').textContent=!a?(where==='path'?'The robot just drives.':'The robot drives on after the pause.'):k?ACTION_INFO[k]+(k==='Intake'||k==='Shoot'?mech:''):part?`Moves your robot’s parts as set in Setup → ${L().field==='biobuzz'?'Mechanisms':'Moving parts'}; at a pin the robot waits until they arrive. The export adds an empty method with this name for your mechanism code.`:'Your own action: the export adds an empty method with this name for your mechanism code.';};
-    q('.sim-action-chips').onclick=e=>{const b=e.target.closest('[data-pick-action]');if(!b)return;const pick=b.dataset.pickAction;
-      custom=pick==='Other…';subject.action=pick==='None'?'':custom?(known(subject.action)?'':subject.action):pick;
-      if(where==='path')subject.kind=subject.action||custom?'action':'regular';
-      if(where==='pin'&&pick==='Intake'&&!finite(subject.actionSeconds))subject.actionSeconds=1;
-      if(pick==='Spin up'||pick==='Aim'||pick==='None')subject.actionSeconds=null;
-      commit();render();if(custom)name.focus();};
-    name.onchange=e=>{subject.action=e.target.value.trim().slice(0,40);if(where==='path')subject.kind='action';commit();render();};
-    q('[data-cell]').onclick=e=>{const b=e.target.closest('[data-cell-pick]');if(!b)return;subject.cell=b.dataset.cellPick;commit();render();};
-    q('[data-for-mode=all]').onclick=()=>{subject.actionSeconds=null;commit();render();};
-    q('[data-for-mode=time]').onclick=()=>{if(!finite(subject.actionSeconds))subject.actionSeconds=1;commit();render();secs.focus();};
-    secs.onchange=e=>{const v=e.target.valueAsNumber;if(finite(v)&&v>=.05&&v<=30){subject.actionSeconds=v;commit();}render();};
-    render();
+  // What a pin or a path can do: the game's actions (run by the Mechanisms settings), turret angles, the moving parts'
+  // positions and angles (Setup → Moving parts), Wait, and your own actions by name (an empty method in the export).
+  const stepCatalog=()=>window.DeckSimSteps.catalog({field:L().field,mechanisms:project.mechanisms,kinematics:project.kinematics});
+  // A list of steps on the pin or path subject (a draft or the pin itself): subject.steps, then commit().
+  function stepsEditor(host,where,subject,commit,id){
+    return window.DeckSimSteps.editor(host,{steps:subject.steps||[],where,id,catalog:stepCatalog(),biobuzz:L().field==='biobuzz',onChange:steps=>{
+      subject.steps=steps;if(where==='path')subject.kind=steps.length?'action':'regular';
+      // The plain action every runtime reads comes from the steps.
+      const e=where==='path'?planner.pathEffects(subject):planner.pinEffects(subject);for(const key of ['steps','action','actionSeconds','cell'])subject[key]=e[key];if(where==='path')subject.kind=e.kind;
+      commit();}});
   }
   function finishEditor(){const box=$('#sim-effects');if(!effects.session)return;const invalid=[...box.querySelectorAll('input,textarea,select')].find(e=>!e.disabled&&!e.checkValidity());if(invalid){const section=invalid.closest('[data-sec]');if(section){const sections=[...box.querySelectorAll('[data-sec]')];box.querySelectorAll('[role=tab]')[sections.indexOf(section)]?.click();}invalid.reportValidity();return;}
     try{const kind=effects.session.target.kind;effects.session.commit();effects.session=null;effects.pickPoint=null;targetPick=null;box.hidden=true;box.replaceChildren();effects.index=-1;changed(kind==='zone'?'zones':'plan');programPanel();graph.focus({preventScroll:true});}catch(e){box.querySelector('.sim-editor-save-note').textContent=e.message;}}
@@ -1024,7 +994,7 @@ public class MyAuto implements DeckAutonomous {
       sketch=[...(sketch||[]),{x:field.round(p.x),y:field.round(p.y)}];if(sketch.length>=40)return finishShape();showDraft(null);return;}
     if(tool==='select'){const h=hit(p)||pathHit(p);if(h?.kind==='handle'){drag={kind:'handle',id:h.id,index:h.index,zone:JSON.parse(JSON.stringify(zoneById(h.id)))};return;}
       if(h?.kind==='pin')holdStart(h,event);if(h?.kind==='path'){choosePath(h.index);return;}
-      selected=h;if(selected?.kind==='zone'){const z=zoneById(selected.id);drag={kind:'zone',id:z.id,from:p,zone:JSON.parse(JSON.stringify(z))};selectTab('plan');}else if(selected?.kind==='pin'){drag={kind:'pin',index:selected.index};selectTab('plan');}draw();zonePanel();pinPanel();}
+      selected=h;if(selected?.kind==='zone'){const z=zoneById(selected.id);drag={kind:'zone',id:z.id,from:p,zone:JSON.parse(JSON.stringify(z))};selectTab('plan');}else if(selected?.kind==='pin'){drag={kind:'pin',index:selected.index};openPart='pin';selectTab('plan');}draw();zonePanel();pinPanel();}
   });
   graph.addEventListener('pointerup',event=>{
     if(!active||pointer!==event.pointerId)return;const grabbed=!!graph.dataset.dragging;pointer=null;delete graph.dataset.dragging;$('#sim-grab-cursor')?.remove();
@@ -1036,7 +1006,7 @@ public class MyAuto implements DeckAutonomous {
     if(drag?.kind==='draw'){const z=drag.zone;drag=null;showDraft(null);if(z&&(z.type==='circle'?z.radius>=.75:z.width>=1&&z.height>=1)){if(L().zones.length>=24)status('#sim-plan-status','Use at most 24 zones.');else{L().zones.push(planner.validateZone(z));selected={kind:'zone',id:z.id};selectTab('plan');changed('zones');}}return;}
     if(drag){const moved=drag.moved,kind=drag.kind,index=drag.index,downTime=drag.downTime;drag=null;if(moved){lastPinTap=null;changed(kind==='pin'||kind==='control'?'pins':'zones');}else if(['pin','zone'].includes(kind)&&performance.now()-downTime<500){const now=performance.now(),previous=lastPinTap;lastPinTap={kind,index,id:selected?.id,layout:L().id,time:now,x:event.clientX,y:event.clientY};if(previous&&previous.layout===L().id&&previous.kind===kind&&previous.index===index&&(kind!=='zone'||previous.id===selected?.id)&&now-previous.time<500&&Math.hypot(previous.x-event.clientX,previous.y-event.clientY)<10){lastPinTap=null;if(kind==='zone')openZoneEffects({kind:'zone',id:selected.id},event);else openEffects({kind:'pin',index},event);}}}
   });
-  graph.addEventListener('dblclick',event=>{if(!active||tab!=='plan'||effects.session)return;if(tool==='shape'&&sketch){event.preventDefault();finishShape();return;}const p=toField(event),h=p&&(hit(p)||pathHit(p));if(h?.kind==='zone'){event.preventDefault();drag=null;openZoneEffects(h,event);return;}if(h&&['pin','path'].includes(h.kind)){event.preventDefault();drag=null;pendingPin=null;if(planningStep!=='pins')setStep('pins');choosePath(h.index);$('#path-x')?.focus({preventScroll:true});}});
+  graph.addEventListener('dblclick',event=>{if(!active||tab!=='plan'||effects.session)return;if(tool==='shape'&&sketch){event.preventDefault();finishShape();return;}const p=toField(event),h=p&&(hit(p)||pathHit(p));if(h?.kind==='zone'){event.preventDefault();drag=null;openZoneEffects(h,event);return;}if(h&&['pin','path'].includes(h.kind)){event.preventDefault();drag=null;pendingPin=null;if(planningStep!=='pins')setStep('pins');const part=h.kind==='pin'?'pin':'path';choosePath(h.index,part);$(part==='pin'?'#pin-wait':'#path-x')?.focus({preventScroll:true});}});
   // Leave pointer lock with the system cursor on the robot's centre (where the drawn cursor was).
   function releaseCursor(){if(document.pointerLockElement!==graph)return;const m=graph.getScreenCTM(),x=m?m.a*preview.x+m.e:0,y=m?m.d*(fieldHeight()-preview.y)+m.f:0;
     if(m)document.addEventListener('pointerlockchange',()=>void api.cursor?.(x,y).catch(()=>{}),{once:true});document.exitPointerLock();}
@@ -1090,7 +1060,7 @@ public class MyAuto implements DeckAutonomous {
     if(tool==='shape'&&sketch){if(event.key==='Enter'){event.preventDefault();finishShape();return;}if(event.key==='Escape'){event.preventDefault();sketch=null;cursor=null;showDraft(null);return;}if(event.key==='Backspace'){event.preventDefault();sketch.pop();if(!sketch.length)sketch=null;showDraft(null);return;}}
     if(event.key==='Escape'){targetPick=null;tool='select';drag=null;showDraft(null);draw();return;}
     if(!selected)return;
-    if(event.key==='Enter'&&['pin','path'].includes(selected.kind)){event.preventDefault();choosePath(selected.index);$('#path-x')?.focus({preventScroll:true});return;}
+    if(event.key==='Enter'&&['pin','path'].includes(selected.kind)){event.preventDefault();choosePath(selected.index,openPart);$(openPart==='pin'?'#pin-wait':'#path-x')?.focus({preventScroll:true});return;}
     if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();removeSelected();return;}
     const delta={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[event.key];
     const target=selected.kind==='zone'?zoneById(selected.id):L().pins[selected.index];if(!target)return;
@@ -1121,41 +1091,44 @@ public class MyAuto implements DeckAutonomous {
     box.querySelector('#zone-edit-done').onclick=finishEditor;const header=box.querySelector('.sim-pop-head');let grab=null;header.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();const r=box.getBoundingClientRect();grab={x:e.clientX-r.left,y:e.clientY-r.top};header.setPointerCapture(e.pointerId);};header.onpointermove=e=>{if(grab)clampEditor(box,e.clientX-grab.x,e.clientY-grab.y);};header.onpointerup=header.onpointercancel=()=>grab=null;
     box.hidden=false;clampEditor(box,(at?.clientX??innerWidth/2)+24,(at?.clientY??150)-30);draw();box.querySelector('input')?.focus({preventScroll:true});
   }
-  // What happens at a pin, in order: e.g. "pause 0.5 s → Shoot for 1 s → drive on".
+  // What happens at a pin, in order: e.g. "turn to 90° → pause 0.5 s → Shoot → Ramp down → Intake for 1 s → drive on".
   const pinSteps=p=>{const steps=[];if(finite(p.turn))steps.push(p.turnMode==='relative'?`turn by ${p.turn>=0?'+':''}${p.turn}°`:p.turnMode==='start'?'turn to the start heading':p.turnMode==='track'?'turn to the target':`turn to ${Math.round(p.turn)}°`);
-    if(p.wait>0)steps.push(`pause ${p.wait} s`);if(p.action)steps.push(`${p.action}${p.cell==='other'&&/^(shoot|aim)$/i.test(p.action)?' (other cell)':''} ${finite(p.actionSeconds)?`for ${p.actionSeconds} s`:/^shoot$/i.test(p.action)?'until empty':'until done'}`);return steps.length?[...steps,'drive on'].join(' → '):'';};
-  function effectSummary(p){const path=p.path||{},bits=[];
+    if(p.wait>0)steps.push(`pause ${p.wait} s`);const list=planner.pinEffects(p).steps;if(list.length)steps.push(window.DeckSimSteps.summary(list,'pin'));return steps.length?[...steps,'drive on'].join(' → '):'';};
+  // A path row's summary: its power, heading and shape, and what runs while it is driven.
+  function effectSummary(p){const path=planner.pathEffects(p.path),bits=[];
     if(finite(path.power))bits.push(`${Math.round(path.power*100)}% motor power`);
-    bits.push(...planner.pathDescription(path,project.tuning.maxPathSpeed).slice(1).filter(v=>v!=='Hold inherited heading'));
-    const at=pinSteps(p);if(at)bits.push(`At the end: ${at}`);if(p.note)bits.push(p.note);
+    if(path.steps.length)bits.push(`While driving: ${window.DeckSimSteps.summary(path.steps,'path')}`);
+    bits.push(...planner.pathDescription({...path,steps:[],kind:'regular'},project.tuning.maxPathSpeed).slice(1).filter(v=>v!=='Hold inherited heading'));
     return bits.join(' · ');}
-  // The route as a Pedro Pathing-style path list: the start, then one row per path (each pin is the
-  // end point of the path that drives to it). The open path is edited in place: end point, heading,
-  // shape, power, wait and actions. The pin and path editors stay one click away for the rest.
+  // The route as a list, the start and then each path followed by the pin it ends at. The open row is edited in place:
+  // a path's end point, heading, shape, power and its steps while driving; a pin's pause and its steps, one after
+  // another. The pin and path editors (right-click, or the options buttons) have the rest.
   const HEADINGS={keep:'Constant (hold heading)',turn:'Linear to a field heading',tangent:'Face along the path (tangent)',reverse:'Face backwards along the path',relative:'Turn by an angle',track:'Face a target',start:'Back to start heading',spin:'Spin'};
   const HEADING_VALUE={turn:['heading','End heading · °'],relative:['angle','Turn by · ° (+ left, − right)'],spin:['spins','Full spins (+ left, − right)']};
   const openPath=()=>['pin','path'].includes(selected?.kind)&&L().pins[selected.index]?selected.index:-1;
-  function choosePath(i){selected=i<0?null:{kind:'pin',index:i};pinPanel();draw();if(i>=0)$(`#sim-pin-list [data-path="${i}"]`)?.scrollIntoView({block:'nearest'});}
+  // Which half of the open path is unfolded in the list: the path ('path') or the pin it ends at ('pin').
+  let openPart='path';
+  function choosePath(i,part='path'){selected=i<0?null:{kind:'pin',index:i};openPart=part;pinPanel();draw();if(i>=0)$(`#sim-pin-list [data-${part==='pin'?'pin':'path'}="${i}"]`)?.scrollIntoView({block:'nearest'});}
   const xy=p=>`(${field.round(p.x)}, ${field.round(p.y)})`;
-  const actionOptions=(select,current,none)=>{select.replaceChildren(...[...new Set(['',...gameActions(),...(current?[current]:[])])].map(a=>new Option(a||none,a)),new Option('Other…','__other'));select.value=current||'';};
   function pinPanel(){
     const list=$('#sim-pin-list'),l=L(),open=openPath(),holonomic=C.drives[project.robot.drivetrain].holonomic,p=l.pins[open];
     $('#sim-add-path').disabled=l.pins.length>=32;
     // Rebuild only when the rows or the open card's fields change, so typing and Tab keep their place.
-    const shape=JSON.stringify([l.id,l.pins.length,open,holonomic,project.tuning.maxPathSpeed,gameActions(),p&&[p.path?.rotate,p.action,p.path?.action,p.path?.controls?.length||0]]);
+    const shape=JSON.stringify([l.id,l.pins.length,open,openPart,holonomic,project.tuning.maxPathSpeed,JSON.stringify(stepCatalog()),p&&[p.path?.rotate,p.action,p.path?.action,p.steps,p.path?.steps,p.path?.controls?.length||0]]);
     if(list.dataset.shape===shape)return syncPaths();
     const focus=list.contains(document.activeElement)?document.activeElement.id:'';list.dataset.shape=shape;
     const first=document.createElement('li');first.className='sim-path-start';
     first.innerHTML='<span class="sim-badge">S</span><span class="sim-path-title">Start</span><span class="sim-path-at" data-at></span><button type="button" class="text-button" data-edit-start>Edit</button>';
     first.querySelector('[data-edit-start]').onclick=()=>{void setView('2d');setStep('start');};
-    list.replaceChildren(first,...l.pins.map((q,i)=>pathRow(q,i,i===open,holonomic)));
+    list.replaceChildren(first,...l.pins.flatMap((q,i)=>[pathRow(q,i,i===open&&openPart!=='pin',holonomic),pinRow(q,i,i===open&&openPart==='pin')]));
     if(!l.pins.length){const li=document.createElement('li');li.className='hint sim-path-empty';li.textContent='No paths yet. Click the field or press + Add path.';list.append(li);}
     syncPaths();if(focus)document.getElementById(focus)?.focus({preventScroll:true});
   }
+  const anchorAt=e=>{const r=e.target.getBoundingClientRect();return {clientX:r.left,clientY:r.top};};
   function pathRow(p,i,isOpen,holonomic){
     const l=L(),li=document.createElement('li'),name=`Path ${i+1}`;li.className='sim-path-row'+(isOpen?' selected':'');li.dataset.path=i;
-    li.innerHTML=`<div class="sim-path-head"><button type="button" class="sim-path-pick" aria-expanded="${isOpen}"><span class="sim-path-swatch"></span><span class="sim-path-title">${name}</span><span class="sim-path-at" data-at></span></button><button type="button" class="icon-button" data-move="-1" aria-label="Move ${name} earlier" title="Move earlier"${i===0?' disabled':''}>↑</button><button type="button" class="icon-button" data-move="1" aria-label="Move ${name} later" title="Move later"${i===l.pins.length-1?' disabled':''}>↓</button><button type="button" class="icon-button" data-duplicate aria-label="Duplicate ${name}" title="Duplicate: a copy right after it"${l.pins.length>=32?' disabled':''}>⧉</button><button type="button" class="icon-button" data-remove aria-label="Delete ${name}" title="Delete path">×</button></div><p class="sim-pin-summary hint"></p>`;
-    li.querySelector('.sim-path-pick').onclick=()=>choosePath(isOpen?-1:i);
+    li.innerHTML=`<div class="sim-path-head"><button type="button" class="sim-path-pick" aria-expanded="${isOpen}"><span class="sim-path-swatch"></span><span class="sim-path-title">${name}</span><span class="sim-path-at" data-at></span></button><button type="button" class="icon-button" data-move="-1" aria-label="Move ${name} earlier" title="Move earlier"${i===0?' disabled':''}>↑</button><button type="button" class="icon-button" data-move="1" aria-label="Move ${name} later" title="Move later"${i===l.pins.length-1?' disabled':''}>↓</button><button type="button" class="icon-button" data-duplicate aria-label="Duplicate ${name}" title="Duplicate: a copy right after it"${l.pins.length>=32?' disabled':''}>⧉</button><button type="button" class="icon-button" data-remove aria-label="Delete ${name} and its pin" title="Delete path and its pin">×</button></div><p class="sim-pin-summary hint"></p>`;
+    li.querySelector('.sim-path-pick').onclick=()=>choosePath(isOpen?-1:i,'path');
     for(const b of li.querySelectorAll('[data-move]'))b.onclick=()=>{const j=i+Number(b.dataset.move);if(!l.pins[j])return;[l.pins[i],l.pins[j]]=[l.pins[j],l.pins[i]];selected={kind:'pin',index:j};changed('pins');};
     li.querySelector('[data-remove]').onclick=()=>{l.pins.splice(i,1);selected=null;changed('pins');};
     // The copy keeps the path's settings (not its curve handles, which belonged to the original's start) and ends a short way along, at the nearest clear spot.
@@ -1170,10 +1143,9 @@ public class MyAuto implements DeckAutonomous {
       ${holonomic?'':'<p class="hint">Tank drivetrains turn in place between straight paths.</p>'}
       <div class="sim-grid2"><div><label for="path-shape">Shape</label><select id="path-shape"><option value="">Route default</option><option value="sharp">Straight</option><option value="spline"${holonomic?'':' disabled'}>Curve</option><option value="custom"${holonomic?'':' disabled'}>Custom curve (drag handles)</option></select></div><div><label for="path-power">Motor power · 0–1</label><input id="path-power" type="number" min="0" max="1" step="any" placeholder="Setup ${project.tuning.maxPathSpeed??.8}"></div></div>
       ${path.controls?path.controls.map((_,j)=>`<div class="sim-grid2"><div><label for="path-c${j}x">Handle ${j+1} X · in</label><input id="path-c${j}x" type="number" step="any"></div><div><label for="path-c${j}y">Handle ${j+1} Y · in</label><input id="path-c${j}y" type="number" step="any"></div></div>`).join(''):''}
-      <label for="path-drive-action">While driving</label><select id="path-drive-action"></select>
-      <div class="sim-grid2"><div><label for="path-wait">Wait at end · s</label><input id="path-wait" type="number" min="0" step="any"></div><div><label for="path-end-action">Then do</label><select id="path-end-action"></select></div></div>
-      <div class="sim-path-more"><button type="button" class="text-button" data-more="path">Path options…</button><button type="button" class="text-button" data-more="pin">End point options…</button></div>`;
-    li.append(body);const q=s=>body.querySelector(s),at=e=>{const r=e.target.getBoundingClientRect();return {clientX:r.left,clientY:r.top};};
+      <h4 class="sim-pop-label sim-steps-title">While driving this path</h4><div class="sim-steps" id="path-steps"></div>
+      <div class="sim-path-more"><button type="button" class="text-button" data-more="path">Path options…</button><button type="button" class="text-button" data-open-pin>Pin ${i+1}: what happens there →</button></div>`;
+    li.append(body);const q=s=>body.querySelector(s);
     const number=(input,assign,min=-Infinity,max=Infinity,optional=false)=>{input.onchange=e=>{const raw=e.target.value.trim(),v=e.target.valueAsNumber;
       if(optional&&raw===''){e.target.setCustomValidity('');assign(null);return changed('plan');}
       if(!finite(v)||v<min||v>max){e.target.setCustomValidity(`Enter a number${finite(min)?' from '+min:''}${finite(max)?' to '+max:''}.`);e.target.reportValidity();return;}
@@ -1187,23 +1159,39 @@ public class MyAuto implements DeckAutonomous {
     if(q('#path-target-x'))for(const axis of ['x','y'])number(q('#path-target-'+axis),v=>path.target={...path.target,[axis]:v});
     q('#path-shape').onchange=e=>{const v=e.target.value;if(v==='custom'){path.controls=startControls(i);path.style=null;}else{path.controls=null;path.style=v||null;}path.shapeAuto=false;p.path=planner.pathEffects(path);changed('plan');if(v==='custom')status('#sim-plan-status',`${name} is a custom curve: drag its two handles on the field to shape it.`);};
     if(path.controls){const b=geometry().bounds;path.controls.forEach((_,j)=>{number(q(`#path-c${j}x`),v=>path.controls[j]={...path.controls[j],x:v},b.x0,b.x1);number(q(`#path-c${j}y`),v=>path.controls[j]={...path.controls[j],y:v},b.y0,b.y1);});}
-    number(q('#path-power'),v=>path.power=v,0,1,true);number(q('#path-wait'),v=>p.wait=v,0);
-    actionOptions(q('#path-drive-action'),path.action,'Just drive');actionOptions(q('#path-end-action'),p.action,'Nothing');
-    q('#path-drive-action').onchange=e=>{if(e.target.value==='__other'){e.target.value=path.action||'';return openEffects({kind:'path',index:i},at(e));}
-      path.action=e.target.value;path.kind=path.action?'action':'regular';if(!path.action)path.actionSeconds=null;p.path=planner.pathEffects(path);changed('plan');};
-    q('#path-end-action').onchange=e=>{if(e.target.value==='__other'){e.target.value=p.action||'';return openEffects({kind:'pin',index:i},at(e));}
-      p.action=e.target.value;if(/^intake$/i.test(p.action)&&!finite(p.actionSeconds))p.actionSeconds=1;if(!p.action||/^(spin up|aim)$/i.test(p.action))p.actionSeconds=null;changed('plan');};
-    for(const b of body.querySelectorAll('[data-more]'))b.onclick=e=>openEffects({kind:b.dataset.more,index:i},at(e));
+    number(q('#path-power'),v=>path.power=v,0,1,true);
+    stepsEditor(q('#path-steps'),'path',path,()=>{p.path=planner.pathEffects(path);changed('plan');},`path-${i}-steps`);
+    q('[data-more]').onclick=e=>openEffects({kind:'path',index:i},anchorAt(e));q('[data-open-pin]').onclick=()=>choosePath(i,'pin');
+    return li;
+  }
+  // The pin a path ends at: where the robot stops (unless nothing happens there) and what it does, in order.
+  function pinRow(p,i,isOpen){
+    const li=document.createElement('li'),name=`Pin ${i+1}`;li.className='sim-stop-row'+(isOpen?' selected':'');li.dataset.pin=i;
+    li.innerHTML=`<div class="sim-path-head"><button type="button" class="sim-path-pick sim-pin-pick" aria-expanded="${isOpen}"><span class="sim-pin-badge" aria-hidden="true">${i+1}</span><span class="sim-path-title">${name}</span><span class="sim-path-at" data-at></span></button></div><p class="sim-pin-summary hint"></p>`;
+    li.querySelector('.sim-pin-pick').onclick=()=>choosePath(isOpen?-1:i,'pin');
+    if(!isOpen)return li;
+    const body=document.createElement('div');body.className='sim-path-body';
+    body.innerHTML=`<div class="sim-grid2"><div><label for="pin-wait">Pause first · s</label><input id="pin-wait" type="number" min="0" step="any"></div><div><label>Turn here</label><button type="button" class="secondary sim-pin-turn" data-more="pin" title="Turn in place, face a heading or aim at a point at this pin">${finite(p.turn)?pinSteps({turn:p.turn,turnMode:p.turnMode}).split(' → ')[0]:'No turn'} …</button></div></div>
+      <h4 class="sim-pop-label sim-steps-title">At this pin, in order</h4><div class="sim-steps" id="pin-steps"></div>
+      <div class="sim-path-more"><button type="button" class="text-button" data-more="pin">Pin options…</button>${L().pins[i+1]?`<button type="button" class="text-button" data-open-next>Path ${i+2} →</button>`:''}</div>`;
+    li.append(body);const q=s=>body.querySelector(s);
+    q('#pin-wait').onchange=e=>{const v=e.target.valueAsNumber;if(!finite(v)||v<0){e.target.setCustomValidity('Enter 0 or more seconds.');e.target.reportValidity();return;}e.target.setCustomValidity('');p.wait=v;changed('plan');};
+    stepsEditor(q('#pin-steps'),'pin',p,()=>changed('plan'),`pin-${i}-steps`);
+    for(const b of body.querySelectorAll('[data-more]'))b.onclick=e=>openEffects({kind:'pin',index:i},anchorAt(e));
+    if(q('[data-open-next]'))q('[data-open-next]').onclick=()=>choosePath(i+1,'path');
     return li;
   }
   // Fills the list from the layout without rebuilding it; the field being typed in keeps its text.
   function syncPaths(){
     const list=$('#sim-pin-list'),l=L(),power=project.tuning.maxPathSpeed??.8,set=(input,v)=>{if(input&&input!==document.activeElement)input.value=v;};
     const first=list.querySelector('.sim-path-start [data-at]');if(first)first.textContent=`${xy(start)} · ${Math.round(start.heading)}°`;
+    for(const row of list.querySelectorAll('.sim-stop-row')){const i=Number(row.dataset.pin),p=l.pins[i];if(!p)continue;const what=pinSteps(p);
+      row.classList.toggle('acts',!!what);row.querySelector('[data-at]').textContent=xy(p);row.querySelector('.sim-pin-summary').textContent=what||'Drives straight on';
+      if(row.classList.contains('selected'))set(row.querySelector('#pin-wait'),p.wait||0);}
     for(const row of list.querySelectorAll('.sim-path-row')){const i=Number(row.dataset.path),p=l.pins[i];if(!p)continue;
       row.classList.toggle('needs-change',pathNeedsChange(i));row.querySelector('[data-at]').textContent=`→ ${xy(p)}`;row.querySelector('.sim-path-swatch').style.background=planner.pathAppearance(p.path,power).color;row.querySelector('.sim-pin-summary').textContent=effectSummary(p);
       if(!row.classList.contains('selected'))continue;const path=planner.pathEffects(p.path),q=s=>row.querySelector(s);
-      set(q('#path-x'),field.round(p.x));set(q('#path-y'),field.round(p.y));set(q('#path-heading'),path.rotate);set(q('#path-shape'),path.controls?'custom':path.style||'');set(q('#path-power'),path.power??'');set(q('#path-wait'),p.wait||0);
+      set(q('#path-x'),field.round(p.x));set(q('#path-y'),field.round(p.y));set(q('#path-heading'),path.rotate);set(q('#path-shape'),path.controls?'custom':path.style||'');set(q('#path-power'),path.power??'');
       (path.controls||[]).forEach((c,j)=>{set(q(`#path-c${j}x`),field.round(c.x));set(q(`#path-c${j}y`),field.round(c.y));});
       if(HEADING_VALUE[path.rotate])set(q('#path-heading-value'),path[HEADING_VALUE[path.rotate][0]]);if(path.target){set(q('#path-target-x'),path.target.x);set(q('#path-target-y'),path.target.y);}}
   }
@@ -1536,7 +1524,7 @@ public class MyAuto implements DeckAutonomous {
     const p=project.practice,sum=$('#sim-period-summary');if(sum)sum.textContent=p.mode==='autonomous'?`Autonomous period · ${p.autoSeconds} s`:p.mode==='teleop'?`Teleop period · ${p.teleopSeconds} s`:`Periods · ${p.autoSeconds} s auto, ${p.transitionSeconds} s transition, ${p.teleopSeconds} s teleop`;
     $('#sim-practice-phase').textContent=current?{auto:'Autonomous',transition:'Transition · controls locked',teleop:current.neutralRequired?'Teleop · centre sticks':'Teleop · Controller 1',finished:'Complete'}[current.phase]:'Ready';$('#sim-practice-time').textContent=clockText(current?.remaining??(project.practice.mode==='teleop'?project.practice.teleopSeconds:project.practice.autoSeconds));
     $('#sim-practice-help').textContent=project.practice.mode==='autonomous'?'Autonomous only. Controller driving stays disabled.':project.practice.mode==='match'?'Auto → transition → teleop. Early autonomous completion holds still until its timer ends. Controller 1 is enabled only in teleop.':'Controller 1: left stick moves, right stick turns, left bumper slows down. Release both sticks after starting or reconnecting.';
-    if(project.mechanisms.enabled&&project.practice.mode!=='autonomous')$('#sim-practice-help').textContent+=' Mechanisms in teleop: right bumper intakes, left trigger spins up, right trigger shoots (keyboard: E, Shift, G).';
+    if(project.mechanisms.enabled&&project.practice.mode!=='autonomous')$('#sim-practice-help').textContent+=` Mechanisms in teleop: right bumper intakes, left trigger spins up, right trigger shoots${project.mechanisms.intakes?.some(i=>i.kind==='ramp')?', Y folds the ramp down or back up (keyboard: E, Shift, G, F)':' (keyboard: E, Shift, G)'}.`;
     $('[data-program]').parentElement.hidden=project.practice.mode==='teleop'||project.controller==='motionmodule';if($('#sim-run-program'))$('#sim-run-program').hidden=$('[data-program]').parentElement.hidden;$('#sim-source-box').hidden=project.practice.mode==='teleop'||project.controller==='motionmodule'||project.program.kind!=='source';
   }
   for(const b of $$('[data-practice]'))b.onclick=()=>{if(native&&(frame?.playing||frame?.practice))void call('stop');project.practice.mode=b.dataset.practice;save();practicePanel(null);transport();};
@@ -1792,10 +1780,13 @@ public class MyAuto implements DeckAutonomous {
     Object.assign(project.robot,{length:q(c(n.length)),width:q(c(n.width)),...(n.height>=1&&n.height<=48?{heightIn:q(n.height)}:{})});save();robotPanel();void placeModel();
     return `${project.robot.length} × ${project.robot.width} × ${project.robot.heightIn} in`;
   }
-  function setUpFromCad({replace=false}={}){
+  // merge (Configure from CAD, a new import): the intakes and shooters the team added take what the CAD says about them
+  // (MECH.adoptCad); replace (a part's role picked by hand): they become exactly what the parts say.
+  function setUpFromCad({replace=false,merge=false}={}){
     const boxes=project.model&&M()?.partBoxes(project.model);if(!boxes)return null;
     const out=MECH.fromCad(boxes.parts,{length:boxes.extent.length,width:boxes.extent.width,chassis:boxes.chassis?.derived?boxes.chassis:null});if(!out.found.length)return out;
     if(out.robot)Object.assign(project.robot,out.robot);
+    if(merge&&!replace){const r=MECH.adoptCad(project.mechanisms,out);project.mechanisms=r.mechanisms;return {...out,matched:r.matched,extra:r.extra};}
     // A choice made by clicking (replace) sets the intakes and shooters to exactly what the parts say.
     if(out.intakes.length||out.shooters.length||replace){const m=structuredClone(project.mechanisms);if(!m.enabled||replace){m.intakes=[];m.shooters=[];}
       if(out.intakes.length)m.intakes=out.intakes;if(out.shooters.length)m.shooters=out.shooters;if(out.capacity&&!m.capacity?.nectar)m.capacity=out.capacity;m.enabled=m.intakes.length+m.shooters.length>0||m.enabled&&!replace;project.mechanisms=MECH.sanitize(m);}
@@ -1813,7 +1804,7 @@ public class MyAuto implements DeckAutonomous {
       project.model=M().meta({id:stored.id,name:result.name||stored.name,units:body.units,front:front||'+x',top:top||'+z',source:body.source,parts,bodyChassis:true});project.robot.appearance='custom';$('#sim-appearance').value='custom';model={id:stored.id,geometry:body.geometry};
       // A robot file's joints (URDF, SDFormat, MuJoCo, USD) come with it, confirmed.
       if(body.kinematics)project.kinematics=window.DeckKinematics.sanitize({...body.kinematics,model:stored.id});
-      project.robotPreset=null;const cad=setUpFromCad();project.model.autoSize=!cad?.robot;project.model.entered=[];
+      project.robotPreset=null;const cad=setUpFromCad({merge:true});project.model.autoSize=!cad?.robot;project.model.entered=[];
       // The drivetrain from part names ("104mm Mecanum Wheel", "Swerve module"...).
       const drive=MECH.drivetrainFromNames(result.names||[]);if(drive&&C.drives[drive]){project.robot.drivetrain=drive;cad?.found.unshift(`Drivetrain: ${C.drives[drive].name}`);}
       save();robotPanel();mechanismsPanel();presetPanel();
@@ -1832,7 +1823,7 @@ public class MyAuto implements DeckAutonomous {
   drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');const file=e.dataTransfer?.files?.[0];if(!file||!native)return;const filePath=api.simDropPath?.(file);if(!filePath)return importStatus('That file could not be opened.');void importConfirmed(filePath);});
   const reorient=side=>{if(!selectedSide||!model)return;const builtin=model.builtin,current=project.model||project.orientations?.[builtin]||{front:builtin==='strafer'?'-x':'+x',top:'+z'},next=M().assignSide(current,selectedSide,side);const followed=project.model?followOrientation(current,next):false;if(project.model)Object.assign(project.model,next);else project.orientations[builtin]=next;save();selectedSide=null;for(const b of $$('[data-assign-side]'))b.disabled=true;
     if(project.model){robotPanel();mechanismsPanel();reload();}if(followed)status('#mech-model-help','');
-    const said=followed?'Orientation saved. The intakes and shooters from your CAD moved with it. If one looks wrong, press “Set up from your CAD” in Mechanisms.':'Orientation saved. The floor marks the bottom.';
+    const said=followed?'Orientation saved. The intakes and shooters from your CAD moved with it. If one looks wrong, press “Configure from CAD” in Mechanisms.':'Orientation saved. The floor marks the bottom.';
     void placeModel().then(()=>{const sized=sizeFromModel();if(sized)status('#sim-model-help',said+' Size from the CAD: '+sized+'.');});status('#sim-model-help',said);void placeModel().then(()=>modelPreview?.look(null));};
   // A new front or top for the CAD carries its intakes, shooters and chassis size with it, so the hitboxes stay on
   // the parts they came from. Returns whether the mechanisms changed.
@@ -1908,7 +1899,10 @@ public class MyAuto implements DeckAutonomous {
     const fieldText=(l.name||GAMES[l.field]||'Field')+(game?` · ${l.alliance==='blue'?'blue':'red'} alliance`:finite(l.width)&&finite(l.height)?` · ${l.width} × ${l.height} in`:'')+(layouts.length>1?` (+${layouts.length-1} more)`:'');
     const robotText=`${preset?preset.name:d?.model?.name||'Custom robot'} · ${drive}${finite(r.length)&&finite(r.width)?` · ${r.length} × ${r.width} in`:''}`;
     const intakes=Array.isArray(m.intakes)?m.intakes.length:0,shooters=Array.isArray(m.shooters)?m.shooters:[];
-    const mechText=!game?'None (empty field)':!m.enabled?'None':`${intakes?count(intakes,'intake'):'No intake'} · ${[[shooters.filter(s=>s.type==='turret').length,'turret'],[shooters.filter(s=>s.type!=='turret').length,'fixed shooter']].filter(([n])=>n).map(([n,w])=>count(n,w)).join(' + ')||'no shooter'}`;
+    // The game's intakes and shooters (BIOBUZZ), then the moving mechanisms by name.
+    const TYm=window.DeckMechanismTypes,k=d?.kinematics||{},moving=(Array.isArray(k.joints)?k.joints:[]).filter(j=>TYm?.TYPES[j.kind]&&TYm.TYPES[j.kind].signal!=='wheel'&&(!j.drive||j.drive.signal==='action')&&!(k.couplings||[]).some(c=>c.to===j.id)).map(j=>j.name);
+    const gameText=game&&m.enabled?`${intakes?count(intakes,'intake'):'No intake'} · ${[[shooters.filter(s=>s.type==='turret').length,'turret'],[shooters.filter(s=>s.type!=='turret').length,'fixed shooter']].filter(([n])=>n).map(([n,w])=>count(n,w)).join(' + ')||'no shooter'}`:'';
+    const mechText=[gameText,moving.length>3?`${moving.slice(0,3).join(', ')} +${moving.length-3} more`:moving.join(', ')].filter(Boolean).join(' · ')||'None';
     const pins=Array.isArray(l.pins)?l.pins.length:0;
     return [['Field',fieldText],['Robot',robotText],['Mechanisms',mechText],['Controller',CONTROLLERS[d?.controller]||CONTROLLERS.ftc],['Route',pins?`${count(pins,'pin')}${l.route?' · planned':''}`:'No route yet']];
   }
@@ -2013,7 +2007,7 @@ public class MyAuto implements DeckAutonomous {
   // The robot's parts, edited like DSIM's robot builder: option cards, side chips and a 3×3 position
   // grid, with the robot model (when there is one) updating as you choose.
   // Every change goes through the shared sanitizer, so this page, the engine and the exports agree.
-  let mechPreview=null,mechPlacing=null;
+  let mechPreview=null,mechPlacing=null,mechList=null;
   const GRID=Object.keys(MECH.MOUNT_AT),title=s=>s[0].toUpperCase()+s.slice(1);
   const chip=(field,value,label,on,disabled=false)=>`<button type="button" class="sim-chip" data-field="${field}" data-value="${value}" aria-pressed="${on}"${disabled?' disabled':''}>${label}</button>`;
   const choiceCards=(field,list,notes,value)=>`<div class="sim-choice-cards">${Object.entries(list).map(([k,v])=>`<button type="button" class="sim-choice" data-field="${field}" data-value="${k}" aria-pressed="${k===value}"><strong>${v}</strong><span>${notes[k]}</span></button>`).join('')}</div>`;
@@ -2021,6 +2015,14 @@ public class MyAuto implements DeckAutonomous {
   const placeButton=part=>model?.holder?`<button type="button" class="secondary sim-place" data-place="${part}" aria-pressed="${mechPlacing===part}">${mechPlacing===part?'Click the part on the model…':'Place on model'}</button>`:'';
   const configNote='<p class="hint">Names must match your Control Hub configuration (or hardware.py on MotionModule). Tick “Turns the other way” for a device mounted so it runs backwards; the check TeleOp exported with the code shows which ones need it.</p>';
   const reverseBox=(id,field,on)=>`<label class="check sim-mech-reverse" for="${id}"><input id="${id}" data-field="${field}" type="checkbox"${on?' checked':''}> Turns the other way</label>`;
+  // The motors and servos a game mechanism runs on, in one line; its Actuators section holds their settings.
+  const escHtml=s=>String(s??'').replace(/[&<>"]/g,c=>`&#${c.charCodeAt(0)};`);
+  const deviceLine=list=>`<p class="hint sim-mech-devices"><b>Actuators:</b> ${list.map(([what,kind,name,extra])=>`${what} on a ${kind} “${escHtml(name)}”${extra?` (${extra})`:''}`).join('; ')}.</p>`;
+  const intakeDevices=i=>[...(i.kind!=='kicker'?[[i.kind==='ramp'?'rollers':'roller',i.device==='crservo'?'continuous servo':'DC motor',i.motor],...(i.motor2?[['second roller',i.device==='crservo'?'continuous servo':'DC motor',i.motor2]]:[])]:[]),
+    ...(MECH.deploys(i.kind)?[[i.kind,'servo',i.servo,`down at ${i.downPos}, up at ${i.upPos}`]]:[])];
+  const shooterDevices=(s,n,m)=>[['flywheel','DC motor',s.motor],...(s.motor2?[['second flywheel','DC motor',s.motor2]]:[]),
+    ['feeder',{motor:'DC motor',crservo:'continuous servo',pusher:'servo',gate:'servo'}[s.indexerKind],s.indexer,MECH.servoFeeder(s.indexerKind)?`${s.indexerKind==='gate'?'open':'push'} at ${s.feedPos}, rest at ${s.restPos}`:''],
+    ...(s.type==='turret'&&!(n===1&&m.shooters[1]?.sharesTurret)?[['turret',m.turret.kind==='servo'?'servo':'DC motor with encoder',s.turretMotor]]:[])];
   function intakeCard(intake,n,used){
     const swing=SWINGS[intake.kind];
     return `<section class="sim-mech-part" data-part="intake:${n}"><div class="sim-mech-head"><h4>Intake ${n+1}</h4><button type="button" class="icon-button" data-mech-remove="intake:${n}" aria-label="Remove intake ${n+1}" title="Remove">×</button></div>
@@ -2028,7 +2030,7 @@ public class MyAuto implements DeckAutonomous {
       <span class="sim-mech-label">Size</span><div class="sim-grid3"><div><label for="mech-intake-reach-${n}">Sticks out past the frame · in</label><input id="mech-intake-reach-${n}" data-field="reach" type="number" min="0" max="18" step="any" data-slider-max="8" data-slider-step="0.25" value="${intake.reach}"></div><div><label for="mech-intake-width-${n}">Mouth width · in</label><input id="mech-intake-width-${n}" data-field="width" type="number" min="1" max="48" step="any" data-slider-max="${Math.max(project.robot.width,project.robot.length)}" data-slider-step="0.25" value="${+(intake.width??(intake.sides.some(e=>e==='front'||e==='back')?project.robot.width:project.robot.length)).toFixed(2)}"></div><div><label for="mech-intake-height-${n}">Opening height · in</label><input id="mech-intake-height-${n}" data-field="height" type="number" min="1" max="24" step="any" data-slider-max="12" data-slider-step="0.25" value="${intake.height}"></div></div>
       <span class="sim-mech-label">Picks up from</span><div class="sim-chips">${MECH.EDGES.map(e=>chip('side',e,title(e),intake.sides.includes(e),used.has(e)&&!intake.sides.includes(e))).join('')}</div>${placeButton('intake:'+n)}
       ${swing?`<span class="sim-mech-label">${swing.label}</span><div class="start-xy"><div><label for="mech-deploy-down-${n}">${swing.down}</label><input id="mech-deploy-down-${n}" data-field="down" type="number" min="0" max="3" step="any" data-slider-max="1.5" data-slider-step="0.05" value="${intake.down}"></div><div><label for="mech-deploy-up-${n}">${swing.up}</label><input id="mech-deploy-up-${n}" data-field="up" type="number" min="0" max="3" step="any" data-slider-max="1.5" data-slider-step="0.05" value="${intake.up}"></div></div>`:''}
-      <details class="sim-mech-code"><summary>Robot hardware</summary>${intake.kind!=='kicker'?`<div class="start-xy"><div><label for="mech-intake-device-${n}">${swing?'Rollers run on a':'Roller runs on a'}</label><select id="mech-intake-device-${n}" data-field="device">${options(MECH.ROLLERS,intake.device||'motor')}</select></div><div><label for="mech-intake-power-${n}">${swing?'Roller power':'Intake power'} · 0–1</label><input id="mech-intake-power-${n}" data-field="power" type="number" min="0.05" max="1" step="any" value="${intake.power}"></div></div>
+      ${deviceLine(intakeDevices(intake))}<details class="sim-mech-code"><summary>Actuators · motors and servos</summary>${intake.kind!=='kicker'?`<div class="start-xy"><div><label for="mech-intake-device-${n}">${swing?'Rollers run on a':'Roller runs on a'}</label><select id="mech-intake-device-${n}" data-field="device">${options(MECH.ROLLERS,intake.device||'motor')}</select></div><div><label for="mech-intake-power-${n}">${swing?'Roller power':'Intake power'} · 0–1</label><input id="mech-intake-power-${n}" data-field="power" type="number" min="0.05" max="1" step="any" value="${intake.power}"></div></div>
         <div class="start-xy"><div><label for="mech-intake-motor-${n}">${swing?'Roller name':'Intake roller name'}</label><input id="mech-intake-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${intake.motor}"></div>${reverseBox(`mech-intake-rev-${n}`,'reversed',intake.reversed)}</div>
         <div class="start-xy"><div><label for="mech-intake-motor2-${n}">Second roller name (optional)</label><input id="mech-intake-motor2-${n}" data-field="motor2" maxlength="40" autocomplete="off" spellcheck="false" placeholder="None" value="${intake.motor2||''}"></div>${intake.motor2?reverseBox(`mech-intake-rev2-${n}`,'reversed2',intake.reversed2):''}</div>`:''}${swing?`<div class="start-xy"><div><label for="mech-deploy-servo-${n}">${swing.servo}</label><input id="mech-deploy-servo-${n}" data-field="servo" maxlength="40" autocomplete="off" value="${intake.servo}"></div></div><div class="start-xy"><div><label for="mech-deploy-downpos-${n}">Servo position down · 0–1</label><input id="mech-deploy-downpos-${n}" data-field="downPos" type="number" min="0" max="1" step="any" value="${intake.downPos}"></div><div><label for="mech-deploy-uppos-${n}">Servo position up · 0–1</label><input id="mech-deploy-uppos-${n}" data-field="upPos" type="number" min="0" max="1" step="any" value="${intake.upPos}"></div></div>`:''}${configNote}</details></section>`;
   }
@@ -2049,7 +2051,7 @@ public class MyAuto implements DeckAutonomous {
       ${choiceCards('type',{turret:'Turret',fixed:'Fixed shooter'},SHOOTER_SHORT,s.type)}${pieces}${turretChoice}
       ${riding?'':`<span class="sim-mech-label">Position on the robot</span>${mountGrid(s.mount,blocked)}${placeButton('shooter:'+n)}`}
       ${s.type==='fixed'?`<span class="sim-mech-label">Fires toward</span><div class="sim-chips">${Object.keys(MECH.FACING).map(f=>chip('facing',f,title(f),s.facing===f)).join('')}</div>`:''}
-      <details class="sim-mech-code"><summary>Robot hardware</summary><div class="start-xy"><div><label for="mech-shooter-motor-${n}">Flywheel motor name</label><input id="mech-shooter-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.motor}"></div>${reverseBox(`mech-shooter-rev-${n}`,'reversed',s.reversed)}</div>
+      ${deviceLine(shooterDevices(s,n,m))}<details class="sim-mech-code"><summary>Actuators · motors and servos</summary><div class="start-xy"><div><label for="mech-shooter-motor-${n}">Flywheel motor name</label><input id="mech-shooter-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.motor}"></div>${reverseBox(`mech-shooter-rev-${n}`,'reversed',s.reversed)}</div>
       <div class="start-xy"><div><label for="mech-shooter-motor2-${n}">Second flywheel motor (optional)</label><input id="mech-shooter-motor2-${n}" data-field="motor2" maxlength="40" autocomplete="off" spellcheck="false" placeholder="None" value="${s.motor2||''}"></div>${s.motor2?reverseBox(`mech-shooter-rev2-${n}`,'reversed2',s.reversed2):''}</div>
       <div class="start-xy"><div><label for="mech-indexer-kind-${n}">Feeder is a</label><select id="mech-indexer-kind-${n}" data-field="indexerKind">${options(MECH.INDEXERS,s.indexerKind)}</select></div><div><label for="mech-indexer-name-${n}">Feeder name</label><input id="mech-indexer-name-${n}" data-field="indexer" maxlength="40" autocomplete="off" spellcheck="false" value="${s.indexer}"></div></div>
       ${MECH.servoFeeder(s.indexerKind)?`<div class="start-xy"><div><label for="mech-feed-pos-${n}">${s.indexerKind==='gate'?'Open':'Push'} position · 0–1</label><input id="mech-feed-pos-${n}" data-field="feedPos" type="number" min="0" max="1" step="any" value="${s.feedPos}"></div><div><label for="mech-rest-pos-${n}">${s.indexerKind==='gate'?'Closed':'Rest'} position · 0–1</label><input id="mech-rest-pos-${n}" data-field="restPos" type="number" min="0" max="1" step="any" value="${s.restPos}"></div></div>`:reverseBox(`mech-indexer-rev-${n}`,'indexerReversed',s.indexerReversed)}
@@ -2057,15 +2059,14 @@ public class MyAuto implements DeckAutonomous {
       ${s.type==='turret'&&!riding?`<div class="start-xy"><div><label for="mech-turret-motor-${n}">Turret ${m.turret.kind==='servo'?'servo':'motor'} name${shared?' (both shooters)':''}</label><input id="mech-turret-motor-${n}" data-field="turretMotor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.turretMotor}"></div>${reverseBox(`mech-turret-rev-${n}`,'turretReversed',s.turretReversed)}</div>`:''}${configNote}</details></section>`;
   }
   function mechanismsPanel(){
-    const m=project.mechanisms,l=L(),on=m.enabled,intakes=on?m.intakes:[],shooters=on?m.shooters:[],used=new Set(intakes.flatMap(i=>i.sides));
+    // The game's intakes and shooters are BIOBUZZ's; on another field only the moving mechanisms are listed.
+    const m=project.mechanisms,l=L(),on=m.enabled&&l.field==='biobuzz',intakes=on?m.intakes:[],shooters=on?m.shooters:[],used=new Set(intakes.flatMap(i=>i.sides));
     $('#mech-field-note').textContent=l.field!=='biobuzz'?'':shooters.length?`Shots aim at the ${l.alliance||'red'} hive's up-facing cell (set the alliance in step 1).`:'';
     // Rebuilt from settings; keep focus on a text field the user is typing in.
     const typing=document.activeElement?.closest?.('#mech-intakes,#mech-shooters')&&document.activeElement.matches('input:not([type=number]):not([type=checkbox])');
     if(!typing){const parts='#mech-intakes details,#mech-shooters details',key=d=>d.closest('[data-part]').dataset.part+' '+d.className,open=new Set([...$$(parts)].filter(d=>d.open).map(key));
       $('#mech-intakes').innerHTML=intakes.map((i,n)=>intakeCard(i,n,used)).join('');$('#mech-shooters').innerHTML=shooters.map((s,n)=>shooterCard(s,n,m)).join('');
       for(const d of $$(parts))d.open=open.has(key(d));}
-    $('[data-mech-add=intake]').hidden=intakes.length>=4||used.size>=4;$('[data-mech-add=shooter]').hidden=shooters.length>=MECH.MAX_SHOOTERS;
-    $('[data-mech-add=shooter]').textContent=shooters.length?'+ Add a second shooter':'+ Add shooter';
     $('#mech-timing').hidden=!shooters.length;$('#mech-turret-timing').hidden=$('#mech-turret-code').hidden=!MECH.hasTurret(m);$('#mech-preloads').hidden=!on;
     const nectarOk=shooters.some(s=>s.pieces!=='pollen');$('#mech-cap-nectar').disabled=!nectarOk;$('#mech-preload').max=String(m.capacity.pollen);
     $('#mech-nectar-note').textContent=nectarOk?`Holds ${m.storage} pieces in any mix: up to ${m.capacity.pollen} pollen and up to ${m.capacity.nectar} nectar, ${MECH.STORAGE_MAX} at most together.`:'To carry nectar, set a shooter to shoot nectar (or pollen and nectar).';
@@ -2076,15 +2077,28 @@ public class MyAuto implements DeckAutonomous {
     for(const [id,v] of [['#mech-tolerance',+(m.shooter.tolerance*100).toFixed(3)],['#mech-fly-power-value',m.shooter.power],['#mech-push',m.indexer.pushSeconds],['#mech-turret-center',m.turret.servoCenter],['#mech-turret-degrees',m.turret.servoDegrees]])inputValue(id,v);
     for(const el of $$('[data-pidf]'))if(document.activeElement!==el)el.value=m.shooter.pidf?String(m.shooter.pidf[el.dataset.pidf]):'';
     $('#sim-action-list').replaceChildren(...MECH.actions(m).map(v=>new Option(v,v)));
+    mechList?.render();$('#mech-empty').hidden=intakes.length+shooters.length+(mechList?.listed().length||0)>0;$('#mech-from-cad').disabled=!project.model;mechCount(intakes,shooters);
+    $('#mech-from-cad').title=project.model?'Finds each mechanism in your CAD by its name':'Import your robot’s CAD in step 2 first';
     mechModel();
   }
+  // The motors and servos the mechanisms use, against FTC's limit (BIOBUZZ R503: 8 motors and 8 servos, the drivetrain's
+  // motors included; a linear servo counts as a servo).
+  function mechCount(intakes,shooters){
+    let motors=0,servos=0;const add=kind=>{if(kind==='motor'||kind==='dcmotor')motors++;else if(['servo','crservo','linear','pusher','gate'].includes(kind))servos++;};
+    for(const i of intakes){if(i.kind!=='kicker'){add(i.device==='crservo'?'crservo':'motor');if(i.motor2)add(i.device==='crservo'?'crservo':'motor');}if(MECH.deploys(i.kind))add('servo');}
+    shooters.forEach((s,n)=>{add('motor');if(s.motor2)add('motor');add(s.indexerKind);if(s.type==='turret'&&!(n===1&&shooters[1]?.sharesTurret))add(project.mechanisms.turret.kind==='servo'?'servo':'motor');});
+    for(const a of project.kinematics.actuators)add(a.kind);
+    // The drivetrain's own motors (a swerve module's steering is counted by the team: a servo or a motor each).
+    const d=project.robot.drivetrain,drive={tank2:2,kiwi:3}[d]??4,steer=/swerve/i.test(d)?' plus its steering':'',all=motors+drive;
+    const el=$('#mech-count');el.textContent=motors+servos?`Your robot uses ${all} motors (${drive} to drive${steer}, ${motors} in mechanisms) and ${servos} servo${servos===1?'':'s'}. FTC allows 8 motors and 8 servos (BIOBUZZ rule R503)${all>8||servos>8?`: this is ${[all>8?`${all-8} motor${all-8===1?'':'s'}`:'',servos>8?`${servos-8} servo${servos-8===1?'':'s'}`:''].filter(Boolean).join(' and ')} too many`:''}.`:'';
+    el.classList.toggle('sim-joint-needs',servos>8||all>8);}
   // The robot model with each part marked; "Place on model" picks a part's position by clicking it.
   function mechModel(){
-    const game=L().field==='biobuzz',show=!!model?.holder&&setupStep==='mechanisms'&&(!game||project.mechanisms.enabled);$('#mech-model-box').hidden=!show;
+    const game=L().field==='biobuzz',show=!!model?.holder&&setupStep==='mechanisms';$('#mech-model-box').hidden=!show;
     if(!show){mechPreview?.pick(null);joints.hide();return;}
     if(!mechPreview)mechPreview=M().preview($('#mech-model-preview'));
     // The model is fitted to the chassis (not the intakes), so parts are placed from the chassis edges.
-    const f=chassisFootprint(),m=game?project.mechanisms:{intakes:[],shooters:[]},r=project.robot,cx=(f.front-f.rear)/2,hl=r.length/2,hw=r.width/2,h=(model.holder.userData.size?.height||12)*.7;
+    const f=chassisFootprint(),m=game&&project.mechanisms.enabled?project.mechanisms:{intakes:[],shooters:[]},r=project.robot,cx=(f.front-f.rear)/2,hl=r.length/2,hw=r.width/2,h=(model.holder.userData.size?.height||12)*.7;
     mechPreview.update(mechRig(),chassisFootprint());
     // Intakes: see-through green boxes at their real size. Shooters: dots (yellow pollen, red nectar, orange both).
     const normal={front:[1,0],back:[-1,0],left:[0,1],right:[0,-1]},marks=[],colors={pollen:0xf2d14b,nectar:0xe5484d,both:0xf2994a};
@@ -2096,19 +2110,41 @@ public class MyAuto implements DeckAutonomous {
       .map(([color,name,text])=>{const li=document.createElement('li'),dot=document.createElement('i'),b=document.createElement('b');dot.style.background='#'+color.toString(16).padStart(6,'0');b.textContent=name;li.append(dot,b,' · '+text);return li;}));
     mechPreview.markers(marks);
     // Parts named in the CAD (Chassis, Intake, Shooter, Turret, Indexer...) can set these up again, after a new front for example.
-    const named=(project.model?.parts||[]).filter(p=>p.role!=='other');$('#mech-cad').hidden=!game||!named.length;$('#mech-model-help').hidden=!game;
-    $('#mech-cad-note').textContent=named.length?`Your CAD names ${named.map(p=>`“${p.name}” (${p.role}${p.pieces?', '+p.pieces:''}${p.type==='turret'?', turret':''})`).join(', ')}. This replaces the intakes, shooters and chassis size with them.`:'';
+    const named=(project.model?.parts||[]).filter(p=>p.role!=='other');$('#mech-model-help').hidden=!game;
+    $('#mech-cad-note').textContent=game&&named.length?`Your CAD names ${named.map(p=>`“${p.name}” (${p.role}${p.pieces?', '+p.pieces:''}${p.type==='turret'?', turret':''})`).join(', ')}.`:'';
     mechPreview.pick(mechPlacing?point=>{if(!point)return;const [kind,n]=mechPlacing.split(':'),loc=MECH.locate({x:point.x-cx,y:point.y},2*hl,2*hw);mechPlacing=null;
       setMech(m=>{const part=m[kind==='intake'?'intakes':'shooters'][+n];if(!part)return;
         if(kind==='intake'){if(m.intakes.some((o,k)=>k!==+n&&o.sides.includes(loc.edge)))return status('#mech-model-help',`Another intake already covers the ${loc.edge}.`);part.sides=[loc.edge];part.at=point;status('#mech-model-help',`Intake ${+n+1}: ${loc.edge} of the robot.`);}
         else{part.mount=loc.mount;part.at=point;status('#mech-model-help',`Shooter ${+n+1}: ${MECH.MOUNTS[loc.mount].toLowerCase()} of the robot.`);}});}:joints.picker());
     joints.render();
   }
-  $('#mech-from-cad').onclick=()=>{const out=setUpFromCad();save();robotPanel();mechanismsPanel();void placeModel().then(()=>joints.discover({quiet:true}));reload();status('#mech-model-help',out?.found.length?'Set up from your CAD: '+out.found.join('; ')+'.':'No intake, shooter or chassis parts were named in this CAD.');};
+  // Configure from CAD: each mechanism added is looked for in the CAD by the names most like it. The game's intakes and
+  // shooters take the CAD's named intake and shooter assemblies (their side, size, spot and parts; what the team chose
+  // stays); then every moving mechanism added without parts is looked for (DeckMechanismTypes.likeness) and its pivot,
+  // rails or axle found, and what the CAD's shapes show is set too (a plate swinging down on a servo makes an intake a
+  // ramp or a kicker, whatever its name says). The rest of the CAD's moving parts come with them.
+  $('#mech-from-cad').onclick=async()=>{
+    if(!project.model)return status('#mech-list-status','Import your robot’s CAD in step 2 (Robot) first.');
+    const said=[],game=L().field==='biobuzz',button=$('#mech-from-cad');button.disabled=true;
+    try{
+      if(game){const out=setUpFromCad({merge:true});if(out?.matched?.length)said.push(out.matched.join('; '));if(out?.extra?.length)said.push(`Also in your CAD: ${out.extra.join(', ')}; add it with + Add mechanism to set it up`);}
+      save();robotPanel();mechanismsPanel();status('#mech-list-status','Looking through your CAD for each mechanism…');
+      await placeModel();const r=await joints.discover({quiet:true,fromCad:true});
+      if(r===false)said.push('Moving mechanisms are found in a STEP assembly whose parts are named (Lift, Claw, Arm…)');
+      if(r?.matched?.length)said.push(r.matched.map(x=>`${x.name} → “${x.cad}”`).join('; '));
+      if(r?.unmatched?.length)said.push(`Not found by name: ${r.unmatched.join(', ')}. Name its assembly like it in your CAD, or press Choose its parts on its card`);
+      if(r?.told?.length)said.push(...r.told.map(t=>t.replace(/\.$/,'')));
+      reload();mechanismsPanel();status('#mech-list-status',said.length?`Configured from your CAD: ${said.join('. ')}.`:'Nothing in your CAD is named like these mechanisms. Name the assemblies in your CAD (Intake, Lift, Claw…), or choose each one’s parts on the model.');
+    }finally{button.disabled=!project.model;}};
   // Mechanisms are on while the robot has any part; adding the first part starts from that part alone.
   function setMech(change){const m=structuredClone(project.mechanisms);if(!m.enabled){m.intakes=[];m.shooters=[];}change(m);m.enabled=m.intakes.length>0||m.shooters.length>0;project.mechanisms=MECH.sanitize(m);save();mechanismsPanel();reload();}
-  $('[data-mech-add=intake]').onclick=()=>setMech(m=>{const free=MECH.EDGES.find(e=>!m.intakes.some(i=>i.sides.includes(e)));if(free)m.intakes.push({kind:m.intakes[0]?.kind||'sweeper',sides:[free]});});
-  $('[data-mech-add=shooter]').onclick=()=>setMech(m=>{const first=m.shooters[0];m.shooters.push(first?{type:'fixed',pieces:'nectar',mount:MECH.PARTNER[first.mount==='center'?'front':first.mount]}:{type:'turret',pieces:'pollen',mount:'center'});});
+  // + Add mechanism's game entries (BIOBUZZ): an intake of a kind on a free edge, or a turret or fixed shooter (the second
+  // at the first one's partner spot). Returns its label, or null when the robot has as many as the game allows.
+  function addGame(what,kind){let label=null;
+    setMech(m=>{if(what==='intake'){const free=MECH.EDGES.find(e=>!m.intakes.some(i=>i.sides.includes(e)));if(!free||m.intakes.length>=4)return;const k=MECH.INTAKES[kind]?kind:'sweeper';m.intakes.push({kind:k,sides:[free]});label=`Intake ${m.intakes.length} (${MECH.INTAKES[k].toLowerCase()})`;return;}
+      if(m.shooters.length>=MECH.MAX_SHOOTERS)return;const first=m.shooters[0],type=kind==='fixed'?'fixed':'turret';
+      m.shooters.push(first?{type,pieces:'nectar',mount:MECH.PARTNER[first.mount==='center'?'front':first.mount]}:{type,pieces:'pollen',mount:type==='turret'?'center':'front',facing:'front'});label=`Shooter ${m.shooters.length} (${type==='turret'?'turret':'fixed'})`;});
+    return label;}
   for(const host of ['#mech-intakes','#mech-shooters']){
     const box=$(host),partOf=el=>{const [kind,n]=el.closest('[data-part]').dataset.part.split(':');return {kind,n:+n};};
     box.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;
@@ -2144,17 +2180,23 @@ public class MyAuto implements DeckAutonomous {
   // Moving parts: the CAD's joints, found and checked on the preview (sim-joints.js).
   const joints=window.DeckJointsPanel.create({host:$('#mech-joints'),api:{
     kinematics:()=>project.kinematics,mechanisms:()=>L().field==='biobuzz'?project.mechanisms:window.DeckMechanisms.sanitize({}),model:()=>model,meta:()=>project.model,preview:()=>mechPreview,
-    commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechModel();view3d?.setModel(fieldRig());reload();},
+    commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechanismsPanel();view3d?.setModel(fieldRig());reload();},
     setIntake(n,patch){setMech(m=>{if(m.intakes[n])Object.assign(m.intakes[n],patch);});},setShooting(patch){setMech(m=>{Object.assign(m.shooter,patch);});},footprint:()=>chassisFootprint(),
     hitboxes:()=>!!project.hitboxes,setHitboxes:showHitboxes,refreshPicker(){mechModel();}}});
+  // The Mechanisms list (sim-mechanism-list.js): + Add mechanism, and each moving mechanism with what drives it.
+  mechList=window.DeckMechanismList.create({host:$('#mech-parts'),picker:$('#mech-picker'),api:{
+    kinematics:()=>project.kinematics,commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechanismsPanel();view3d?.setModel(fieldRig());reload();},
+    joints:()=>joints,isMechanism:j=>joints.isMechanism(j),game:()=>L().field==='biobuzz',cad:()=>!!project.model&&!!model?.geometry,addGame,rows:()=>M()?.rows?.(project.model||{}),
+    status:text=>status('#mech-list-status',text),adding:on=>$('#mech-add').setAttribute('aria-expanded',String(on))}});
+  $('#mech-add').onclick=()=>mechList.open();
   mechanismsPanel();presetPanel();
   // Setup runs in order like Path planning: 1 Field, 2 Robot controller (and its sensing), 3 Robot.
-  // Mechanisms are part of the BIOBUZZ game; on an empty field the robot is a chassis that drives the route, so Setup skips them.
-  // Off BIOBUZZ the step is the robot's moving parts alone: picking up and shooting pieces belong to the game.
-  function setupSteps(){const game=L().field==='biobuzz',page=document.querySelector('[data-setup-page=mechanisms]');$('#sim-setup-step-mechanisms').textContent=game?'3 · Mechanisms':'3 · Moving parts';
-    page.querySelector('h2').textContent=game?'Mechanisms':'Moving parts';page.querySelector('h2+.hint').textContent=game?'What your robot does with game pieces. Routes run them with Intake, Spin up, Aim and Shoot.':'What turns, slides and swings on your robot, found in its CAD. A route action named after a part and one of its positions (for example “Lift up”) moves it.';
-    $('.sim-mech-main').hidden=!game;page.dataset.game=String(game);
-    const next=document.querySelector('[data-setup-page=robot] .sim-setup-nav .primary');if(next)next.textContent=`Next: ${game?'mechanisms':'moving parts'} →`;}
+  // Mechanisms on every field: what the robot has, each with what drives it. Picking up and shooting pieces (the game's
+  // intakes and shooters, their timing and preloads) belong to BIOBUZZ; elsewhere every mechanism moves by route actions.
+  function setupSteps(){const game=L().field==='biobuzz',page=document.querySelector('[data-setup-page=mechanisms]');$('#sim-setup-step-mechanisms').textContent='3 · Mechanisms';
+    page.querySelector('h2+.hint').textContent=game?'Everything on your robot that moves. Intakes and shooters pick up and shoot BIOBUZZ pieces (routes run them with Intake, Spin up, Aim and Shoot); every other mechanism moves to its named positions when a route action names it (for example “Lift up”).':'Everything on your robot that moves. A route action named after a mechanism and one of its positions (for example “Lift up”) moves it.';
+    page.dataset.game=String(game);for(const id of ['#mech-timing','#mech-preloads'])if(!game)$(id).hidden=true;
+    const next=document.querySelector('[data-setup-page=robot] .sim-setup-nav .primary');if(next)next.textContent='Next: mechanisms →';}
   function setupStepPanel(){setupSteps();for(const p of $$('[data-setup-page]'))p.hidden=p.dataset.setupPage!==setupStep;queueMicrotask(()=>{presetPanel();setupStep==='mechanisms'?mechanismsPanel():mechModel();if(setupStep==='mechanisms')joints.shown();});for(const b of $$('[data-setup-step]')){const on=b.dataset.setupStep===setupStep;b.setAttribute('aria-selected',String(on));b.setAttribute('aria-pressed',String(on));b.tabIndex=on?0:-1;}}
   function showSetupStep(step){setupStep=step;setupStepPanel();window.scrollTo(0,0);}
   for(const b of $$('[data-setup-step]'))b.onclick=()=>showSetupStep(b.dataset.setupStep);

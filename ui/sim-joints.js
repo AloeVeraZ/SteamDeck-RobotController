@@ -6,18 +6,21 @@
   // shooting tilt, which way a turret faces in the CAD). Pivots can be picked on the model: click a round part, a hole
   // or a round edge and its circle is measured, as a slicer measures one; or click two points along the axis.
   // simulation.js gives the panel its host and an api; the panel never touches the project directly.
-  const K=()=>root.DeckKinematics,D=()=>root.DeckDiscovery,R=()=>root.DeckRobotModel;
+  const K=()=>root.DeckKinematics,D=()=>root.DeckDiscovery,R=()=>root.DeckRobotModel,TY=()=>root.DeckMechanismTypes;
   const esc=s=>String(s??'').replace(/[&<>"]/g,c=>`&#${c.charCodeAt(0)};`),finite=Number.isFinite,fix=(v,d=1)=>+(+v).toFixed(d);
-  const COLORS={turret:0x8e4ec6,hood:0xf29d38,flywheel:0x2fa84f,roller:0x12a5c9,deploy:0xe5484d,feeder:0xd4a72c,wheel:0x7a8594,steer:0x7a8594,action:0x4ea1ff};
-  const hex=c=>'#'+c.toString(16).padStart(6,'0'),colorOf=j=>COLORS[j.drive?.signal]??0x4ea1ff;
+  const COLORS={turret:0x8e4ec6,hood:0xf29d38,flywheel:0x2fa84f,roller:0x12a5c9,deploy:0xe5484d,float:0x3fbf9f,feeder:0xd4a72c,wheel:0x7a8594,steer:0x7a8594,action:0x4ea1ff};
+  // A part moved by route actions takes its mechanism group's colour (lifts blue, claws teal, hangs red...).
+  const GROUP_COLORS={intake:0x12a5c9,inside:0xd4a72c,lift:0x4ea1ff,arm:0x6c63ff,score:0xf29d38,endgame:0xe5484d,drive:0x7a8594,sense:0x2fa84f,robot:0xc2418f,custom:0x4ea1ff};
+  const hex=c=>'#'+c.toString(16).padStart(6,'0'),colorOf=j=>(j.drive?.signal==='action'||!j.drive)&&GROUP_COLORS[TY()?.of(j)?.group]!==undefined?GROUP_COLORS[TY().of(j).group]:COLORS[j.drive?.signal]??0x4ea1ff;
   // The finder's three levels of certainty, as the team sees them, and a mechanism it could not find in the CAD.
   function level(j){
-    if(j.source==='metadata')return ['sure','From the file'];if(j.source==='user')return ['user','Set by you'];if(j.source==='standin')return ['stand','Not in your CAD yet'];
+    if(j.source==='metadata')return ['sure','From the file'];if(j.source==='user')return j.matched?['likely','Found in your CAD']:j.parts?.length?['user','Set by you']:['stand','Not in your CAD yet'];if(j.source==='standin')return ['stand','Not in your CAD yet'];
     return (j.confidence??0)>=.7?['likely','Found · likely right']:['check','Found · please check'];
   }
   // A saved finding older than this finder is looked at again (parts the team set stay): 2 links game mechanisms to
-  // CAD assemblies by themselves, finds the gears that drive them and each hood's launch angle.
-  const FINDER=2;
+  // CAD assemblies by themselves, finds the gears that drive them and each hood's launch angle; 3 looks for a hinge in
+  // every intake (a sweeper whose CAD swings a plate down is a ramp or kicker) and finds rollers on swing arms.
+  const FINDER=3;
   // How far a hood tilts to shoot: to the game's launch angle when its CAD launch angle is known, else as set.
   const shootTilt=(j,launch)=>finite(j.launch)&&finite(launch)?Math.max(j.lower??-180,Math.min(j.upper??180,launch-j.launch)):j.states?.shoot??0;
   const ctxCache=new WeakMap();
@@ -68,25 +71,86 @@
       return `<div class="sim-joint-buttons">${button}${c.hits.length&&(j.type==='revolute'||j.type==='prismatic')?'<button type="button" class="secondary" data-j="limits">Use as limits</button>':''}</div>
         <p class="hint">${c.hits.length?`Moves freely from ${fix(c.free[0],1)}${u} to ${fix(c.free[1],1)}${u}.`:`Moves its whole range (${fix(c.free[0],1)}${u} to ${fix(c.free[1],1)}${u}) without meeting anything.`} Checked with boxes around each part, so a contact is worth a look on the model, not certain; parts already touching in the CAD do not count.</p>${hits?`<ul class="sim-joint-alts">${hits}</ul>`:''}`;
     }
-    async function discover({quiet=false}={}){
+    // fromCad: the team asked for the robot to be set up from its CAD, so what the CAD shows an intake to be (a plate
+    // swinging down on a servo makes a sweeper a ramp or a kicker) is set; so it is on a CAD's first finding. Otherwise
+    // that intake's ramp or kicker offers it.
+    async function discover({quiet=false,fromCad=false}={}){
       const m=meta();if(!arrays()||!m?.id){if(!quiet)status('Moving parts are found in an imported STEP robot with named assemblies.');return false;}
       status('Looking for pivots, axles and moving parts in your CAD…');
-      const found=await find({rows:rows(),unit:unit(),meta:m,mechanisms:api.mechanisms()});
+      // The mechanisms the team added that have no CAD parts yet are looked for by name (Configure from CAD); after a new
+      // CAD every one of them is looked for again (its old parts were in the old CAD).
+      const before=kin(),moved=!!before.model&&before.model!==m.id,mine=j=>isMechanism(j)&&j.source==='user';
+      const want=before.joints.filter(j=>mine(j)&&(moved||!j.parts?.length)).map(j=>({id:j.id,kind:j.kind,name:j.name}));
+      const found=await find({rows:rows(),unit:unit(),meta:m,mechanisms:api.mechanisms(),want});
       if(!found.ok){status('Could not look through the CAD: '+found.error);return false;}if(meta()?.id!==m.id)return false;
-      const now=kin(),same=now.model===m.id;
-      const kept=same?now.joints.filter(j=>j.source==='user'||j.source==='metadata'):[],bound=new Set(kept.map(j=>j.drive?j.drive.signal+':'+(j.drive.of||''):'')),ids=new Set(kept.map(j=>j.id));
-      const fresh=found.joints.filter(j=>!ids.has(j.id)&&!(j.drive&&j.drive.signal!=='wheel'&&bound.has(j.drive.signal+':'+(j.drive.of||''))));
+      const now=kin(),same=now.model===m.id||!now.model;
+      const keptRaw=same?now.joints.filter(j=>j.source==='user'||j.source==='metadata'):now.joints.filter(mine).map(j=>{const {matched:_m,note:_n,radius:_r,...rest}=j;return {...rest,parts:[],parent:null};});
+      // What was found for an added mechanism becomes that mechanism: its CAD parts, pivot and travel; its name, type, motor
+      // and the positions the team set stay. Found joints that ride on it, or follow it, now name it.
+      const {kept,merged,renamed,unmatched}=adopt(keptRaw,found.joints,want);
+      // A game signal the team's parts already follow is not given to a found one too (route actions are not a signal).
+      const bound=new Set(kept.filter(j=>j.drive&&j.drive.signal!=='action').map(j=>j.drive.signal+':'+(j.drive.of||''))),ids=new Set(kept.map(j=>j.id));
+      const fresh=found.joints.filter(j=>!merged.has(j)&&!ids.has(j.id)&&!(j.drive&&j.drive.signal!=='wheel'&&bound.has(j.drive.signal+':'+(j.drive.of||'')))).map(j=>{const {for:_,...rest}=j;return rest;});
+      for(const j of fresh)if(renamed.has(j.parent))j.parent=renamed.get(j.parent);
       // The team's couplings stay; found ones (gears following a turret or hood) come with the joints found again.
-      const all=new Set([...kept,...fresh].map(j=>j.id)),freshIds=new Set(fresh.map(j=>j.id)),couplings=[...(same?now.couplings.filter(c=>ids.has(c.to)):[]),...(found.couplings||[]).filter(c=>freshIds.has(c.to)&&all.has(c.from))];
-      api.commit({...now,model:m.id,unit:unit(),discovered:true,finder:FINDER,joints:[...kept,...fresh],couplings,loops:same?now.loops:[],actuators:same?now.actuators:[],actions:same?now.actions:[]});
-      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole/i.test(r)),missing=fresh.filter(j=>j.source==='standin');
-      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`:'No moving parts were found. Add one with + Add.');
-      return true;
+      const all=new Set([...kept,...fresh].map(j=>j.id)),freshIds=new Set(fresh.map(j=>j.id)),mapped=c=>({...c,from:renamed.get(c.from)||c.from,to:renamed.get(c.to)||c.to});
+      const couplings=[...(same?now.couplings.filter(c=>ids.has(c.to)):[]),...(found.couplings||[]).map(mapped).filter(c=>(freshIds.has(c.to)||[...renamed.values()].includes(c.to))&&all.has(c.from)&&!(same&&now.couplings.some(o=>o.to===c.to)))];
+      const keptIds=new Set(kept.map(j=>j.id));
+      api.commit({...now,model:m.id,unit:unit(),discovered:true,finder:FINDER,joints:[...kept,...fresh],couplings,loops:same?now.loops:[],actuators:same?now.actuators:now.actuators.filter(a=>keptIds.has(a.joint)),actions:same||keptIds.size?now.actions:[]});
+      lastFound={matched:[...merged.values()].map(x=>({id:x.id,name:x.name,cad:x.matched})),unmatched};
+      const placed=lastFound.matched.map(x=>`${x.name} → “${x.cad}”`),lost=unmatched.length?`Not found by name: ${unmatched.join(', ')} (name its assembly in your CAD like it, or choose its parts on the model).`:'';
+      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole|swing arm|looks like your/i.test(r)),missing=fresh.filter(j=>j.source==='standin');
+      const intakes=api.mechanisms().intakes,kinds=(found.intakes||[]).filter(x=>intakes[x.intake]&&!['ramp','kicker'].includes(intakes[x.intake].kind)&&fresh.some(j=>j.id===x.joint)),set=fromCad||!same;
+      for(const x of set?kinds:[])api.setIntake(x.intake,{kind:x.kind});
+      const told=kinds.map(x=>`Intake ${x.intake+1} ${set?'is now':'looks like'} a ${x.kind==='ramp'?'deployable ramp':'kicker'}: ${x.why}${set?'':'. Open its '+(x.kind==='ramp'?'ramp':'kicker')+' below to set it up that way'}.`);
+      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${placed.length?`Found in your CAD: ${placed.join('; ')}.`:''} ${lost} ${told.join(' ')} ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`:'No moving parts were found. Add your mechanisms with + Add mechanism.');
+      return {moving:n,matched:lastFound.matched,unmatched,told:[...told,...found.report.filter(r=>/swing arm/i.test(r))]};
     }
+    // A mechanism the team sees in its list: a part of a mechanism type moved by route actions (not a drive wheel, and
+    // not one a game signal moves: those belong to the game's intakes and shooters).
+    const isMechanism=j=>!!TY()?.TYPES[j?.kind]&&TY().TYPES[j.kind].signal!=='wheel'&&(!j.drive||j.drive.signal==='action');
+    let lastFound=null;
+    // What the finder found for each added mechanism (`for`, by its CAD name), else a part it found by its own name of the
+    // same type (or family), most like it. Returns the kept joints with their CAD geometry, which found joint became which
+    // mechanism (merged, renamed: found id → the mechanism's id) and the mechanisms still not found.
+    function adopt(kept,foundJoints,want){
+      const T=TY(),merged=new Map(),renamed=new Map(),unmatched=[],wanted=new Set(want.map(w=>w.id)),taken=new Set();
+      const out=kept.map(u=>{if(!wanted.has(u.id))return u;let f=foundJoints.find(x=>x.for===u.id&&!taken.has(x));
+        if(!f&&T){const t=T.TYPES[u.kind];f=foundJoints.filter(x=>!x.for&&!taken.has(x)&&x.source!=='standin'&&x.parts?.length&&isMechanism(x)&&(x.kind===u.kind||T.TYPES[x.kind]?.family===t?.family))
+          .map(x=>({x,s:(x.kind===u.kind?1:0)+T.likeness({kind:u.kind,name:u.name},x.name)})).sort((a,b)=>b.s-a.s)[0]?.x;}
+        if(!f){unmatched.push(u.name);return u;}
+        taken.add(f);const next=takeGeometry(u,f);merged.set(f,next);renamed.set(f.id,u.id);return next;});
+      for(const j of out)if(j.parent&&renamed.has(j.parent))j.parent=renamed.get(j.parent);
+      return {kept:out,merged,renamed,unmatched};
+    }
+    // An added mechanism takes what was found in the CAD for it: its parts, pivot or rails, and the parent it rides on;
+    // its positions and limits too while they are still its type's own (a slide's travel from its rails, a drop-down
+    // intake's floor angle). Its name, type, speed and motor stay.
+    function takeGeometry(u,f){
+      const T=TY(),base=T?.TYPES[u.kind]?T.settings(u.kind):{},same=k=>JSON.stringify(u[k]??null)===JSON.stringify(base[k]??null),out={...u};
+      Object.assign(out,{parts:f.parts,origin:f.origin,axis:f.axis,type:f.type||u.type,note:f.note,matched:f.matched||f.name,...(finite(f.confidence)?{confidence:f.confidence}:{})});
+      if(f.radius)out.radius=f.radius;else delete out.radius;if(!u.parent&&f.parent)out.parent=f.parent;
+      // (Positions the CAD could not tell apart, a hood's rest and shoot both at 0°, say nothing.)
+      const told=k=>k!=='states'||new Set(Object.values(f.states||{})).size>1;
+      for(const k of ['states','lower','upper'])if(f[k]!==undefined&&same(k)&&told(k))out[k]=f[k];
+      out.source='user';return out;
+    }
+    // ---- what each part is (DeckMechanismTypes): a claw, a lift, a turret... The finder reads it from the CAD's names;
+    // the team picks one with + Add or changes it here, which sets how it moves, its positions and speed.
+    // Spinning parts follow the game's signal while its mechanisms are on (rollers while intaking), else route actions.
+    const bindFor=t=>{const m=api.mechanisms();if(!m?.enabled||!t?.signal||t.signal==='wheel')return null;
+      return t.signal==='roller'?(m.intakes.length?{signal:'roller',of:'intake:0'}:null):t.signal==='flywheel'?(m.shooters.length?{signal:'flywheel',of:'shooter:0'}:null):{signal:'feeder',of:'any'};};
+    const motorWords=t=>{const m=t.motor,model=root.DeckActuators?.MODELS[m.model],name=model?model.short+(model.kind==='dcmotor'?' motor':model.kind!=='crservo'&&!/servo$/i.test(model.short)?' servo':''):(K().ACTUATORS[m.kind]||'motor').replace(/\s*\(.*\)$/,'').toLowerCase().replace(/^dc /,'DC ');
+      const via=(m.transmission||[]).map(s=>({gearbox:`a ${fix(s.ratio,1)}:1 gearbox`,belt:'a belt',spool:'a spool',rack:'a rack',screw:'a lead screw'})[s.kind]).filter(Boolean);
+      return `${/^[aeiou]/i.test(name)?'an':'a'} ${name}${via.length?' through '+via.join(' and '):''}`;};
+    function kindPick(j){const T=TY();if(!T)return '';const t=T.of(j);
+      return `<label class="sim-joint-kind-pick">Mechanism<select data-f="kind">${t?'':'<option value="" selected>Choose what it is…</option>'}${T.grouped().map(g=>`<optgroup label="${esc(g.name)}">${g.types.map(x=>`<option value="${x.id}"${x===t?' selected':''}>${esc(x.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>
+        ${t?`<p class="hint">${esc(t.blurb)}${t.motor?` Usually driven by ${motorWords(t)}.`:''}</p>`:''}`;}
     // ---- drawing the panel (a number box gets a slider only when it has a lower bound: angles may be negative)
     const driveOptions=j=>{const m=api.mechanisms(),out=[['none','Nothing: it follows other joints'],['action','Route actions (named positions)']];
       (m.enabled?m.shooters:[]).forEach((s,n)=>{if(s.type==='turret'&&!s.sharesTurret)out.push([`turret:shooter:${n}`,`Turret (turning) of shooter ${n+1}`]);out.push([`hood:shooter:${n}`,`Hood (pitch) of shooter ${n+1}`],[`flywheel:shooter:${n}`,`Flywheel of shooter ${n+1}`]);});
-      (m.enabled?m.intakes:[]).forEach((i,n)=>{out.push([`roller:intake:${n}`,`Rollers of intake ${n+1}`]);if(i.kind==='ramp'||i.kind==='kicker')out.push([`deploy:intake:${n}`,`${i.kind==='kicker'?'Kicker':'Ramp'} of intake ${n+1}`]);});
+      (m.enabled?m.intakes:[]).forEach((i,n)=>{out.push([`roller:intake:${n}`,`Rollers of intake ${n+1}`]);if(i.kind==='ramp'||i.kind==='kicker'||j.drive?.signal==='deploy'&&j.drive.of==='intake:'+n)out.push([`deploy:intake:${n}`,`${i.kind==='kicker'?'Kicker':'Ramp'} of intake ${n+1}`]);
+        if(i.kind!=='kicker')out.push([`float:intake:${n}`,`Roller arm of intake ${n+1} (rides over pieces)`]);});
       out.push(['feeder:any','Feeder (while shooting)'],['wheel','Drive wheel (rolls with the robot)']);return out;};
     const driveKey=j=>j.drive?j.drive.signal+(j.drive.of?':'+j.drive.of:''):'none';
     const where=j=>{const o=toRobot(j.origin),a=dirToRobot(j.axis),names=[['forward','back'],['left','right'],['up','down']],part=(v,i)=>`${fix(Math.abs(v),1)} in ${v>=0?names[i][0]:names[i][1]}`;
@@ -98,8 +162,11 @@
       const d=j.drive?.signal,n=+String(j.drive?.of||'').split(':')[1]||0,m=api.mechanisms(),intake=d==='deploy'?m.intakes[n]:null,[lv]=level(j),parts=leavesOf(j).size;
       const others=joints().filter(x=>x.id!==j.id);let roleBits='';
       if(d==='turret')roleBits=`<div class="start-xy">${num('zero',j.zero||0,{label:'Faces in your CAD',unit:'° from the front',min:-180,max:180})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="zero" data-v="-90">−90°</button><button type="button" class="secondary" data-j="zero" data-v="90">+90°</button><button type="button" class="secondary" data-j="zero" data-v="180">180°</button></div></div><p class="hint">The arrow shows which way it fires as your CAD has it; a turret angle of 0° faces the robot’s front. It turns ${m.turret?.min??-170}° to ${m.turret?.max??170}° at ${m.turret?.speed??240}°/s (Shooter timing).</p>`;
-      else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;
-        roleBits=`<div class="start-xy">${num('state:raised',a,{label:'Up',unit:'°'})}${num('state:lowered',b,{label:'Down',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="raised">Show up</button><button type="button" class="secondary" data-j="show" data-v="lowered">Show down</button><button type="button" class="secondary" data-j="floor">Down to the floor</button></div>
+      else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0,kind=/^kicker/i.test(j.name)?'kicker':'ramp';
+        // Found in the CAD of an intake set up as something that does not swing: it would never go down.
+        const still=intake&&intake.kind!=='ramp'&&intake.kind!=='kicker'?`<p class="hint sim-joint-needs">Intake ${n+1} is set up as ${{sweeper:'a sweeper roller',siderollers:'side rollers'}[intake.kind]||esc(intake.kind)}, so this stays up in runs. In your CAD it swings down on a hinge: make intake ${n+1} a ${kind==='ramp'?'deployable ramp':'kicker'} to have it go down while intaking.</p>
+          <div class="sim-joint-buttons"><button type="button" class="primary" data-j="intake-kind" data-v="${kind}">Make intake ${n+1} a ${kind==='ramp'?'deployable ramp':'kicker'}</button><button type="button" class="secondary" data-j="intake-kind" data-v="${kind==='ramp'?'kicker':'ramp'}">A ${kind==='ramp'?'kicker':'deployable ramp'} instead</button></div>`:'';
+        roleBits=`${still}<div class="start-xy">${num('state:raised',a,{label:'Up',unit:'°'})}${num('state:lowered',b,{label:'Down',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="raised">Show up</button><button type="button" class="secondary" data-j="show" data-v="lowered">Show down</button><button type="button" class="secondary" data-j="floor">Down to the floor</button></div>
         ${intake?`<div class="start-xy">${num('intake:down',intake.down,{label:'Goes down in',unit:'s',min:0,max:3})}${num('intake:up',intake.up,{label:'Goes up in',unit:'s',min:0,max:3})}</div>`:''}<p class="hint">It goes down while an Intake action runs and back up after; it picks up only once it is all the way down.</p>
         ${intake&&parts?`<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="pickup">Pickup box from the ${j.name.split(' · ')[0].toLowerCase()}</button></div><p class="hint">Sets the intake’s box (the green one: where it picks up) to what the ${j.name.split(' · ')[0].toLowerCase()}’s parts reach when down: ${fix(intake.reach,2)} in out, ${intake.width?fix(intake.width,2)+' in wide':'the whole edge wide'}, ${fix(intake.height,2)} in high now.</p>`:''}`;}
       else if(d==='hood'){const a=j.states?.rest??0,b=j.states?.shoot??0,game=m.shooter?.hood??75;
@@ -111,6 +178,9 @@
             return `<p class="hint${held?' sim-joint-needs':''}">${held?`To shoot at ${fix(game,1)}° it would tilt ${fix(want,1)}°, past its limit, so it stops at ${fix(tilt,1)}° (shots leave at ${fix(j.launch+tilt,1)}° in the picture; the game physics still uses ${fix(game,1)}°). Widen the limits if your hood really goes further, or set the tilt yourself.`:`Its gears turn it ${fix(tilt,1)}° from how your CAD has it, so shots leave at the launch angle, while the shooter spins up and aims; it rests at its resting tilt.`} Positive tilts raise the shot; empty limits mean none.</p>`;})()}`
           :`<div class="start-xy">${num('state:rest',a,{label:'Resting',unit:'°'})}${num('state:shoot',b,{label:'Shooting',unit:'°'})}</div><div class="start-xy">${num('speed',j.speed??120,{label:'Moves at',unit:'°/s',min:1,max:3600})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="shoot">Show shooting</button></div></div>
         ${a===b?'<p class="hint sim-joint-needs">Set how far it tilts to shoot; until then it stays still.</p>':'<p class="hint">It tilts to its shooting angle while the shooter spins up or aims. Shots leave at the launch angle the game physics uses either way.</p>'}`;}
+      else if(d==='float'){const top=j.states?.up??0;
+        roleBits=`<div class="start-xy">${num('state:rest',j.states?.rest??0,{label:'Rests at',unit:'°'})}${num('state:up',top,{label:'Rides up to',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="up">Show up</button></div>
+          <p class="hint">It rests where your CAD has it and rides up over each piece the intake takes in, then settles back${finite(j.upper)?`. Its frame lets it go ${fix(j.upper,1)}° up`:''}. Nothing drives it: it floats.</p>`;}
       else if(d==='flywheel')roleBits=`<p class="hint">Spins at the flywheel speed (${m.shooter?.rpm??3000} rpm, set below under Flywheel and turret), drawn slower so it can be seen.</p>`;
       else if(d==='roller'||d==='feeder')roleBits=`<div class="start-xy">${num('rpm',j.rpm??(d==='roller'?300:200),{label:'Spins at',unit:'rpm',min:1,max:60000})}</div>`;
       else if(d==='wheel')roleBits='<p class="hint">Turns as the robot drives, rolling on the floor.</p>';
@@ -125,6 +195,7 @@
       return `<div class="sim-joint-body">
         ${j.note?`<p class="hint">${esc(j.note)}</p>`:''}
         ${parts?'':`<p class="hint sim-joint-needs">No CAD parts move for it yet, so nothing is drawn for it (the simulator still turns it). Click Choose parts below and click its parts on the model (Shift-click takes a whole assembly), then Pick a circle on what it turns on.</p>`}
+        ${kindPick(j)}
         <div class="start-xy"><div><label>Moves by<select data-f="type">${Object.entries(K().TYPES).map(([k,t])=>`<option value="${k}"${k===j.type?' selected':''}>${esc(t.name)}</option>`).join('')}</select></label></div>
           <div><label>Driven by<select data-f="drive">${driveOptions(j).map(([k,t])=>`<option value="${k}"${k===driveKey(j)?' selected':''}>${esc(t)}</option>`).join('')}</select></label></div></div>
         <span class="sim-mech-label">Pivot</span><p class="sim-joint-where">${esc(where(j))}${j.radius?` · ${fix(2*j.radius*unit(),2)} in across`:''}</p>
@@ -258,9 +329,9 @@
       const typing=host.contains(document.activeElement)&&document.activeElement.matches('input:not([type=range]),select');
       const key=JSON.stringify([k,open,mode,cadOk,api.mechanisms(),!!api.hitboxes?.()]);if(typing||key===lastKey){gizmos();return;}lastKey=key;
       host.hidden=!cadOk&&!list.length;
-      host.innerHTML=`<div class="sim-joints-head"><h3>Moving parts</h3><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="find">${list.length?'Find again':'Find moving parts'}</button><button type="button" class="secondary" data-j="add">+ Add</button>${list.length?`<button type="button" class="secondary" data-j="demo" aria-pressed="${!!demo}">${demo?'Stop':'Play'}</button><button type="button" class="secondary" data-j="hitboxes" aria-pressed="${!!api.hitboxes?.()}" title="A box round each moving part's CAD parts, moving with it">Hitboxes</button>`:''}</div></div>
+      host.innerHTML=`<div class="sim-joints-head"><h3>Moving parts</h3><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="find">${list.length?'Find again':'Find moving parts'}</button>${list.length?`<button type="button" class="secondary" data-j="demo" aria-pressed="${!!demo}">${demo?'Stop':'Play'}</button><button type="button" class="secondary" data-j="hitboxes" aria-pressed="${!!api.hitboxes?.()}" title="A box round each moving part's CAD parts, moving with it">Hitboxes</button>`:''}</div></div>
         <p class="hint sim-joints-status" role="status"></p>
-        ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id;return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}${list.length?actionsSection()+posesSection()+sensorsSection():''}`;
+        ${list.length?`<ol class="sim-joint-list">${list.map(j=>{const [lv,text]=level(j),on=open===j.id,t=TY()?.of(j),kind=t&&!TY().says(t,j.name)?t.name:'';return `<li class="sim-joint" data-id="${esc(j.id)}"><button type="button" class="sim-joint-row" data-j="toggle" aria-expanded="${on}"><i data-color="${hex(colorOf(j))}"></i><span>${esc(j.name)}${kind?`<em class="sim-joint-kind">${esc(kind)}</em>`:''}</span><small class="sim-joint-badge" data-level="${lv}">${esc(text)}${j.source==='inferred'&&finite(j.confidence)?` · ${Math.round(j.confidence*100)}%`:''}</small></button>${on?body(j):''}</li>`;}).join('')}</ol>`:`<p class="hint">${cadOk?'Find the pivots, axles and moving parts in your CAD, then check each one on the model.':'Import your robot as a STEP assembly to find its moving parts.'}</p>`}${list.length?actionsSection()+posesSection()+sensorsSection():''}`;
       // Colours go in through the style object (the page allows no inline style attributes).
       for(const dot of host.querySelectorAll("[data-color]"))dot.style.background=dot.dataset.color;
       highlight();gizmos();
@@ -322,6 +393,7 @@
       const solved=new Set(K().pose(kin(),{}).solved),t0=performance.now(),step=now=>{const t=(now-t0)/1000,ph=(Math.sin(t*1.4)+1)/2,v={};
         for(const j of joints()){const d=j.drive?.signal;if(solved.has(j.id))continue;
           if(d==='turret')v[j.id]=60*Math.sin(t*.9);else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;v[j.id]=a+(b-a)*ph;}
+          else if(d==='float'){const a=j.states?.rest??0,b=j.states?.up??a;v[j.id]=a+(b-a)*ph;}
           // A hood with limits shows its whole pitch range; else it goes between resting and shooting.
           else if(d==='hood'){const lim=finite(j.lower)&&finite(j.upper)&&j.upper-j.lower>1,a=lim?j.lower:j.states?.rest??0,b=lim?j.upper:shootTilt(j,api.mechanisms().shooter?.hood);v[j.id]=a+(b-a)*ph;}else if(['flywheel','roller','feeder','wheel'].includes(d))v[j.id]=(t*240)%360;
           else if(j.type==='revolute'){const a=j.lower??-30,b=j.upper??30;v[j.id]=a+(b-a)*ph;}else if(j.type==='prismatic'){const a=j.lower??0,b=j.upper??4;v[j.id]=a+(b-a)*ph;}else if(j.type==='continuous')v[j.id]=(t*90)%360;}
@@ -347,10 +419,6 @@
       if(what==='step-remove'){const next=structuredClone(kin()),a=next.actions[ai],n=+b.closest('[data-step]').dataset.step;a.steps.splice(n,1);for(const st of a.steps)if(st.after!==null&&st.after>=n)st.after=st.after>n?st.after-1:null;if(!a.steps.length)next.actions.splice(ai,1);api.commit(next);return;}
       if(what==='demo'){play();return;}
       if(what==='hitboxes'){api.setHitboxes?.(!api.hitboxes?.());lastKey='';render();return;}
-      if(what==='add'){const next=structuredClone(kin()),m=meta(),n=next.joints.length+1;let id2='joint'+n;while(next.joints.some(x=>x.id===id2))id2+='b';
-        const c=ctx(),center=c?[(c.lo[0]+c.hi[0])/2,(c.lo[1]+c.hi[1])/2,(c.lo[2]+c.hi[2])/2]:[0,0,0];
-        next.model=m?.id||next.model;next.unit=unit();next.joints.push({id:id2,name:`Moving part ${n}`,type:'revolute',origin:center,axis:rows()[1],parts:[],states:{up:0,down:45},speed:90,drive:{signal:'action'},source:'user',note:'Choose its parts, then pick its pivot.'});
-        open=id2;mode={kind:'parts',joint:id2};api.commit(next);status('Click the parts that move together (Shift-click takes a whole assembly), then pick the pivot.');return;}
       if(what==='toggle'){open=open===id?null:id;mode=null;if(demo)play();values={};showPose();render();return;}
       if(!j)return;
       if(what==='circle'||what==='points'||what==='parts'){mode=mode?.kind===what&&mode.joint===id?null:{kind:what,joint:id};
@@ -360,8 +428,13 @@
       if(what==='show'){const v=j.drive?.signal==='hood'&&b.dataset.v==='shoot'?shootTilt(j,api.mechanisms().shooter?.hood):j.states?.[b.dataset.v];if(finite(v)){values={...values,[id]:v};showPose();const r=li.querySelector('[data-try]');if(r)r.value=v;}return;}
       if(what==='unlaunch'){change(id,x=>{x.states={...x.states,shoot:+shootTilt(x,api.mechanisms().shooter?.hood).toFixed(2)};delete x.launch;});return;}
       if(what==='pickup'){pickupBox(j);return;}
-      if(what==='motor-add'){const next=structuredClone(kin());let mid=j.id+'_motor';while(next.actuators.some(x=>x.id===mid))mid+='b';
-        next.actuators.push({id:mid,name:j.name,joint:j.id,kind:'dcmotor',mode:'position',speed:j.speed??90});
+      if(what==='intake-kind'){const n=+String(j.drive?.of||'').split(':')[1]||0,kind=b.dataset.v==='kicker'?'kicker':'ramp';api.setIntake(n,{kind});
+        if(!j.name.toLowerCase().startsWith(kind)){const next=structuredClone(kin()),x=next.joints.find(y=>y.id===id);x.name=x.name.replace(/^(Ramp|Kicker)\b/,kind==='kicker'?'Kicker':'Ramp');api.commit(next);}
+        lastKey='';render();status(`Intake ${n+1} is a ${kind==='ramp'?'deployable ramp':'kicker'} now: ${j.name.split(' · ')[0].toLowerCase()} goes down while it intakes. Its servo and timing are under Intakes.`);return;}
+      if(what==='motor-add'){const next=structuredClone(kin()),mid=motorId(next,j.id);
+        // The motor its type is usually driven by (a servo for a claw, a geared DC motor and spool for a lift), as the FTC
+        // part it usually is (DeckActuators): its speed, torque and encoder counts.
+        next.actuators.push(actuatorFor(j,mid));
         // Steps that moved the part now move its motor.
         for(const a of next.actions)for(const st of a.steps)if(st.actuator===j.id)st.actuator=mid;for(const p of next.poses||[])if(j.id in p.values){p.values[mid]=p.values[j.id];delete p.values[j.id];}
         api.commit(next);status('Motor added. Set its gearing, and its free speed and stall torque from its datasheet to see what it can do.');return;}
@@ -414,6 +487,8 @@
       // An empty limit box takes the limit away.
       if((f==='lower'||f==='upper')&&el.value.trim()==='')return change(id,x=>{delete x[f];});
       if(f==='type')return change(id,x=>{x.type=v;});
+      // Another mechanism type: its parts and pivot stay; how it moves, its positions and speed come from the type.
+      if(f==='kind'){const t=TY()?.TYPES[v];if(!t)return;return change(id,x=>{const r=TY().retype(x,v,{rows:rows(),bind:bindFor(t)});for(const k of Object.keys(x))delete x[k];Object.assign(x,r);});}
       if(f==='name')return change(id,x=>{x.name=String(v).trim()||x.name;});
       if(f==='parent')return change(id,x=>{x.parent=v||null;});
       if(f==='drive')return change(id,x=>{if(v==='none')delete x.drive;else{const [signal,...of]=v.split(':');x.drive={signal,...(of.length?{of:of.join(':')}:{})};}if(x.drive?.signal==='turret')x.axis=orient(x,x.axis,x.origin);});
@@ -427,9 +502,28 @@
       if(f.startsWith('axis:')){const a=dirToRobot(j.axis);a[+f.slice(5)]=v;if(math().len(a)<1e-6)return;return change(id,x=>{x.axis=dirFromRobot(math().unit(a));});}
       if(['zero','speed','rpm','lower','upper'].includes(f))return change(id,x=>{x[f]=v;});
     });
+    // A new mechanism of a type (+ Add mechanism): named for it ("Lift", "Claw 2"), with the FTC motor or servo it usually
+    // has, and no CAD parts yet: Configure from CAD finds them by name, or the team chooses them on the model.
+    // A motor's id: its part's with "_motor" (ids are 32 characters at most), unique.
+    function motorId(model,jid){let mid=jid.slice(0,24)+'_motor',n=2;while(model.actuators.some(x=>x.id===mid)||model.joints.some(x=>x.id===mid))mid=jid.slice(0,22)+'_motor'+n++;return mid;}
+    function actuatorFor(j,id){const A=root.DeckActuators,spec=TY()?.motorFor(TY().of(j)?.id)||{kind:'dcmotor'};
+      return A?A.create({id,joint:j.id,name:j.name,spec,speed:j.speed??90,travel:A.travelOf(j),states:j.states}):{id,name:j.name,joint:j.id,...spec,mode:'position',speed:j.speed??90};}
+    function add(typeId,{name:wanted}={}){const T=TY(),t=T?.TYPES[typeId]||T?.TYPES['custom-pivot'],next=structuredClone(kin()),m=meta(),n=next.joints.length+1;if(!t)return null;
+      let id2=t.id,k=2;while(next.joints.some(x=>x.id===id2)||next.actuators.some(x=>x.id===id2))id2=t.id.slice(0,24)+'-'+k++;
+      const base=wanted||(t.group==='custom'?`Moving part ${n}`:T.short(t));let name=base;for(let i=2;next.joints.some(x=>x.name.toLowerCase()===name.toLowerCase());i++)name=`${base} ${i}`;
+      const c=ctx(),center=c?[(c.lo[0]+c.hi[0])/2,(c.lo[1]+c.hi[1])/2,(c.lo[2]+c.hi[2])/2]:[0,0,0];
+      const j=T.joint(t.id,{id:id2,name,origin:center,rows:rows(),bind:bindFor(t)});
+      if(m?.id&&arrays())next.model=m.id;next.unit=unit();next.joints.push(j);
+      if(j.drive?.signal==='action'&&t.motor)next.actuators.push(actuatorFor(j,motorId(next,id2)));
+      api.commit(next);lastKey='';render();return id2;}
     host.addEventListener('input',e=>{const el=e.target;if(!el.matches('[data-try]'))return;const id=el.closest('[data-id]')?.dataset.id;if(!id)return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:el.valueAsNumber};showPose();});
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&mode){mode=null;status('');api.refreshPicker();render();}});
-    return {render,picker,discover,
+    return {render,picker,discover,add,isMechanism,found:()=>lastFound,
+      // Shows a part at a value on the preview (a named position, from the Mechanisms list).
+      pose(id,value){if(!finite(value))return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:value};showPose();const r=host.querySelector(`[data-id="${CSS.escape(id)}"] [data-try]`);if(r)r.value=value;},
+      // Opens a part here (from the Mechanisms list), choosing its parts on the model when asked.
+      open(id,{choose=false}={}){if(!joints().some(j=>j.id===id))return;open=id;mode=choose?{kind:'parts',joint:id}:null;values={};lastKey='';render();showPose();api.refreshPicker();
+        if(choose)status('Click the parts that move together on the model (Shift-click takes a whole assembly), then pick its pivot.');host.querySelector(`[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:'nearest',behavior:'smooth'});},
       // Called when the Mechanisms page opens: a CAD the finder has not looked at yet is looked at now, and a finding made
       // by an older finder is made again, keeping what the team set.
       shown(){const m=meta(),k=kin();if(m?.id&&(k.model!==m.id||k.discovered&&(k.finder||1)<FINDER)&&arrays())discover({quiet:true});else render();},

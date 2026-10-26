@@ -11,7 +11,7 @@ const kinematics={model:'0123456789abcdef0123456789abcdef.glb',joints:[
   {id:'ramp1',type:'revolute',axis:[0,1,0],states:{raised:0,lowered:70},drive:{signal:'deploy',of:'intake:0'}},
   {id:'roll1',type:'continuous',parent:'ramp1',axis:[0,1,0],rpm:120,drive:{signal:'roller',of:'intake:0'}}]};
 const pad=(buttons={},axes=[0,0,0,0])=>({mapping:'standard',axes,buttons:Array.from({length:17},(_,i)=>({pressed:!!buttons[i],value:buttons[i]?1:0}))});
-test('frames carry joint values: the ramp folds down while intaking, the hood tilts and the flywheel spins while shooting',{skip:!built&&'run node tools/simulation/build.cjs first'},async()=>{
+test('frames carry joint values: the ramp folds down on Y and stays there, the hood tilts and the flywheel spins while shooting',{skip:!built&&'run node tools/simulation/build.cjs first'},async()=>{
   const {SimEngine}=require('../src/sim-engine.cjs'),frames=[];
   const e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-joints-')),now:()=>0,emit:m=>{if(m?.type==='frame')frames.push(m);}});
   const mechanisms=Mech.sanitize({enabled:true,intakes:[{kind:'ramp',sides:['front'],down:.3,up:.3}],shooters:[{type:'turret',pieces:'pollen',mount:'center'}]});
@@ -20,11 +20,14 @@ test('frames carry joint values: the ramp folds down while intaking, the hood ti
     assert.equal(first.joints.turret1,90,'the turret starts facing the front: 90° from where the CAD has it');
     await e.startPractice({mode:'teleop',timing:{autoSeconds:30,transitionSeconds:8,teleopSeconds:120}});
     e.practiceInput(pad());await e.practiceTick();
-    // Right bumper: intake. The ramp folds down over its 0.3 s, the rollers turn.
+    // Right bumper: intake. The rollers turn; the ramp stays up (it moves only when sent).
     for(let i=0;i<30;i++){e.practiceInput(pad({5:true}));await e.practiceTick();}
-    let j=e.frame().joints;assert.equal(j.ramp1,70,'all the way down after 0.5 s');assert.ok(j.roll1>0,'rollers turning');
-    // Let go: it folds back up.
-    for(let i=0;i<30;i++){e.practiceInput(pad());await e.practiceTick();}assert.equal(e.frame().joints.ramp1,0);
+    let j=e.frame().joints;assert.equal(j.ramp1,0,'intaking leaves the ramp up');assert.ok(j.roll1>0,'rollers turning');
+    // Y: the ramp folds down over its 0.3 s, and stays down after Y is let go.
+    e.practiceInput(pad({3:true}));await e.practiceTick();for(let i=0;i<30;i++){e.practiceInput(pad());await e.practiceTick();}
+    assert.equal(e.frame().joints.ramp1,70,'all the way down after 0.5 s');
+    // Y again: it folds back up.
+    e.practiceInput(pad({3:true}));await e.practiceTick();for(let i=0;i<30;i++){e.practiceInput(pad());await e.practiceTick();}assert.equal(e.frame().joints.ramp1,0);
     // Left trigger: spin up. The hood heads for its shooting tilt at 60°/s; the flywheel spins (drawn at the capped rate).
     const before=e.frame().joints.fly1;for(let i=0;i<12;i++){e.practiceInput(pad({6:true}));await e.practiceTick();}
     j=e.frame().joints;assert.ok(j.hood1>5&&j.hood1<15,`hood on its way (${j.hood1})`);assert.notEqual(j.fly1,before,'flywheel turning');

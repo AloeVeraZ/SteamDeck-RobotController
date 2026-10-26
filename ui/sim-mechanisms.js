@@ -11,7 +11,7 @@
   const pick=(v,options,d)=>Object.hasOwn(options,v)?v:d;
   const INTAKES={sweeper:'Sweeper roller',siderollers:'Side rollers',ramp:'Deployable ramp',kicker:'Kicker'};
   // What each intake is and what it can reach (BIOBUZZ, from the game physics).
-  const INTAKE_NOTES={sweeper:'A spinning roller across the robot’s edge that sweeps pieces off the floor into the robot. Cannot reach into a flower.',siderollers:'Two rollers that grip pieces from the sides; can also reach into a flower and pull out its bottom pollen.',ramp:'Sweeper rollers on a ramp that a servo folds down in front of the robot. Once it is down it wedges under pieces, including a flower’s bottom pollen, and the rollers pull them in. It picks up only while it is down.',kicker:'An arm on a servo that swings down in front of the robot, scoops under pieces and swings back up to carry them in. It only picks up once it is all the way down; pieces move on into storage after it is back up.'};
+  const INTAKE_NOTES={sweeper:'A spinning roller across the robot’s edge that sweeps pieces off the floor into the robot. Cannot reach into a flower.',siderollers:'Two rollers that grip pieces from the sides; can also reach into a flower and pull out its bottom pollen.',ramp:'Sweeper rollers with a ramp that a servo folds down in front of the robot. The rollers take pieces off the floor with the ramp up or down; once it is down it wedges under a flower’s bottom pollen too. It moves only on Ramp down and Ramp up steps in your route, and stays where it was sent.',kicker:'An arm on a servo that swings down in front of the robot, scoops under pieces and swings back up to carry them in. It only picks up once it is all the way down; pieces move on into storage after it is back up.'};
   const EDGES=['front','back','left','right'];
   // Older saves describe one intake by a mount name; these are its sides.
   const SIDES={front:'Front',back:'Back',frontback:'Front and back',side:'Both sides',all:'All the way around'};
@@ -148,26 +148,36 @@
     const start=m.target||(field==='biobuzz'?alliance==='blue'?{x:84.75,y:72+CELL_DY}:{x:59.25,y:72-CELL_DY}:{x:72,y:72});
     return cell==='other'?{x:start.x,y:+(144-start.y).toFixed(2)}:start;
   }
-  // Route action names: "Intake", "Spin up", "Aim", "Shoot" (everything held) or "Shoot 3".
-  // Any other name is the team's own action with an empty code slot.
+  // Route action names: "Intake", "Spin up", "Aim", "Shoot" (everything held) or "Shoot 3", "Ramp down" and
+  // "Ramp up" (a ramp stays where it was sent), "Turret to 30°" (every turret, degrees from the robot's front,
+  // counterclockwise) or "Turret 2 to -45°". Any other name is the team's own action with an empty code slot.
   function action(raw){
     const text=String(raw||'').trim(),m=/^shoot(?:\s+(\d+))?$/i.exec(text);
     if(m)return {kind:'shoot',count:m[1]?clamp(Number(m[1]),1,99):0};
     if(/^intake$/i.test(text))return {kind:'intake'};
     if(/^spin\s*up$/i.test(text))return {kind:'spin'};
     if(/^aim$/i.test(text))return {kind:'aim'};
+    const r=/^ramps?\s+(down|up)$/i.exec(text);if(r)return {kind:'ramp',down:r[1].toLowerCase()==='down'};
+    // Wait: a step that only takes its time (between the steps at a pin).
+    if(/^wait$/i.test(text))return {kind:'wait'};
+    const t=/^turrets?(?:\s+([12]))?\s+to\s+(-?\d+(?:\.\d+)?)\s*°?$/i.exec(text);if(t)return {kind:'turret',turret:t[1]?Number(t[1])-1:null,degrees:clamp(Number(t[2]),-180,180)};
     return {kind:text?'custom':'none'};
   }
+  const hasRamp=m=>m.intakes.some(i=>i.kind==='ramp');
+  // The name of a "Turret to" action, e.g. "Turret to 30°" (turret: null for every turret, or 0 or 1).
+  const turretAction=(degrees,turret=null)=>`Turret${turret===null?'':' '+(turret+1)} to ${+clamp(degrees,-180,180).toFixed(1)}°`;
   // A fixed shooter fires along its facing: Shoot pins that set no heading of their own turn the robot
   // so that side faces the target, and shooting paths of a front-firing shooter track it.
   function prepare(pins,m,target){
     const fixed=m?.enabled&&m.shooters.find(s=>s.type==='fixed');if(!fixed||!target)return pins;
     const offset=FACING[fixed.facing];
+    // A pin or path with several steps shoots when one of its steps does.
+    const shoots=s=>Array.isArray(s?.steps)&&s.steps.length>1?s.steps.some(x=>action(x.action).kind==='shoot'):action(s?.action).kind==='shoot';
     return pins.map(p=>{const q={...p};
-      if(action(q.action).kind==='shoot'&&!finite(q.turn)){if(offset===0){q.turn=0;q.turnMode='track';q.target={...target};}else{q.turn=+(((Math.atan2(target.y-q.y,target.x-q.x)*DEG-offset)%360+540)%360-180).toFixed(2);q.turnMode='absolute';}}
-      if(offset===0&&q.path?.kind==='action'&&action(q.path.action).kind==='shoot'&&(!q.path.rotate||q.path.rotate==='keep'))q.path={...q.path,rotate:'track',target:{...target}};return q;});
+      if(shoots(q)&&!finite(q.turn)){if(offset===0){q.turn=0;q.turnMode='track';q.target={...target};}else{q.turn=+(((Math.atan2(target.y-q.y,target.x-q.x)*DEG-offset)%360+540)%360-180).toFixed(2);q.turnMode='absolute';}}
+      if(offset===0&&q.path?.kind==='action'&&shoots(q.path)&&(!q.path.rotate||q.path.rotate==='keep'))q.path={...q.path,rotate:'track',target:{...target}};return q;});
   }
-  const actions=m=>m.enabled?[...(m.intakes.length?['Intake']:[]),...(m.shooters.length?['Spin up',...(hasTurret(m)?['Aim']:[]),'Shoot']:[])]:[];
+  const actions=m=>m.enabled?[...(m.intakes.length?['Intake']:[]),...(hasRamp(m)?['Ramp down','Ramp up']:[]),...(m.shooters.length?['Spin up',...(hasTurret(m)?['Aim']:[]),'Shoot']:[])]:[];
   const wrap=d=>((d%360)+540)%360-180,DEG=180/Math.PI;
   // A plain-language summary, e.g. "Front + back sweeper · turret (pollen) · holds 3 pollen + 1 nectar".
   function summary(m){
@@ -199,6 +209,8 @@
     constructor(m,held=0,dims={}){this.m=m;this.dims=dims;this.turrets=m.shooters.map(()=>0);this.flywheel=0;this.turret=0;this.time=0;this.sinceShot=Infinity;this.shots=0;this.pending=false;this.held=held;
       // How far down each kicker or ramp is (0 up, 1 down); null for an intake that does not move.
       this.queue=Array.from({length:held},(_,i)=>({arrives:-Infinity,index:i?m.indexer.seconds:0}));this.kick=m.intakes.map(i=>deploys(i.kind)?0:null);
+      // How far a roller on a swing arm has ridden up over the last piece taken in (0 at rest, 1 at the top).
+      this.caught=-Infinity;this.lift=m.intakes.map(()=>0);
       // Behind a servo pusher the next piece drops into place while the pusher is back at rest, so its indexing time
       // passes whether or not the pusher is pushing; a push fires the piece that is in place.
       this.settles=pusherOnly(m);}
@@ -207,12 +219,15 @@
       if(held<this.held){const gone=this.held-held;if(this.pending){this.shots+=gone;this.pending=false;this.sinceShot=0;}this.queue.splice(0,gone);
         // The next piece moves up into the shooter: it needs the indexing time.
         if(this.queue[0])this.queue[0].index=Math.max(this.queue[0].index,m.indexer.seconds);}
-      // Kickers and ramps go down while the intake runs and back up when it stops; only one all the way down picks up.
-      // Robot code may move a ramp's servo on its own (cmd.ramp); otherwise it follows the intake.
-      const sentDown=i=>i.kind==='ramp'&&typeof cmd.ramp==='boolean'?cmd.ramp:!!cmd.intake;
+      // A kicker goes down while the intake runs and back up when it stops; it picks up only once all the way down.
+      // A ramp moves only when it is sent (cmd.ramp: a Ramp down or Ramp up action, or robot code moving its servo)
+      // and stays there. Its rollers take pieces off the floor either way; down, it also reaches into flowers.
+      const sentDown=i=>i.kind==='ramp'?cmd.ramp===true:!!cmd.intake;
       this.kick=this.kick.map((v,k)=>{if(v===null)return null;const i=m.intakes[k];return sentDown(i)?Math.min(1,v+(i.down>0?dt/i.down:1)):Math.max(0,v-(i.up>0?dt/i.up:1));});
       const kicking=this.kick.some((v,k)=>v>0&&m.intakes[k].kind==='kicker'),onlyKickers=m.intakes.length>0&&m.intakes.every(i=>i.kind==='kicker');
-      for(let k=this.held;k<held;k++){const ahead=this.queue.length;this.queue.push(onlyKickers&&kicking?{arrives:Infinity,scooped:true,index:ahead?m.indexer.seconds:0}:{arrives:this.time+travel(m,ahead),index:ahead?m.indexer.seconds:0});}
+      for(let k=this.held;k<held;k++){const ahead=this.queue.length;this.queue.push(onlyKickers&&kicking?{arrives:Infinity,scooped:true,index:ahead?m.indexer.seconds:0}:{arrives:this.time+travel(m,ahead),index:ahead?m.indexer.seconds:0});this.caught=this.time;}
+      // The piece goes under the roller: it rides up quickly and settles back down.
+      const since=this.time-this.caught,up=since<.08?since/.08:since<.2?1:since<.45?1-(since-.2)/.25:0;this.lift=m.intakes.map(i=>i.kind==='kicker'?0:up);
       // Back up: what the kickers scooped starts its transfer.
       if(!kicking)this.queue.forEach((p,k)=>{if(p.scooped){p.scooped=false;p.arrives=this.time+travel(m,k);}});
       this.held=held;this.sinceShot+=dt;
@@ -236,7 +251,7 @@
       if(cmd.feed&&m.shooters.length&&this.ready&&aligned&&front&&front.arrives<=this.time&&front.index<=1e-9&&!this.pending){fire=true;this.pending=true;this.sinceShot=0;}
       // A launch the physics refused is asked for again.
       else if(this.pending&&this.sinceShot>FIRE_RECOVERY&&held>0&&cmd.feed){fire=true;this.sinceShot=0;}
-      return {intake:!!cmd.intake,fire,edgesOff:m.intakes.flatMap((i,k)=>this.kick[k]!==null&&this.kick[k]<1?i.sides:[]),ramp:this.rampState(sentDown)};
+      return {intake:!!cmd.intake,fire,edgesOff:m.intakes.flatMap((i,k)=>i.kind==='kicker'&&this.kick[k]<1?i.sides:[]),ramp:this.rampState(sentDown)};
     }
     // The game physics has one ramp per robot, which reaches into flowers once it settles down: whether any ramp
     // is sent down, and the seconds until it is all the way there (down, or back up). Null without a ramp.
@@ -248,7 +263,7 @@
     // Where shooter n points, in degrees from the robot's front.
     aim(n){const s=this.m.shooters[n];return !s?0:s.type==='turret'?this.turrets[n]:FACING[s.facing];}
     state(){const q=this.queue,front=q[0];return {flywheel:this.flywheel,turret:this.turret,turrets:this.turrets.slice(),aligned:!!this.aligned,ready:!!this.ready,shots:this.shots,held:this.held,
-      deploy:this.kick.slice(),kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
+      deploy:this.kick.slice(),lift:this.lift.slice(),kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
   }
   // Runs route actions the way the generated robot code does, with no piece sensor. At a pin the action
   // is busy until it finishes; on an action path it runs while the path is driven. "Shoot N" spins up
@@ -264,25 +279,65 @@
   // twice the push so it is back at rest before the next piece. Other feeders run for the whole volley.
   const feedCycle=m=>pusherOnly(m)?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds;
   const shootSeconds=(m,count)=>Math.max(0,(count||m.storage)-1)*feedCycle(m)+(pusherOnly(m)?Math.max(m.indexer.pushSeconds,FIRE_MARGIN):FIRE_MARGIN);
+  // A ramp is sent down or up by its own actions and stays there (cmd.ramp, sent every tick while the robot has one).
+  // joints, when given: {start(name), busy(name)} for the moving parts (Setup → Moving parts), which a list of steps
+  // starts itself; a single action's parts are started by the engine.
   class Runner{
-    constructor(m){this.m=m;this.key='';this.spinning=false;this.lastIntake=-Infinity;}
+    constructor(m,joints=null){this.m=m;this.key='';this.spinning=false;this.lastIntake=-Infinity;this.ramp=false;this.joints=joints;this.slot={feedStart:-1,done:false};}
     commands(act,state,now){
-      const m=this.m,a=action(act?.name),key=act?`${act.moving?'path'+(act.path??act.leg):'pin'+act.leg}:${act.name}`:'';
-      if(key!==this.key){this.key=key;this.feedStart=-1;this.done=false;}
-      const cmd={intake:false,spin:this.spinning,aim:false,feed:false};let busy=false;
+      if(act?.steps?.length>1)return this.steps(act,state,now);
+      const key=act?`${act.moving?'path'+(act.path??act.leg):'pin'+act.leg}:${act.name}`:'';
+      if(key!==this.key){this.key=key;this.slot={feedStart:-1,done:false};}
+      return this.one(act?.name,act,this.slot,state,now);
+    }
+    base(){const cmd={intake:false,spin:this.spinning,aim:false,feed:false};if(hasRamp(this.m))cmd.ramp=this.ramp;return cmd;}
+    // One action this tick. slot keeps what a Shoot has done so far; opts: moving (on a path), seconds (a set time).
+    one(name,opts,slot,state,now){
+      const m=this.m,a=action(name),moving=!!opts?.moving,cmd=this.base();let busy=false;
       if(a.kind==='intake'){cmd.intake=m.intakes.length>0;if(cmd.intake)this.lastIntake=now;}
       else if(a.kind==='spin'){this.spinning=true;cmd.spin=true;}
-      else if(a.kind==='aim'){cmd.aim=true;busy=!act.moving&&hasTurret(m)&&!state.aligned;}
-      else if(a.kind==='shoot'&&m.shooters.length&&!this.done){
+      else if(a.kind==='aim'){cmd.aim=true;busy=!moving&&hasTurret(m)&&!state.aligned;}
+      else if(a.kind==='ramp'&&hasRamp(m)){this.ramp=cmd.ramp=a.down;
+        // At a pin it holds until the ramp has arrived (a ramp down reaches into a flower only once it settles).
+        const ramps=state.ramps||[];busy=!moving&&ramps.some(v=>a.down?v<1:v>0);}
+      else if(a.kind==='turret'&&hasTurret(m)){const t=m.turret,deg=clamp(a.degrees,t.min,t.max),own=m.shooters.map((s,n)=>s.type==='turret'&&!s.sharesTurret&&(a.turret===null||a.turret===n));
+        if(a.turret===null)cmd.turretDeg=deg;else cmd.turretDegs=m.shooters.map((_,n)=>own[n]?deg:undefined);
+        busy=!moving&&own.some((on,n)=>on&&Math.abs((state.turrets?.[n]??0)-deg)>2);}
+      else if(a.kind==='shoot'&&m.shooters.length&&!slot.done){
         cmd.spin=cmd.aim=true;
-        if(this.feedStart<0&&state.ready&&state.aligned&&now-this.lastIntake>=m.transfer.seconds+liftSeconds(m))this.feedStart=now;
+        if(slot.feedStart<0&&state.ready&&state.aligned&&now-this.lastIntake>=m.transfer.seconds+liftSeconds(m))slot.feedStart=now;
         // Shooting for a set time keeps feeding until the route ends the action; otherwise it feeds for N shots.
-        const window=finite(act.seconds)?Infinity:shootSeconds(m,a.count);
+        const window=finite(opts?.seconds)?Infinity:shootSeconds(m,a.count);
         // A pusher pushes at the start of each feed cycle, like the robot code; other feeders run the whole time.
-        if(this.feedStart>=0){const t=now-this.feedStart;cmd.feed=t<window&&(!pusherOnly(m)||t%feedCycle(m)<m.indexer.pushSeconds);if(t>=window){this.done=true;this.spinning=false;}}
-        busy=!act.moving&&!this.done;
+        if(slot.feedStart>=0){const t=now-slot.feedStart;cmd.feed=t<window&&(!pusherOnly(m)||t%feedCycle(m)<m.indexer.pushSeconds);if(t>=window){slot.done=true;this.spinning=false;}}
+        busy=!moving&&!slot.done;
       }
       return {cmd,busy};
+    }
+    // A list of steps (act.steps: {action, seconds, cell}). At a pin they run one after another: each for its set time,
+    // or until it is done, and a step that is done at once (Spin up) lets the next one start the same tick. While driving
+    // they run together from the start of the path, each for its set time or the whole path. cell: the hive cell the
+    // running Shoot or Aim aims at.
+    steps(act,state,now){
+      const key=`${act.moving?'path'+(act.path??act.leg):'pin'+act.leg}:${act.name}`,list=act.steps;
+      if(key!==this.key){this.key=key;this.run={t0:now,at:0,slots:list.map(()=>({feedStart:-1,done:false,t0:null,finished:false}))};}
+      const r=this.run,j=this.joints,isPart=s=>action(s.action).kind==='custom';
+      const begin=(s,slot)=>{if(slot.t0!==null)return;slot.t0=now;if(isPart(s)&&j)slot.part=j.start(s.action)!==false;};
+      const finish=(s,slot)=>{slot.finished=true;if(action(s.action).kind==='shoot')this.spinning=false;};
+      if(act.moving){const cmd=this.base();let cell;
+        list.forEach((s,i)=>{const slot=r.slots[i];begin(s,slot);if(slot.finished)return;
+          if(finite(s.seconds)&&now-slot.t0>=s.seconds){finish(s,slot);return;}
+          const out=this.one(s.action,{moving:true,seconds:s.seconds},slot,state,now);if(slot.done)finish(s,slot);
+          for(const k of ['intake','spin','aim','feed'])cmd[k]=cmd[k]||out.cmd[k];
+          if(finite(out.cmd.turretDeg))cmd.turretDeg=out.cmd.turretDeg;if(out.cmd.turretDegs)cmd.turretDegs=out.cmd.turretDegs.map((v,n)=>finite(v)?v:cmd.turretDegs?.[n]);
+          if(/^(shoot|aim)/.test(action(s.action).kind)&&cell===undefined)cell=s.cell;});
+        if('ramp' in cmd)cmd.ramp=this.ramp;return {cmd,busy:false,cell};}
+      while(r.at<list.length){const s=list[r.at],slot=r.slots[r.at];begin(s,slot);
+        const out=this.one(s.action,{moving:false,seconds:s.seconds},slot,state,now),t=now-slot.t0;
+        const part=slot.part&&j.busy(s.action),done=finite(s.seconds)?t>=s.seconds-1e-9:!out.busy&&!part;
+        if(!done)return {cmd:out.cmd,busy:true,cell:s.cell};
+        finish(s,slot);r.at++;}
+      return {cmd:this.base(),busy:false};
     }
   }
   // Where a picked point on the robot (inches; x forward, y left, from the robot's center) falls: the
@@ -317,9 +372,11 @@
     for(const p of parts.filter(p=>p.role==='intake')){const b=p.box,out={front:b.x1-hl,back:-hl-b.x0,left:b.y1-hw,right:-hw-b.y0},center={x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2};
       let edge=Object.entries(out).sort((a,c)=>c[1]-a[1])[0];edge=edge[1]>.25?edge[0]:locate(center,L,W).edge;
       const along=edge==='front'||edge==='back',span=Math.min(along?b.y1-b.y0:b.x1-b.x0,along?W:L);
-      if(intakes.some(i=>i.sides.includes(edge)))continue;
-      intakes.push({kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]});
-      found.push(`Intake “${p.name}”: ${edge}, ${round(Math.max(0,out[edge]))} in out, ${round(span)} in wide`);}
+      // Another assembly on the same edge (a ramp plate, a roller arm) is part of that intake: its moving parts are
+      // looked for there too. What the intake is stays as its first assembly says; the CAD's shapes decide the rest.
+      const same=intakes.find(i=>i.sides.includes(edge));if(same){if(same.parts.length<8&&!same.parts.includes(p.name))same.parts.push(p.name);continue;}
+      intakes.push({kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]});}
+    for(const i of intakes)found.push(`Intake ${i.parts.map(n=>`“${n}”`).join(' + ')}: ${i.sides[0]}, ${i.reach} in out, ${i.width} in wide`);
     // Shooters. A flywheel assembly (named shooter, launcher... or for its piece) is one shooter; assemblies that
     // overlap on the robot's footprint (a flywheel and its hood) are the same one, unless they take different pieces.
     // An assembly named only "turret" turns the flywheels that sit over it: each of them gets its own turret, so one
@@ -349,6 +406,32 @@
     const top=parts.length?Math.max(...parts.map(p=>p.box.z1)):null;
     // A shooter that takes nectar needs room to hold it (the robot keeps a capacity the team already set).
     return {robot:chassis?{length:round(L),width:round(W),...(top?{heightIn:round(top)}:{})}:null,intakes,shooters,found,...(shooters.some(takesNectar)?{capacity:{pollen:STORAGE_MAX,nectar:STORAGE_MAX}}:{})};
+  }
+  // ---- the team's intakes and shooters, found in the CAD ---------------------------------------
+  // Configure from CAD: each intake and shooter the team added takes what the CAD's named assemblies (fromCad) say about
+  // it: an intake its side, size and parts (the CAD's intake of the same kind first, then in order); a shooter its spot
+  // and parts (the one shooting the same pieces first). What the team chose stays: an intake's kind, a shooter's turret
+  // or fixed, every motor, servo and timing. CAD intakes (or shooters) beyond the team's are listed in `extra`, not
+  // added; with none of them added, the CAD's are used. Returns {mechanisms, matched, extra}.
+  function adoptCad(raw,out){
+    const r=sanitize(raw),cad=out||{intakes:[],shooters:[]},m={...r,intakes:r.enabled?r.intakes.map(i=>({...i})):[],shooters:r.enabled?r.shooters.map(s=>({...s})):[]},matched=[],extra=[];
+    const names=c=>`“${(c.parts?.length?c.parts:[c.from]).join('” + “')}”`;
+    // Intakes: the team's, each given the CAD's intake of its kind (else the next one); with none added, the CAD's own.
+    const intakes=[...cad.intakes],taken=new Set(),placed=new Set();
+    if(!m.intakes.length){m.intakes=intakes.splice(0).map(c=>({...c}));m.intakes.forEach((c,n)=>{matched.push(`Intake ${n+1} → ${names(c)}`);placed.add(c);c.sides.forEach(e=>taken.add(e));});}
+    else m.intakes=m.intakes.map((i,n)=>{let k=intakes.findIndex(c=>c.kind===i.kind);if(k<0&&intakes.length)k=0;if(k<0)return i;const c=intakes.splice(k,1)[0];c.sides.forEach(e=>taken.add(e));
+      matched.push(`Intake ${n+1} → ${names(c)}`);const next={...i,sides:c.sides,reach:c.reach,width:c.width,height:c.height,...(c.parts?{parts:c.parts}:{})};delete next.at;placed.add(next);return next;});
+    // An intake the CAD has nothing for keeps its sides where they are free, else takes a free edge.
+    for(const i of m.intakes)if(!placed.has(i)){const free=i.sides.filter(e=>!taken.has(e));i.sides=free.length?free:[EDGES.find(e=>!taken.has(e))||i.sides[0]];i.sides.forEach(e=>taken.add(e));}
+    // Shooters: the team's, each given the CAD's shooter of the same pieces (else the next one); with none added, the CAD's own.
+    const shooters=[...cad.shooters];
+    if(!m.shooters.length){m.shooters=shooters.splice(0).map(c=>({...c}));m.shooters.forEach((c,n)=>matched.push(`Shooter ${n+1} → ${names(c)}`));}
+    else m.shooters=m.shooters.map((s,n)=>{let k=shooters.findIndex(c=>c.pieces===s.pieces);if(k<0&&shooters.length)k=0;if(k<0)return s;const c=shooters.splice(k,1)[0];
+      matched.push(`Shooter ${n+1} → ${names(c)}`);return {...s,mount:c.mount,at:c.at,parts:c.parts};});
+    for(const c of intakes)extra.push(`intake ${names(c)} (${c.sides[0]})`);for(const c of shooters)extra.push(`${c.type==='turret'?'turret':'shooter'} ${names(c)} (${PIECES[c.pieces].toLowerCase()})`);
+    m.enabled=m.intakes.length+m.shooters.length>0;
+    if(cad.capacity&&m.shooters.some(takesNectar)&&!m.capacity?.nectar)m.capacity=cad.capacity;
+    return {mechanisms:sanitize(m),matched,extra};
   }
   // ---- a new front or top for the CAD -----------------------------------------------------------
   // The robot's front (or top) was set again on its CAD. What is tied to the CAD moves with it: an intake or shooter
@@ -396,6 +479,6 @@
   // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing).
   const presetMechanisms=(id,base={})=>{const p=PRESETS[id]?.mechanisms;if(!p)return null;
     return sanitize({...base,...p,enabled:true,capacity:p.capacity||{pollen:4,nectar:0},preload:{pollen:4},transfer:p.transfer||base.transfer,indexer:{...base.indexer,...p.indexer},shooter:{...base.shooter,...p.shooter},target:null});};
-  return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,fromCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
-    sanitize,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};
+  return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,fromCad,adoptCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
+    sanitize,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,turretAction,hasRamp,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};
 });

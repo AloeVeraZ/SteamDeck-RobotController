@@ -400,7 +400,7 @@ public class ${o.opMode} extends LinearOpMode {
     const nm=names(className,packageName),mech=mechanisms?.enabled?mechanisms:null,legs=legsOf(route,exporter),list=exporter.actions(route),dir=packageName.replace(/\./g,'/');
     const startH=finite(layout.start.heading)?layout.start.heading:route.heading||0,through=throughs(legs,startH),check=checklist({mechanisms:mech,actions:list,drivetrain:robot?.drivetrain||'mecanum'});
     const o={route,layout,legs,through,exporter,packageName,className,paths:nm.paths,opMode:nm.opMode,mechanisms:mech,constants,checklist:check,defaultPower};
-    const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,poseImport:'com.pedropathing.math.Pose'};
+    const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,sequences:exporter.sequences?.(route)||[],poseImport:'com.pedropathing.math.Pose'};
     const out={[`${dir}/${nm.paths}.java`]:pathsFile(o),[`${dir}/${nm.opMode}.java`]:opModeFile(o),[`${dir}/RouteActions.java`]:ftc.routeActions(shared,list),[`${dir}/RobotActions.java`]:ftc.robotActions(shared,list)};
     if(mech)out[`${dir}/Mechanisms.java`]=ftc.mechanismsSource(shared,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
     // The check TeleOp tests the drive motors Deck knows (none for swerve) and every mechanism device on the robot.

@@ -204,14 +204,33 @@
   // A custom curve: 1-3 Bezier control points between the path's start and its end point, placed by the
   // user like Pedro Pathing's visualizer. The robot drives exactly this curve (it is checked, never moved).
   const controlsOf=c=>{if(!Array.isArray(c))return null;const out=c.filter(q=>q&&finite(q.x)&&finite(q.y)).slice(0,3).map(q=>({x:Math.round(q.x*1000)/1000,y:Math.round(q.y*1000)/1000}));return out.length?out:null;};
+  // What the mechanisms do along a path and at its end pin: a list of steps, each an action name, how long it runs
+  // (null: until it is done at a pin, the whole path while driving) and the hive cell a Shoot or Aim aims at. At a pin
+  // the steps run one after another; while driving they run together from the start of the path. → and + join steps
+  // in a route's names, so a step's own name has neither.
+  const MAX_STEPS=8;
+  const stepOf=s=>{const action=text(s?.action,40).replace(/[→+]/g,' ').replace(/\s+/g,' ').trim();if(!action)return null;
+    return {action,seconds:finite(s.seconds)&&s.seconds>0?Math.min(30,+s.seconds.toFixed(3)):null,cell:s.cell==='other'?'other':'start'};};
+  const stepsOf=list=>Array.isArray(list)?list.map(stepOf).filter(Boolean).slice(0,MAX_STEPS):[];
+  // The one name a route's code runs for its steps: a single step's own name, or every step (with its time and cell)
+  // joined by "then" (a pin: one after another) or "+" (a path: together), e.g. "Shoot then Ramp down".
+  const aims=s=>/^(shoot|aim)\b/i.test(s.action);
+  function stepsName(steps,together=false){if(steps.length<2)return steps[0]?.action||'';
+    return steps.map(s=>s.action+(finite(s.seconds)?` ${+s.seconds.toFixed(3)} s`:'')+(s.cell==='other'&&aims(s)?' (other cell)':'')).join(together?' + ':' then ');}
+  // The older single action (action, actionSeconds, cell) every runtime reads, from the steps.
+  const summaryOf=(steps,together)=>steps.length===1?{action:steps[0].action,actionSeconds:steps[0].seconds,cell:steps[0].cell}:{action:stepsName(steps,together),actionSeconds:null,cell:steps.find(aims)?.cell||'start'};
+  // A subject's steps: its own list, or the single action an older save has.
+  const stepsFrom=(r,legacy)=>Array.isArray(r.steps)?stepsOf(r.steps):legacy&&text(r.action,40).trim()?stepsOf([{action:r.action,seconds:r.actionSeconds,cell:r.cell}]):[];
   function pathEffects(raw){const r=raw&&typeof raw==='object'?raw:{},rotate=['turn','spin','relative','start','track','tangent','reverse'].includes(r.rotate)?r.rotate:'keep';
-    // actionSeconds: how long an action path's action runs from the start of the path (null: the whole path).
-    return {controls:controlsOf(r.controls),kind:r.kind==='action'?'action':'regular',cell:r.cell==='other'?'other':'start',action:text(r.action,40),actionSeconds:finite(r.actionSeconds)&&r.actionSeconds>0?Math.min(30,r.actionSeconds):null,note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?Math.max(-36000,Math.min(36000,r.angle)):90,target:targetOf(r.target),spins:finite(r.spins)?Math.max(-100,Math.min(100,Math.round(r.spins)||1)):1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
-  // At a pin the robot pauses for `wait`, then runs `action` for actionSeconds (null: until it finishes),
-  // then drives on. Older routes ran an intake for the pin's pause: that becomes the intake's own time.
+    // An action path runs its steps while it is driven. An older action path with no action name stays one.
+    const steps=stepsFrom(r,r.kind==='action'),kind=steps.length||r.kind==='action'&&!Array.isArray(r.steps)?'action':'regular';
+    return {controls:controlsOf(r.controls),kind,steps,...summaryOf(steps,true),note:text(r.note,160),style:['sharp','spline'].includes(r.style)?r.style:null,shapeAuto:r.shapeAuto===true,rotate,heading:finite(r.heading)?norm(r.heading):0,angle:finite(r.angle)?Math.max(-36000,Math.min(36000,r.angle)):90,target:targetOf(r.target),spins:finite(r.spins)?Math.max(-100,Math.min(100,Math.round(r.spins)||1)):1,power:finite(r.power)?Math.max(0,Math.min(1,r.power)):null};}
+  // At a pin the robot pauses for `wait`, then runs its steps in order, then drives on. Older routes ran an intake
+  // for the pin's pause: that becomes the intake's own time.
   function pinEffects(p){
-    if(p.actionSeconds===undefined&&/^\s*intake\s*$/i.test(String(p.action||''))&&finite(p.wait)&&p.wait>0)p={...p,actionSeconds:p.wait,wait:0};
-    return {wait:finite(p.wait)?Math.max(0,p.wait):0,action:text(p.action,40),cell:p.cell==='other'?'other':'start',actionSeconds:finite(p.actionSeconds)&&p.actionSeconds>0?Math.min(30,p.actionSeconds):null,note:text(p.note,160),turn:finite(p.turn)?(p.turnMode==='relative'?p.turn:norm(p.turn)):null,turnMode:['relative','start','track'].includes(p.turnMode)?p.turnMode:'absolute',target:targetOf(p.target),path:pathEffects(p.path)};}
+    if(p.actionSeconds===undefined&&!Array.isArray(p.steps)&&/^\s*intake\s*$/i.test(String(p.action||''))&&finite(p.wait)&&p.wait>0)p={...p,actionSeconds:p.wait,wait:0};
+    const steps=stepsFrom(p,true);
+    return {wait:finite(p.wait)?Math.max(0,p.wait):0,steps,...summaryOf(steps,false),note:text(p.note,160),turn:finite(p.turn)?(p.turnMode==='relative'?p.turn:norm(p.turn)):null,turnMode:['relative','start','track'].includes(p.turnMode)?p.turnMode:'absolute',target:targetOf(p.target),path:pathEffects(p.path)};}
   function pathEnd(path,heading,start,point){return path.rotate==='relative'?heading+path.angle:path.rotate==='start'?start:path.rotate==='track'&&path.target?bearing(point,path.target):path.rotate==='turn'?path.heading:heading;}
   function pinHeading(p,heading,start){return p.turn===null||!finite(p.turn)?null:p.turnMode==='relative'?norm(heading+p.turn):p.turnMode==='start'?norm(start):p.turnMode==='track'&&p.target?bearing(p,p.target):norm(p.turn);}
   // Shared by clearance checks and preview; target bearings follow the actual Bezier point.
@@ -225,7 +244,9 @@
     bits.push(p.rotate==='tangent'?'Face along the path (tangent)':p.rotate==='reverse'?'Face backwards along the path':p.rotate==='relative'?`Turn by ${p.angle>=0?'+':''}${p.angle}°`:p.rotate==='turn'?`Face field heading ${p.heading}°`:p.rotate==='spin'?`Spin ${Math.abs(p.spins)} ${p.spins<0?'clockwise':'counterclockwise'}`:p.rotate==='start'?'Return to starting heading':p.rotate==='track'?`Track target ${p.target?`(${p.target.x}, ${p.target.y}) in`:'not selected'}`:'Hold inherited heading');
     if(p.controls)bits.push(`Custom curve (${p.controls.length} handle${p.controls.length>1?'s':''})`);else if(p.style)bits.push(p.style==='spline'?'Smooth spline':'Straight segments');if(p.note)bits.push(p.note);return bits;}
   function pathAppearance(raw,power=.8){const p=pathEffects(raw),key=p.rotate==='track'?'track':p.rotate!=='keep'?'rotation':p.power!==null?'power':p.kind==='action'?'action':'normal';return {key,color:{track:'#49cbb3',rotation:'#b79bff',power:'#f2bc62',action:'#63c5ff',normal:'#aeb8c5'}[key],action:p.kind==='action',power:p.power??power};}
-  const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,actionSeconds:p.actionSeconds,cell:p.cell,note:p.note,turn:p.turn,path:p.path});
+  // About how long a pin's steps hold the robot, for the preview: each step's own time, else 1.5 s for a Shoot and 1 s for others.
+  const stepsSeconds=stop=>(stop.steps?.length?stop.steps:[{action:stop.action,seconds:stop.actionSeconds}]).reduce((t,s)=>t+(finite(s.seconds)?s.seconds:/^\s*shoot/i.test(s.action)?1.5:1),0);
+  const stopOf=p=>({x:p.x,y:p.y,wait:p.wait,action:p.action,actionSeconds:p.actionSeconds,cell:p.cell,steps:p.steps,note:p.note,turn:p.turn,path:p.path});
   const rotates=(path,heading)=>!!path&&(path.rotate==='spin'||['relative','start','track','tangent','reverse'].includes(path.rotate)||path.rotate==='turn'&&finite(path.heading)&&Math.abs(norm(path.heading-heading))>1e-6);
   const effectful=project=>Array.isArray(project?.pins)&&project.pins.some(p=>finite(p?.turn)||p?.path?.style||!project.nonholonomic&&(['turn','spin','relative','start','track','tangent','reverse'].includes(p?.path?.rotate)||controlsOf(p?.path?.controls)));
   // Each segment records which pin it leads to, so paths can be told apart (action or regular).
@@ -255,7 +276,7 @@
       for(let j=1;j<=n;j++){const t=j/n,p=bezier(seg.points,t),h=headingOf(t),last=out.at(-1),step=Math.hypot(p.x-last.x,p.y-last.y);s+=step;d+=step;
         push({x:p.x,y:p.y,heading:h===null||prev===null?last.heading:last.heading+(wraps?norm(h-prev):h-prev),path,...moving});prev=h;}
       for(const stop of stops)if(stop.segment===i){if(finite(stop.turn))turnTo(stop.turn,path);if(stop.wait>0)dwell(stop.wait,'','start',path);
-        if(stop.action)dwell(finite(stop.actionSeconds)?stop.actionSeconds:/^\s*shoot/i.test(stop.action)?1.5:1,stop.action,stop.cell,path);}
+        if(stop.action)dwell(stepsSeconds(stop),stop.action,stop.cell,path);}
     });
     return out;
   }
@@ -575,5 +596,5 @@
     const pin=raw=>{const p={...raw,...pt(raw)};if(p.target)p.target=pt(p.target);if(finite(p.turn))p.turn=p.turnMode==='relative'?turnBy(p.turn):p.turnMode==='start'||p.turnMode==='track'?p.turn:hd(p.turn);if(p.path)p.path=path(p.path);return p;};
     return {start:layout.start?{...pt(layout.start),heading:hd(layout.start.heading)}:layout.start,pins:(layout.pins||[]).map(pin),zones:(layout.zones||[]).map(zone)};
   }
-  return {allianceRoute,tangentAt,previewPoses,PREVIEW_SPEED,SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
+  return {allianceRoute,tangentAt,previewPoses,PREVIEW_SPEED,SIZE,FIELD,TOL,MIN_CLEARANCE,polygon,parts,zoneHits,triangulate,hull,body,overlap,contains,inside,safePose,safeSweep,sweepClear,dragPose,slidePose,segmentClear,validateZone,inflated,analyze,plan,shapeCandidates,planEffects,pinEffects,stepsOf,stepsName,MAX_STEPS,pathEffects,headingAt,pathEnd,pinHeading,pathDescription,pathAppearance,planFixed,planTurning,planTankLattice,tankRoute,dist};
 });
