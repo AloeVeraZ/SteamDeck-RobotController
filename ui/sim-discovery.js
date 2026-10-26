@@ -189,7 +189,11 @@
     const want=(Array.isArray(wantIn)?wantIn:[]).filter(w=>w&&typeof w.id==='string'&&typeof w.kind==='string').slice(0,48);
     const [F,L,T]=rows||[[1,0,0],[0,1,0],[0,0,1]],up=unit3(T),inch=1/(unitIn||1),joints=[],report=[],claimed=new Set(),K=M();
     let floor=Infinity;for(let v=0;v<ctx.positions.length/3;v+=Math.max(1,Math.floor(ctx.positions.length/3/200000)))floor=Math.min(floor,dot(ctx.P(v),up));
-    const metaParts=Array.isArray(meta?.parts)?meta.parts:[],byName=name=>{const clean=s=>String(s||'').replace(/\s*<\d+>$/,'').trim().toLowerCase();return metaParts.find(p=>clean(p.name)===clean(name));};
+    // A part by its name: the exact name first ("Turret <1>" and "Turret <2>" are two copies, two assemblies), then without
+    // its instance number. Parts that hold other listed parts (an assembly the import split into the turrets inside it)
+    // are not a mechanism themselves.
+    const metaAll=Array.isArray(meta?.parts)?meta.parts:[],holds=p=>typeof p.key==='string'&&metaAll.some(q=>q!==p&&typeof q.key==='string'&&q.key.startsWith(p.key+'/'));
+    const metaParts=metaAll.filter(p=>!holds(p)),byName=name=>{const exact=s=>String(s||'').trim().toLowerCase(),clean=s=>exact(s).replace(/\s*<\d+>$/,'');return metaAll.find(p=>exact(p.name)===exact(name))||metaAll.find(p=>clean(p.name)===clean(name));};
     const leavesOf=names=>{const out=new Set();for(const n of names||[]){const p=byName(n),node=p?.key&&ctx.parts.byKey.get(p.key);if(node)for(const k of ctx.parts.leavesUnder(node))out.add(k);}return out;};
     const feat=k=>feature(ctx,k),rev=k=>feat(k)?.revolve,boxCenter=f=>scale(add(f.lo,f.hi),.5),teethOf=k=>teethOfName(nameOf(ctx,k));
     const horiz=v=>{const h=sub(v,scale(up,dot(v,up)));return len(h)>1e-9?unit(h):null;};
@@ -213,7 +217,11 @@
     // what they would drive is moved by route actions instead (named positions).
     const fromNames=!mechanisms?.enabled,m=!fromNames?mechanisms:{intakes:metaParts.filter(p=>p.role==='intake').slice(0,4).map((p,i)=>({kind:p.kind==='kicker'?'kicker':'ramp',sides:[sideOf(p)],parts:[p.name]})),
       // An "Outtake" on another field is usually a lift, arm and claw (found by their own names below), not a shooter.
-      shooters:metaParts.filter(p=>p.role==='shooter'&&!(p.type==='turret'&&/turret/i.test(p.name)&&!/shoot|launch|flywheel|pollen|nectar/i.test(p.name))&&!(/outtake/i.test(p.name)&&!/shoot|launch|fly ?wheel|turret|cannon|pollen|nectar/i.test(p.name))).slice(0,2).map(p=>({type:p.type==='turret'||metaParts.some(q=>q.type==='turret'&&/turret/i.test(q.name))?'turret':'fixed',parts:[p.name,...metaParts.filter(q=>q!==p&&q.type==='turret'&&/turret/i.test(q.name)&&!/shoot|launch|flywheel|pollen|nectar/i.test(q.name)).map(q=>q.name)]}))};
+      // Turrets with no flywheel assembly of their own are found by their names below (each one its own turret).
+      shooters:(()=>{const turrets=metaParts.filter(p=>p.role==='shooter'&&p.type==='turret'&&/turret/i.test(p.name)&&!/shoot|launch|flywheel|pollen|nectar/i.test(p.name));
+        const flys=metaParts.filter(p=>p.role==='shooter'&&!turrets.includes(p)&&!(/outtake/i.test(p.name)&&!/shoot|launch|fly ?wheel|turret|cannon|pollen|nectar/i.test(p.name)));
+        if(!flys.length)return [];
+        return flys.slice(0,2).map(p=>({type:p.type==='turret'||turrets.length?'turret':'fixed',parts:[p.name,...turrets.map(q=>q.name)]}));})()};
     // The side an intake assembly sticks out of (robot frame, from its box).
     function sideOf(p){if(!Array.isArray(p.box))return 'front';const c=scale(add(p.box.slice(0,3),p.box.slice(3)),.5),b=ctx.lo.map((v,i)=>(v+ctx.hi[i])/2),d=sub(c,b),x=dot(d,unit3(F)),y=dot(d,unit3(L));return Math.abs(x)>=Math.abs(y)?(x>=0?'front':'back'):(y>=0?'left':'right');}
     // ---- which CAD parts each game mechanism is
@@ -488,7 +496,7 @@
       const nodes=ctx.parts.nodes,rows3=[F,L,T],made=new Map(),list=[];
       // The game's own assemblies, the chassis and (while the game's feeders turn in them) the indexers are looked
       // inside, not at.
-      const outer=new Set(metaParts.filter(p=>used.has(clean(p.name))||p.role==='chassis'||p.role==='indexer'&&!fromNames).flatMap(p=>[p.key,clean(p.name)]));
+      const outer=new Set([...metaParts.filter(p=>used.has(clean(p.name))||p.role==='chassis'||p.role==='indexer'&&!fromNames),...metaAll.filter(holds)].flatMap(p=>[p.key,clean(p.name)]));
       // While the game's mechanisms are on, its turrets, hoods, flywheels, intakes and feeders are the ones set up for it.
       const game=new Set(fromNames?[]:['turret','hood','flywheel','roller-intake','deploy-intake','feeder']);
       // The mechanisms the team added (Configure from CAD), each given the assembly whose name is most like it

@@ -351,58 +351,99 @@
   // ---- parts from a CAD assembly ---------------------------------------------------------------
   // A STEP file's assemblies are named by the team ("Chassis", "Front intake", "Pollen shooter",
   // "Turret", "Indexer"...). The name says what each one is.
-  const ROLE_WORDS=[['intake',/intake|roller|sweeper|ramp|collector|pick ?up|kicker|scoop/i],['shooter',/shoot|launch|flywheel|turret|cannon|outtake/i],
+  const ROLE_WORDS=[['intake',/intake|roller|sweeper|ramp|collector|pick ?up|kicker|scoop|deploy|flap/i],['shooter',/shoot|launch|flywheel|turret|cannon|outtake/i],
     ['indexer',/index|feed|transfer|hopper|storage|magazine|conveyor|elevator/i],['chassis',/chassis|drive ?train|drive ?base|frame|base ?plate|^base$|^drive$/i]];
+  // What a turret carries: the flywheel, hood or shooter assemblies inside it (names without instance numbers).
+  const SHOOTER_INSIDE=/fly ?wheel|shoot|launch|cannon|\bhood\b/i;
+  const bareName=n=>String(n||'').replace(/\s*<\d+>$/,'').trim();
   function partRole(name,inner=[]){
     const find=text=>ROLE_WORDS.find(([,re])=>re.test(text))?.[0]||null,text=String(name||''),all=[text,...inner].join(' ');
     const nectar=/nectar/i.test(all),pollen=/pollen/i.test(all),role=find(text)||find(inner.join(' '))||(nectar||pollen?'shooter':'other');
+    const carries=role==='shooter'?[...new Set(inner.filter(n=>SHOOTER_INSIDE.test(n)).map(bareName))].slice(0,4):[];
     return {role,pieces:nectar&&pollen?'both':nectar?'nectar':pollen?'pollen':null,type:role==='shooter'?(/turret/i.test(all)?'turret':'fixed'):null,
-      kind:role==='intake'?(/kicker|scoop/i.test(all)?'kicker':/side ?roller/i.test(all)?'siderollers':/ramp/i.test(all)?'ramp':'sweeper'):null};
+      kind:role==='intake'?(/kicker|scoop/i.test(all)?'kicker':/side ?roller/i.test(all)?'siderollers':/ramp|deploy|flap/i.test(all)?'ramp':'sweeper'):null,...(carries.length?{carries}:{})};
   }
   // The drivetrain from the part names anywhere in the assembly ("104mm Mecanum Wheel", "Swerve module"...).
   const DRIVE_WORDS=[['swerve',/swerve/i],['mecanum',/mecanum/i],['kiwi',/kiwi/i],['hdrive',/\bh-?drive/i],['xdrive',/\bx-?drive|omni/i],['tracks',/\btracks\b|tread/i],['tank6',/drop ?cent(er|re)|west ?coast|\bwcd\b|6 ?wd/i],['tank',/traction|\btank\b/i]];
   function drivetrainFromNames(names=[]){const text=names.join('\n');return DRIVE_WORDS.find(([,re])=>re.test(text))?.[0]||null;}
+  // Copies of one assembly: "Turret <1>" and "Turret <2>" (instances), "Turret L" and "Turret R", "Left shooter" and
+  // "Right shooter", "Shooter 1" and "Shooter 2". Two such parts are two mechanisms, never one, however close they sit.
+  const SIDE_WORDS=new Set(['left','right','front','back','rear','l','r','lh','rh','a','b','one','two','first','second','1st','2nd','top','bottom','upper','lower','inner','outer']);
+  const copyBase=name=>String(name||'').toLowerCase().replace(/<(\d+)>/g,' $1 ').replace(/([a-z])(\d)/g,'$1 $2').replace(/(\d)([a-z])/g,'$1 $2').split(/[^a-z0-9]+/).filter(w=>w&&!SIDE_WORDS.has(w)&&!/^\d+$/.test(w)).join(' ');
+  const copies=(a,b)=>String(a).trim().toLowerCase()!==String(b).trim().toLowerCase()&&copyBase(a)!==''&&copyBase(a)===copyBase(b);
+  // A deployable ramp (or kicker) by its name: one that says it moves (deploy, fold, flip, drop down, kicker, flap).
+  const MOVES_WORDS=/deploy|kicker|flap|fold|flip|drop ?down|swing/i;
+  const quoted=list=>list.map(n=>`“${n}”`).join(' + ');
   // Mechanism parts from CAD part boxes in the robot frame (inches: x forward and y left from the chassis
   // center, z up from the floor). Returns the chassis size, intakes and shooters, and what was found.
+  // Parts that hold other listed parts (their key is above the others' keys: an assembly the import split into the
+  // turrets inside it) are not mechanisms themselves.
   function fromCad(parts,{length,width,chassis:derived}={}){
     const chassis=parts.find(p=>p.role==='chassis')||(derived?{name:derived.name,derived:true,box:{x0:-derived.length/2,x1:derived.length/2,y0:-derived.width/2,y1:derived.width/2}}:null),round=v=>Math.round(v*4)/4,found=[];
     const L=chassis?chassis.box.x1-chassis.box.x0:length,W=chassis?chassis.box.y1-chassis.box.y0:width,hl=L/2,hw=W/2;
     if(chassis)found.push(chassis.derived?`Chassis (all parts except the intakes): ${round(L)} × ${round(W)} in`:`Chassis “${chassis.name}”: ${round(L)} × ${round(W)} in`);
-    const intakes=[],shooters=[];
-    for(const p of parts.filter(p=>p.role==='intake')){const b=p.box,out={front:b.x1-hl,back:-hl-b.x0,left:b.y1-hw,right:-hw-b.y0},center={x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2};
+    const holds=p=>typeof p.key==='string'&&parts.some(q=>q!==p&&typeof q.key==='string'&&q.key.startsWith(p.key+'/')),holderOf=name=>{const p=parts.find(q=>q.name===name);return p&&typeof p.key==='string'?parts.find(q=>q!==p&&holds(q)&&p.key.startsWith(q.key+'/'))?.name:null;};
+    const usable=parts.filter(p=>!holds(p));
+    const intakes=[],shooters=[],ramps=new Map();
+    for(const p of usable.filter(p=>p.role==='intake')){const b=p.box,out={front:b.x1-hl,back:-hl-b.x0,left:b.y1-hw,right:-hw-b.y0},center={x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2};
       let edge=Object.entries(out).sort((a,c)=>c[1]-a[1])[0];edge=edge[1]>.25?edge[0]:locate(center,L,W).edge;
-      const along=edge==='front'||edge==='back',span=Math.min(along?b.y1-b.y0:b.x1-b.x0,along?W:L);
+      const along=edge==='front'||edge==='back',span=Math.min(along?b.y1-b.y0:b.x1-b.x0,along?W:L),deploying=p.kind==='ramp'||p.kind==='kicker';
       // Another assembly on the same edge (a ramp plate, a roller arm) is part of that intake: its moving parts are
-      // looked for there too. What the intake is stays as its first assembly says; the CAD's shapes decide the rest.
-      const same=intakes.find(i=>i.sides.includes(edge));if(same){if(same.parts.length<8&&!same.parts.includes(p.name))same.parts.push(p.name);continue;}
-      intakes.push({kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]});}
-    for(const i of intakes)found.push(`Intake ${i.parts.map(n=>`“${n}”`).join(' + ')}: ${i.sides[0]}, ${i.reach} in out, ${i.width} in wide`);
+      // looked for there too. What the intake is stays as its first assembly says, unless the other one is named as a ramp
+      // or kicker that moves (a "Ramp deploy", a "Kicker"): rollers with a ramp folding down in front of them are a
+      // deployable ramp. A ramp named only "Ramp" may be fixed; the CAD's hinge decides (Moving parts).
+      const same=intakes.find(i=>i.sides.includes(edge));
+      if(same){if(same.parts.length<8&&!same.parts.includes(p.name))same.parts.push(p.name);
+        if(deploying){ramps.set(same,[...(ramps.get(same)||[]),p.name]);if(same.kind==='sweeper'&&MOVES_WORDS.test(p.name)){same.kind='ramp';same.why=`“${p.name}” is named as a ramp that moves, on the same edge as the rollers`;}}
+        continue;}
+      const intake={kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]};
+      if(deploying)ramps.set(intake,[p.name]);intakes.push(intake);}
+    for(const i of intakes){const r=(ramps.get(i)||[]).filter(n=>n!==i.from),own=i.parts.filter(n=>!r.includes(n)),what=i.kind==='ramp'?'deployable ramp':i.kind==='kicker'?'kicker':null;
+      const why=i.why?` · a ${what} because ${i.why}`:r.length?` · whether the ${i.kind==='kicker'?'kicker':'ramp'} swings down is checked on its hinge (Moving parts)`:what?` · a ${what} by its name`:'';
+      found.push(`Intake ${quoted(own)}${r.length?` + ${i.kind==='kicker'?'kicker':'ramp'} ${quoted(r)}`:''}: ${i.sides[0]}, ${i.reach} in out, ${i.width} in wide${why}`);
+      delete i.why;}
     // Shooters. A flywheel assembly (named shooter, launcher... or for its piece) is one shooter; assemblies that
-    // overlap on the robot's footprint (a flywheel and its hood) are the same one, unless they take different pieces.
-    // An assembly named only "turret" turns the flywheels that sit over it: each of them gets its own turret, so one
-    // "Turret" assembly holding two turntables under a pollen and a nectar flywheel is two independent turrets.
-    // A turret with no flywheel over it is a shooter of its own.
+    // overlap on the robot's footprint (a flywheel and its hood) are the same one, unless they take different pieces or
+    // are copies of one assembly (two turrets' shooters sit close but are two). An assembly named only "turret" turns the
+    // flywheels that sit over it: each of them gets its own turret, so one "Turret" assembly holding two turntables under
+    // a pollen and a nectar flywheel is two independent turrets. Copies of a turret ("Turret L" and "Turret R") each take
+    // the nearest flywheel; a turret with no flywheel over it is a shooter of its own (its flywheel rides inside it).
     const turretOnly=p=>p.type==='turret'&&/turret/i.test(p.name)&&!/shoot|launch|flywheel|cannon|outtake|pollen|nectar/i.test(p.name);
-    const centerOf=b=>({x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2}),area=b=>Math.max(.01,(b.x1-b.x0)*(b.y1-b.y0));
+    const centerOf=b=>({x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2}),area=b=>Math.max(.01,(b.x1-b.x0)*(b.y1-b.y0)),apart=(a,b)=>Math.hypot(centerOf(a).x-centerOf(b).x,centerOf(a).y-centerOf(b).y);
     const shared=(a,b)=>Math.max(0,Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0))*Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
-    const same=(s,p)=>(!s.pieces||!p.pieces||s.pieces===p.pieces)&&(shared(s.box,p.box)>.25*Math.min(area(s.box),area(p.box))||Math.hypot(centerOf(s.box).x-centerOf(p.box).x,centerOf(s.box).y-centerOf(p.box).y)<3);
+    const same=(s,p)=>!s.parts.some(n=>copies(n,p.name))&&(!s.pieces||!p.pieces||s.pieces===p.pieces)&&(shared(s.box,p.box)>.25*Math.min(area(s.box),area(p.box))||apart(s.box,p.box)<3);
     const union=(a,b)=>({x0:Math.min(a.x0,b.x0),x1:Math.max(a.x1,b.x1),y0:Math.min(a.y0,b.y0),y1:Math.max(a.y1,b.y1),z0:Math.min(a.z0,b.z0),z1:Math.max(a.z1,b.z1)});
-    const groups=[],shooterParts=parts.filter(p=>p.role==='shooter');
+    const groups=[],shooterParts=usable.filter(p=>p.role==='shooter');
     for(const p of shooterParts.filter(p=>!turretOnly(p))){const near=groups.find(s=>same(s,p));
-      if(near){near.box=union(near.box,p.box);near.parts.push(p.name);if(p.type==='turret')near.type='turret';near.pieces=near.pieces||p.pieces;continue;}
-      groups.push({box:{...p.box},parts:[p.name],type:p.type||'fixed',pieces:p.pieces});}
-    for(const p of shooterParts.filter(turretOnly)){const over=groups.filter(s=>shared(s.box,p.box)>.25*area(s.box)||same(s,{...p,pieces:null}));
-      for(const s of over){s.type='turret';s.parts.push(p.name);}
-      if(!over.length)groups.push({box:{...p.box},parts:[p.name],type:'turret',pieces:p.pieces});}
+      if(near){near.box=union(near.box,p.box);near.parts.push(p.name);near.flywheels.push(p.name);if(p.type==='turret')near.type='turret';near.pieces=near.pieces||p.pieces;continue;}
+      groups.push({box:{...p.box},parts:[p.name],flywheels:[p.name],turrets:[],carries:[],type:p.type||'fixed',pieces:p.pieces});}
+    // Turrets are matched to the flywheel shooters only (two turrets never make one shooter).
+    const flywheelGroups=groups.slice(),turretParts=shooterParts.filter(turretOnly);
+    for(const p of turretParts){let over=flywheelGroups.filter(s=>shared(s.box,p.box)>.25*area(s.box)||same(s,{...p,pieces:null}));
+      // One of two copies over several flywheels: the nearest one whose turret is not yet set.
+      if(over.length>1&&turretParts.some(q=>q!==p&&copies(q.name,p.name))){const free=over.filter(s=>!s.turrets.some(n=>copies(n,p.name))),pool=free.length?free:over;over=[pool.sort((a,b)=>apart(a.box,p.box)-apart(b.box,p.box))[0]];}
+      for(const s of over){s.type='turret';s.parts.push(p.name);s.turrets.push(p.name);for(const c of p.carries||[])if(!s.carries.includes(c))s.carries.push(c);}
+      if(!over.length)groups.push({box:{...p.box},parts:[p.name],flywheels:[],turrets:[p.name],carries:[...(p.carries||[])],type:'turret',pieces:p.pieces});}
     // The game physics launches pollen from the first shooter and nectar from the second.
     // Shooters named for a piece come before unnamed ones when there are more than the simulator runs.
     const order={pollen:0,both:1,nectar:2},rank=g=>order[g.pieces]??3;groups.sort((a,b)=>rank(a)-rank(b));
     const kept=groups.slice(0,MAX_SHOOTERS).map(g=>({...g,pieces:g.pieces||'pollen'})).sort((a,b)=>rank(a)-rank(b));
-    for(const g of kept){const c=centerOf(g.box);
-      shooters.push({type:g.type,pieces:g.pieces||'pollen',mount:locate(c,L,W).mount,facing:'front',at:{x:c.x,y:c.y,z:g.box.z1},from:g.parts[0],parts:g.parts.slice(0,8).map(n=>n.replace(/\s*<\d+>$/,''))});}
-    for(const s of shooters)found.push(`Shooter “${s.parts.join('” + “')}”: ${s.type==='turret'?'turret':'fixed'} at the ${MOUNTS[s.mount].toLowerCase()}, ${PIECES[s.pieces].toLowerCase()}`);
+    // What each one is called: with two, by the side each sits on (left and right, or front and back).
+    const sides=(()=>{if(kept.length<2)return kept.map(()=>'');const [a,b]=kept.map(g=>centerOf(g.box)),dx=Math.abs(a.x-b.x),dy=Math.abs(a.y-b.y);
+      if(Math.max(dx,dy)<.5)return ['First','Second'];return dy>=dx?[a.y>b.y?'Left':'Right',a.y>b.y?'Right':'Left']:[a.x>b.x?'Front':'Back',a.x>b.x?'Back':'Front'];})();
+    const twins=kept.length===2&&kept[0].turrets.length&&kept[1].turrets.length&&kept[0].turrets.some(n=>kept[1].turrets.some(m=>copies(n,m)));
+    kept.forEach((g,n)=>{const c=centerOf(g.box),mount=locate(c,L,W).mount,pieces=g.pieces||'pollen',kind=g.type==='turret'?'turret':'fixed shooter';
+      const label=sides[n]?`${sides[n]} ${kind}`:kind[0].toUpperCase()+kind.slice(1),holder=holderOf(g.parts[0]);
+      shooters.push({type:g.type,pieces,mount,facing:'front',at:{x:c.x,y:c.y,z:g.box.z1},from:g.parts[0],parts:g.parts.slice(0,8)});
+      // Why: which assembly it is, what it carries, and why it is its own (a copy of the other, or its own turntable).
+      const sharedTurret=g.turrets.length&&kept.some(o=>o!==g&&o.turrets.some(t=>g.turrets.includes(t)));
+      const what=g.type!=='turret'||!g.turrets.length?quoted(g.flywheels.length?g.flywheels:g.parts):
+        sharedTurret?`with shooter ${quoted(g.flywheels)}, on its own turntable in ${quoted(g.turrets)} (that assembly holds both turntables)`:
+        g.flywheels.length?`${quoted(g.turrets)} carrying its shooter ${quoted(g.flywheels)}`:
+        `${quoted(g.turrets)} carrying its own shooter${g.carries.length?` (${g.carries.map(x=>`“${x}”`).join(', ')} inside it)`:' (no flywheel is named in it; the shooter is taken to ride on it)'}`;
+      found.push(`${label} ${what}${holder?` in “${holder}”`:''}: at the ${MOUNTS[mount].toLowerCase()}, shoots ${PIECES[pieces].toLowerCase()}${twins?' · one of two copies of the same turret assembly, so each is its own turret and shooter':''}`);});
     for(const g of groups.slice(MAX_SHOOTERS))found.push(`Shooter “${g.parts.join('” + “')}”: not set up; the simulator runs ${MAX_SHOOTERS} shooters at most`);
-    for(const p of parts.filter(p=>p.role==='indexer'))found.push(`Indexer “${p.name}”: set its transfer and indexing times`);
+    for(const p of usable.filter(p=>p.role==='indexer'))found.push(`Indexer “${p.name}”: set its transfer and indexing times`);
     const top=parts.length?Math.max(...parts.map(p=>p.box.z1)):null;
     // A shooter that takes nectar needs room to hold it (the robot keeps a capacity the team already set).
     return {robot:chassis?{length:round(L),width:round(W),...(top?{heightIn:round(top)}:{})}:null,intakes,shooters,found,...(shooters.some(takesNectar)?{capacity:{pollen:STORAGE_MAX,nectar:STORAGE_MAX}}:{})};
@@ -410,24 +451,27 @@
   // ---- the team's intakes and shooters, found in the CAD ---------------------------------------
   // Configure from CAD: each intake and shooter the team added takes what the CAD's named assemblies (fromCad) say about
   // it: an intake its side, size and parts (the CAD's intake of the same kind first, then in order); a shooter its spot
-  // and parts (the one shooting the same pieces first). What the team chose stays: an intake's kind, a shooter's turret
-  // or fixed, every motor, servo and timing. CAD intakes (or shooters) beyond the team's are listed in `extra`, not
-  // added; with none of them added, the CAD's are used. Returns {mechanisms, matched, extra}.
+  // and parts (the one shooting the same pieces first). What the team chose stays: a shooter's turret or fixed, every
+  // motor, servo and timing, and an intake's kind (but a plain sweeper whose CAD assembly is a deployable ramp or kicker
+  // becomes one). The CAD's intakes and shooters beyond the team's are added too, as far as the robot has room for them
+  // (an intake on a free edge, two shooters at most); the rest are listed in `extra`. Returns {mechanisms, matched, extra}.
   function adoptCad(raw,out){
     const r=sanitize(raw),cad=out||{intakes:[],shooters:[]},m={...r,intakes:r.enabled?r.intakes.map(i=>({...i})):[],shooters:r.enabled?r.shooters.map(s=>({...s})):[]},matched=[],extra=[];
-    const names=c=>`“${(c.parts?.length?c.parts:[c.from]).join('” + “')}”`;
-    // Intakes: the team's, each given the CAD's intake of its kind (else the next one); with none added, the CAD's own.
-    const intakes=[...cad.intakes],taken=new Set(),placed=new Set();
-    if(!m.intakes.length){m.intakes=intakes.splice(0).map(c=>({...c}));m.intakes.forEach((c,n)=>{matched.push(`Intake ${n+1} → ${names(c)}`);placed.add(c);c.sides.forEach(e=>taken.add(e));});}
-    else m.intakes=m.intakes.map((i,n)=>{let k=intakes.findIndex(c=>c.kind===i.kind);if(k<0&&intakes.length)k=0;if(k<0)return i;const c=intakes.splice(k,1)[0];c.sides.forEach(e=>taken.add(e));
-      matched.push(`Intake ${n+1} → ${names(c)}`);const next={...i,sides:c.sides,reach:c.reach,width:c.width,height:c.height,...(c.parts?{parts:c.parts}:{})};delete next.at;placed.add(next);return next;});
+    const names=c=>quoted((c.parts?.length?c.parts:[c.from]).map(bareName));
+    // Intakes: the team's, each given the CAD's intake of its kind (else the next one); then the CAD's others on free edges.
+    const intakes=[...cad.intakes],taken=new Set(),placed=new Set(),hadIntakes=m.intakes.length>0,hadShooters=m.shooters.length>0;
+    m.intakes=m.intakes.map((i,n)=>{let k=intakes.findIndex(c=>c.kind===i.kind);if(k<0&&intakes.length)k=0;if(k<0)return i;const c=intakes.splice(k,1)[0];c.sides.forEach(e=>taken.add(e));
+      const kind=i.kind==='sweeper'&&deploys(c.kind)?c.kind:i.kind;
+      matched.push(`Intake ${n+1} → ${names(c)}${kind!==i.kind?` (now a ${kind==='ramp'?'deployable ramp':'kicker'}: your CAD has one there)`:''}`);
+      const next={...i,kind,sides:c.sides,reach:c.reach,width:c.width,height:c.height,...(c.parts?{parts:c.parts}:{})};delete next.at;placed.add(next);return next;});
     // An intake the CAD has nothing for keeps its sides where they are free, else takes a free edge.
     for(const i of m.intakes)if(!placed.has(i)){const free=i.sides.filter(e=>!taken.has(e));i.sides=free.length?free:[EDGES.find(e=>!taken.has(e))||i.sides[0]];i.sides.forEach(e=>taken.add(e));}
-    // Shooters: the team's, each given the CAD's shooter of the same pieces (else the next one); with none added, the CAD's own.
+    for(const c of intakes.splice(0)){if(m.intakes.length<4&&c.sides.every(e=>!taken.has(e))){m.intakes.push({...c});c.sides.forEach(e=>taken.add(e));matched.push(`Intake ${m.intakes.length} → ${names(c)}${hadIntakes?' (added from your CAD)':''}`);}else intakes.push(c);}
+    // Shooters: the team's, each given the CAD's shooter of the same pieces (else the next one); then the CAD's others.
     const shooters=[...cad.shooters];
-    if(!m.shooters.length){m.shooters=shooters.splice(0).map(c=>({...c}));m.shooters.forEach((c,n)=>matched.push(`Shooter ${n+1} → ${names(c)}`));}
-    else m.shooters=m.shooters.map((s,n)=>{let k=shooters.findIndex(c=>c.pieces===s.pieces);if(k<0&&shooters.length)k=0;if(k<0)return s;const c=shooters.splice(k,1)[0];
+    m.shooters=m.shooters.map((s,n)=>{let k=shooters.findIndex(c=>c.pieces===s.pieces);if(k<0&&shooters.length)k=0;if(k<0)return s;const c=shooters.splice(k,1)[0];
       matched.push(`Shooter ${n+1} → ${names(c)}`);return {...s,mount:c.mount,at:c.at,parts:c.parts};});
+    for(const c of shooters.splice(0)){if(m.shooters.length<MAX_SHOOTERS){m.shooters.push({...c});matched.push(`Shooter ${m.shooters.length} → ${names(c)}${hadShooters?' (added from your CAD)':''}`);}else shooters.push(c);}
     for(const c of intakes)extra.push(`intake ${names(c)} (${c.sides[0]})`);for(const c of shooters)extra.push(`${c.type==='turret'?'turret':'shooter'} ${names(c)} (${PIECES[c.pieces].toLowerCase()})`);
     m.enabled=m.intakes.length+m.shooters.length>0;
     if(cad.capacity&&m.shooters.some(takesNectar)&&!m.capacity?.nectar)m.capacity=cad.capacity;
@@ -479,6 +523,6 @@
   // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing).
   const presetMechanisms=(id,base={})=>{const p=PRESETS[id]?.mechanisms;if(!p)return null;
     return sanitize({...base,...p,enabled:true,capacity:p.capacity||{pollen:4,nectar:0},preload:{pollen:4},transfer:p.transfer||base.transfer,indexer:{...base.indexer,...p.indexer},shooter:{...base.shooter,...p.shooter},target:null});};
-  return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,fromCad,adoptCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
+  return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,copies,copyBase,fromCad,adoptCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
     sanitize,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,turretAction,hasRamp,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};
 });
