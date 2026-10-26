@@ -126,6 +126,8 @@
       // How a drive wheel rolls: a plain wheel only forward and back; a mecanum wheel's rollers also take sideways motion.
       ...(['mecanum','omni'].includes(raw.roll)?{roll:raw.roll}:{}),
       source:Object.hasOwn(PROVENANCE,raw.source)?raw.source:'user',...(finite(raw.confidence)?{confidence:clamp(+raw.confidence.toFixed(2),0,1)}:{}),...(text(raw.note,300)?{note:text(raw.note,300)}:{}),
+      // A mechanism the team added and Configure from CAD found: the CAD assembly it was matched to.
+      ...(text(raw.matched,120)?{matched:text(raw.matched,120)}:{}),
       ...(Array.isArray(raw.alternatives)?{alternatives:raw.alternatives.slice(0,3).filter(a=>a&&vec(a.origin)&&vec(a.axis)).map(a=>({origin:vec(a.origin),axis:unit(vec(a.axis)),note:text(a.note,200)}))}:{})};
   }
   function sanitize(raw){
@@ -140,7 +142,7 @@
       const transmission=sanitizeStages(a.transmission),response=Object.hasOwn(RESPONSES,a.response)?a.response:'ideal',motor=response==='motor'?sanitizeMotor(a.motor):null;
       return {id:a.id,name:text(a.name)||a.id,kind:Object.hasOwn(ACTUATORS,a.kind)?a.kind:'servo',joint:a.joint,index:Math.round(num(a.index,0,0,n-1)),mode:Object.hasOwn(MODES,a.mode)?a.mode:'position',
         speed:num(a.speed,90,.001,1e5),accel:num(a.accel,0,0,1e7),ratio:transmission?stagesRatio(transmission):num(a.ratio,1,-1e4,1e4)||1,...(finite(a.home)?{home:a.home}:{}),...(Object.keys(states).length?{states}:{}),...(finite(a.effort)?{effort:clamp(a.effort,-1,1)}:{}),
-        ...(transmission?{transmission}:{}),...(response!=='ideal'&&(response!=='motor'||motor)?{response,...(motor?{motor}:{})}:{})};}).filter(Boolean);
+        ...(transmission?{transmission}:{}),...(response!=='ideal'&&(response!=='motor'||motor)?{response,...(motor?{motor}:{})}:{}),...hardwareOf(a)};}).filter(Boolean);
     const term=t=>t&&jointRef(t.from)?{from:t.from,ratio:num(t.ratio,1,-1e4,1e4),...(finite(t.fromIndex)?{fromIndex:Math.max(0,Math.round(t.fromIndex))}:{})}:null;
     const couplings=(Array.isArray(r.couplings)?r.couplings:[]).slice(0,96).map(c=>{if(!c||!jointRef(c.from)||!jointRef(c.to)||c.from===c.to)return null;
       const plus=(Array.isArray(c.plus)?c.plus:[]).slice(0,7).map(term).filter(t=>t&&t.from!==c.to),curve=curveOf(c.curve),poly=Array.isArray(c.poly)?c.poly.slice(0,3).map(v=>finite(v)?v:0):[];while(poly.length&&!poly.at(-1))poly.pop();
@@ -217,6 +219,19 @@
   function sanitizeMotor(m){if(!m||!finite(m.free)||!(m.free>0)||!finite(m.stall)||!(m.stall>0))return null;
     return {free:clamp(+m.free,.01,1e7),stall:clamp(+m.stall,1e-6,1e6),...(Number.isInteger(m.count)&&m.count>1?{count:Math.min(8,m.count)}:{}),...(finite(m.load)?{load:clamp(+m.load,-1e6,1e6)}:{}),...(finite(m.inertia)&&m.inertia>0?{inertia:+m.inertia}:{}),
       ...['p','i','d'].reduce((o,k)=>finite(m[k])&&m[k]>=0?{...o,[k]:+m[k]}:o,{}),...(finite(m.power)?{power:clamp(+m.power,0,1)}:{})};}
+  // What the robot code needs to drive an actuator (DeckActuators): the motor or servo model it is, its name in the robot
+  // configuration and whether it turns the other way; a servo's positions (0–1: the lowest and highest it may go to, and
+  // the one that holds its part where the CAD has it), the degrees (inches for a linear servo) it turns across its rated
+  // pulses and the pulses the hub sends for 0 and 1; a DC motor's encoder counts per turn of its output and its power.
+  const DEVICE=/^[A-Za-z][\w .-]{0,39}$/,unitNum=v=>finite(v)?clamp(+v,0,1):null;
+  function hardwareOf(a){
+    const out={};if(typeof a.model==='string'&&/^[a-z0-9][a-z0-9-]{0,47}$/.test(a.model))out.model=a.model;
+    if(typeof a.device==='string'&&DEVICE.test(a.device.trim()))out.device=a.device.trim();if(a.reversed===true)out.reversed=true;
+    const s=a.servo;if(s&&typeof s==='object'){const pulses=v=>Array.isArray(v)&&v.length===2&&v.every(finite)&&v[0]>=100&&v[1]<=3000&&v[1]-v[0]>=50?[+v[0],+v[1]]:null;
+      let lo=unitNum(s.min)??0,hi=unitNum(s.max)??1;if(lo>hi)[lo,hi]=[hi,lo];
+      out.servo={min:lo,max:hi,center:clamp(unitNum(s.center)??.5,lo,hi),range:num(s.range,300,1,7200),...(pulses(s.pwm)?{pwm:pulses(s.pwm)}:{}),...(pulses(s.pulse)?{pulse:pulses(s.pulse)}:{})};}
+    if(finite(a.cpr)&&a.cpr>0)out.cpr=clamp(+a.cpr,.01,1e7);if(finite(a.power)&&a.power>0)out.power=clamp(+a.power,.01,1);
+    return out;}
   // A table of [input, output] points, sorted, one output per input.
   const curveOf=v=>{if(!Array.isArray(v))return null;const pts=v.filter(p=>Array.isArray(p)&&finite(p[0])&&finite(p[1])).map(p=>[+p[0],+p[1]]).sort((a,b)=>a[0]-b[0]).filter((p,i,a)=>!i||p[0]>a[i-1][0]).slice(0,256);return pts.length>=2?pts:null;};
   // What an action step moves: an actuator (its named positions, else its joint's), or a part moved by route actions.

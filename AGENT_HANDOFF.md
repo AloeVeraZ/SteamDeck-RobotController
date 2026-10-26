@@ -109,3 +109,24 @@ AGENT_BACKLOG.md is in priority order.
 - **Ramps.** A ramp moves only on Ramp down / Ramp up (`cmd.ramp`, latched in the Runner; Y in teleop). Intake runs only the rollers, and a raised ramp still takes floor pieces; a ramp has to be down to reach a flower. A kicker still follows Intake.
 - **New built-in actions:** "Ramp down", "Ramp up", "Turret to 30°", "Turret 2 to -45°", "Wait", and "<part> to 40°" / "to 4 in" (`Kin.Driver.start`, clamped to end stops).
 - **UI.** `ui/sim-steps.js` is the step editor (catalogue, rows, add chips). The route list in `ui/simulation.js` puts a pin row (`.sim-stop-row`, `data-pin`) under each path row; `openPart` says which one is open. Tests: `tests/sim-route-steps.test.cjs`.
+
+## One Mechanisms list (26 October)
+
+- **Setup → 3 · Mechanisms** is one list on every field, with **+ Add mechanism** and **Configure from CAD** at the top. Read `docs/MECHANISM_RESEARCH.md` §8 first.
+  - `ui/sim-mechanism-list.js` draws the moving mechanisms' cards and the picker.
+  - `simulation.js` draws the BIOBUZZ intake and shooter cards into the same list (`#mech-intakes`, `#mech-shooters`, `#mech-parts`).
+  - The right-hand **Moving parts** panel (`sim-joints.js`) still holds every joint's geometry, but no longer has its own + Add.
+- **Actuators.** `ui/sim-actuators.js` (`DeckActuators`) holds the FTC motor and servo models.
+  - It also has the servo math: positions sent with 600–2400 µs by default, `perUnit`, `position`/`valueAt`, `limits`, and encoder counts through gearing (`countsPer`, `ticks`).
+  - `device(actuator, states)` is what exporters should read.
+  - Kinematics actuators keep `model`, `device`, `reversed`, `servo{min,max,center,range,pwm,pulse}`, `cpr` and `power` (`hardwareOf` in `sim-kinematics.js`).
+- **Configure from CAD:**
+  - `DeckMechanismTypes.likeness` scores names.
+  - `DeckDiscovery.discover({want})` marks the joint found for each added mechanism with `for` and `matched`.
+  - `sim-joints.js` `adopt`/`takeGeometry` merges it into the team's joint, and `DeckMechanisms.adoptCad` merges the game's intakes and shooters.
+- **The other session** (route steps, `sim-steps.js`) committed its work first. Both sessions staged only their own hunks of shared files (`simulation.js`, `simulation.css`, `sim-mechanisms.js`, `sim-kinematics.js`, `index.html`, `preview.cjs`, `docs/SIMULATION.md`).
+- **Probes** of the team's lunala CAD drive Playwright on Electron with a temporary `DECK_DATA_DIR`:
+  - copy `%APPDATA%/Deck Driver Station/simulation/models/4c16d882bfb3dfcaff8f3de412161d8a.glb` into `<dir>/simulation/models/`;
+  - launch with `--deck-sim-open=<copy of examples/lunala-red-auto-cycles.json> --deck-sim-tab=setup`;
+  - wait for `#sim-mesh-size` to say "fitted", click `[data-setup-step=mechanisms]`, then `#mech-add`, a `#mech-picker [data-v=…]` tile and `#mech-from-cad`;
+  - read `#mech-list-status`.

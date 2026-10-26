@@ -182,9 +182,11 @@
     hinge:/servo ?hub|hub ?shaft|hinge|pivot|axle|spline|horn/i,hinged:/\barm\b|claw|grip|wrist|elbow|shoulder|pivot|flip|bucket|outtake|deposit|scoop|kicker|deploy|linkage|four ?bar|4 ?bar|jaw|finger|lid|door|flap/i,slide:/slide|\blift\b|elevator|viper|linear|extension|extend|telescop|cascade|carriage|\brail|mast/i,hub:/sonic hub|\bhub\b/i,shaft:/shaft|axle|standoff|spacer|bearing|bushing|collar/i,
     drive:/servo|motor/i,servo:/\bservo\b(?!\s*(hub|horn|gear|arm))|motor/i,gear:/gear|pinion|pulley|sprocket/i,arm:/\barm\b|ramp|bump|scoop|kicker|flap|deflector|plate|guard/i,
     wheel:/wheel|mecanum|omni|traction/i};
-  // discover({rows, unit, meta, mechanisms}): proposals for the game's own mechanisms (each intake and shooter, with
+  // discover({rows, unit, meta, mechanisms, want}): proposals for the game's own mechanisms (each intake and shooter, with
   // the CAD assemblies it was set up from) and for the drive wheels. Each proposal is a kinematics joint plus `report`.
-  function discover(ctx,{rows,unit:unitIn=1,meta,mechanisms,debug}={}){
+  // want: mechanisms the team added and has not placed yet ({id, kind, name}); the joint found for one says so in `for`.
+  function discover(ctx,{rows,unit:unitIn=1,meta,mechanisms,debug,want:wantIn}={}){
+    const want=(Array.isArray(wantIn)?wantIn:[]).filter(w=>w&&typeof w.id==='string'&&typeof w.kind==='string').slice(0,48);
     const [F,L,T]=rows||[[1,0,0],[0,1,0],[0,0,1]],up=unit3(T),inch=1/(unitIn||1),joints=[],report=[],claimed=new Set(),K=M();
     let floor=Infinity;for(let v=0;v<ctx.positions.length/3;v+=Math.max(1,Math.floor(ctx.positions.length/3/200000)))floor=Math.min(floor,dot(ctx.P(v),up));
     const metaParts=Array.isArray(meta?.parts)?meta.parts:[],byName=name=>{const clean=s=>String(s||'').replace(/\s*<\d+>$/,'').trim().toLowerCase();return metaParts.find(p=>clean(p.name)===clean(name));};
@@ -489,8 +491,17 @@
       const outer=new Set(metaParts.filter(p=>used.has(clean(p.name))||p.role==='chassis'||p.role==='indexer'&&!fromNames).flatMap(p=>[p.key,clean(p.name)]));
       // While the game's mechanisms are on, its turrets, hoods, flywheels, intakes and feeders are the ones set up for it.
       const game=new Set(fromNames?[]:['turret','hood','flywheel','roller-intake','deploy-intake','feeder']);
-      const found=[],visit=(n,above)=>{let here=above;const all=ctx.parts.leavesUnder(n);
-        if(all.length&&!outer.has(n.key)&&!outer.has(clean(n.name))&&found.length<40){const d=TY.detect(n.name),t=d&&!game.has(d.id)&&TY.TYPES[d.id];
+      // The mechanisms the team added (Configure from CAD), each given the assembly whose name is most like it
+      // (DeckMechanismTypes.likeness), one assembly each, assemblies before single parts; one inside another still rides on it.
+      const wanted=new Map();
+      if(want.length){const cands=[];
+        for(const n of nodes){const all=ctx.parts.leavesUnder(n);if(!all.length||outer.has(n.key)||outer.has(clean(n.name))||all.length>ctx.leaves*.6)continue;
+          for(const w of want){const t=TY.TYPES[w.kind];if(!t||t.find==='wheel')continue;const s=TY.likeness(w,n.name);if(s<1||!(all.length>1||t.piece||n.children.length))continue;cands.push({n,w,s:s+(n.children.length?.25:0)});}}
+        cands.sort((a,b)=>b.s-a.s||ctx.parts.leavesUnder(b.n).length-ctx.parts.leavesUnder(a.n).length);const took=new Set();
+        for(const c of cands){if(took.has(c.w.id)||wanted.has(c.n.i))continue;took.add(c.w.id);wanted.set(c.n.i,c.w);}}
+      const found=[],visit=(n,above)=>{let here=above;const all=ctx.parts.leavesUnder(n),w=wanted.get(n.i);
+        if(w&&found.length<40){here={n,type:w.kind,word:bare(n.name),above,assembly:n.children.length>0,want:w.id};found.push(here);}
+        else if(all.length&&!outer.has(n.key)&&!outer.has(clean(n.name))&&found.length<40){const d=TY.detect(n.name),t=d&&!game.has(d.id)&&TY.TYPES[d.id];
           // A single part named for a mechanism that is never one piece (a "Viper slide" rail, a "Spool") is part of one,
           // and same-named parts that do not touch are copies (the side plates of a four-bar, two A-arms), not one part.
           if(t&&t.find!=='wheel'&&(all.length>1||t.piece)&&!(above&&TY.TYPES[above.type].family===t.family)&&(n.children.length||all.length<2||pieces(all)===1)){here={n,type:t.id,word:d.word,above,assembly:n.children.length>0};found.push(here);}}
@@ -505,12 +516,15 @@
       for(const f of found){
         const t=TY.TYPES[f.type],name=bare(f.n.name),under=ctx.parts.leavesUnder(f.n).filter(k=>feat(k)),ups=[];for(let a=f.above;a;a=a.above)if(made.get(a))ups.push(made.get(a));
         // Its parts: those no other mechanism took (what it rides on is still the robot to it).
-        const mine=new Set(ups),free=k=>!claimed.has(k)||mine.has(owner.get(k)),own=under.filter(free);if(!own.length||own.length<.3*under.length)continue;
-        const parent=ups[0]||null,bind=bindFor(t),said=`Named “${name}”, so it is ${/^[aeiou]/i.test(t.name)?'an':'a'} ${t.name.toLowerCase()}.`;
-        if(t.find==='claw'){const done=clawOf(f.n,name,own,free,t,parent,said,bind);if(done)list.push(done);continue;}
+        const mine=new Set(ups),free=k=>!claimed.has(k)||mine.has(owner.get(k)),own=under.filter(free);
+        if(!own.length||own.length<.3*under.length){if(f.want)report.push(`“${name}” looks like your ${t.name.toLowerCase()}, but its parts already move with another mechanism.`);continue;}
+        const parent=ups[0]||null,bind=bindFor(t),said=f.want?`Your ${t.name.toLowerCase()} is “${name}” in your CAD.`:`Named “${name}”, so it is ${/^[aeiou]/i.test(t.name)?'an':'a'} ${t.name.toLowerCase()}.`;
+        const mark=j=>{if(j&&f.want){j.for=f.want;j.matched=name;}return j;};
+        if(t.find==='claw'){const done=mark(clawOf(f.n,name,own,free,t,parent,said,bind));if(done)list.push(done);continue;}
         let j=t.find==='slide'?slideOf({name},own):t.find==='spin'?spinOf(name,own):t.find==='yaw'?yawOf(name,own):hingeOf({name},own,{free});
-        // With no pivot found, an assembly the team made is still listed for them to place; a lone named part is not.
-        if(!j&&!f.assembly)continue;if(!j)j=placeholder(name,own,t);const moving=[...ctx.parts.expand(j.parts)];typed(j,t,moving,bind);j.parent=parent;j.note=`${said} ${j.note}`;
+        // With no pivot found, an assembly the team made (or one matched to a mechanism the team added) is still listed for
+        // them to place; a lone named part is not.
+        if(!j&&!f.assembly&&!f.want)continue;if(!j)j=placeholder(name,own,t);const moving=[...ctx.parts.expand(j.parts)];typed(j,t,moving,bind);j.parent=parent;j.note=`${said} ${j.note}`;mark(j);
         add_(j);claim(j);made.set(f,j.id);list.push(j);
         // A pivoting slide's slides ride on it, when no assembly inside it is named for them.
         if(t.then&&!found.some(g=>g.above===f&&TY.TYPES[g.type].family==='slide')){const s=slideOf({name:`${name} slides`},own.filter(k=>owner.get(k)===j.id));

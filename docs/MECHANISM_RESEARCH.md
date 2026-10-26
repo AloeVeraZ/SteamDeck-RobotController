@@ -306,3 +306,69 @@ Checked:
 - the app (Playwright on Electron, the team's setup in a temporary data folder): the list, the search, adding a claw, making it a lift, its motor, at 1400 and 420 px wide.
 
 Found and fixed on the way: "Turret drive" and "Hook pivot" read as mechanisms (drive and pivot are now hardware after a mechanism word); a spinning type kept the old part's positions; the game's own turret and intake were found a second time by name.
+
+
+## 8. One Mechanisms list: + Add mechanism, actuators and Configure from CAD (26 October)
+
+The team asked for one **Mechanisms** list in place of Intakes and Shooters: **+ Add mechanism** opening mechanisms from every FTC season and robotics in general; each one saying whether a servo or a motor drives it, and a servo's lowest, highest and center positions; and **Configure from CAD** setting up what was added from the CAD's names. A second session was building route steps on the same files at the same time; the split was agreed by message (that session: route actions, the Runner, exports and the engine; this one: the Mechanisms page, the catalogue, actuators and the finder).
+
+**Actuators (`ui/sim-actuators.js`).** What the robot code needs, with makers' figures:
+
+- **Servos.** `Servo.setPosition(0–1)` sends 600–2400 µs by default (`PwmControl.PwmRange.usPulseLowerDefault/UpperDefault`). Servos are rated over 500–2500 µs, so a 300° goBILDA turns 270° from 0 to 1 unless the code calls `setPwmRange(new PwmRange(500, 2500))` or the configuration says Full Range Servo (SDK 10.3).
+  - Travel across 500–2500 µs: goBILDA 2000 series 300° (5-turn 1800°); Axon MAX/MINI MK2 350°; REV Smart Robot Servo 270°; Hitec HS-485HB about 190° over 553–2425 µs.
+  - Speeds and stall torques at 6 V: goBILDA Torque 0.20 s/60° and 21.6 kg·cm; Speed 0.09 s and 9.3; Super Speed 0.043 s and 4.7. Axon MAX 0.115 s and 34; MINI 0.09 s and 25; MICRO+ 0.075 s and 7.8. REV SRS 0.14 s and 13.5. A hub's own servo ports give 5 V, a little slower.
+  - Continuous-rotation speed is worked out from the same figures (10 / (s per 60°) rpm).
+  - Linear servos: Actuonix L16-R is retracted at 1.0 ms and out at 2.0 ms (63:1: 20 mm/s, 100 N); Hitec HLS12 covers 30 mm over 1050–1950 µs. With the default pulses an L16-R moves between positions 0.222 and 0.778.
+- **Motors** (free rpm, encoder counts per output turn, stall N·m):
+  - goBILDA 5203 at every ratio from 1:1 (6000, 28, 0.144) to 188:1 (30, 5281.1, 24.5).
+  - REV HD Hex (6000, 28, 0.105) with UltraPlanetary cartridges, whose real ratios are 2.89, 3.61 and 5.23 ("20:1" is 317 rpm and 530 counts; "60:1" is 109.5 rpm and 1535.3 counts), or with the older 20:1 and 40:1 spur gearboxes.
+  - REV Core Hex (125, 288, 3.2); TorqueNADO (100, 1440, 4.94); Studica Maverick (100, 1464, 5.0); NeveRest Classic 40 and Orbital 20 for older kits.
+- **Rules (BIOBUZZ manual TU06):** R503 allows 8 motors (the drivetrain's included) and 8 servos (DECODE allowed 10). R502 allows any servo up to 8 W and 4 A at 6 V, and linear servos up to 1 A. R801 bans pneumatics and vacuum. The page counts the mechanisms' motors and servos against R503, and the Pneumatic piston and Suction gripper types say so.
+- A servo's **center** is the position that holds its part where the CAD has it. Named positions are kept in the part's degrees or inches and shown as the position the code sends; changing the center keeps the positions found on the robot.
+- A turning servo or motor that drives a slide through a linkage (no spool, rack or screw) covers the slide's travel in its whole sweep, or in half a turn for a motor. A new servo is centred so its part's positions sit in the middle of its sweep.
+
+**Catalogue.** Twenty-three types were added from a season-by-season survey (Ring It Up to DECODE, plus BIOBUZZ), FRC and general robotics:
+
+- passive and suction grippers, and goal and foundation grabbers;
+- hoppers, sorter flaps and diverters, tilting ramps and Geneva indexers;
+- tape measures, forks and buddy lifts, and stilts;
+- fold-out arms, jewel and sample knockers, sweeper arms and plows, and cone righters;
+- pole guides, cappers, droppers (marker, purple pixel), button pushers and pivoting shooters;
+- PTO shifters and drop-down wheels;
+- delta arms and Stewart legs.
+
+Twenty existing word lists gained other seasons' names: collector, harvester, outtake or pixel box, relic arm, lander latch, pixel lock, deflector, duck wheel, treads and odometry. Names that read wrong before now read right: "Zip Line Trigger" was a drone launcher, "Beacon Pusher" a kicker, "Foundation Hooks" a hang hook and "Mineral Sorter" a spindexer. The type's default actuator is a model from the list above. New parts are named the way teams say it ("Extendo", "Hood", "V4B", "DR4B"), so a route action reads "Hood shoot".
+
+**Configure from CAD.** `DeckMechanismTypes.likeness` scores a CAD name against a mechanism that was added:
+
+- its type's word counts most: the type itself, then one of its family. A name that says another type counts against it, unless it also has this type's word ("Intake claw" for a claw).
+- the team's own words count next. Plurals, longer forms and one typo all match.
+- the type's words anywhere in the name add a little.
+- vendor parts score nothing, and hardware right after the name ("Lift motor") counts against it.
+
+`DeckDiscovery.discover({want})` then gives each mechanism the assembly most like it, one each, with assemblies before single parts. It finds the pivot, rails, axle, turntable or fingers as it does for names it reads itself, and marks the joint `for` and `matched`. The page keeps the team's mechanism (its id, name, type, actuator and positions) and takes the CAD's parts, pivot, parent and travel, unless the team had changed the positions or the CAD could not tell them apart. A mechanism the CAD's game finder found under another name (off BIOBUZZ, a turret inside "turret final") is taken by type and name as a second chance. `DeckMechanisms.adoptCad` does the same for the game's intakes and shooters: the CAD's intake of the same kind (else the next one) gives the intake its side, size and parts; the shooter of the same pieces gives the shooter its spot. Kinds, turret or fixed, motors and timing stay. CAD assemblies beyond the team's are listed, not added, and with none added the CAD's own are used. After a new CAD, every mechanism is looked for again.
+
+**Checked:**
+
+- `tests/sim-actuators.test.cjs`: servo travel under both pulse ranges, position and angle both ways, gearing and reversing, a lift's encoder counts and its run through the route-action driver, model changes, centring, linkage slides, every model's figures, and sanitising.
+- `tests/sim-mechanism-configure.test.cjs`: the likeness rules; a CAD named "Horizontal Ext", "Grabby" and "Spinny boi" found as an extendo (its inner rails ride), a claw (one finger leads, the other follows) and a mini turret (on its plate); two claws matched to the closer names; the game's intakes and shooters merged.
+- `tests/sim-mechanism-types.test.cjs`: 38 names from every season.
+- In the app (Playwright on Electron, the team's lunala CAD):
+  - On BIOBUZZ, Configure from CAD set Intake 1 to "intake v4" + "FRONT RAMP" and the two shooters to POLLEN V2 and NECTAR V2. It reported an added slide and claw as not in that CAD.
+  - On an empty field, an added Turret, Hood and Roller intake took the CAD's Turret 1, Hood 1 and Roller 1, while Turret 2, Hood 2 and the ramp stayed as found.
+  - A hood switched to an Axon MINI, with "shoot" typed as servo 0.6, saved 43.2°.
+
+Found and fixed on the way:
+
+- found joints moved by route actions were dropped when the team had one: the duplicate-signal check counted "action" as a game signal;
+- found parts showed "Parts chosen";
+- a matched hood took the CAD's blank 0°/0° positions.
+
+**Sources:**
+
+- FTC rules: https://ftc-resources.firstinspires.org/ftc/game/manual (BIOBUZZ TU06, 12.5–12.8), https://ftc-resources.firstinspires.org/ftc/event/inspection-reference, https://ftc-resources.firstinspires.org/ftc/archive/2026/game/manual (DECODE).
+- SDK servos and motors: https://ftctechnh.github.io/ftc_app/doc/javadoc/constant-values.html, https://javadoc.io/static/org.firstinspires.ftc/RobotCore/10.3.0/com/qualcomm/robotcore/hardware/PwmControl.PwmRange.html, https://gm0.org/en/latest/docs/software/adv-control-system/sdk-servos.html, https://gm0.org/en/latest/docs/software/adv-control-system/sdk-motors.html.
+- Servos: https://www.gobilda.com/2000-series-dual-mode-servo-25-2-torque/ (and -25-3, -25-4, 5-turn), https://www.gobilda.com/axon-max-servo-mk2/, https://www.gobilda.com/axon-mini-servo-mk2/, https://docs.axon-robotics.com/archive/micro, https://docs.revrobotics.com/rev-crossover-products/servo/srs, https://docs.revrobotics.com/rev-crossover-products/servo/smart-robot-servo-v2/srs-v2-specifications.
+- Linear servos: https://cdn.robotshop.com/media/F/Fir/RB-Fir-111/pdf/ActuonixL16Datasheet.pdf, https://hitecrcd.com/hls12-3050-6v-linear-servo.
+- Motors: goBILDA 5203 product pages (for example https://www.gobilda.com/5203-series-yellow-jacket-planetary-gear-motor-13-7-1-ratio-24mm-length-8mm-rex-shaft-435-rpm-3-3-5v-encoder/), https://docs.revrobotics.com/duo-build/actuators/motors/hd-hex-motor, https://docs.revrobotics.com/rev-crossover-products/ultraplanetary/cartridge-details, https://docs.revrobotics.com/duo-build/motion/motors/core-hex-motor, https://docs.dev.studica.com/en/latest/docs/Actuators/maverick.html.
+- Seasons: FIRST's one-page descriptions in https://github.com/abidingabi/ftc-history; REV kickoff concepts (https://docs.revrobotics.com/ftc-kickoff-concepts/); gm0 common mechanisms (https://gm0.org/en/latest/docs/common-mechanisms/index.html); team pages such as https://www.fwparkerrobotics.org/2017-18-relic-recovery.html, https://ironreignrobotics.org/2016-01-13-tapemeasure/ and https://www.ftc5290.com/robot/capping; Chief Delphi (https://www.chiefdelphi.com/t/basic-mechanical-devices-systems-to-know/502098).

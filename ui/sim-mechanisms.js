@@ -407,6 +407,32 @@
     // A shooter that takes nectar needs room to hold it (the robot keeps a capacity the team already set).
     return {robot:chassis?{length:round(L),width:round(W),...(top?{heightIn:round(top)}:{})}:null,intakes,shooters,found,...(shooters.some(takesNectar)?{capacity:{pollen:STORAGE_MAX,nectar:STORAGE_MAX}}:{})};
   }
+  // ---- the team's intakes and shooters, found in the CAD ---------------------------------------
+  // Configure from CAD: each intake and shooter the team added takes what the CAD's named assemblies (fromCad) say about
+  // it: an intake its side, size and parts (the CAD's intake of the same kind first, then in order); a shooter its spot
+  // and parts (the one shooting the same pieces first). What the team chose stays: an intake's kind, a shooter's turret
+  // or fixed, every motor, servo and timing. CAD intakes (or shooters) beyond the team's are listed in `extra`, not
+  // added; with none of them added, the CAD's are used. Returns {mechanisms, matched, extra}.
+  function adoptCad(raw,out){
+    const r=sanitize(raw),cad=out||{intakes:[],shooters:[]},m={...r,intakes:r.enabled?r.intakes.map(i=>({...i})):[],shooters:r.enabled?r.shooters.map(s=>({...s})):[]},matched=[],extra=[];
+    const names=c=>`“${(c.parts?.length?c.parts:[c.from]).join('” + “')}”`;
+    // Intakes: the team's, each given the CAD's intake of its kind (else the next one); with none added, the CAD's own.
+    const intakes=[...cad.intakes],taken=new Set(),placed=new Set();
+    if(!m.intakes.length){m.intakes=intakes.splice(0).map(c=>({...c}));m.intakes.forEach((c,n)=>{matched.push(`Intake ${n+1} → ${names(c)}`);placed.add(c);c.sides.forEach(e=>taken.add(e));});}
+    else m.intakes=m.intakes.map((i,n)=>{let k=intakes.findIndex(c=>c.kind===i.kind);if(k<0&&intakes.length)k=0;if(k<0)return i;const c=intakes.splice(k,1)[0];c.sides.forEach(e=>taken.add(e));
+      matched.push(`Intake ${n+1} → ${names(c)}`);const next={...i,sides:c.sides,reach:c.reach,width:c.width,height:c.height,...(c.parts?{parts:c.parts}:{})};delete next.at;placed.add(next);return next;});
+    // An intake the CAD has nothing for keeps its sides where they are free, else takes a free edge.
+    for(const i of m.intakes)if(!placed.has(i)){const free=i.sides.filter(e=>!taken.has(e));i.sides=free.length?free:[EDGES.find(e=>!taken.has(e))||i.sides[0]];i.sides.forEach(e=>taken.add(e));}
+    // Shooters: the team's, each given the CAD's shooter of the same pieces (else the next one); with none added, the CAD's own.
+    const shooters=[...cad.shooters];
+    if(!m.shooters.length){m.shooters=shooters.splice(0).map(c=>({...c}));m.shooters.forEach((c,n)=>matched.push(`Shooter ${n+1} → ${names(c)}`));}
+    else m.shooters=m.shooters.map((s,n)=>{let k=shooters.findIndex(c=>c.pieces===s.pieces);if(k<0&&shooters.length)k=0;if(k<0)return s;const c=shooters.splice(k,1)[0];
+      matched.push(`Shooter ${n+1} → ${names(c)}`);return {...s,mount:c.mount,at:c.at,parts:c.parts};});
+    for(const c of intakes)extra.push(`intake ${names(c)} (${c.sides[0]})`);for(const c of shooters)extra.push(`${c.type==='turret'?'turret':'shooter'} ${names(c)} (${PIECES[c.pieces].toLowerCase()})`);
+    m.enabled=m.intakes.length+m.shooters.length>0;
+    if(cad.capacity&&m.shooters.some(takesNectar)&&!m.capacity?.nectar)m.capacity=cad.capacity;
+    return {mechanisms:sanitize(m),matched,extra};
+  }
   // ---- a new front or top for the CAD -----------------------------------------------------------
   // The robot's front (or top) was set again on its CAD. What is tied to the CAD moves with it: an intake or shooter
   // from a part named in the CAD, or placed by clicking the model. One set with the side buttons stays where it is (those
@@ -453,6 +479,6 @@
   // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing).
   const presetMechanisms=(id,base={})=>{const p=PRESETS[id]?.mechanisms;if(!p)return null;
     return sanitize({...base,...p,enabled:true,capacity:p.capacity||{pollen:4,nectar:0},preload:{pollen:4},transfer:p.transfer||base.transfer,indexer:{...base.indexer,...p.indexer},shooter:{...base.shooter,...p.shooter},target:null});};
-  return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,fromCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
+  return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,fromCad,adoptCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
     sanitize,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,turretAction,hasRamp,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};
 });

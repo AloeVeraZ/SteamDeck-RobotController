@@ -1,6 +1,6 @@
 'use strict';
 // Intakes from the CAD: what swings on them (a ramp or kicker on a servo hub, a roller on a swing arm) is found from the
-// shapes whatever the intake is set up as, and "Set up from your CAD" sets the intake to what the CAD shows.
+// shapes whatever the intake is set up as, and "Configure from CAD" sets the intake to what the CAD shows.
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('../ui/sim-discovery.js'),K=require('../ui/sim-kinematics.js'),Mech=require('../ui/sim-mechanisms.js'),M=require('../ui/sim-robot-model.js');
 const S=require('./fixtures/mechanism-shapes.cjs');
 const near=(a,b,tol,msg)=>assert.ok(Math.abs(a-b)<=tol,`${msg||''} ${a} ≠ ${b}`);
@@ -48,7 +48,7 @@ test('a floating arm rides up over each piece the intake takes in, then settles 
   // gameValues (recordings and the 3D view without joint values) follow it the same way.
   assert.equal(M.gameValues(model,{lift:[1]}).arm1,30);
 });
-test('Set up from your CAD: a second intake assembly on the same edge is part of that intake',()=>{
+test('Configure from CAD: a second intake assembly on the same edge is part of that intake',()=>{
   const parts=[{name:'Chassis',role:'chassis',box:{x0:-8,x1:8,y0:-8,y1:8,z0:0,z1:4}},{name:'intake v4',role:'intake',kind:'sweeper',box:{x0:6,x1:14,y0:-7,y1:7,z0:2,z1:9}},{name:'FRONT RAMP',role:'intake',kind:'ramp',box:{x0:7,x1:8,y0:-5,y1:5,z0:.4,z1:1}}];
   const out=Mech.fromCad(parts,{length:16,width:16});
   assert.equal(out.intakes.length,1);assert.deepEqual(out.intakes[0].parts,['intake v4','FRONT RAMP']);assert.equal(out.intakes[0].kind,'sweeper','the first assembly says what it is; its shapes decide the rest');

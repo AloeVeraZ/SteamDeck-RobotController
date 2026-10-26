@@ -24,6 +24,16 @@ test('a CAD name says what a mechanism is: the last mechanism word wins, hardwar
   assert.equal(T.detect('Slide',{vendor:true})?.word,'Slide','the word it was read from');
 });
 
+test('names from every FTC season read as what they are (docs/MECHANISM_RESEARCH.md)',()=>{
+  const cases={'Collector':'roller-intake','Harvester':'roller-intake','Particle Elevator':'conveyor','Cap Ball Lift':'forklift','Buddy Lift':'forklift','Beacon Pusher':'button-pusher',
+    'Zip Line Trigger':'flip-out-arm','Climber Dumper':'dropper','Tape Measure':'tape-measure','Flag Raiser':'spinner','Goal Grabber':'goal-grabber','Jewel Arm':'knocker-arm',
+    'Glyph Flipper':'bucket','Relic Arm':'linear-slide','Team Marker Dropper':'dropper','Lander Latch':'hang-hook','Mineral Sorter':'diverter','Foundation Hooks':'goal-grabber',
+    'Capstone':'capper','Ring Hopper':'hopper','Shooter Pivot':'shooter-pivot','Duck Wheel':'spinner','Pixel Box':'bucket','Purple Pixel Dropper':'dropper','Specimen Claw':'claw',
+    'Outtake Claw':'claw','Horizontal Slides':'linear-slide','Sample Sweeper':'sweeper-arm','Pole Guide':'pole-guide','Cone Righter':'cone-righter','PTO':'pto-shifter','Butterfly module':'drop-wheels',
+    'Suction cup':'suction-gripper','Stilts':'self-lift','Geneva wheel':'geneva-indexer','Delta arm':'delta-arm','Electronics box':null,'Front Plane':null};
+  for(const [name,want] of Object.entries(cases))assert.equal(T.detect(name)?.id??null,want,name);
+});
+
 test('every type gives a part that saves, and its named positions move it by route action',()=>{
   assert.ok(T.LIST.length>=50,'a broad catalogue');assert.equal(new Set(T.LIST.map(t=>t.id)).size,T.LIST.length,'ids are unique');
   for(const g of T.grouped())assert.ok(g.types.length,`group ${g.name} has types`);
