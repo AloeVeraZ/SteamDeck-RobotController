@@ -3,7 +3,6 @@ package deck.sim.hub;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.hardware.sparkfun.SparkFunOTOS;
 import com.qualcomm.robotcore.hardware.IMU;
-import com.qualcomm.robotcore.hardware.VoltageSensor;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.AngularVelocity;
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
@@ -126,9 +125,5 @@ final class SimSensors {
         @Override public Pose2D getPosition() { double[] r = robot(); return new Pose2D(linear.fromInches(r[0]), linear.fromInches(r[1]), angular.fromRadians(r[2])); }
         @Override public void setPosition(Pose2D pose) { place(linear.toInches(pose.x), linear.toInches(pose.y), angular.toRadians(pose.h)); }
         @Override public Pose2D getVelocity() { return new Pose2D(linear.fromInches(vx), linear.fromInches(vy), angular.getUnnormalized().fromRadians(omega)); }
-    }
-
-    static final class Battery implements VoltageSensor {
-        @Override public double getVoltage() { return 12.8; }
     }
 }

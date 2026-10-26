@@ -11,15 +11,23 @@ function compare(a,b){const x=a.split('.').map(Number),y=b.split('.').map(Number
 function assetName(version,platform,arch){const suffix=platform==='linux'&&arch==='x64'?'SteamDeck.tar.gz':platform==='win32'&&arch==='x64'?'Windows.zip':platform==='darwin'&&arch==='arm64'?'macOS-arm64.zip':null;if(!suffix)throw Error('Updates support Steam Deck x64, Windows x64, and Apple Silicon.');return `DeckDriverStation-${version}-${suffix}`;}
 // A release's App package holds only app/; it fits installs built on the same runtime base.
 function appAssetName(version,base){return /^[a-f0-9]{12}$/.test(String(base||''))?`DeckDriverStation-${version}-App-${base}.tar.gz`:null;}
+// Each platform's full download and the device name the update dialog uses for it.
+const DEVICES=[['SteamDeck.tar.gz','Steam Deck / Linux'],['Windows.zip','Windows'],['macOS-arm64.zip','Apple Silicon Mac']];
 function selectRelease(releases,{version,channel,installedChannel=channel,platform,arch,base}){
   const pattern=channel==='testing'?/^testing-v(\d+\.\d+\.\d+)$/:/^v(\d+\.\d+\.\d+)$/;
   const candidates=releases.filter(r=>!r.draft&&!!r.prerelease===(channel==='testing')&&pattern.test(r.tag_name)).map(r=>({...r,version:r.tag_name.match(pattern)[1]})).sort((a,b)=>compare(b.version,a.version));
   if(!candidates.length)return {status:'unpublished',message:`No ${channel} releases have been published yet.`};
   const r=candidates[0];if(channel===installedChannel&&compare(r.version,version)<=0)return {status:'current',latest:r.version,message:`You’re up to date. Latest ${channel} release: ${r.version}.`};
-  const name=assetName(r.version,platform,arch),uploaded=n=>n&&r.assets?.find(a=>a.name===n&&a.state==='uploaded'),full=uploaded(name),small=uploaded(appAssetName(r.version,base));
-  if(!full&&!small)throw Error(`Release ${r.version} has no ${name} download yet.`);
-  const asset=small||full,kind=small?'app':'full';
-  return {status:'available',latest:r.version,tag:r.tag_name,asset,kind,fullSize:full?.size||0,notes:String(r.body||'').slice(0,8000),message:channel!==installedChannel?`Switch to ${channel} by installing version ${r.version}. Your saved robots and Wi-Fi settings are kept.`:`Version ${r.version} is available.`};
+  // A release can be built for only some devices (testing builds). It reaches this device only with
+  // this device's full download; its App package fits every platform, so it counts only beside that.
+  // Otherwise the newest earlier release with the download is offered while it is still an update.
+  const uploaded=(c,n)=>n&&c.assets?.find(a=>a.name===n&&a.state==='uploaded');let hit=null;
+  for(const c of candidates){if(channel===installedChannel&&compare(c.version,version)<=0)break;const full=uploaded(c,assetName(c.version,platform,arch));if(full){hit={c,full,small:uploaded(c,appAssetName(c.version,base))};break;}}
+  const here=DEVICES.find(([s])=>assetName(r.version,platform,arch).endsWith('-'+s))[1],built=DEVICES.filter(([s])=>uploaded(r,`DeckDriverStation-${r.version}-${s}`)).map(([,d])=>d);
+  const skipped=`${channel==='testing'?'Testing':'Main'} ${r.version} has no download for ${here} yet${built.length?` (it was built for ${built.join(' and ')} only)`:''}.`;
+  if(!hit)return {status:'unavailable',latest:r.version,message:`${skipped} Nothing was downloaded; you’re still on ${version}.`};
+  const {c,full,small}=hit,asset=small||full,kind=small?'app':'full';
+  return {status:'available',latest:c.version,tag:c.tag_name,asset,kind,fullSize:full.size||0,notes:String(c.body||'').slice(0,8000),message:(channel!==installedChannel?`Switch to ${channel} by installing version ${c.version}. Your saved robots and Wi-Fi settings are kept.`:`Version ${c.version} is available.`)+(c===r?'':` ${skipped}`)};
 }
 class Updater{
   constructor({directory,version,repo,channel='testing',platform=process.platform,arch=process.arch,base='',fetcher=fetch,onProgress=()=>{}}){Object.assign(this,{directory,version,channel,installedChannel:channel,platform,arch,base,fetcher,onProgress});this.file=path.join(directory,'update-settings.json');this.repo=repository(repo);try{const saved=JSON.parse(fs.readFileSync(this.file));if(['main','testing'].includes(saved.channel))this.channel=saved.channel;}catch{}this.release=null;this.busy=false;}

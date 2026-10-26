@@ -1,0 +1,839 @@
+{
+  "deckSimulation": 2,
+  "version": 2,
+  "setupName": "Test setup",
+  "controller": "ftc",
+  "imuSource": "device",
+  "timing": {
+    "power": 1
+  },
+  "orientations": {},
+  "hitboxes": false,
+  "robot": {
+    "drivetrain": "mecanum",
+    "length": 17,
+    "width": 17,
+    "heightIn": 14,
+    "massLb": 24,
+    "driveRpm": 435,
+    "wheelDiameterMm": 104,
+    "driveStyle": "robot",
+    "appearance": "custom",
+    "odometry": {
+      "pinpoint": {
+        "pods": "4bar",
+        "xOffset": 4,
+        "yOffset": -3,
+        "xReversed": false,
+        "yReversed": false
+      }
+    },
+    "wiring": {
+      "hubs": {
+        "expansion": {
+          "address": 2
+        }
+      },
+      "devices": {
+        "robot.frontLeft": {
+          "model": "gobilda-5203-435",
+          "hub": "control",
+          "port": 0
+        },
+        "robot.frontRight": {
+          "model": "gobilda-5203-435",
+          "hub": "control",
+          "port": 1
+        },
+        "robot.backLeft": {
+          "model": "gobilda-5203-435",
+          "hub": "control",
+          "port": 2
+        },
+        "robot.backRight": {
+          "model": "gobilda-5203-435",
+          "hub": "control",
+          "port": 3
+        },
+        "robot.imu": {
+          "hub": "control",
+          "bus": 0
+        },
+        "robot.pinpoint": {
+          "hub": "control",
+          "bus": 1
+        },
+        "intakes.0.servo": {
+          "model": "gobilda-torque",
+          "hub": "control",
+          "port": 0
+        },
+        "shooters.0.indexer": {
+          "model": "gobilda-speed",
+          "hub": "control",
+          "port": 1
+        },
+        "shooters.0.hood": {
+          "model": "gobilda-torque",
+          "hub": "control",
+          "port": 2
+        },
+        "shooters.0.motor": {
+          "model": "gobilda-5203-6000",
+          "hub": "expansion",
+          "port": 0
+        },
+        "shooters.0.turretMotor": {
+          "model": "gobilda-5203-435",
+          "hub": "expansion",
+          "port": 1
+        },
+        "intakes.0.motor": {
+          "model": "gobilda-5203-1150",
+          "hub": "expansion",
+          "port": 2
+        }
+      },
+      "sensors": [
+        {
+          "id": "flywheelEncoder",
+          "model": "motor-encoder",
+          "for": "shooters.0.motor",
+          "use": "velocity"
+        },
+        {
+          "id": "turretEncoder",
+          "model": "motor-encoder",
+          "for": "shooters.0.turretMotor",
+          "use": "position"
+        }
+      ]
+    }
+  },
+  "sensors": {
+    "localization": "fused"
+  },
+  "tuning": {
+    "maxPathSpeed": 1
+  },
+  "practice": {
+    "mode": "autonomous",
+    "autoSeconds": 30,
+    "transitionSeconds": 8,
+    "teleopSeconds": 120
+  },
+  "program": {
+    "kind": "route",
+    "name": "",
+    "source": ""
+  },
+  "model": null,
+  "view": "2d",
+  "export": {
+    "packageName": "org.firstinspires.ftc.teamcode",
+    "className": "TestSetupAuto",
+    "keep": false
+  },
+  "mechanisms": {
+    "enabled": true,
+    "intakes": [
+      {
+        "kind": "ramp",
+        "sides": [
+          "front"
+        ],
+        "reach": 5,
+        "width": 15,
+        "height": 5,
+        "motor": "intake",
+        "power": 1,
+        "servo": "ramp",
+        "down": 0.3,
+        "up": 0.3,
+        "downPos": 0,
+        "upPos": 1,
+        "parts": [
+          "Ramp intake"
+        ]
+      }
+    ],
+    "shooters": [
+      {
+        "type": "turret",
+        "pieces": "both",
+        "mount": "back",
+        "facing": "front",
+        "motor": "shooter",
+        "indexer": "kicker",
+        "indexerKind": "pusher",
+        "feedPos": 1,
+        "restPos": 0,
+        "turretMotor": "turret",
+        "hood": "hood",
+        "at": {
+          "x": -4.7,
+          "y": 0,
+          "z": 12.5
+        },
+        "parts": [
+          "Turret shooter (pollen + nectar)"
+        ]
+      }
+    ],
+    "capacity": {
+      "pollen": 4,
+      "nectar": 4
+    },
+    "preload": {
+      "pollen": 4
+    },
+    "transfer": {
+      "seconds": 1
+    },
+    "indexer": {
+      "seconds": 0.3,
+      "pushSeconds": 0.15
+    },
+    "shooter": {
+      "hood": 75,
+      "rpm": 3400,
+      "ticksPerRev": 28,
+      "spinUp": 0.6,
+      "control": "velocity",
+      "tolerance": 0.05
+    },
+    "turret": {
+      "speed": 240,
+      "min": -170,
+      "max": 170,
+      "kind": "motor",
+      "ticksPerDegree": 4.005
+    },
+    "target": null
+  },
+  "kinematics": {
+    "model": null,
+    "unit": 1,
+    "joints": [
+      {
+        "id": "turret",
+        "name": "Turret",
+        "kind": "turret",
+        "type": "revolute",
+        "lower": -170,
+        "upper": 170,
+        "zero": 0,
+        "parts": [
+          "Deck test robot/Turret shooter (pollen + nectar)"
+        ],
+        "origin": [
+          -4.7,
+          0,
+          3.39
+        ],
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "radius": 3.7,
+        "drive": {
+          "signal": "turret",
+          "of": "shooter:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "flywheel",
+        "name": "Flywheel",
+        "kind": "flywheel",
+        "type": "continuous",
+        "parent": "turret",
+        "parts": [
+          "Deck test robot/Turret shooter (pollen + nectar)/Flywheel"
+        ],
+        "origin": [
+          -2.9,
+          0,
+          9
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 1.8898,
+        "rpm": 3400,
+        "drive": {
+          "signal": "flywheel",
+          "of": "shooter:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "hood",
+        "name": "Hood",
+        "kind": "hood",
+        "type": "revolute",
+        "parent": "turret",
+        "parts": [
+          "Deck test robot/Turret shooter (pollen + nectar)/Hood"
+        ],
+        "origin": [
+          -2.9,
+          0,
+          9
+        ],
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "lower": -5,
+        "upper": 20,
+        "launch": 60,
+        "states": {
+          "rest": 0
+        },
+        "speed": 120,
+        "drive": {
+          "signal": "hood",
+          "of": "shooter:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "kicker",
+        "name": "Kicker",
+        "kind": "kicker",
+        "type": "revolute",
+        "parent": "turret",
+        "parts": [
+          "Deck test robot/Turret shooter (pollen + nectar)/Kicker"
+        ],
+        "origin": [
+          -3.4,
+          0,
+          4.2
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "lower": -5,
+        "upper": 60,
+        "states": {
+          "rest": 0,
+          "feed": 45
+        },
+        "speed": 720,
+        "drive": {
+          "signal": "feeder",
+          "of": "shooter:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "ramp",
+        "name": "Ramp",
+        "kind": "deploy-intake",
+        "type": "revolute",
+        "parts": [
+          "Deck test robot/Ramp intake/Ramp"
+        ],
+        "origin": [
+          8.05,
+          0,
+          3.5
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "lower": 0,
+        "upper": 125,
+        "states": {
+          "raised": 0,
+          "lowered": 118.75
+        },
+        "speed": 400,
+        "drive": {
+          "signal": "deploy",
+          "of": "intake:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "rollerLower",
+        "name": "Lower roller",
+        "kind": "roller-intake",
+        "type": "continuous",
+        "parts": [
+          "Deck test robot/Ramp intake/Rollers/Lower roller"
+        ],
+        "origin": [
+          7.2,
+          0,
+          6.3
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 1,
+        "rpm": 600,
+        "drive": {
+          "signal": "roller",
+          "of": "intake:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "rollerUpper",
+        "name": "Upper roller",
+        "kind": "roller-intake",
+        "type": "continuous",
+        "parts": [
+          "Deck test robot/Ramp intake/Rollers/Upper roller"
+        ],
+        "origin": [
+          5,
+          0,
+          7
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 1,
+        "rpm": 600,
+        "drive": {
+          "signal": "roller",
+          "of": "intake:0"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "wheelFL",
+        "name": "Mecanum wheel FL",
+        "kind": "drive-wheel",
+        "type": "continuous",
+        "parts": [
+          "Deck test robot/Chassis/Mecanum wheel FL"
+        ],
+        "origin": [
+          5.6,
+          7.74,
+          2.047244094488189
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 2.0472,
+        "roll": "mecanum",
+        "drive": {
+          "signal": "wheel"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "wheelFR",
+        "name": "Mecanum wheel FR",
+        "kind": "drive-wheel",
+        "type": "continuous",
+        "parts": [
+          "Deck test robot/Chassis/Mecanum wheel FR"
+        ],
+        "origin": [
+          5.6,
+          -7.74,
+          2.047244094488189
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 2.0472,
+        "roll": "mecanum",
+        "drive": {
+          "signal": "wheel"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "wheelBL",
+        "name": "Mecanum wheel BL",
+        "kind": "drive-wheel",
+        "type": "continuous",
+        "parts": [
+          "Deck test robot/Chassis/Mecanum wheel BL"
+        ],
+        "origin": [
+          -5.6,
+          7.74,
+          2.047244094488189
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 2.0472,
+        "roll": "mecanum",
+        "drive": {
+          "signal": "wheel"
+        },
+        "source": "metadata"
+      },
+      {
+        "id": "wheelBR",
+        "name": "Mecanum wheel BR",
+        "kind": "drive-wheel",
+        "type": "continuous",
+        "parts": [
+          "Deck test robot/Chassis/Mecanum wheel BR"
+        ],
+        "origin": [
+          -5.6,
+          -7.74,
+          2.047244094488189
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "radius": 2.0472,
+        "roll": "mecanum",
+        "drive": {
+          "signal": "wheel"
+        },
+        "source": "metadata"
+      }
+    ]
+  },
+  "layouts": [
+    {
+      "id": "testsetupbiobuzz",
+      "name": "BIOBUZZ red auto",
+      "field": "biobuzz",
+      "alliance": "red",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": {
+        "x": 9.83,
+        "y": 27,
+        "heading": 0
+      },
+      "zones": [],
+      "pins": [
+        {
+          "x": 24,
+          "y": 30,
+          "wait": 0,
+          "action": "Shoot",
+          "note": "Shoot the 4 preloaded pollen into the up (south) cell: they tip the hive",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Off the wall, flywheel spinning up"
+          }
+        },
+        {
+          "x": 14,
+          "y": 24,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "style": "spline",
+            "note": "Turn the ramp toward the audience wall",
+            "rotate": "turn",
+            "heading": -90
+          }
+        },
+        {
+          "x": 10,
+          "y": 15.5,
+          "wait": 0.2,
+          "action": "Intake",
+          "actionSeconds": 0.4,
+          "note": "Last garden pollen feeds in",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Sweep the 4 red GARDEN pollen along the wall"
+          }
+        },
+        {
+          "x": 28,
+          "y": 104,
+          "wait": 0,
+          "action": "Shoot",
+          "cell": "other",
+          "note": "Behind the hive: the garden pollen into the north cell, up after the tip",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Up the left side, spinning up"
+          }
+        },
+        {
+          "x": 48.5,
+          "y": 108,
+          "wait": 0,
+          "action": "Ramp down",
+          "note": "Lower the ramp well before flower F2 (closer, the flower stops it swinging down)",
+          "path": {
+            "style": "spline",
+            "note": "Line up below flower F2",
+            "rotate": "turn",
+            "heading": 90
+          }
+        },
+        {
+          "x": 48.5,
+          "y": 124,
+          "wait": 0,
+          "action": "Intake",
+          "actionSeconds": 4,
+          "note": "Pull the 4 pollen out of flower F2",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Ease the ramp under flower F2"
+          }
+        },
+        {
+          "x": 48.5,
+          "y": 116,
+          "wait": 0,
+          "action": "Ramp up",
+          "note": "Clear of the flower, fold the ramp up",
+          "path": {
+            "style": "sharp",
+            "note": "Back out of flower F2"
+          }
+        },
+        {
+          "x": 40,
+          "y": 112,
+          "wait": 0,
+          "action": "Shoot",
+          "cell": "other",
+          "note": "The flower pollen into the north cell: it tips back",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Back away, spinning up"
+          }
+        },
+        {
+          "x": 22,
+          "y": 107.3,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "style": "spline",
+            "note": "Turn the ramp toward the loading zone wall",
+            "rotate": "turn",
+            "heading": -180
+          }
+        },
+        {
+          "x": 15.5,
+          "y": 107.3,
+          "wait": 0.2,
+          "action": "Intake",
+          "actionSeconds": 0.4,
+          "note": "Last loading-zone pollen feeds in",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Drive the ramp into the 4 red LOADING ZONE pollen"
+          }
+        },
+        {
+          "x": 30,
+          "y": 38,
+          "wait": 0,
+          "action": "Shoot",
+          "note": "Below the hive: the loading-zone pollen into the south cell, up again",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Down the left side, spinning up"
+          }
+        },
+        {
+          "x": 32,
+          "y": 48.6,
+          "wait": 0,
+          "action": "Ramp down",
+          "note": "Lower the ramp 12 in from flower F1",
+          "path": {
+            "style": "spline",
+            "note": "Line up beside flower F1",
+            "rotate": "turn",
+            "heading": -180
+          }
+        },
+        {
+          "x": 19.3,
+          "y": 48.6,
+          "wait": 0,
+          "action": "Intake",
+          "actionSeconds": 3.5,
+          "note": "Pull the 4 pollen out of flower F1",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Ease the ramp under flower F1"
+          }
+        },
+        {
+          "x": 28,
+          "y": 48.6,
+          "wait": 0,
+          "action": "Ramp up",
+          "note": "Clear of the flower, fold the ramp up",
+          "path": {
+            "style": "sharp",
+            "note": "Back out of flower F1"
+          }
+        },
+        {
+          "x": 30,
+          "y": 38,
+          "wait": 0,
+          "action": "Shoot",
+          "note": "The flower pollen into the south cell: it tips again",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Back away, spinning up"
+          }
+        },
+        {
+          "x": 116,
+          "y": 31.15,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "style": "spline",
+            "note": "Cross below the hives to the blue LOADING ZONE",
+            "rotate": "turn",
+            "heading": 0
+          }
+        },
+        {
+          "x": 128.5,
+          "y": 31.15,
+          "wait": 0.2,
+          "action": "Intake",
+          "actionSeconds": 0.4,
+          "note": "First 4 floor pollen feed in",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Ramp rollers sweep the first 4 floor pollen by the blue wall"
+          }
+        },
+        {
+          "x": 62,
+          "y": 106,
+          "wait": 0,
+          "action": "Shoot",
+          "cell": "other",
+          "note": "Back on the red side, behind the hive: into the north cell",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Cross back, spinning up"
+          }
+        },
+        {
+          "x": 116,
+          "y": 42.35,
+          "wait": 0,
+          "action": "",
+          "path": {
+            "style": "spline",
+            "note": "Cross again for the other 4 floor pollen",
+            "rotate": "turn",
+            "heading": 0
+          }
+        },
+        {
+          "x": 128.5,
+          "y": 42.35,
+          "wait": 0.2,
+          "action": "Intake",
+          "actionSeconds": 0.4,
+          "note": "Last floor pollen feed in",
+          "path": {
+            "kind": "action",
+            "action": "Intake",
+            "style": "sharp",
+            "note": "Sweep the other 4 floor pollen"
+          }
+        },
+        {
+          "x": 62,
+          "y": 106,
+          "wait": 0,
+          "action": "Shoot",
+          "cell": "other",
+          "note": "The last 4 into the north cell",
+          "path": {
+            "kind": "action",
+            "action": "Spin up",
+            "style": "spline",
+            "note": "Cross back, spinning up"
+          }
+        }
+      ],
+      "clearance": 0.25,
+      "style": "spline",
+      "rotate": false,
+      "route": null,
+      "tested": null
+    },
+    {
+      "id": "testsetupempty",
+      "name": "Empty field 1",
+      "field": "empty",
+      "alliance": "red",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": null,
+      "zones": [],
+      "pins": [],
+      "clearance": 2,
+      "style": "spline",
+      "rotate": true,
+      "route": null,
+      "tested": null
+    }
+  ],
+  "active": "testsetupbiobuzz"
+}

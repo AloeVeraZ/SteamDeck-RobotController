@@ -35,7 +35,7 @@
   function meta(raw){
     if(!raw||typeof raw.id!=='string'||!/^[0-9a-f]{32}\.glb$/.test(raw.id))return null;
     const parts=Array.isArray(raw.parts)?raw.parts.slice(0,64).filter(p=>p&&Array.isArray(p.box)&&p.box.length===6&&p.box.every(Number.isFinite)).map(p=>({name:String(p.name||'').slice(0,80),role:['chassis','intake','shooter','indexer'].includes(p.role)?p.role:'other',
-      ...(['pollen','nectar','both'].includes(p.pieces)?{pieces:p.pieces}:{}),...(['turret','fixed'].includes(p.type)?{type:p.type}:{}),...(['sweeper','siderollers','ramp'].includes(p.kind)?{kind:p.kind}:{}),...(typeof p.key==='string'?{key:p.key.slice(0,400)}:{}),...(p.chosen===true?{chosen:true}:{}),box:p.box.slice()})):[];
+      ...(['pollen','nectar','both'].includes(p.pieces)?{pieces:p.pieces}:{}),...(['turret','fixed'].includes(p.type)?{type:p.type}:{}),...(['sweeper','siderollers','ramp','kicker'].includes(p.kind)?{kind:p.kind}:{}),...(Array.isArray(p.carries)&&p.carries.length?{carries:p.carries.filter(c=>typeof c==='string').slice(0,4).map(c=>c.slice(0,80))}:{}),...(typeof p.key==='string'?{key:p.key.slice(0,400)}:{}),...(p.chosen===true?{chosen:true}:{}),box:p.box.slice()})):[];
     return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:['step','urdf','sdf','mjcf','usd'].includes(raw.source)?raw.source:'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
   }
   let THREE=null;

@@ -10,7 +10,9 @@
 // import is cached by the file's contents, so loading the same CAD again is immediate.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),{Worker}=require('node:worker_threads');
 const {plan}=require('./step-split.cjs'),{swapMarkers}=require('./step-hull.cjs');
-const STEP_LIMIT=200*1024*1024,TRIANGLE_LIMIT=2500000,PIECE_BYTES=2.5*1024*1024,CACHE_VERSION=3;
+// CACHE_VERSION: 4 since an assembly holding two mechanisms is split into them (groups) and a part named as its own
+// instance ("Flywheel" in "Flywheel <1>") is one node of the tree, so a robot imported before is read again.
+const STEP_LIMIT=200*1024*1024,TRIANGLE_LIMIT=2500000,PIECE_BYTES=2.5*1024*1024,CACHE_VERSION=4;
 let compiled=null;
 const wasmModule=runtimeDir=>compiled||=WebAssembly.compile(fs.readFileSync(path.join(runtimeDir,'occt','occt-import-js.wasm')));
 // Facet size in inches: fine on a part, coarser on a whole big robot (it is a visual model).
@@ -32,21 +34,49 @@ function merge(meshes){
 // The assembly's named parts: the first level of the name tree that splits it into several assemblies (chassis,
 // intake, shooter...), each with its bounding box (inches, file frame) and the names inside it. Every mesh
 // carries the assembly names above it, so the pieces' meshes group the same way the whole file would.
+// An assembly that holds two mechanisms of its own (two turrets in one "Shooter" assembly, "Turret <1>" and
+// "Turret <2>", "Left intake" and "Right intake") is split into them, so each is found as its own mechanism; what is left
+// of it (its frame, brackets) keeps its name and key, and its key above theirs says it holds them.
+// Parts of one mechanism are not mechanisms of their own: an intake's "Intake roller top" and "Intake roller bottom" are
+// one intake, a shooter's (or turret's) "Top flywheel" and "Bottom flywheel" one shooter ("Shooters" holds several).
+const SHOOTER_WORDS=/turret|shoot|launch|cannon/i,SHOOTER_PARTS=/fly ?wheel|\bhood\b/i;
+const MECHANISM_WORDS=/turret|shoot|launch|fly ?wheel|cannon|intake|ramp|kicker|deploy|sweeper|collector/i,HARDWARE_WORDS=/\b(ring|gear|bearing|plate|base|mount|bracket|spacer|shaft|axle|bolt|screw|nut|washer|standoff|belt|pulley|motor|servo|roller|(?<!fly ?)wheel)s?\b/i;
+const SIDE_WORDS=new Set(['left','right','front','back','rear','l','r','lh','rh','a','b','one','two','first','second','1st','2nd','top','bottom','upper','lower','inner','outer']);
+const copyBase=name=>String(name||'').toLowerCase().replace(/<(\d+)>/g,' $1 ').replace(/([a-z])(\d)/g,'$1 $2').replace(/(\d)([a-z])/g,'$1 $2').split(/[^a-z0-9]+/).filter(w=>w&&!SIDE_WORDS.has(w)&&!/^\d+$/.test(w)).join(' ');
+function mechanismsIn(n,all){
+  const partOf=c=>SHOOTER_WORDS.test(n.name||'')&&!/(turret|shooter|launcher|cannon)s\b/i.test(n.name||'')&&SHOOTER_PARTS.test(c.name)&&!SHOOTER_WORDS.test(c.name);
+  const kids=[...n.children.values()].filter(c=>all(c).length>=2&&MECHANISM_WORDS.test(c.name)&&!HARDWARE_WORDS.test(c.name)&&!partOf(c));
+  // Copies of one sub-assembly (instances, or left and right), or two shooter assemblies (a pollen and a nectar turret).
+  const copies=kids.filter(c=>kids.some(d=>d!==c&&d.name.trim().toLowerCase()!==c.name.trim().toLowerCase()&&copyBase(c.name)&&copyBase(c.name)===copyBase(d.name)));
+  const shooters=kids.filter(c=>/turret|shoot|launch|fly ?wheel|cannon/i.test(c.name));
+  return copies.length>=2?copies:shooters.length>=2?shooters:[];
+}
 function groups(meshes){
   const tree={children:new Map(),meshes:[]};
   meshes.forEach((m,i)=>{let node=tree;for(const name of m.path||[]){let next=node.children.get(name);if(!next)node.children.set(name,next={name,key:(node.key?node.key+'/':'')+name,children:new Map(),meshes:[]});node=next;}node.meshes.push(i);});
   let level=tree;while(level.children.size===1&&!level.meshes.length)level=[...level.children.values()][0];
   if(level.children.size<2)return [];
-  const all=(n,out=[])=>{out.push(...n.meshes);for(const c of n.children.values())all(c,out);return out;},inner=(n,out=[])=>{for(const c of n.children.values()){if(out.length<24)out.push(c.name);inner(c,out);}return out;};
-  return [...level.children.values()].slice(0,64).map(n=>{const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
-    for(const i of all(n)){const p=meshes[i].position;for(let k=0;k<p.length;k+=3)for(let a=0;a<3;a++){const v=p[k+a];if(v<lo[a])lo[a]=v;if(v>hi[a])hi[a]=v;}}
-    return lo.every(Number.isFinite)?{name:String(n.name||'').slice(0,80),key:n.key,inner:inner(n).map(v=>String(v).slice(0,80)),box:[...lo,...hi].map(v=>+v.toFixed(3))}:null;}).filter(Boolean);
+  // The names inside an assembly: its sub-assemblies and its parts. A part the reader filed straight into the assembly's
+  // node (no instance of its own) is named by its mesh ("Flywheel" in "Turret <1>"); one named as its instance ("Flywheel"
+  // in "Flywheel <1>", "Flywheel-1", "Flywheel v1:1") is not named twice.
+  const instanceOf=(node,x)=>node.startsWith(x)&&/^(\s*<\d+>|[-_ ]\d+|\s+v\d+:\d+|:\d+)?$/.test(node.slice(x.length));
+  const own=n=>[...new Set(n.meshes.map(i=>String(meshes[i].name||'')).filter(x=>x&&!instanceOf(String(n.name||''),x)))];
+  const all=(n,out=[])=>{out.push(...n.meshes);for(const c of n.children.values())all(c,out);return out;},inner=(n,out=[])=>{for(const x of own(n))if(out.length<24)out.push(x);for(const c of n.children.values()){if(out.length<24)out.push(c.name);inner(c,out);}return out;};
+  const group=(n,list,names)=>{const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(const i of list){const p=meshes[i].position;for(let k=0;k<p.length;k+=3)for(let a=0;a<3;a++){const v=p[k+a];if(v<lo[a])lo[a]=v;if(v>hi[a])hi[a]=v;}}
+    return lo.every(Number.isFinite)?{name:String(n.name||'').slice(0,80),key:n.key,inner:names.map(v=>String(v).slice(0,80)),box:[...lo,...hi].map(v=>+v.toFixed(3))}:null;};
+  // Each top assembly, or the mechanisms inside it and what is left of it (two levels down at most).
+  const out=[],visit=(n,depth)=>{const inside=depth<2?mechanismsIn(n,all):[];if(!inside.length){out.push(group(n,all(n),inner(n)));return;}
+    const rest=[...n.meshes],restNames=own(n);for(const c of n.children.values())if(!inside.includes(c)){rest.push(...all(c));restNames.push(c.name,...inner(c));}
+    if(rest.length)out.push(group(n,rest,restNames.slice(0,24)));for(const c of inside)visit(c,depth+1);};
+  for(const n of level.children.values())visit(n,0);
+  return out.filter(Boolean).slice(0,64);
 }
 // The assembly tree for picking parts: nodes {name, parent} (-1 for the top) and, per mesh, its own node. A mesh
 // named differently from the assembly it sits in (a part of a part) gets a node of its own.
 function tree(meshes){
   const nodes=[],key=new Map(),node=(name,parent)=>{const k=parent+'/'+name;let i=key.get(k);if(i===undefined){i=nodes.length;key.set(k,i);nodes.push({name:String(name).slice(0,80),parent});}return i;};
-  const leaf=meshes.map(m=>{let at=-1;for(const name of m.path||[])at=node(name,at);const own=String(m.name||'');if(own&&own!==String((m.path||[]).at(-1)||'').replace(/s*<d+>$/,''))at=node(own,at);return at<0?node('Part',-1):at;});
+  const leaf=meshes.map(m=>{let at=-1;for(const name of m.path||[])at=node(name,at);const own=String(m.name||'');if(own&&own!==String((m.path||[]).at(-1)||'').replace(/\s*<\d+>$/,''))at=node(own,at);return at<0?node('Part',-1):at;});
   return {nodes,leaf};
 }
 // Every distinct assembly and part name ("104mm Mecanum Wheel"...), without instance numbers.

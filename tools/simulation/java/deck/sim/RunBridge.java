@@ -361,6 +361,9 @@ public final class RunBridge {
         SimClock.setSeconds(num(m, "t"));
         JsonObject odo = m.has("odo") && m.get("odo").isJsonObject() ? m.getAsJsonObject("odo") : null;
         hub.mechanismState(m.has("mech") && m.get("mech").isJsonObject() ? m.getAsJsonObject("mech") : null);
+        // The robot's own parts (where each motor-driven one is) and every sensor's reading, from the simulated joints.
+        hub.kinematicsState(m.has("kin") && m.get("kin").isJsonObject() ? m.getAsJsonObject("kin") : null);
+        hub.sensorState(m.has("sensors") && m.get("sensors").isJsonObject() ? m.getAsJsonObject("sensors") : null);
         for (int user = 1; user <= 2; user++) if (m.has("gamepad" + user) && m.get("gamepad" + user).isJsonObject()) hub.gamepad(user, m.getAsJsonObject("gamepad" + user));
         if (!hub.done()) {
             try {
@@ -381,6 +384,7 @@ public final class RunBridge {
         hub.telemetry().forEach(telemetry::addProperty);
         cmd.add("telemetry", telemetry);
         cmd.add("mech", hub.mechanismOutputs());
+        if (hub.hasKinematics()) cmd.add("kin", hub.kinematicsOutputs());
         cmd.add("devices", hub.devices());
         cmd.addProperty("done", hub.done());
         return cmd;

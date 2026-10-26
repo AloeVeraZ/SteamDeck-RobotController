@@ -12,6 +12,11 @@
   // robot configuration and, for a servo, its positions: min and max (where it may go), center (the position that
   // holds the part where the CAD has it), the degrees it turns across its rated pulses (range, pulse) and the pulses the
   // hub sends for 0 and 1 (pwm). BIOBUZZ (R503) allows 8 motors and 8 servos; pneumatics are not allowed (R801).
+  // xmlType is the tag Configure Robot saves for the model (FTC SDK 12.0 @MotorType/@ServoType): a motor's type only sets
+  // the SDK's ticks a turn for RUN_USING_ENCODER and its default PIDF, never the counts getCurrentPosition() reports, so
+  // Deck keeps its own cpr. feedback: what reads where it is: a motor's built-in encoder, or an Axon's 4th wire (an
+  // analog voltage on an analog port, docs/MECHANISM_RESEARCH.md §8). legal: false for a model the 2026-27 inspection
+  // list does not pre-verify (it needs its maker's data sheet at inspection, R502).
   const finite=Number.isFinite,clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),NM=.0980665;// N·m per kg·cm
   // The FTC SDK sends 600 µs for position 0 and 2400 µs for 1 unless the code sets ServoImplEx.setPwmRange (or the
   // configuration says Full Range Servo); servos are rated over 500–2500 µs, so by default a 300° servo turns 270°.
@@ -19,61 +24,80 @@
   const KINDS={servo:'Servo · goes to set positions',crservo:'Continuous servo · spins',dcmotor:'DC motor with encoder',linear:'Linear servo · pushes to set positions'};
   const kg=v=>+(v*NM).toFixed(3),per60=s=>+(60/s).toFixed(1),rpmOf=s=>Math.round(10/s);
   // Servos in servo mode: degrees across their rated pulses, speed (degrees a second, no load, 6 V) and stall torque.
-  const s=(id,name,o)=>({id,name,kind:'servo',pulse:[500,2500],...o});
+  const s=(id,name,o)=>({id,name,kind:'servo',xmlType:'Servo',pulse:[500,2500],...o});
   const SERVOS=[
     s('gobilda-torque','goBILDA 2000 Dual Mode servo, Torque (2000-0025-0002)',{short:'goBILDA Torque servo',range:300,speed:per60(.2),torque:kg(21.6),cr:'gobilda-torque-cr'}),
     s('gobilda-speed','goBILDA 2000 Dual Mode servo, Speed (2000-0025-0003)',{short:'goBILDA Speed servo',range:300,speed:per60(.09),torque:kg(9.3),cr:'gobilda-speed-cr'}),
     s('gobilda-superspeed','goBILDA 2000 Dual Mode servo, Super Speed (2000-0025-0004)',{short:'goBILDA Super Speed servo',range:300,speed:per60(.043),torque:kg(4.7),cr:'gobilda-superspeed-cr'}),
     s('gobilda-5turn','goBILDA 2000 5-Turn servo (2000-0025-0503)',{short:'goBILDA 5-Turn servo',range:1800,speed:per60(.09),torque:kg(9.3)}),
-    s('axon-max','Axon MAX MK2 (or MAX+)',{short:'Axon MAX',range:350,speed:per60(.115),torque:kg(34),cr:'axon-max-cr'}),
-    s('axon-mini','Axon MINI MK2 (or MINI+)',{short:'Axon MINI',range:350,speed:per60(.09),torque:kg(25),cr:'axon-mini-cr'}),
-    s('axon-micro','Axon MICRO+',{short:'Axon MICRO',range:350,speed:per60(.075),torque:kg(7.8),cr:'axon-micro-cr'}),
+    s('axon-max','Axon MAX MK2 (or MAX+)',{short:'Axon MAX',range:350,speed:per60(.115),torque:kg(34),cr:'axon-max-cr',feedback:'analog'}),
+    s('axon-mini','Axon MINI MK2 (or MINI+)',{short:'Axon MINI',range:350,speed:per60(.09),torque:kg(25),cr:'axon-mini-cr',feedback:'analog'}),
+    s('axon-micro','Axon MICRO+',{short:'Axon MICRO',range:350,speed:per60(.075),torque:kg(7.8),cr:'axon-micro-cr',feedback:'analog'}),
     s('rev-smart','REV Smart Robot Servo (REV-41-1097, V2 Balanced)',{short:'REV Smart Robot Servo',range:270,speed:per60(.14),torque:kg(13.5),cr:'rev-smart-cr'}),
     s('rev-smart-ultra','REV Smart Robot Servo V2 UltraSpeed (REV-41-3336)',{short:'REV Smart Robot Servo UltraSpeed',range:270,speed:per60(.043),torque:kg(5.6)}),
     s('studica-multimode','Studica Multi-Mode Smart Servo (75002)',{short:'Studica Multi-Mode servo',range:300,speed:per60(.2),torque:kg(21.6),cr:'studica-multimode-cr'}),
+    s('studica-multimode-fast','Studica Multi-Mode Smart Servo 200 FAST (75007)',{short:'Studica Multi-Mode FAST servo',range:300,speed:per60(.046),torque:kg(5)}),
+    // On the 2026-27 pre-verified list with speed and torque at 6 V, but no travel: 300° is assumed (rangeAssumed) until
+    // the team sets the servo's own range.
+    s('swyft-speed','SWYFT Robotics Speed Servo (SR-Servo-01)',{short:'SWYFT Speed servo',range:300,rangeAssumed:true,speed:per60(.062),torque:kg(19)}),
+    s('swyft-balance','SWYFT Robotics Balance Servo (SR-Servo-02)',{short:'SWYFT Balance servo',range:300,rangeAssumed:true,speed:per60(.092),torque:kg(27.3)}),
+    s('swyft-torque','SWYFT Robotics Torque Servo (SR-Servo-03)',{short:'SWYFT Torque servo',range:300,rangeAssumed:true,speed:per60(.112),torque:kg(33.5)}),
+    s('swyft-slim','SWYFT Robotics Slim Servo (SR-Servo-04)',{short:'SWYFT Slim servo',range:300,rangeAssumed:true,speed:per60(.075),torque:kg(14)}),
+    s('swyft-nano','SWYFT Robotics Nano Servo (SR-Servo-05)',{short:'SWYFT Nano servo',range:300,rangeAssumed:true,speed:per60(.11),torque:kg(10.2)}),
+    s('plex-speed','PLEX Speed Brushless servo (PLEX-09-0017-0001)',{short:'PLEX Speed servo',range:300,rangeAssumed:true,speed:per60(.067),torque:kg(18)}),
+    s('plex-torque','PLEX Torque Brushless servo (PLEX-09-0017-0002)',{short:'PLEX Torque servo',range:300,rangeAssumed:true,speed:per60(.095),torque:kg(28)}),
+    // The same figures as the Axon MAX, MINI and MICRO; whether they have a feedback wire is not published.
+    s('torctex-max','TORCTEX MAX',{short:'TORCTEX MAX',range:350,speed:per60(.115),torque:kg(34)}),
+    s('torctex-pro','TORCTEX PRO',{short:'TORCTEX PRO',range:350,speed:per60(.09),torque:kg(25)}),
+    s('torctex-micro','TORCTEX MICRO',{short:'TORCTEX MICRO',range:350,speed:per60(.075),torque:kg(7.8)}),
+    s('mata-torque','MATA TORQUE',{short:'MATA TORQUE',range:350,speed:per60(.115),torque:kg(34)}),
     s('hitec-485','Hitec HS-485HB (older TETRIX kits)',{short:'Hitec HS-485HB',range:190,pulse:[553,2425],speed:per60(.18),torque:kg(6)}),
     s('servo-180','Another servo (180° across 500–2500 µs)',{short:'180° servo',range:180,speed:300,torque:kg(10)})];
   // Continuous rotation servos (or servos switched to continuous mode): turns a minute at full power, no load.
-  const c=(id,name,o)=>({id,name,kind:'crservo',...o});
+  const c=(id,name,o)=>({id,name,kind:'crservo',xmlType:'ContinuousRotationServo',...o});
   const CRSERVOS=[
     c('gobilda-torque-cr','goBILDA Torque servo, continuous mode',{short:'goBILDA Torque (continuous)',rpm:rpmOf(.2),torque:kg(21.6)}),
     c('gobilda-speed-cr','goBILDA Speed servo, continuous mode',{short:'goBILDA Speed (continuous)',rpm:rpmOf(.09),torque:kg(9.3)}),
     c('gobilda-superspeed-cr','goBILDA Super Speed servo, continuous mode',{short:'goBILDA Super Speed (continuous)',rpm:rpmOf(.043),torque:kg(4.7)}),
-    c('axon-max-cr','Axon MAX, continuous mode',{short:'Axon MAX (continuous)',rpm:rpmOf(.115),torque:kg(34)}),
-    c('axon-mini-cr','Axon MINI, continuous mode',{short:'Axon MINI (continuous)',rpm:rpmOf(.09),torque:kg(25)}),
-    c('axon-micro-cr','Axon MICRO+, continuous mode',{short:'Axon MICRO (continuous)',rpm:rpmOf(.075),torque:kg(7.8)}),
+    c('axon-max-cr','Axon MAX, continuous mode',{short:'Axon MAX (continuous)',rpm:rpmOf(.115),torque:kg(34),feedback:'analog'}),
+    c('axon-mini-cr','Axon MINI, continuous mode',{short:'Axon MINI (continuous)',rpm:rpmOf(.09),torque:kg(25),feedback:'analog'}),
+    c('axon-micro-cr','Axon MICRO+, continuous mode',{short:'Axon MICRO (continuous)',rpm:rpmOf(.075),torque:kg(7.8),feedback:'analog'}),
     c('rev-smart-cr','REV Smart Robot Servo, continuous mode',{short:'REV Smart Robot Servo (continuous)',rpm:rpmOf(.14),torque:kg(13.5)}),
     c('studica-multimode-cr','Studica Multi-Mode Smart Servo, continuous mode',{short:'Studica Multi-Mode (continuous)',rpm:rpmOf(.2),torque:kg(21.6)})];
   // Linear servos: stroke (inches across their rated pulses: retracted at the first, out at the second), speed (inches
   // a second, no load) and force (N).
-  const l=(id,name,o)=>({id,name,kind:'linear',pulse:[1000,2000],...o});
+  const l=(id,name,o)=>({id,name,kind:'linear',xmlType:'Servo',pulse:[1000,2000],...o});
   const LINEARS=[
-    l('actuonix-l16-50','Actuonix L16-R, 50 mm stroke, 63:1',{short:'Actuonix L16-R 50 mm',range:+(50/25.4).toFixed(3),speed:+(20/25.4).toFixed(3),force:100}),
-    l('actuonix-l16-100','Actuonix L16-R, 100 mm stroke, 63:1',{short:'Actuonix L16-R 100 mm',range:+(100/25.4).toFixed(3),speed:+(20/25.4).toFixed(3),force:100}),
-    l('actuonix-l16-140','Actuonix L16-R, 140 mm stroke, 63:1',{short:'Actuonix L16-R 140 mm',range:+(140/25.4).toFixed(3),speed:+(20/25.4).toFixed(3),force:100}),
+    l('actuonix-l16-50','Actuonix L16-R, 50 mm stroke, 63:1',{short:'Actuonix L16-R 50 mm',legal:false,range:+(50/25.4).toFixed(3),speed:+(20/25.4).toFixed(3),force:100}),
+    l('actuonix-l16-100','Actuonix L16-R, 100 mm stroke, 63:1',{short:'Actuonix L16-R 100 mm',legal:false,range:+(100/25.4).toFixed(3),speed:+(20/25.4).toFixed(3),force:100}),
+    l('actuonix-l16-140','Actuonix L16-R, 140 mm stroke, 63:1',{short:'Actuonix L16-R 140 mm',legal:false,range:+(140/25.4).toFixed(3),speed:+(20/25.4).toFixed(3),force:100}),
     l('hitec-hls12','Hitec HLS12-3050 linear servo, 30 mm stroke',{short:'Hitec HLS12',range:+(30/25.4).toFixed(3),pulse:[1050,1950],speed:+(25/25.4).toFixed(3),force:49})];
   // DC motors: output speed (rpm, no load, 12 V), encoder counts per turn of the output and stall torque at the output.
-  const m=(id,name,o)=>({id,name,kind:'dcmotor',...o});
-  const yj=(ratio,rpm,cpr,torque,part)=>m(`gobilda-5203-${rpm}`,`goBILDA 5203 Yellow Jacket, ${ratio}:1 (${rpm} rpm)`,{short:`goBILDA ${rpm} rpm (${ratio}:1)`,family:'goBILDA 5203 Yellow Jacket',ratio,rpm,cpr,stall:torque,part});
+  const m=(id,name,o)=>({id,name,kind:'dcmotor',feedback:'encoder',...o});
+  const yj=(ratio,rpm,cpr,torque,part)=>m(`gobilda-5203-${rpm}`,`goBILDA 5203 Yellow Jacket, ${ratio}:1 (${rpm} rpm)`,{short:`goBILDA ${rpm} rpm (${ratio}:1)`,family:'goBILDA 5203 Yellow Jacket',xmlType:'goBILDA5202SeriesMotor',ratio,rpm,cpr,stall:torque,part});
   const MOTORS=[
     yj(1,6000,28,.144,'5203-2402-0001'),yj(3.7,1620,103.8,.53,'5203-2402-0003'),yj(5.2,1150,145.1,.77,'5203-2402-0005'),yj(13.7,435,384.5,1.83,'5203-2402-0014'),
     yj(19.2,312,537.7,2.38,'5203-2402-0019'),yj(26.9,223,751.8,3.73,'5203-2402-0027'),yj(50.9,117,1425.1,6.71,'5203-2402-0051'),yj(71.2,84,1993.6,9.18,'5203-2402-0071'),
     yj(99.5,60,2786.2,13.06,'5203-2402-0100'),yj(139,43,3895.9,18.14,'5203-2402-0139'),yj(188,30,5281.1,24.5,'5203-2402-0188'),
-    m('rev-hd-hex','REV HD Hex motor, no gearbox (6000 rpm)',{short:'REV HD Hex (bare)',family:'REV HD Hex',ratio:1,rpm:6000,cpr:28,stall:.105}),
-    m('rev-ultra-3','REV HD Hex with UltraPlanetary 3:1 (2.89:1)',{short:'REV UltraPlanetary 3:1',family:'REV UltraPlanetary',ratio:2.897,rpm:2071,cpr:81.1,stall:.304}),
-    m('rev-ultra-4','REV HD Hex with UltraPlanetary 4:1 (3.61:1)',{short:'REV UltraPlanetary 4:1',family:'REV UltraPlanetary',ratio:3.619,rpm:1658,cpr:101.3,stall:.38}),
-    m('rev-ultra-5','REV HD Hex with UltraPlanetary 5:1 (5.23:1)',{short:'REV UltraPlanetary 5:1',family:'REV UltraPlanetary',ratio:5.231,rpm:1147,cpr:146.4,stall:.55}),
-    m('rev-ultra-12','REV HD Hex with UltraPlanetary 3:1 + 4:1 (10.5:1)',{short:'REV UltraPlanetary 12:1',family:'REV UltraPlanetary',ratio:10.48,rpm:572,cpr:293.6,stall:1.1}),
-    m('rev-ultra-15','REV HD Hex with UltraPlanetary 3:1 + 5:1 (15.2:1)',{short:'REV UltraPlanetary 15:1',family:'REV UltraPlanetary',ratio:15.15,rpm:396,cpr:424.3,stall:1.59}),
-    m('rev-ultra-20','REV HD Hex with UltraPlanetary 4:1 + 5:1 (18.9:1)',{short:'REV UltraPlanetary 20:1',family:'REV UltraPlanetary',ratio:18.93,rpm:317,cpr:530,stall:1.98}),
-    m('rev-ultra-60','REV HD Hex with UltraPlanetary 3:1 + 4:1 + 5:1 (54.8:1)',{short:'REV UltraPlanetary 60:1',family:'REV UltraPlanetary',ratio:54.84,rpm:109.5,cpr:1535.3,stall:5.75}),
-    m('rev-hd-hex-20','REV HD Hex with 20:1 spur gearbox (older)',{short:'REV HD Hex 20:1 spur',family:'REV HD Hex',ratio:20,rpm:300,cpr:560,stall:2.1}),
-    m('rev-hd-hex-40','REV HD Hex with 40:1 spur gearbox (older)',{short:'REV HD Hex 40:1 spur',family:'REV HD Hex',ratio:40,rpm:150,cpr:1120,stall:4.2}),
-    m('rev-core-hex','REV Core Hex motor',{short:'REV Core Hex',family:'REV Core Hex',ratio:72,rpm:125,cpr:288,stall:3.2}),
-    m('torquenado','TETRIX TorqueNADO motor',{short:'TorqueNADO',family:'TETRIX',ratio:60,rpm:100,cpr:1440,stall:4.94}),
-    m('studica-maverick','Studica Maverick motor (61:1)',{short:'Studica Maverick',family:'Studica',ratio:61,rpm:100,cpr:1464,stall:5}),
-    m('neverest-20','AndyMark NeveRest Orbital 20 (older kits)',{short:'NeveRest Orbital 20',family:'AndyMark NeveRest',ratio:19.2,rpm:340,cpr:537.6,stall:1.24}),
-    m('neverest-40','AndyMark NeveRest Classic 40 (older kits)',{short:'NeveRest Classic 40',family:'AndyMark NeveRest',ratio:40,rpm:160,cpr:1120,stall:2.47})];
+    m('rev-hd-hex','REV HD Hex motor, no gearbox (6000 rpm)',{short:'REV HD Hex (bare)',family:'REV HD Hex',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:1,rpm:6000,cpr:28,stall:.105}),
+    m('rev-ultra-3','REV HD Hex with UltraPlanetary 3:1 (2.89:1)',{short:'REV UltraPlanetary 3:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:2.897,rpm:2071,cpr:81.1,stall:.304}),
+    m('rev-ultra-4','REV HD Hex with UltraPlanetary 4:1 (3.61:1)',{short:'REV UltraPlanetary 4:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:3.619,rpm:1658,cpr:101.3,stall:.38}),
+    m('rev-ultra-5','REV HD Hex with UltraPlanetary 5:1 (5.23:1)',{short:'REV UltraPlanetary 5:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:5.231,rpm:1147,cpr:146.4,stall:.55}),
+    m('rev-ultra-12','REV HD Hex with UltraPlanetary 3:1 + 4:1 (10.5:1)',{short:'REV UltraPlanetary 12:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:10.48,rpm:572,cpr:293.6,stall:1.1}),
+    m('rev-ultra-15','REV HD Hex with UltraPlanetary 3:1 + 5:1 (15.2:1)',{short:'REV UltraPlanetary 15:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:15.15,rpm:396,cpr:424.3,stall:1.59}),
+    m('rev-ultra-20','REV HD Hex with UltraPlanetary 4:1 + 5:1 (18.9:1)',{short:'REV UltraPlanetary 20:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:18.93,rpm:317,cpr:530,stall:1.98}),
+    m('rev-ultra-60','REV HD Hex with UltraPlanetary 3:1 + 4:1 + 5:1 (54.8:1)',{short:'REV UltraPlanetary 60:1',family:'REV UltraPlanetary',xmlType:'RevRoboticsUltraplanetaryHDHexMotor',ratio:54.84,rpm:109.5,cpr:1535.3,stall:5.75}),
+    m('rev-hd-hex-20','REV HD Hex with 20:1 spur gearbox (older)',{short:'REV HD Hex 20:1 spur',family:'REV HD Hex',xmlType:'RevRobotics20HDHexMotor',ratio:20,rpm:300,cpr:560,stall:2.1}),
+    m('rev-hd-hex-40','REV HD Hex with 40:1 spur gearbox (older)',{short:'REV HD Hex 40:1 spur',family:'REV HD Hex',xmlType:'RevRobotics40HDHexMotor',ratio:40,rpm:150,cpr:1120,stall:4.2}),
+    m('rev-core-hex','REV Core Hex motor',{short:'REV Core Hex',family:'REV Core Hex',xmlType:'RevRoboticsCoreHexMotor',ratio:72,rpm:125,cpr:288,stall:3.2}),
+    m('torquenado','TETRIX TorqueNADO motor',{short:'TorqueNADO',family:'TETRIX',xmlType:'TetrixMotor',ratio:60,rpm:100,cpr:1440,stall:4.94}),
+    m('studica-maverick','Studica Maverick motor (61:1)',{short:'Studica Maverick',family:'Studica',xmlType:'StudicaMaverick',ratio:61,rpm:100,cpr:1464,stall:5}),
+    m('neverest-20','AndyMark NeveRest Orbital 20 (older kits)',{short:'NeveRest Orbital 20',family:'AndyMark NeveRest',xmlType:'NeveRest20Gearmotor',ratio:19.2,rpm:340,cpr:537.6,stall:1.24}),
+    m('neverest-40','AndyMark NeveRest Classic 40 (older kits)',{short:'NeveRest Classic 40',family:'AndyMark NeveRest',xmlType:'NeveRest40Gearmotor',ratio:40,rpm:160,cpr:1120,stall:2.47}),
+    // Speed and counts as the SDK's own types give them; stall scaled from the bare NeveRest (8.75 oz·in) by the ratio,
+    // as the 20 and 40 above.
+    m('neverest-60','AndyMark NeveRest Classic 60 (older kits)',{short:'NeveRest Classic 60',family:'AndyMark NeveRest',xmlType:'NeveRest60Gearmotor',ratio:60,rpm:105,cpr:1680,stall:3.71}),
+    m('neverest-3-7','AndyMark NeveRest Orbital 3.7 (older kits)',{short:'NeveRest Orbital 3.7',family:'AndyMark NeveRest',xmlType:'NeveRest3.7v1Gearmotor',ratio:3.7,rpm:1784,cpr:44.4,stall:.229})];
   const ALL=[...SERVOS,...CRSERVOS,...LINEARS,...MOTORS],MODELS=Object.fromEntries(ALL.map(x=>[x.id,x]));
   const of=kind=>ALL.filter(x=>x.kind===kind);
   const isLinear=a=>a?.kind==='linear';
