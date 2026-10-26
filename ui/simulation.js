@@ -1731,8 +1731,9 @@ public class MyAuto implements DeckAutonomous {
   const M=()=>window.DeckRobotModel,modelCache=new Map(),LIGHT_TRIANGLES=400000;
   async function three(){await script('vendor/three-view.js');await script('sim-robot-model.js');}
   // The Test setup's robot (ui/sim-test-robot.js): generated from FTC parts and stored like a CAD import, with its joints.
-  // A setup whose joints name its parts but has no model (a first run, examples/test-setup.json, a cleared models
-  // folder) gets it attached; it is the same file every time, so its id does not change.
+  // A custom robot whose joints name its parts but has no model (a first run, examples/test-setup.json, a cleared models
+  // folder) gets it attached (a preset or plain robot chosen instead keeps its own look); it is the same file every
+  // time, so its id does not change.
   const testRobotParts=()=>{const T=window.DeckTestRobot;return !!T&&project.kinematics.joints.some(j=>(j.parts||[]).some(p=>String(p).startsWith(T.NAME+'/')));};
   async function testRobot(){
     await three();const T=window.DeckTestRobot,result=await api.simFile('test-robot'),body=await M().bodyFromImport(result),glb=await M().toGlb(body.geometry),stored=await api.simFile('model-save',{name:T.NAME+'.glb',bytes:glb});
@@ -1744,7 +1745,7 @@ public class MyAuto implements DeckAutonomous {
   let testRobotLoading=null;
   // The stored one-body model, placed in the robot frame for 2D and 3D.
   async function placeModel(){
-    if(native&&typeof api.simFile==='function'&&(!project.model&&testRobotParts()||project.model?.name===window.DeckTestRobot?.NAME&&placeModel.missing===project.model.id)){
+    if(native&&typeof api.simFile==='function'&&(!project.model&&project.robot.appearance==='custom'&&testRobotParts()||project.model?.name===window.DeckTestRobot?.NAME&&placeModel.missing===project.model.id)){
       testRobotLoading??=testRobot().catch(e=>status('#start-status',`Could not build the Test robot: ${e.message}`)).finally(()=>{testRobotLoading=null;placeModel.retried=placeModel.missing;placeModel.missing=null;});await testRobotLoading;}
     const seq=placeModel.seq=(placeModel.seq||0)+1;
     const imported=project.model,builtin=!imported&&builtins.has(project.robot.appearance)?project.robot.appearance:null,identity=imported?.id||builtin,meta=imported||(builtin?{units:'in',...(project.orientations?.[builtin]||{front:builtin==='strafer'?'-x':'+x',top:'+z'})}:null);
