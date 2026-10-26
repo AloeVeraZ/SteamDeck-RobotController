@@ -1689,12 +1689,26 @@ public class MyAuto implements DeckAutonomous {
   $('#sim-appearance').onchange=e=>{project.robot.appearance=e.target.value;if(e.target.value!=='custom')project.model=null;if(e.target.value==='swechanum')project.robot.drivetrain='swerve';if(e.target.value==='strafer')project.robot.drivetrain='mecanum';settle();robotPanel();void placeModel();};
   const M=()=>window.DeckRobotModel,modelCache=new Map(),LIGHT_TRIANGLES=400000;
   async function three(){await script('vendor/three-view.js');await script('sim-robot-model.js');}
+  // The Test setup's robot (ui/sim-test-robot.js): generated from FTC parts and stored like a CAD import, with its joints.
+  // A setup whose joints name its parts but has no model (a first run, examples/test-setup.json, a cleared models
+  // folder) gets it attached; it is the same file every time, so its id does not change.
+  const testRobotParts=()=>{const T=window.DeckTestRobot;return !!T&&project.kinematics.joints.some(j=>(j.parts||[]).some(p=>String(p).startsWith(T.NAME+'/')));};
+  async function testRobot(){
+    await three();const T=window.DeckTestRobot,result=await api.simFile('test-robot'),body=await M().bodyFromImport(result),glb=await M().toGlb(body.geometry),stored=await api.simFile('model-save',{name:T.NAME+'.glb',bytes:glb});
+    modelCache.set(stored.id,{id:stored.id,geometry:body.geometry});
+    project.model=M().meta({...T.MODEL,id:stored.id,parts:T.metaParts(body.groups||result.groups,MECH)});project.robot.appearance='custom';
+    project.kinematics=window.DeckKinematics.sanitize({...(project.kinematics.joints.length?project.kinematics:T.kinematics()),model:stored.id});
+    save();robotPanel();mechanismsPanel();return stored.id;
+  }
+  let testRobotLoading=null;
   // The stored one-body model, placed in the robot frame for 2D and 3D.
   async function placeModel(){
+    if(native&&typeof api.simFile==='function'&&(!project.model&&testRobotParts()||project.model?.name===window.DeckTestRobot?.NAME&&placeModel.missing===project.model.id)){
+      testRobotLoading??=testRobot().catch(e=>status('#start-status',`Could not build the Test robot: ${e.message}`)).finally(()=>{testRobotLoading=null;placeModel.retried=placeModel.missing;placeModel.missing=null;});await testRobotLoading;}
     const seq=placeModel.seq=(placeModel.seq||0)+1;
     const imported=project.model,builtin=!imported&&builtins.has(project.robot.appearance)?project.robot.appearance:null,identity=imported?.id||builtin,meta=imported||(builtin?{units:'in',...(project.orientations?.[builtin]||{front:builtin==='strafer'?'-x':'+x',top:'+z'})}:null);
     if(!identity||!native){model=null;modelUi();draw();view3d?.setModel(null);return;}
-    try{await three();if(model?.id!==identity){model=modelCache.get(identity)||null;if(!model){const data=await api.simFile(builtin?'builtin-model':'model-read',identity);if(!data)throw Error('The saved robot model is missing. Import it again.');const object=builtin?await M().builtin(data.bytes,data.meta):await M().fromGlb(data.bytes);if(seq!==placeModel.seq)return;model={id:identity,geometry:object,builtin,meta:data.meta};modelCache.set(identity,model);}}
+    try{await three();if(model?.id!==identity){model=modelCache.get(identity)||null;if(!model){const data=await api.simFile(builtin?'builtin-model':'model-read',identity);if(!data){if(imported?.name===window.DeckTestRobot?.NAME&&placeModel.retried!==identity){placeModel.missing=identity;return placeModel();}throw Error('The saved robot model is missing. Import it again.');}const object=builtin?await M().builtin(data.bytes,data.meta):await M().fromGlb(data.bytes);if(seq!==placeModel.seq)return;model={id:identity,geometry:object,builtin,meta:data.meta};modelCache.set(identity,model);}}
       if(seq!==placeModel.seq)return;const chassis=chassisFootprint(),key=JSON.stringify([meta,chassis]),look=JSON.stringify([meta?.front,meta?.top]);
       // The top-down picture is drawn again only when the model turns; a new size stretches the one there is.
       if(key!==model.placeKey){model.holder=M().place(model.geometry,meta||{front:'+x',top:'+z',units:'in'},chassis);model.picture=M().silhouette(model.holder,model.look===look?model.picture:null);model.look=look;model.placeKey=key;}
