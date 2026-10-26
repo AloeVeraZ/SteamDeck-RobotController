@@ -38,11 +38,13 @@ function download(url,file,expected){
     get(url);
   });
 }
-// tar handles .tar.gz everywhere; Windows' bsdtar also reads .zip, and elsewhere unzip does.
+// tar handles .tar.gz everywhere; Windows' bsdtar also reads .zip, and elsewhere unzip does. On Windows
+// it is named by path: under Git Bash (CI's bash steps) a plain 'tar' is GNU tar, which reads C: as a host.
+const tar=process.platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32','tar.exe'):'tar';
 function extract(archive,dir){
   fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
   if(archive.endsWith('.zip')&&process.platform!=='win32')execFileSync('unzip',['-q',archive,'-d',dir],{stdio:'inherit'});
-  else execFileSync('tar',['-xf',archive,'-C',dir],{stdio:'inherit'});
+  else execFileSync(tar,['-xf',archive,'-C',dir],{stdio:'inherit'});
   const [top]=fs.readdirSync(dir);const home=path.join(dir,top);
   return fs.existsSync(path.join(home,'Contents/Home'))?path.join(home,'Contents/Home'):home;
 }

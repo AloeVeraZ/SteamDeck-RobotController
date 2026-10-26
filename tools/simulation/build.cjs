@@ -125,7 +125,8 @@ function assets(){
   if(!/Boost Software License/.test(header))throw Error('Clipper license header not found.');fs.writeFileSync(path.join(licenses,'CLIPPER-NOTICE.txt'),header+'\n\nBoost Software License 1.0: https://www.boost.org/LICENSE_1_0.txt\n');
 }
 function java(){
-  const jdk=fs.readdirSync(path.join(runtime,'jdk')).map(d=>path.join(runtime,'jdk',d))[0],javac=path.join(jdk,'bin',process.platform==='win32'?'javac.exe':'javac');
+  // A macOS JDK keeps its tools under Contents/Home.
+  const top=fs.readdirSync(path.join(runtime,'jdk')).map(d=>path.join(runtime,'jdk',d))[0],jdk=fs.existsSync(path.join(top,'Contents/Home'))?path.join(top,'Contents/Home'):top,javac=path.join(jdk,'bin',process.platform==='win32'?'javac.exe':'javac');
   const build=path.join(cache,'simulation-build'),src=path.join(build,'src'),classes=path.join(out,'driver/classes');
   // Retire the old generated follower directory before packaging an updated build.
   const retired=path.resolve(out,'pedro');if(path.dirname(retired)!==path.resolve(out))throw Error('Invalid retired runtime path.');

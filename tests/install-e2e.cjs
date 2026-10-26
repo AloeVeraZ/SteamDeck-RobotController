@@ -64,7 +64,8 @@ async function update(label,{version,base,assets,expect}){
   const base=JSON.parse(fs.readFileSync(at(install.app+'/build.json'),'utf8')).base;assert.equal(base,first.base);
   const appName=`DeckDriverStation-${versionB}-App-${base}.tar.gz`,fullName=platform==='linux'?`DeckDriverStation-${versionB}-SteamDeck.tar.gz`:platform==='win32'?`DeckDriverStation-${versionB}-Windows.zip`:`DeckDriverStation-${versionB}-macOS-arm64.zip`;
   const small=await update('app',{version:versionA,base,assets:[fullName,appName],expect:'app'});
-  assert.deepEqual(small.downloaded,[appName],'App update downloaded '+small.downloaded);assert.ok(small.check.asset.size<5*1024*1024,'App package too large: '+small.check.asset.size);
+  // About 7 MB with the simulator bundle (DSIM physics and the OCCT CAD reader), against 115+ MB full packages.
+  assert.deepEqual(small.downloaded,[appName],'App update downloaded '+small.downloaded);assert.ok(small.check.asset.size<10*1024*1024,'App package too large: '+small.check.asset.size);
   const second=await launch('after-app-update');assert.equal(second.version,versionB);assert.equal(second.electron,first.electron);
   console.log(`PASS: ${Math.round(small.check.asset.size/1024)} KB App update (full package is ${Math.round(small.check.fullSize/1048576)} MB), restart and relaunch`);
   // A runtime base that does not match must take the full package.
