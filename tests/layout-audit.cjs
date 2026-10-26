@@ -48,6 +48,8 @@ const longSsid='Robot_Laboratory_ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0,32),longNam
    });
    if(found.length)issues.push({layout:name,state:label,issues:found});
   };
+  // The on-screen keyboard is off by default; switch it on as the three-dot menu does.
+  await page.evaluate(()=>{const on=document.querySelector('#touch-keyboard-auto');if(!on.checked)document.querySelector('#menu-keyboard').click();});
   for(const [width,height,zoom]of layouts){
    const name=`${width}x${height}@${zoom}`;await win.evaluate((w,s)=>{w.setMinimumSize(0,0);w.setContentSize(s.width,s.height);w.webContents.setZoomFactor(s.zoom);},{width,height,zoom});
    await page.evaluate(()=>document.fonts.ready.then(()=>undefined));

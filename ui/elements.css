@@ -296,10 +296,12 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station .input-source[hidden] { display: none; }
 .driver-station .keyboard-bindings { margin: 4px 0 12px; }
 .driver-station .keyboard-bindings dt { flex-wrap: wrap; }
-/* Very narrow windows (phones): slimmer tabs so the ⋮ menu stays on screen. */
+/* Very narrow windows (phones): the tabs show only their icons, so all of them, the status chips and the
+   ⋮ menu fit. The label text stays as each tab's accessible name. */
 @media (max-width: 430px) {
   body.driver-station > header { gap: 2px; }
-  .driver-station .tab { padding: 0 6px; min-width: 0; }
+  .driver-station .tab { padding: 0; min-width: 44px; gap: 0; font-size: 0; }
+  .driver-station .tab .ui-icon { display: block; width: 20px; height: 20px; }
 }
 /* The smallest phones (360 px): a little less padding again so the ⋮ menu is not pushed off screen. */
 @media (max-width: 380px) {
