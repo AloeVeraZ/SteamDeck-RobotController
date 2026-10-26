@@ -14,8 +14,8 @@ import com.pedropathing.math.Pose;
  *
  * The route's actions call these methods every loop. None of them waits, so the robot keeps following
  * its path (or holding its pin) while they run:
- *  - Intake: intake(true) runs the rollers at their power and lowers kickers and ramps; intake(false)
- *    stops the rollers and raises them again.
+ *  - Intake: intake(true) runs the rollers at their power and lowers kickers; intake(false)
+ *    stops the rollers and raises kickers again.
  *  - Spin up: spin(true) starts the flywheels toward their speed (velocity control on the hub: RUN_USING_ENCODER).
  *  - Aim: aim(pose, cell) turns each turret toward the hive cell from the robot's estimated pose.
  *  - Shoot: shoot(n, step) spins up and aims. Once ready() and aimed(), and pieces from the last intake
@@ -137,7 +137,7 @@ public class Mechanisms {
         return motor;
     }
 
-    /** Intake on or off: rollers run at their power; kickers and ramps go down, and back up when it stops. */
+    /** Intake on or off: rollers run at their power; kickers go down, and back up when it stops. */
     public void intake(boolean on) {
         if (on) lastIntake = clock.seconds();
         intake1.setPower(on ? INTAKE_1_POWER : 0);
@@ -174,6 +174,12 @@ public class Mechanisms {
     public void turnTurrets(double degrees) {
         turnTurret1(degrees);
         turnTurret2(degrees);
+    }
+
+    /** The turret of shooter n (0 the first) to this angle, degrees from the robot's front (counterclockwise). */
+    public void turnTurret(int shooter, double degrees) {
+        if (shooter == 0) turnTurret1(degrees);
+        if (shooter == 1) turnTurret2(degrees);
     }
 
     /** Degrees from the robot's front (counterclockwise) to (x, y), from a turret at (dx, dy) on the robot. */

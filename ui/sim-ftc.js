@@ -347,7 +347,7 @@ public class ${options.opModeName} extends LinearOpMode {
 }
 `;}
   // The action slots: one method per action named in the simulator, regenerated on every export.
-  function routeActions(options,list){const Ex=options.exporter,mech=options.mechanisms?.enabled?options.mechanisms:null;return `package ${options.packageName};
+  function routeActions(options,list){const Ex=options.exporter,mech=options.mechanisms?.enabled?options.mechanisms:null,seqs=options.sequences||[];return `package ${options.packageName};
 
 import ${options.poseImport||'deck.pathing.DeckFollower.Pose'};
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -363,7 +363,8 @@ import org.firstinspires.ftc.robotcore.external.Telemetry;
  *    so set the pause in the simulator to how long the action takes on the real robot.
  *  - On an action path the robot keeps driving. The action is called until it returns true or the
  *    path ends; if the path ends first it gets one final call with step.last = true.
- * The same name at several pins or paths runs the same method.
+ * The same name at several pins or paths runs the same method. A pin or path with several steps runs each
+ * step's method in turn (at a pin) or together (while driving); see Steps below.
  *
  * Actions in this route:
 ${list.length?list.map(a=>` *   ${a.slot}(): "${comment(a.name)}", ${a.uses.map(u=>Ex.where(u)+(u.note?` (${comment(u.note)})`:'')).join('; ')}`).join('\n'):' *   (none yet: name an action on a pin or an action path in the simulator)'}
@@ -415,10 +416,76 @@ ${mech?'        mech.stop();\n':''}    }
     /** Runs the action with this simulator name. Names this file does not know count as finished. */
     public final boolean run(String name, Step step) {
         switch (name) {
-${list.flatMap(a=>(a.names||[a.name]).map(name=>`            case ${javaString(name)}: return ${a.slot}(step);\n`)).join('')}            default: return true;
+${list.flatMap(a=>(a.names||[a.name]).map(name=>`            case ${javaString(name)}: return ${a.slot}(step);\n`)).join('')}${seqs.map((q,k)=>`            case ${javaString(q.name)}: return steps(steps${k + 1}, step);\n`).join('')}            default: return true;
+        }
+    }
+${seqs.length?`
+    // ---- Pins and paths with several steps. At a pin they run one after another; while driving, together from the
+    // start of the path. Each runs for its set time (0: until its method returns true; the whole path while driving).
+${seqs.map((q,k)=>`    private final Steps steps${k + 1} = new Steps(${q.together}, new String[] {${q.steps.map(x=>javaString(x.action)).join(', ')}},
+        new double[] {${q.steps.map(x=>javaNumber(x.seconds||0)).join(', ')}}, new int[] {${q.steps.map(x=>x.cell?1:0).join(', ')}});`).join('\n')}
+
+    private static final class Steps {
+        final boolean together;
+        final String[] names;
+        final double[] seconds;
+        final int[] cells;
+        final double[] started;
+        final boolean[] done;
+        final Step step = new Step();
+        int at;
+
+        Steps(boolean together, String[] names, double[] seconds, int[] cells) {
+            this.together = together;
+            this.names = names;
+            this.seconds = seconds;
+            this.cells = cells;
+            started = new double[names.length];
+            done = new boolean[names.length];
         }
     }
 
+    /** One call of a list of steps: true once every step is done. */
+    private boolean steps(Steps s, Step step) {
+        if (step.first) {
+            s.at = 0;
+            java.util.Arrays.fill(s.started, -1);
+            java.util.Arrays.fill(s.done, false);
+        }
+        if (s.together) {
+            boolean all = true;
+            for (int i = 0; i < s.names.length; i++) {
+                if (!s.done[i]) s.done[i] = runStep(s, i, step, step.elapsed, step.first);
+                all &= s.done[i];
+            }
+            return all;
+        }
+        while (s.at < s.names.length) {
+            int i = s.at;
+            boolean first = s.started[i] < 0;
+            if (first) s.started[i] = step.elapsed;
+            if (!runStep(s, i, step, step.elapsed - s.started[i], first)) return false;
+            s.at++;
+        }
+        return true;
+    }
+
+    /** Step i, t seconds after it started: true once its time is up or its method says it is done. */
+    private boolean runStep(Steps s, int i, Step step, double t, boolean first) {
+        Step sub = s.step;
+        boolean over = s.seconds[i] > 0 && t >= s.seconds[i];
+        sub.elapsed = t;
+        sub.first = first;
+        sub.last = over || step.last;
+        sub.moving = step.moving;
+        sub.pin = step.pin;
+        sub.pose = step.pose;
+        sub.wait = step.wait;
+        sub.duration = s.seconds[i];
+        sub.cell = s.cells[i];
+        return run(s.names[i], sub) || over;
+    }
+`:''}
     private boolean notWritten(String name) {
         if (telemetry != null) telemetry.addData("Action", name + ": no code yet (write it in RobotActions.java)");
         return true;
@@ -476,13 +543,19 @@ ${list.map(a=>`
   // ---------------------------------------------------------------- mechanisms
   // The simulator's built-in actions as they run on the robot. "Shoot" feeds once per storage slot.
   function mechanismAction(name,mech){
+    // Wait takes its set time (the route ends it) and nothing else.
+    if(/^\s*wait\s*$/i.test(String(name||'')))return 'return step.last || step.duration <= 0;';
     if(!mech)return '';const a=(globalThis.DeckMechanisms||require('./sim-mechanisms.js')).action(name),shooter=mech.shooter.type!=='none';
     if(a.kind==='intake'&&mech.intake.enabled)return 'boolean done = step.last || (!step.moving && step.duration <= 0);\n        mech.intake(!done);\n        return done;';
     if(a.kind==='spin'&&shooter)return 'mech.spin(true);\n        return true;';
     if(a.kind==='aim'&&shooter)return 'mech.aim(step.pose, step.cell);\n        return step.moving ? step.last : mech.aimed();';
     if(a.kind==='shoot'&&shooter)return `return mech.shoot(${a.count}, step);`;
+    // A ramp stays where it is sent: at a pin the route waits until it has had its time to get there.
+    if(a.kind==='ramp'&&mech.intakes.some(i=>i.kind==='ramp'))return `mech.ramp(${a.down});\n        return step.moving || step.elapsed >= Mechanisms.RAMP_${a.down?'DOWN':'UP'}_SECONDS;`;
+    if(a.kind==='turret'&&mech.shooters.some(s=>s.type==='turret'))return `${a.turret===null?`mech.turnTurrets(${javaNumber(a.degrees)})`:`mech.turnTurret(${a.turret}, ${javaNumber(a.degrees)})`};\n        return step.moving || mech.aimed();`;
     return '';
   }
+  const javaNumber=v=>{const t=String(+Number(v).toFixed(3));return t.includes('.')?t:t+'.0';};
   // Every mechanism device the export drives, with the Java field and constant it gets. Mechanisms.java, the
   // mechanism check, the robot configuration check and the virtual Control Hub are all built from this one list.
   // device: what it is in the robot configuration (motor, crservo or servo).
@@ -530,8 +603,10 @@ ${list.map(a=>`
     const C=[];
     m.intakes.forEach((i,k)=>{const mine=d.filter(x=>x.part==='intake'&&x.index===k);C.push(`    // ---- Intake ${k+1}: ${i.sides.join(' + ')} ${Mech.INTAKES[i.kind].toLowerCase()}.`);
       for(const x of mine){if(x.role==='roller')C.push(`    /** ${x.label}: a ${x.device==='crservo'?'continuous servo':'DC motor'} that runs at its power while an Intake action runs. */`,`    public static final String ${x.constant} = ${javaString(x.name)};`,`    public static final boolean ${x.constant}_REVERSED = ${x.reversed};`,`    public static final double ${x.constant}_POWER = ${n(x.power)};`);
-        else C.push(`    /** ${x.label}: its position down (${x.role==='kicker'?'scooping':'picking up'}) while an Intake action runs, and up otherwise. */`,`    public static final String ${x.constant} = ${javaString(x.name)};`,`    public static final double ${x.constant}_DOWN = ${n(x.down)}, ${x.constant}_UP = ${n(x.up)};`);}
+        else C.push(x.role==='kicker'?`    /** ${x.label}: its position down (scooping) while an Intake action runs, and up otherwise. */`:`    /** ${x.label}: its position down (Ramp down: it reaches into flowers) and up (Ramp up). It stays where it was sent. */`,`    public static final String ${x.constant} = ${javaString(x.name)};`,`    public static final double ${x.constant}_DOWN = ${n(x.down)}, ${x.constant}_UP = ${n(x.up)};`);}
       C.push('');});
+    const ramps=m.intakes.filter(i=>i.kind==='ramp');
+    if(ramps.length)C.push('    /** Seconds a ramp takes to fold down and back up: Ramp down and Ramp up at a pin wait this long. */',`    public static final double RAMP_DOWN_SECONDS = ${n(Math.max(...ramps.map(i=>i.down)))}, RAMP_UP_SECONDS = ${n(Math.max(...ramps.map(i=>i.up)))};`,'');
     m.shooters.forEach((s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k);C.push(`    // ---- Shooter ${k+1}: ${Mech.PIECES[s.pieces].toLowerCase()}.`);
       const fw=mine.filter(x=>x.role==='flywheel');C.push(`    /** Flywheel motor${fw.length>1?'s (both spin the flywheel; set each one\'s direction so they push the same way)':''}. */`,`    public static final String ${fw.map(x=>`${x.constant} = ${javaString(x.name)}`).join(', ')};`,`    public static final boolean ${fw.map(x=>`${x.constant}_REVERSED = ${x.reversed}`).join(', ')};`);
       const f=mine.find(x=>x.role==='feeder');
@@ -569,7 +644,8 @@ ${list.map(a=>`
       else if(x.role==='feeder')init.push(...(Mech.servoFeeder(x.feeder)?[`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(${x.constant}_REST);`]:[`        ${x.field} = map.get(DcMotorSimple.class, ${x.constant});`,`        ${x.field}.setDirection(direction(${x.constant}_REVERSED));`]));
       else if(x.role==='turret')init.push(...(x.device==='servo'?[`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(TURRET_SERVO_CENTER);`]:[`        ${x.field} = turretMotor(map, ${x.constant}, ${x.constant}_REVERSED);`]));
     }
-    const intakeLines=[...rollers.map(x=>`        ${x.field}.setPower(on ? ${x.constant}_POWER : 0);`),...swings.map(x=>`        ${x.field}.setPosition(on ? ${x.constant}_DOWN : ${x.constant}_UP);`)];
+    const rampSwings=swings.filter(x=>x.role==='ramp'),rampLines=rampSwings.map(x=>`        ${x.field}.setPosition(down ? ${x.constant}_DOWN : ${x.constant}_UP);`);
+    const intakeLines=[...rollers.map(x=>`        ${x.field}.setPower(on ? ${x.constant}_POWER : 0);`),...swings.filter(x=>x.role==='kicker').map(x=>`        ${x.field}.setPosition(on ? ${x.constant}_DOWN : ${x.constant}_UP);`)];
     const spinLines=!flywheels.length?[]:velocity?['        double speed = on ? FLYWHEEL_TICKS_PER_SECOND : 0;',...flywheels.map(x=>`        ${x.field}.setVelocity(speed);`)]:['        double power = on ? FLYWHEEL_POWER : 0;',...flywheels.map(x=>`        ${x.field}.setPower(power);`)];
     const feedLines=feeders.map(x=>x.feeder==='pusher'?`        ${x.field}.setPosition(push ? ${x.constant}_FEED : ${x.constant}_REST);`:x.feeder==='gate'?`        ${x.field}.setPosition(feeding ? ${x.constant}_FEED : ${x.constant}_REST);`:`        ${x.field}.setPower(feeding ? FEEDER_POWER : 0);`);
     const turnLines=turrets.map(x=>`        turn${x.field[0].toUpperCase()+x.field.slice(1)}(degrees);`),aimLines=turrets.map(x=>`        turn${x.field[0].toUpperCase()+x.field.slice(1)}(bearing(pose, ${x.constant}_X, ${x.constant}_Y, x, y));`);
@@ -609,8 +685,10 @@ import ${options.poseImport||'deck.pathing.DeckFollower.Pose'};
  *
  * The route's actions call these methods every loop. None of them waits, so the robot keeps following
  * its path (or holding its pin) while they run:
- *  - Intake: intake(true) runs the rollers at their power and lowers kickers and ramps; intake(false)
- *    stops the rollers and raises them again.${shooter?`
+ *  - Intake: intake(true) runs the rollers at their power and lowers kickers; intake(false)
+ *    stops the rollers and raises kickers again.${rampSwings.length?`
+ *  - Ramp down / Ramp up: ramp(true) folds the ramps down (they reach into flowers) and ramp(false)
+ *    folds them up. A ramp stays where it was sent; Intake does not move it.`:''}${shooter?`
  *  - Spin up: spin(true) starts the flywheels toward their speed${velocity?' (velocity control on the hub: RUN_USING_ENCODER)':' (a set power: no encoder)'}.
  *  - Aim: aim(pose, cell) turns each turret toward the hive cell from the robot's estimated pose.
  *  - Shoot: shoot(n, step) spins up and aims. Once ready() and aimed(), and pieces from the last intake
@@ -662,12 +740,17 @@ ${flywheels.length?`
         return motor;
     }
 `:''}
-    /** Intake on or off: rollers run at their power; kickers and ramps go down, and back up when it stops. */
+    /** Intake on or off: rollers run at their power; kickers go down, and back up when it stops. */
     public void intake(boolean on) {
         if (on) lastIntake = clock.seconds();
 ${intakeLines.join('\n')}
     }
-
+${rampLines.length?`
+    /** Ramps down (true) or up (false). They stay there until the next Ramp down or Ramp up. */
+    public void ramp(boolean down) {
+${rampLines.join('\n')}
+    }
+`:''}
     /** Flywheels on (toward their speed) or off. */
     public void spin(boolean on) {
         if (on && !spinning) spinStart = clock.seconds();
@@ -699,6 +782,11 @@ ${aimLines.join('\n')}`:''}
 ${turnLines.join('\n')}
     }
 ${turrets.length?`
+    /** The turret of shooter n (0 the first) to this angle, degrees from the robot's front (counterclockwise). */
+    public void turnTurret(int shooter, double degrees) {
+${turrets.map(x=>`        if (shooter == ${x.index}) turn${x.field[0].toUpperCase()+x.field.slice(1)}(degrees);`).join('\n')}
+    }
+`:''}${turrets.length?`
     /** Degrees from the robot's front (counterclockwise) to (x, y), from a turret at (dx, dy) on the robot. */
     private static double bearing(Pose pose, double dx, double dy, double x, double y) {
         double c = Math.cos(pose.heading()), s = Math.sin(pose.heading());
@@ -1407,7 +1495,7 @@ ${flywheels.length&&velocity?`
   // Every TeamCode file for the Control Hub, keyed by path under TeamCode/src/main/java. RobotActions
   // is listed in keep: it is written only when it does not exist yet.
   function files({route,layout,tuning,robot,localization,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',routeJava,mechanisms=null,target=null,exporter=globalThis.DeckSimExport||require('./sim-export.js')}){
-    const h=hardware(robot,localization),dir=packageName.replace(/\./g,'/'),opModeName=className+'Auto',mech=mechanisms?.enabled?mechanisms:null,options={packageName,className,opModeName,layoutName:layout.name,setupName,exporter,mechanisms:mech},list=exporter.actions(route);
+    const h=hardware(robot,localization),dir=packageName.replace(/\./g,'/'),opModeName=className+'Auto',mech=mechanisms?.enabled?mechanisms:null,options={packageName,className,opModeName,layoutName:layout.name,setupName,exporter,mechanisms:mech,sequences:exporter.sequences?.(route)||[]},list=exporter.actions(route);
     if(mech)h.mechanisms=mechanismHardware(mech);
     // Older callers export geometry before passing the measured robot tuning. Resolve inherited
     // power here as well, so generated code and the virtual follower use the same default.

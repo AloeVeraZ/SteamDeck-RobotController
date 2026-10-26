@@ -20,8 +20,9 @@ public final class RouteAutonomous implements DeckAutonomous {
     private boolean turningNow, turnThenFollow, turnedAfter;
     private double turnStarted, turnTarget;
     private static final double SETTLE_SECONDS = .15;
-    // The simulator answers one tick later, so a pin action waits this long before it can count as done.
-    private static final double MECHANISM_START = 0.05, MECHANISM_LIMIT = 10;
+    // The simulator answers one tick later, so a pin action waits this long before it can count as done. A pin with
+    // several steps (Shoot, then Ramp down, then Intake...) runs as one action, so the limit is a whole autonomous period.
+    private static final double MECHANISM_START = 0.05, MECHANISM_LIMIT = 30;
     private double settleStarted = -1, settleHeading;
     // Stall recovery: recent poses, the moment progress stopped, and the back-out target.
     private static final double STALL_SPEED = 1.5, STALL_SECONDS = .8, BACKOFF_SECONDS = 2.5;

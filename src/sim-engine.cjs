@@ -118,7 +118,7 @@ class SimEngine{
     const robot=this.world.robots[0],keep=m.enabled&&c.elements?m.preload.pollen:0;let held=0;
     this.world.balls=c.elements?this.world.balls.filter(b=>b.state?.kind!=='held'||held++<keep):[];if(Array.isArray(robot.hopper))robot.hopper=robot.hopper.slice(0,Math.min(keep,held));
     this.spreadStaged();
-    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m);this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;this.kin=new Kin.Driver(c.kinematics||Kin.EMPTY());this.jointTick(0);
+    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m,{start:name=>this.kin.start(name),busy:name=>this.kin.busy(name)});this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;this.kin=new Kin.Driver(c.kinematics||Kin.EMPTY());this.jointTick(0);
     this.applyBarriers();
     const r=this.world.robots[0],p={x:c.start.x-this.origin.x,y:c.start.y-this.origin.y};
     // The game engine's competition limits do not apply to an offline pushbot. Override after
@@ -134,7 +134,7 @@ class SimEngine{
       const boxes={},flower=Mech.flowerKind(m);for(const i of m.intakes)for(const e of i.sides){const edge=e==='front'||e==='back'?c.robot.width:c.robot.length;boxes[e]={reach:i.reach,width:Math.min(i.width??edge,edge),height:i.height,flower:i.kind===flower};}r.spec.deckIntakeBoxes=boxes;
       // Two shooters on one turret launch from its one spot; the game's spawn checks moved the second apart.
       if(m.shooters[1]?.sharesTurret&&r.spec.bbMech?.launcher)r.spec.bbMech={...r.spec.bbMech,launcher:{...r.spec.bbMech.launcher,mount:m.shooters[0].mount,mount2:m.shooters[0].mount}};
-      this.rampDown=false;}
+      this.rampDown=false;this.rampOut=false;this.rampHeld=false;}
     // The mechanism model points the turret (see mechanismTick); the game physics launches along it.
     Object.assign(r,{pos:p,heading:c.start.heading/DEG,turretHeading:c.start.heading/DEG,vel:{x:0,y:0},angVel:0,fieldCentric:false,aimAssist:false,autoIntake:false,autoFire:false});
     this.sensors=new Sensors(c.sensors,this.truth());this.estimate=null;this.command={...ZERO};this.result=null;this.trail=[];
@@ -309,13 +309,15 @@ class SimEngine{
     if(!valid){this.manualInput=null;this.manualMech=null;this.practice.neutralRequired=true;return;}
     if(this.practice.neutralRequired){this.manualInput=null;if(Math.max(Math.abs(x),Math.abs(y),Math.abs(turn))<=.06){this.practice.neutralRequired=false;this.practiceInputAt=this.now();}return;}
     this.practiceInputAt=this.now();this.manualInput={x,y,turn,fieldCentric:this.config.robot.driveStyle==='field',precision:!!pad.buttons?.[4]?.pressed};
-    // Teleop mechanisms: right bumper intakes, left trigger spins up, right trigger shoots (keyboard: E, Shift, G).
-    const press=i=>!!pad.buttons?.[i]?.pressed||(pad.buttons?.[i]?.value??0)>.3;this.manualMech={intake:press(5),spin:press(6),feed:press(7)};
+    // Teleop mechanisms: right bumper intakes, left trigger spins up, right trigger shoots, Y folds a ramp down or back
+    // up (keyboard: E, Shift, G, F).
+    const press=i=>!!pad.buttons?.[i]?.pressed||(pad.buttons?.[i]?.value??0)>.3,toggle=press(3);if(toggle&&!this.rampHeld)this.rampOut=!this.rampOut;this.rampHeld=toggle;
+    this.manualMech={intake:press(5),spin:press(6),feed:press(7)};
   }
   async practiceTick(){
     const practice=this.practice,seq=this.runSeq;
     if(practice&&practice.phase==='teleop'&&this.now()-this.practiceInputAt>500){this.manualInput=null;this.manualMech=null;practice.neutralRequired=true;}
-    if(this.mode==='manual'&&this.config.mechanisms.enabled){const b=practice?.phase==='teleop'&&this.manualInput?this.manualMech||{}:{},shoot=!!b.feed;this.mechCmd={intake:!!b.intake,spin:!!b.spin||shoot,aim:!!b.spin||shoot,feed:shoot};this.mechBusy=false;}
+    if(this.mode==='manual'&&this.config.mechanisms.enabled){const b=practice?.phase==='teleop'&&this.manualInput?this.manualMech||{}:{},shoot=!!b.feed;this.mechCmd={intake:!!b.intake,spin:!!b.spin||shoot,aim:!!b.spin||shoot,feed:shoot,ramp:!!this.rampOut};this.mechBusy=false;}
     if(this.mode==='program')await this.programTick();else if(this.mode==='timed')this.timedTick();else this.tick(practice&&practice.phase!=='teleop'?ZERO:this.manualCommand());
     if(!practice||practice!==this.practice||!this.playing)return;
     // A run failure invalidates the session; a clean early finish holds still until AUTO ends.
@@ -368,10 +370,10 @@ class SimEngine{
     child.on('error',e=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error('Java could not start: '+e.message));});
     child.on('exit',code=>{bridge.exited=true;for(const w of bridge.waiters.splice(0))w.reject(Error(`The Deck process exited (code ${code}).${bridge.stderr?' '+bridge.stderr.trim().slice(-500):''}`));});
     child.stdin.on('error',()=>{});
-    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic||program.route.segments.some(s=>finite(s.heading))),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?Math.max(0,s.wait):0,action:typeof s.action==='string'?s.action.slice(0,40):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
+    const t=this.truth(),route=program.route?.segments?.length?{heading:program.route.heading/DEG,turns:!!(program.route.turns||program.route.nonholonomic||program.route.segments.some(s=>finite(s.heading))),segments:program.route.segments,stops:(program.route.stops||[]).map(s=>({x:s.x,y:s.y,wait:finite(s.wait)?Math.max(0,s.wait):0,action:typeof s.action==='string'?s.action.slice(0,400):'',segment:Number.isInteger(s.segment)?s.segment:-1}))}:null;
     // The leg plan every export shares: where the robot stops, turns at pins and runs action paths.
-    const legPlan=route?Export.legs(program.route):null;this.legPaths=legPlan?.map(l=>l.path)??null;this.legSeconds=legPlan?.map(l=>({pin:l.actionSeconds,moving:l.moving?.seconds??null}))??null;this.legCells=legPlan?.map(l=>({pin:l.cell||0,moving:l.moving?.cell||0}))??null;
-    if(route){let last=-1;route.legs=Export.legs(program.route).map(l=>{last+=l.segments.length;return {last,power:l.power??this.info.tuning.maxPathSpeed,wait:Math.max(0,l.wait||0),action:String(l.action||'').slice(0,40),actionSeconds:finite(l.actionSeconds)?l.actionSeconds:null,movingSeconds:finite(l.moving?.seconds)?l.moving.seconds:null,path:l.path,moving:String(l.moving?.action||(l.moving?'Action path':'')).slice(0,40),heading:finite(l.heading)?l.heading:program.route.heading,turn:finite(l.turn)?l.turn:null};});}
+    const legPlan=route?Export.legs(program.route):null;this.legPaths=legPlan?.map(l=>l.path)??null;this.legSeconds=legPlan?.map(l=>({pin:l.actionSeconds,moving:l.moving?.seconds??null}))??null;this.legCells=legPlan?.map(l=>({pin:l.cell||0,moving:l.moving?.cell||0}))??null;this.legSteps=legPlan?.map(l=>({pin:l.steps,moving:l.moving?.steps??null}))??null;
+    if(route){let last=-1;route.legs=Export.legs(program.route).map(l=>{last+=l.segments.length;return {last,power:l.power??this.info.tuning.maxPathSpeed,wait:Math.max(0,l.wait||0),action:String(l.action||'').slice(0,400),actionSeconds:finite(l.actionSeconds)?l.actionSeconds:null,movingSeconds:finite(l.moving?.seconds)?l.moving.seconds:null,path:l.path,moving:String(l.moving?.action||(l.moving?'Action path':'')).slice(0,400),heading:finite(l.heading)?l.heading:program.route.heading,turn:finite(l.turn)?l.turn:null};});}
     const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,actions:typeof program.actions==='string'?program.actions:'',motionModule:program.motionModule,deps:program.deps||'',...(this.config.mechanisms.enabled?{mechanisms:MotionModule.mechanismHardware(this.config.mechanisms)}:{})}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:config.drives[this.info.robot.drivetrain].engine,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);
@@ -391,9 +393,12 @@ class SimEngine{
   }
   async programTick(){
     const bridge=this.child;if(!bridge||bridge.seq!==this.runSeq){this.mode='idle';return;}
-    const jointBusy=this.routeJoints(this.mechAct);
+    const steps=this.mechAct&&this.legSteps?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin'],jointBusy=steps?false:this.routeJoints(this.mechAct);
+    // A list of steps: the runner runs them in turn (at a pin) or together (on a path), moving parts included.
+    if(steps&&bridge.kind!=='opmode'&&bridge.kind!=='motionmodule'){const next=this.mechRunner.commands({...this.mechAct,path:this.legPaths?.[this.mechAct.leg],steps},this.mech.state(),this.world.time);
+      if(this.config.mechanisms.enabled){this.mechCmd=next.cmd;this.mechCell=next.cell==='other'||next.cell===1?'other':'start';}this.mechBusy=next.busy;}
     // Mechanisms: a route names its active action; exported code drives its mechanism motors and servos.
-    if(this.config.mechanisms.enabled){
+    else if(this.config.mechanisms.enabled){
       if(bridge.kind==='opmode'||bridge.kind==='motionmodule'){
         // MotionModule zeroes every motor for a few milliseconds when a drive wheel reverses (dead time);
         // a spinning flywheel or indexer barely notices, so its outputs count as on for 0.12 s after.
@@ -428,10 +433,11 @@ class SimEngine{
   }
   timedTick(){const runner=this.timed;if(!runner)return;const reading=this.tick(this.command),mech=this.config.mechanisms.enabled;let held=false;
     // A pin's mechanism action holds the timed robot until it finishes, like the exported MotionModule code.
-    const hold=(step,index)=>{const act={name:step.action,leg:index,moving:false},joints=this.routeJoints(act);held=true;if(!mech)return joints;this.mechCell=step.cell==='other'?'other':'start';const next=this.mechRunner.commands(act,this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy||joints;return this.mechBusy;};
+    const hold=(step,index)=>{const act={name:step.action,leg:index,moving:false,...(step.steps?{steps:step.steps}:{})},joints=step.steps?false:this.routeJoints(act);held=true;if(!mech&&!step.steps)return joints;this.mechCell=step.cell==='other'?'other':'start';const next=this.mechRunner.commands(act,this.mech.state(),this.world.time);if(mech){this.mechCmd=next.cmd;if(next.cell)this.mechCell=next.cell;}this.mechBusy=next.busy||joints;return this.mechBusy;};
     const next=runner.advance(this.dsim.SIM_DT,reading.imu,hold);
-    if(!held)this.routeJoints(next.acting?{name:next.acting,leg:next.segment,path:'timed:'+next.acting,moving:true}:null);
-    if(mech&&!held){this.mechCell=next.acting&&next.actingCell==='other'?'other':'start';const r=this.mechRunner.commands(next.acting?{name:next.acting,leg:next.segment,path:'timed:'+next.acting,moving:true}:null,this.mech.state(),this.world.time);this.mechCmd=r.cmd;this.mechBusy=false;}this.command=next.drive;this.waiting=next.wait;this.acting=next.acting||null;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
+    const moving=next.acting?{name:next.acting,leg:next.segment,path:'timed:'+next.acting,moving:true,...(next.actingSteps?{steps:next.actingSteps}:{})}:null;
+    if(!held&&!moving?.steps)this.routeJoints(moving);
+    if((mech||moving?.steps)&&!held){this.mechCell=next.acting&&next.actingCell==='other'?'other':'start';const r=this.mechRunner.commands(moving,this.mech.state(),this.world.time);if(mech){this.mechCmd=r.cmd;if(r.cell)this.mechCell=r.cell;}this.mechBusy=false;}this.command=next.drive;this.waiting=next.wait;this.acting=next.acting||null;this.follower={pathIndex:next.segment||0};this.estimate=null;if(next.done)this.finish(this.runSeq);}
   describe(reply){const where={compile:'Compile error',load:'Could not load the program',init:'init() failed',loop:'loop() failed',bridge:'Deck bridge error'}[reply.stage]||'Program error';return `${where}: ${reply.message}`;}
   fail(message,seq=this.runSeq,reply){
     if(seq!==this.runSeq)return;this.stopProgram();this.playing=false;this.practice=null;

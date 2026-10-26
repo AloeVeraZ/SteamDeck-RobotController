@@ -101,3 +101,11 @@ Done and committed (`examples/lunala-red-auto.json` plus exports in `examples/lu
 ## Next steps
 
 AGENT_BACKLOG.md is in priority order.
+
+## Route steps (pins and paths with several mechanism steps)
+
+- **Steps are the source of truth.** `pin.steps` and `pin.path.steps` are `[{action, seconds|null, cell}]`. `planner.pinEffects` / `pathEffects` derive the old single `action`, `actionSeconds` and `cell` from them, so every runtime that reads one action still works. Several steps are joined into one name: "Shoot then Ramp down" (a pin: one after another) or "Intake + Ramp down" (a path: together). Step names cannot contain → or +.
+- **Where they run.** `Export.legs` gives each leg `steps` (pin) and `moving.steps` (path), and `Export.sequences(route)` lists them. `Mech.Runner.steps()` runs them in the simulator (route and timed programs); it starts moving-part steps through the engine's `kin` (`joints` hook). RouteActions.java has a `Steps` helper, and MotionModule's autonomous.py has `STEPS` and `call_steps`. The Java route follower waits up to 30 s (`MECHANISM_LIMIT`) for a pin's steps.
+- **Ramps.** A ramp moves only on Ramp down / Ramp up (`cmd.ramp`, latched in the Runner; Y in teleop). Intake runs only the rollers, and a raised ramp still takes floor pieces; a ramp has to be down to reach a flower. A kicker still follows Intake.
+- **New built-in actions:** "Ramp down", "Ramp up", "Turret to 30°", "Turret 2 to -45°", "Wait", and "<part> to 40°" / "to 4 in" (`Kin.Driver.start`, clamped to end stops).
+- **UI.** `ui/sim-steps.js` is the step editor (catalogue, rows, add chips). The route list in `ui/simulation.js` puts a pin row (`.sim-stop-row`, `data-pin`) under each path row; `openPart` says which one is open. Tests: `tests/sim-route-steps.test.cjs`.

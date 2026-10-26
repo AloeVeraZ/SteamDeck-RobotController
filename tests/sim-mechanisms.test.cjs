@@ -292,28 +292,35 @@ test('a kicker swings down before it picks up, and what it scoops moves up after
   const ftc=require('../ui/sim-ftc.js');assert.deepEqual(ftc.mechanismHardware?ftc.mechanismHardware(m).kickers:[{name:'kicker',down:0,up:1}],[{name:'kicker',down:0,up:1}]);
 });
 
-test('a deployable ramp is a sweeper on a servo: it picks up only once folded down, and its pieces move straight in',()=>{
+test('a deployable ramp is a sweeper with a ramp on a servo: the ramp moves only when sent, and its pieces move straight in',()=>{
   const m=on({intakes:[{kind:'ramp',sides:['front'],down:.5,up:.4,servo:'rampServo',motor:'rollers'}],transfer:{seconds:1}});
   assert.deepEqual(m.intakes[0],{kind:'ramp',sides:['front'],reach:0,width:null,height:4,motor:'rollers',power:1,down:.5,up:.4,servo:'rampServo',downPos:0,upPos:1});
   const plain=on({intakes:[{kind:'ramp',sides:['front']}]}).intakes[0];assert.equal(plain.servo,'ramp');assert.equal(plain.down,.3,'the game physics folds a ramp down in 0.3 s');
   assert.equal(Mech.liftSeconds(m),0,'shooting does not wait for a ramp to fold up');assert.equal(Mech.engineSpec(m).bbMech.intake.kind,'ramp');
   const model=new Mech.Model(m,0),run=(t,cmd,held)=>{let out;for(let i=0;i<Math.round(t/.01);i++)out=model.tick(.01,cmd,{pose:{x:0,y:0,heading:0},target:{x:50,y:0},held});return out;};
-  // Folding down: its edge does not pick up yet; the physics ramp is sent down to settle when it gets there.
-  let out=run(.2,{intake:true},0);assert.deepEqual(out.edgesOff,['front']);assert.equal(out.ramp.down,true);assert.ok(Math.abs(out.ramp.eta-.3)<.02,'eta '+out.ramp.eta);
-  out=run(.31,{intake:true},0);assert.deepEqual(out.edgesOff,[]);assert.deepEqual(model.state().ramps,[1]);
+  // Intaking leaves the ramp up: its rollers still take pieces off the floor.
+  let out=run(.4,{intake:true},0);assert.deepEqual([out.ramp.down,out.edgesOff],[false,[]]);assert.deepEqual(model.state().ramps,[0]);
+  // Sent down (Ramp down, or robot code moving its servo): the physics ramp settles when it gets there, and it stays down.
+  out=run(.2,{intake:true,ramp:true},0);assert.deepEqual(out.edgesOff,[]);assert.equal(out.ramp.down,true);assert.ok(Math.abs(out.ramp.eta-.3)<.02,'eta '+out.ramp.eta);
+  out=run(.31,{intake:false,ramp:true},0);assert.deepEqual(model.state().ramps,[1]);assert.equal(out.ramp.down,true,'it stays down with the intake off');
   // A piece it takes starts moving up at once (a kicker would hold it until it swings back up).
-  run(.1,{intake:true},1);assert.ok(Number.isFinite(model.queue[0].arrives));
-  out=run(.1,{intake:false},1);assert.deepEqual([out.ramp.down,out.edgesOff],[false,['front']]);
-  // Robot code can hold the ramp up with its rollers running.
-  const up=new Mech.Model(m,0);let o;for(let i=0;i<100;i++)o=up.tick(.01,{intake:true,ramp:false},{held:0});assert.deepEqual([o.ramp.down,o.edgesOff],[false,['front']]);
+  run(.1,{intake:true,ramp:true},1);assert.ok(Number.isFinite(model.queue[0].arrives));
+  out=run(.1,{intake:false,ramp:false},1);assert.deepEqual([out.ramp.down,out.edgesOff],[false,[]]);
+  // A kicker still swings down while the intake runs, and picks up only once it is all the way down.
+  const kicker=new Mech.Model(on({intakes:[{kind:'kicker',sides:['front'],down:.4,up:.4}]}),0);let o=kicker.tick(.01,{intake:true},{held:0});
+  assert.deepEqual(o.edgesOff,['front']);for(let i=0;i<45;i++)o=kicker.tick(.01,{intake:true},{held:0});assert.deepEqual(o.edgesOff,[]);
   // The physics' kind is the first intake that reaches into flowers: a sweeper first does not hide a ramp.
   assert.equal(Mech.flowerKind(on({intakes:[{sides:['front']},{kind:'ramp',sides:['back']}]})),'ramp');assert.equal(Mech.flowerKind(on()),'sweeper');
   // Exports fold the ramp with its servo and run its rollers as an intake motor.
   const hw=F.mechanismHardware(m);assert.deepEqual([hw.intakes,hw.ramps],[[{name:'rollers',kind:'motor',mount:1,part:0}],[{name:'rampServo',down:0,up:1}]]);
   const layout={name:'Ramp',start,zones:[]},route=P.plan({start,zones:[],pins,clearance:2,style:'spline'},{front:8.5,rear:8.5,half:8.5});
   const java=F.files({route,layout,tuning:{},robot,localization:'fused',mechanisms:m,target:{x:59.25,y:58.56},routeJava:X.java(route,layout,{polygon:P.polygon})}).files['org/firstinspires/ftc/teamcode/Mechanisms.java'];
-  assert.match(java,/INTAKE_1 = "rollers";/);assert.match(java,/RAMP_1 = "rampServo";/);assert.match(java,/ramp1\.setPosition\(on \? RAMP_1_DOWN : RAMP_1_UP\)/);
-  const py=MM.autonomous(route,Timed.settings({}),{name:'Ramp',mechanisms:m,target:{x:59.25,y:58.56}});assert.match(py,/RAMPS = \[\n\s+\("rampServo", 0, 0\.0, 180\.0\),/);assert.match(py,/for servo, down, up in self\.kickers \+ self\.ramps:/);
+  // Intake runs only the rollers; ramp(down) moves the ramp, and Ramp down / Ramp up wait its time at a pin.
+  assert.match(java,/INTAKE_1 = "rollers";/);assert.match(java,/RAMP_1 = "rampServo";/);assert.match(java,/public void ramp\(boolean down\) \{\n\s+ramp1\.setPosition\(down \? RAMP_1_DOWN : RAMP_1_UP\);/);
+  assert.doesNotMatch(java.slice(java.indexOf('public void intake('),java.indexOf('public void ramp(')),/ramp1/,'intake() leaves the ramp alone');
+  assert.match(java,/RAMP_DOWN_SECONDS = 0\.5, RAMP_UP_SECONDS = 0\.4;/);assert.match(F.mechanismAction('Ramp down',m),/mech\.ramp\(true\);\n\s+return step\.moving \|\| step\.elapsed >= Mechanisms\.RAMP_DOWN_SECONDS;/);
+  const py=MM.autonomous(route,Timed.settings({}),{name:'Ramp',mechanisms:m,target:{x:59.25,y:58.56}});assert.match(py,/RAMPS = \[\n\s+\("rampServo", 0, 0\.0, 180\.0\),/);
+  assert.match(py,/for servo, down, up in self\.kickers:\n/);assert.match(py,/def ramp\(self, down\):/);assert.match(py,/RAMP_DOWN_SECONDS, RAMP_UP_SECONDS = 0\.5, 0\.4/);
   assert.deepEqual(MM.mechanismHardware(m).ramps,[{servo:0,down:0,up:180}]);
 });
 
@@ -348,7 +355,8 @@ test('BIOBUZZ: only a folded-down ramp takes a flower\'s pollen; two shooters on
   const flower=async(intakes,cmd={})=>{const e=new SimEngine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-flower-')),now:()=>0,emit:()=>{}});
     try{await e.load({field:'biobuzz',alliance:'red',mechanisms:on({intakes,preload:{pollen:0}}),start:{x:24,y:48.6,heading:180},robot,sensors:{localization:'fused'}});
       e.mechCmd={intake:true,spin:false,aim:false,feed:false,...cmd};for(let i=0;i<600;i++)e.tick({forward:i<200?.25:.05,strafe:0,turn:0});return e.world.robots[0].hopper.length;}finally{e.dispose();}};
-  assert.ok(await flower([{kind:'ramp',sides:['front']}])>=1,'a ramp folded down takes the flower\'s pollen');
+  assert.ok(await flower([{kind:'ramp',sides:['front']}],{ramp:true})>=1,'a ramp folded down takes the flower\'s pollen');
+  assert.equal(await flower([{kind:'ramp',sides:['front']}]),0,'intaking alone leaves the ramp up: it cannot reach the flower');
   assert.equal(await flower([{kind:'sweeper',sides:['front']}]),0,'a sweeper cannot reach into a flower');
   assert.equal(await flower([{kind:'ramp',sides:['front']}],{ramp:false}),0,'a ramp held up takes nothing');
   assert.equal(await flower([{kind:'sweeper',sides:['front']},{kind:'ramp',sides:['back']}]),0,'only the ramp\'s own side reaches into a flower');

@@ -421,8 +421,11 @@
       if(action){const r=this.run(action);this.running.push(r);this.stepAction(r);return true;}
       const named=[...this.model.joints.map(j=>({axis:this.axes.get('joint:'+j.id),names:[j.name],states:j.states||{}})),
         ...this.model.actuators.map(a=>({axis:this.axes.get(a.id),names:[a.name,this.model.joints.find(x=>x.id===a.joint)?.name].filter(Boolean),states:statesOf(this.model,a)}))];
+      // "Lift to 30°" or "Slide to 4 in" moves it to that value in its own units (degrees or inches), within its end stops.
       for(const {axis,names,states} of named){if(!axis)continue;for(const name of names){const own=name.toLowerCase();if(!key.startsWith(own+' '))continue;
-        const state=Object.keys(states).find(k=>k.toLowerCase()===key.slice(own.length+1).trim());if(state===undefined)continue;axis.to(states[state]);this.moves.push({key,axis});return true;}}
+        const rest=key.slice(own.length+1).trim(),to=/^to\s+(-?\d+(?:\.\d+)?)\s*(?:°|deg|degrees|in|inches)?$/.exec(rest);
+        if(to){axis.to(clamp(Number(to[1]),axis.lower,axis.upper));this.moves.push({key,axis});return true;}
+        const state=Object.keys(states).find(k=>k.toLowerCase()===rest);if(state===undefined)continue;axis.to(states[state]);this.moves.push({key,axis});return true;}}
       return false;}
     busy(name){const key=String(name).trim().toLowerCase();return this.running.some(r=>r.action.name.toLowerCase()===key)||this.moves.some(m=>m.key===key&&!m.axis.done);}
     tick(dt,s={}){

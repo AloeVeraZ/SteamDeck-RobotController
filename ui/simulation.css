@@ -416,3 +416,39 @@
 .sim-joint-action-head{display:flex;gap:6px;align-items:center}.sim-joint-action-head input{flex:1;min-width:0}
 .sim-joint-action ol{margin:8px 0;padding-left:20px;display:grid;gap:6px;font-size:12px}
 .sim-joint-action li{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.sim-joint-action li select{min-height:32px;max-width:100%;width:auto;flex:1 1 130px;min-width:0}.sim-joint-action li input[type=number]{width:64px}
+
+/* Route steps: each path is followed by the pin it ends at; both carry a list of steps. */
+.sim-stop-row{margin:-4px 0 0 18px;border:1px dashed var(--line);border-top:0;border-radius:0 0 var(--radius-control) var(--radius-control);background:var(--surface)}
+.sim-stop-row.acts{border-style:solid}
+.sim-stop-row.selected{border:1px solid var(--line-strong);background:var(--raised)}
+.sim-stop-row .sim-path-pick{min-height:30px;font-weight:500}
+.sim-stop-row .sim-pin-summary{margin:-4px 8px 6px 34px;font-size:11px}
+.sim-stop-row.selected .sim-pin-summary{display:none}
+.sim-pin-badge{flex:none;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:999px;background:var(--well);border:1px solid var(--line-strong);color:var(--text);font:700 10px var(--font)}
+.sim-stop-row.acts .sim-pin-badge{background:var(--warning-bg);border-color:var(--warning)}
+.sim-pin-turn{width:100%;min-height:30px;font-size:12px;text-align:left}
+.sim-steps-title{margin:10px 0 4px}
+.sim-steps-list{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.sim-step{display:grid;grid-template-columns:18px minmax(84px,1fr) auto auto;align-items:center;gap:4px 5px;padding:4px 5px;border:1px solid var(--line);border-radius:var(--radius-control);background:var(--well)}
+.sim-step-n{flex:none;display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;background:var(--accent);color:var(--bg);font:700 10px var(--font)}
+.sim-step-what{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+.sim-step-name{font:600 12px var(--font);color:var(--text)}
+.sim-step-word,.sim-step-unit{font-size:11px;color:var(--muted)}
+.sim-steps .sim-step input.sim-step-num{width:60px;min-height:28px;height:28px;margin:0;padding:2px 6px;font-size:12px}
+.sim-steps .sim-step input.sim-step-own{flex:1;min-width:90px;min-height:28px;height:28px;margin:0;padding:2px 6px;font-size:12px}
+.sim-steps .sim-step select.sim-step-pick{width:auto;min-height:28px;height:28px;margin:0;padding:2px 6px;font-size:12px}
+.sim-steps .sim-step input.num-slider{display:none}
+.sim-step-time{grid-column:3;display:flex;align-items:center;gap:3px;font-size:11px}
+.sim-steps .sim-step .sim-step-time input.sim-step-num{width:72px;font-size:11px}
+.sim-step-time.hint{margin:0}
+.driver-station .sim-steps .sim-step-cell{grid-column:2;justify-self:start;min-height:26px;padding:2px 8px;font-size:11px}
+.sim-step-tools{grid-column:4;grid-row:1;display:flex;gap:1px}
+.sim-step-tools .icon-button{width:24px;min-width:0;height:26px;min-height:26px;padding:0}
+.sim-steps-empty{margin:2px 0 4px;font-size:11px}
+.sim-steps-add{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.driver-station .sim-steps-add .sim-chip{min-height:28px;padding:2px 10px;font-size:11px}
+.sim-steps .sim-steps-add select.sim-step-parts{width:auto;min-height:28px;height:28px;margin:0;padding:2px 8px;font-size:11px;border-radius:999px}
+.sim-steps-hint{margin:6px 0 0;font-size:11px}
+#sim-effects .sim-steps select.sim-step-pick{width:auto;min-height:28px;height:28px;padding:2px 6px;font-size:12px}
+#sim-effects .sim-steps .sim-step-tools .icon-button{width:24px;min-width:0;height:26px;min-height:26px;padding:0}
+.sim-step-name{white-space:nowrap}
