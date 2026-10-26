@@ -162,6 +162,7 @@ jobs:
         if: matrix.target == 'steamdeck'
         env:
           DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          DECK_TEST_SOFTWARE_GL: '1'
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         shell: bash
         run: |
