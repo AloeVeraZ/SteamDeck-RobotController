@@ -71,7 +71,9 @@ After the user authorizes publication:
 3. Run the **Publish app update (manual)** workflow on testing. It tests, builds
    Steam Deck/Windows/Apple Silicon, and publishes all three platforms' assets plus
    checksums as a prerelease only after every build succeeds. It never runs on
-   a normal push. An already published version/tag must not be reused.
+   a normal branch push; pushing the tag `testing-v<version>` (on testing) or
+   `v<version>` (on main) also starts it, so no GitHub sign-in is needed.
+   An already published version/tag must not be reused.
 4. Main publication requires an explicitly approved promotion and changing the
    packaged update channel to main. Testing builds keep their testing channel.
 

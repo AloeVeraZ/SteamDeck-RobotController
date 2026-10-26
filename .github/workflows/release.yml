@@ -1,6 +1,9 @@
 name: Publish app update (manual)
 on:
   workflow_dispatch:
+  # Pushing v<version> (from main) or testing-v<version> (from testing) publishes that commit.
+  push:
+    tags: ['v[0-9]*.[0-9]*.[0-9]*', 'testing-v[0-9]*.[0-9]*.[0-9]*']
 permissions:
   contents: read
 jobs:
@@ -9,8 +12,11 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
+      branch: ${{ steps.meta.outputs.branch }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -20,11 +26,16 @@ jobs:
       - id: meta
         shell: bash
         run: |
-          [[ "$GITHUB_REF_NAME" == testing || "$GITHUB_REF_NAME" == main ]] || exit 1
+          branch=$GITHUB_REF_NAME
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            if [[ "$GITHUB_REF_NAME" == testing-v* ]]; then branch=testing; else branch=main; fi
+            git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch" || { echo "$GITHUB_REF_NAME is not on $branch"; exit 1; }
+          fi
+          [[ "$branch" == testing || "$branch" == main ]] || exit 1
           version=$(node -p 'require("./package.json").version')
           channel=$(node -p 'require("./package.json").updateChannel')
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
-          if [[ "$GITHUB_REF_NAME" == testing ]]; then
+          if [[ "$branch" == testing ]]; then
             [[ "$channel" == testing ]] || exit 1
             tag="testing-v$version"
           else
@@ -32,7 +43,9 @@ jobs:
             tag="v$version"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          [[ "$GITHUB_REF_TYPE" != tag || "$GITHUB_REF_NAME" == "$tag" ]] || { echo "tag $GITHUB_REF_NAME does not match package.json ($tag)"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
   desktop:
     needs: validate
     runs-on: ubuntu-latest
@@ -80,9 +93,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.validate.outputs.tag }}
+          BRANCH: ${{ needs.validate.outputs.branch }}
         run: |
           args=()
-          if [[ "$GITHUB_REF_NAME" == testing ]]; then args+=(--prerelease); fi
+          if [[ "$BRANCH" == testing ]]; then args+=(--prerelease); fi
           gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "Deck Driver Station $TAG" --generate-notes "${args[@]}"
       # The in-app updater reads this fixed download first, so update checks do not spend
       # GitHub's 60-per-hour API allowance. Sizes and digests come from the release itself.
@@ -90,8 +104,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.validate.outputs.tag }}
+          BRANCH: ${{ needs.validate.outputs.branch }}
         run: |
-          if [[ "$GITHUB_REF_NAME" == testing ]]; then channel=testing; else channel=main; fi
+          if [[ "$BRANCH" == testing ]]; then channel=testing; else channel=main; fi
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" | jq --arg channel "$channel" '{schema:1,channel:$channel,releases:[{tag_name,prerelease,draft,body,assets:[.assets[]|{name,size,digest,state,browser_download_url}]}]}' > channel.json
           jq -e --arg tag "$TAG" '.releases[0].tag_name==$tag and (.releases[0].assets|length)>0 and all(.releases[0].assets[];.digest!=null and .size>0)' channel.json
           if ! gh release view "$channel-channel" >/dev/null 2>&1; then
