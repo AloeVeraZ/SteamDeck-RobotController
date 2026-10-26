@@ -262,7 +262,7 @@ class SimEngine{
   // Joint values for this tick from the mechanism model's signals (turrets, flywheels, intakes, ramps, feeders).
   jointTick(dt=this.dsim.SIM_DT){
     if(!this.kin)return;const m=this.mech,c=this.mechCmd||{},on=this.config.mechanisms.enabled;
-    this.kin.tick(dt,on?{turrets:m.turrets,flywheel:m.flywheel,kick:m.kick,intake:!!c.intake,spin:!!c.spin,aim:!!c.aim,feed:!!c.feed,rpm:this.config.mechanisms.shooter.rpm,hood:this.config.mechanisms.shooter.hood}:{});
+    this.kin.tick(dt,on?{turrets:m.turrets,flywheel:m.flywheel,kick:m.kick,lift:m.lift,intake:!!c.intake,spin:!!c.spin,aim:!!c.aim,feed:!!c.feed,rpm:this.config.mechanisms.shooter.rpm,hood:this.config.mechanisms.shooter.hood}:{});
   }
   // Where shooters aim: the cell the route's action names (the hive cell up at the start, or the other one);
   // in teleop, whichever cell faces up right now, as a driver would.

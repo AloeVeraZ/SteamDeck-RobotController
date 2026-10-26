@@ -90,6 +90,19 @@
       let n=0;for(const p of pts)if(Math.abs(Math.hypot(p.x-f.x,p.y-f.y)-f.r)<tol)n++;if(!best||n>best.n)best={...f,n};}
     if(!best)return null;const inliers=pts.filter(p=>Math.abs(Math.hypot(p.x-best.x,p.y-best.y)-best.r)<tol),f=fitCircle(inliers)||best;return {...f,inliers:inliers.length,share:inliers.length/pts.length};
   }
+  // Whether a flattened part (triangles in a plane, each {p, x0, x1, y0, y1}) has material within r of (x, y).
+  const segDist=(a,b,x,y)=>{const dx=b[0]-a[0],dy=b[1]-a[1],l=dx*dx+dy*dy,t=l?clamp(((x-a[0])*dx+(y-a[1])*dy)/l,0,1):0;return Math.hypot(a[0]+t*dx-x,a[1]+t*dy-y);};
+  function near2(o,x,y,r){
+    for(const t of o.T){if(x+r<t.x0||x-r>t.x1||y+r<t.y0||y-r>t.y1)continue;const [a,b,c]=t.p;
+      const s1=(b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0]),s2=(c[0]-b[0])*(y-b[1])-(c[1]-b[1])*(x-b[0]),s3=(a[0]-c[0])*(y-c[1])-(a[1]-c[1])*(x-c[0]);
+      if((s1>=0&&s2>=0&&s3>=0||s1<=0&&s2<=0&&s3<=0)&&(s1||s2||s3))return true;
+      if(segDist(a,b,x,y)<=r||segDist(b,c,x,y)<=r||segDist(c,a,x,y)<=r)return true;}
+    return false;}
+  // How far (degrees, up to 90, in half degrees) the point q turns about c, the s way (+1 counterclockwise in the
+  // plane), before a probe of radius r round it meets the flattened part; null when it meets it already.
+  function swing(o,q,c,r,s){if(near2(o,q[0],q[1],r))return null;let last=0;
+    for(let d=.5;d<=90;d+=.5){const t=s*d*Math.PI/180,x=c[0]+(q[0]-c[0])*Math.cos(t)-(q[1]-c[1])*Math.sin(t),y=c[1]+(q[0]-c[0])*Math.sin(t)+(q[1]-c[1])*Math.cos(t);if(near2(o,x,y,r))return last;last=d;}
+    return 90;}
   // Symmetric 3×3 eigen decomposition (Jacobi): values ascending with their unit vectors.
   function eigen(A){
     const a=A.map(r=>r.slice()),v=[[1,0,0],[0,1,0],[0,0,1]];
@@ -180,6 +193,20 @@
     const horiz=v=>{const h=sub(v,scale(up,dot(v,up)));return len(h)>1e-9?unit(h):null;};
     const add_=j=>{joints.push(j);return j;},refs=set=>ctx.parts.compress(set);
     const coaxGroup=(seed,pool,tol)=>{const s=rev(seed),out=new Set([seed]);for(const k of pool){const r=rev(k);if(r&&coaxial(s,r,tol))out.add(k);}return out;};
+    // Wheels that are not round (a star or flex wheel, its spokes repeating round the axle): centred on the axle of a
+    // group of round parts, within its length, the same shape every way across it, reaching out from it, and filling
+    // well under the circle it reaches (spokes: a flex wheel fills about 40%; a square block on the shaft, 64%, stays).
+    // They turn with that axle. reach: how far a part's points reach from the axle.
+    const reachFrom=(k,c,a)=>{const v=ctx.vertsOf(k),step=Math.max(1,Math.floor(v.length/800));let m=0;for(let i=0;i<v.length;i+=step)m=Math.max(m,lineDistance(ctx.P(v[i]),c,a));return m;};
+    const seenAlong=(k,a)=>{let A=0;for(const t of ctx.trisOf(k)){const [i,j,l]=ctx.index3(t),p=ctx.P(i);A+=Math.abs(dot(cross(sub(ctx.P(j),p),sub(ctx.P(l),p)),a))/4;}return A;};
+    function wheelsOn(g,pool){
+      const r=[...g].map(rev).find(Boolean);if(!r)return [];const a=unit(r.axis),c=r.center;let lo=Infinity,hi=-Infinity;
+      for(const k of g){const f=feat(k);for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const d=dot(sub([x,y,z],c),a);lo=Math.min(lo,d);hi=Math.max(hi,d);}}
+      return pool.filter(k=>{if(g.has(k)||rev(k))return false;const f=feat(k);if(!f||lineDistance(f.center,c,a)>.03*inch)return false;const h=dot(sub(f.center,c),a);if(h<lo-.05*inch||h>hi+.05*inch)return false;
+        const i=f.axes.reduce((b,v,j)=>Math.abs(dot(v,a))>Math.abs(dot(f.axes[b],a))?j:b,0),o=f.spread.filter((_,j)=>j!==i);if(Math.min(...o)<.9*Math.max(...o))return false;
+        const reach=reachFrom(k,c,a);return reach>=.4*inch&&seenAlong(k,a)<.55*Math.PI*reach*reach;});}
+    // A shaft carrying such wheels is a roller's or feeder's axle even when nothing on it is named as a wheel.
+    const wheelAxles=(round,flat,groups)=>{for(const k of round){if(groups.some(g=>g.has(k))||!/shaft|axle/i.test(nameOf(ctx,k)))continue;const g=coaxGroup(k,round,Math.max(.06*inch,rev(k).radius*.08));if(wheelsOn(g,flat).length)groups.push(g);}};
     // Without the game's mechanisms (another field, or none set up), intakes and shooters come from the part names, and
     // what they would drive is moved by route actions instead (named positions).
     const fromNames=!mechanisms?.enabled,m=!fromNames?mechanisms:{intakes:metaParts.filter(p=>p.role==='intake').slice(0,4).map((p,i)=>({kind:p.kind==='kicker'?'kicker':'ramp',sides:[sideOf(p)],parts:[p.name]})),
@@ -308,9 +335,12 @@
       if(gap<Math.PI/3)return null;const r=add(scale(u,Math.cos(end)),scale(w,Math.sin(end))),deg=Math.asin(clamp(dot(cross(a,r),up),-1,1))*180/Math.PI;
       return deg>5&&deg<89?{deg,axis:dot(r,up)>0?scale(a,-1):a}:null;}
     // ---- intakes
+    // An intake set up as a sweeper (or side rollers) whose CAD has a plate or arm swinging down on a servo is really a
+    // ramp (rollers behind it) or a kicker (no rollers): `kinds` says so, and the page sets the intake to it.
+    const kinds=[],flats=new Map(),fix1=v=>+(+v).toFixed(1);
     m.intakes.forEach((intake,n)=>{
       const label=`Intake ${n+1}`,side=(intake.sides||['front'])[0],out=unit3({front:F,back:scale(F,-1),left:L,right:scale(L,-1)}[side]||F),edge=unit(cross(up,out));
-      const swings=(intake.kind==='ramp'||intake.kind==='kicker')&&!fromNames,did=`deploy${n+1}`,kindName=intake.kind==='kicker'?'Kicker':'Ramp';
+      const deploys=intake.kind==='ramp'||intake.kind==='kicker',swings=deploys&&!fromNames,did=`deploy${n+1}`,kindName=intake.kind==='kicker'?'Kicker':'Ramp';
       const missing=()=>{if(swings)unlinked({id:did,name:`${kindName} · ${label.toLowerCase()}`,type:'revolute',origin:add(add(mid,scale(out,half(out)*.85)),scale(up,floor+(dot(ctx.hi,up)-floor)*.35-dot(mid,up))),axis:edge,states:{raised:0,lowered:80},drive:{signal:'deploy',of:'intake:'+n}},`${label}’s ${kindName.toLowerCase()}`);};
       // With no assembly named for it, a ramp or kicker is looked for among the parts on its side of the robot.
       let own=[...leavesOf(intakeNames[n])].filter(k=>!claimed.has(k)&&feat(k));const guessed=!own.length&&swings;
@@ -319,9 +349,11 @@
       // Rollers: groups of round parts on one axle with a roller or wheel among them.
       const round=own.filter(k=>rev(k));const groups=[];
       for(const k of round.filter(k=>WORDS.roller.test(nameOf(ctx,k))&&rev(k).radius*inch>=.3)){if(groups.some(g=>g.has(k)))continue;groups.push(coaxGroup(k,round,Math.max(.06*inch,rev(k).radius*.08)));}
-      // Pivot: hinge hardware (a servo hub, hub shaft, axle...) lined up along the intake's edge, above its rollers.
+      if(!guessed)wheelAxles(round,own.filter(k=>!rev(k)),groups);
+      // Pivot: hinge hardware (a servo hub, hub shaft, axle...) lined up along the intake's edge, above its rollers. Every
+      // intake's own assemblies are looked through, whatever it is set up as: the CAD shows whether something swings.
       let deploy=null;
-      if(intake.kind==='ramp'||intake.kind==='kicker'){
+      {
         const lines=[];for(const k of round){const r=rev(k);if(!parallel(r.axis,edge,10))continue;let line=lines.find(l=>coaxial(l.r,r,.12*inch));if(!line)lines.push(line={r,members:[]});line.members.push(k);}
         // A hinge line: hinge hardware on it, a servo whose output sits on it, an arm or ramp it passes through. Pulleys,
         // gears and rollers on a line mark an axle that drives something instead; plain spacers and bearings say little.
@@ -333,7 +365,8 @@
           l.score=names.reduce((s,x)=>{if(WORDS.hinge.test(x))return s+4;if(WORDS.hub.test(x))return s+1.5;if(WORDS.roller.test(x))return s-2.5;if(WORDS.gear.test(x))return s-1.5;if(WORDS.shaft.test(x))plain++;return s;},0)+Math.min(1,plain*.2);
           if(servos.some(k=>through(l,k,.3*inch)))l.score+=3;if(arms.some(k=>through(l,k,.05*inch)))l.score+=2;}
         lines.sort((a,b)=>b.score-a.score);const best=lines[0];debug?.push({intake:n,lines:lines.map(l=>({score:+l.score.toFixed(2),center:l.r.center.map(v=>+v.toFixed(2)),names:l.members.map(k=>nameOf(ctx,k))}))});
-        if(best&&best.score>(guessed?2.5:0)){const origin=best.r.center;let axis=best.r.axis;
+        // An intake not set up to swing needs a hinge the CAD makes plain: hinge hardware or a servo on the line.
+        if(best&&best.score>(guessed?2.5:deploys?0:3)){const origin=best.r.center;let axis=best.r.axis;
           // What swings: parts beyond the hinge (away from the robot) that are not held by parts reaching back across it.
           const ext=k=>{const f=feat(k);let lo=Infinity,hi=-Infinity;for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const d=dot(sub([x,y,z],origin),out);if(d<lo)lo=d;if(d>hi)hi=d;}return [lo,hi];};
           // Hinge hardware: the round parts on the line, and any small part the line passes straight through (a hub
@@ -356,18 +389,89 @@
             // Positive turns lower it: the swinging parts' centre goes down.
             const c=centroidOf([...moving].map(feat)),turned=K.math.apply(K.math.about(origin,axis,10),c);if(dot(turned,up)>dot(c,up))axis=scale(axis,-1);
             const lowered=swingToFloor(ctx,[...moving],origin,axis,{up,floor,clearance:.02*inch});
-            deploy={moving,origin,axis,lowered,why:`it hinges on ${[...new Set(best.members.map(k=>`“${nameOf(ctx,k)}”`))].slice(0,3).join(', ')}`,confidence:guessed?.45:best.score>=3?.75:.5};}}
-        if(!deploy){report.push(`${label}: no hinge was found ${guessed?'on its side of the robot':`in “${(intakeNames[n]||[]).map(bare).join(', ')}”`}, so it is listed under Moving parts with no parts yet: choose its parts, then pick the hinge.`);missing();}
+            deploy={moving,origin,axis,lowered,why:`it hinges on ${[...new Set(best.members.map(k=>nameOf(ctx,k)).sort((x,y)=>WORDS.hinge.test(y)-WORDS.hinge.test(x)).map(x=>`“${x}”`))].slice(0,3).join(', ')}`,confidence:guessed?.45:best.score>=3?.75:.5};}}
+        if(!deploy&&deploys){report.push(`${label}: no hinge was found ${guessed?'on its side of the robot':`in “${(intakeNames[n]||[]).map(bare).join(', ')}”`}, so it is listed under Moving parts with no parts yet: choose its parts, then pick the hinge.`);missing();}
       }
-      if(deploy){add_({id:did,name:`${intake.kind==='kicker'?'Kicker':'Ramp'} · ${label.toLowerCase()}`,type:'revolute',parts:refs(deploy.moving),origin:deploy.origin,axis:deploy.axis,states:{raised:0,lowered:deploy.lowered??60},drive:{signal:'deploy',of:'intake:'+n},source:'inferred',confidence:deploy.confidence,
-        note:`Swings here because ${deploy.why}. ${deploy.lowered!==null?`Down is where it touches the floor (${deploy.lowered}°).`:'It did not reach the floor within 150°; set how far it goes down.'} Up is how it sits in the CAD.`});for(const k of deploy.moving)claimed.add(k);}
+      // What the CAD says it is: rollers that pull pieces in make a swinging plate a ramp; with none it is a kicker.
+      const kind=deploys?intake.kind:groups.length?'ramp':'kicker',named=kind==='kicker'?'Kicker':'Ramp';
+      // The biggest plates that swing, by name, to say what was found.
+      const swung=deploy?[...new Set([...deploy.moving].filter(k=>!rev(k)).sort((x,y)=>feat(y).area-feat(x).area).map(k=>`“${nameOf(ctx,k)}”`))].slice(0,2).join(' and '):'';
+      if(deploy){add_({id:did,name:`${named} · ${label.toLowerCase()}`,type:'revolute',parts:refs(deploy.moving),origin:deploy.origin,axis:deploy.axis,states:{raised:0,lowered:deploy.lowered??60},drive:{signal:'deploy',of:'intake:'+n},source:'inferred',confidence:deploy.confidence,
+        note:`Swings here because ${deploy.why}. ${deploy.lowered!==null?`Down is where it touches the floor (${deploy.lowered}°).`:'It did not reach the floor within 150°; set how far it goes down.'} Up is how it sits in the CAD.`});for(const k of deploy.moving)claimed.add(k);
+        if(!deploys){kinds.push({intake:n,kind,joint:did,why:`${swung||'its plate'} swing${swung.includes(' and ')?'':'s'} down on ${deploy.why.replace(/^it hinges on /,'')}${kind==='ramp'?' in front of its rollers':''}`});
+          report.push(`${label}: ${swung||'a plate'} swing${swung.includes(' and ')?'':'s'} down on a hinge in your CAD, so it is a ${kind==='ramp'?'deployable ramp':'kicker'}.`);}}
       // Rollers are taken only from parts named for the intake (guessing from its side would find the drive wheels).
       if(!guessed)groups.forEach((g,i)=>{if([...g].some(k=>claimed.has(k)&&!deploy?.moving.has(k)))return;const seed=[...g].sort((a,b)=>rev(b).radius-rev(a).radius)[0],r=rev(seed);
+        // A roller on a swing arm (not on the ramp): the arm is its own moving part and the roller turns on it.
+        const onRamp=deploy&&[...g].some(k=>deploy.moving.has(k)),arm=onRamp?null:rollerArm(g,own),aid=arm&&uniqueId(`arm${n+1}`);
+        if(arm){const sl=arm.slot?`the ${arm.slot.kind} in “${nameOf(ctx,arm.slot.k)}”`:'the frame';
+          add_({id:aid,name:`Roller arm${groups.length>1?' '+(i+1):''} · ${label.toLowerCase()}`,type:'revolute',parts:refs(arm.moving),origin:arm.origin,axis:arm.axis,lower:arm.lower,upper:arm.upper,states:{rest:0,up:arm.upper},speed:360,drive:{signal:'float',of:'intake:'+n},source:'inferred',confidence:arm.confidence,
+            note:`Its plates (${arm.plates.map(k=>`“${nameOf(ctx,k)}”`).filter((x,j,a)=>a.indexOf(x)===j).join(', ')}) hold the roller and turn on ${arm.why}; ${sl} lets the roller’s axle travel ${arm.lower<-.5?`${fix1(-arm.lower)}° down and `:''}${fix1(arm.upper)}° up. It rests where your CAD has it and lifts as pieces go under it.`});
+          for(const k of arm.moving)if(!g.has(k))claimed.add(k);report.push(`${label}: its roller rides on a swing arm that lifts ${fix1(arm.upper)}° (${sl}).`);}
+        // Star or flex wheels on its axle turn with it.
+        const wheels=wheelsOn(g,own.filter(k=>!claimed.has(k)||arm?.moving.has(k))),turning=g.size;for(const k of wheels)g.add(k);
         // Rollers turn so their underside sweeps pieces in, toward the robot.
         const bottom=scale(up,-1),inward=scale(out,-1),axis=dot(cross(r.axis,bottom),inward)>=0?r.axis:scale(r.axis,-1);
-        add_({id:`roller${n+1}${groups.length>1?String.fromCharCode(97+i):''}`,name:`Roller${groups.length>1?' '+(i+1):''} · ${label.toLowerCase()}`,type:'continuous',parent:deploy&&[...g].some(k=>deploy.moving.has(k))?did:null,parts:refs(g),origin:r.center,axis,radius:r.radius,drive:{signal:'roller',of:'intake:'+n},source:'inferred',confidence:.75,
-          note:`${g.size} round parts on one axle with “${nameOf(ctx,seed)}”.`});for(const k of g)claimed.add(k);});
+        add_({id:`roller${n+1}${groups.length>1?String.fromCharCode(97+i):''}`,name:`Roller${groups.length>1?' '+(i+1):''} · ${label.toLowerCase()}`,type:'continuous',parent:onRamp?did:arm?aid:null,parts:refs(g),origin:r.center,axis,radius:Math.max(r.radius,...wheels.map(k=>reachFrom(k,r.center,unit(r.axis)))),drive:{signal:'roller',of:'intake:'+n},source:'inferred',confidence:.75,
+          note:`${turning} round parts on one axle with “${nameOf(ctx,seed)}”${wheels.length?`, and ${wheels.length} star or flex wheel${wheels.length>1?'s':''} (“${nameOf(ctx,wheels[0])}”) centred on it`:''}.`});for(const k of g)claimed.add(k);});
     });
+    // ---- a roller on a swing arm
+    // Plates that hold the roller's axle snugly and turn on another axle (the drive axle, often) inside frame plates whose
+    // slot or cutout lets the roller's axle, and what sits in them, travel round that axle. Seen along the axle, each
+    // part is its triangles flattened; the roller's axle is swung round each candidate axle until it meets a frame
+    // plate's edge, which gives how far the arm goes each way. Only one axle may join the arm plates to the frame (two
+    // would hold it still), and a roller held snugly by every plate it passes through is on no arm.
+    function rollerArm(g,own){
+      const seed=[...g].sort((a,b)=>rev(b).radius-rev(a).radius)[0],r=rev(seed),a=unit(r.axis),u=perpendicular(a),w=cross(a,u),to2=p=>[dot(p,u),dot(p,w)],q=to2(r.center);
+      const span=k=>{const f=feat(k);let lo=Infinity,hi=-Infinity;for(const x of [f.lo[0],f.hi[0]])for(const y of [f.lo[1],f.hi[1]])for(const z of [f.lo[2],f.hi[2]]){const d=dot([x,y,z],a);if(d<lo)lo=d;if(d>hi)hi=d;}return [lo,hi];};
+      // Overlapping along the axle by a good share of the thinner part (touching faces do not count).
+      const across=(x,y)=>Math.min(x[1],y[1])-Math.max(x[0],y[0])>.3*Math.min(x[1]-x[0],y[1]-y[0])+1e-9;
+      const inBox=(o,p,pad=0)=>p[0]>=o.x0-pad&&p[0]<=o.x1+pad&&p[1]>=o.y0-pad&&p[1]<=o.y1+pad;
+      const lines=[];for(const k of own){if(g.has(k)||claimed.has(k))continue;const s=rev(k);if(!s||!parallel(s.axis,a,10)||coaxial(r,s,.12*inch))continue;
+        let l=lines.find(x=>coaxial(x.r,s,.12*inch));if(!l)lines.push(l={r:s,members:[]});l.members.push(k);}
+      for(const l of lines){l.q=to2(l.r.center);l.d=Math.hypot(l.q[0]-q[0],l.q[1]-q[1]);l.spans=l.members.map(span);}
+      const gs=[...g].map(k=>[k,span(k)]),plates=[];
+      for(const k of own){if(g.has(k)||claimed.has(k)||rev(k))continue;const s=span(k);if(!gs.some(([,x])=>across(x,s)))continue;const o=flat(k,a,u,w);if(!inBox(o,q))continue;
+        // The probe: what sits in this plate on the roller's axle (a bearing, the roller itself), a little smaller.
+        let rad=0;for(const [m,x] of gs)if(across(x,s))rad=Math.max(rad,rev(m).radius);const pr=Math.max(.03*inch,rad*.85);
+        if(near2(o,q[0],q[1],pr))continue;plates.push({k,o,s,pr});}
+      debug?.push({arm:nameOf(ctx,seed),plates:plates.map(p=>`${nameOf(ctx,p.k)} #${p.k}`),lines:lines.map(l=>`${l.members.map(k=>nameOf(ctx,k)).slice(0,3).join('/')} d=${(l.d*inch).toFixed(2)}`)});
+      if(plates.length<2)return null;
+      // An axle passes through a plate where the plate has a hole and its parts reach into the plate's thickness.
+      const pierces=(l,p)=>inBox(p.o,l.q)&&l.spans.some(x=>across(x,p.s))&&!near2(p.o,l.q[0],l.q[1],.03*inch);
+      for(const l of lines.filter(l=>l.d>=1*inch&&l.d<=10*inch).sort((x,y)=>x.d-y.d)){
+        // Positive turns raise the roller.
+        let axis=a;const lifted=K.math.apply(K.math.about(l.r.center,a,10),r.center);if(dot(lifted,up)<dot(r.center,up))axis=scale(a,-1);const sgn=axis===a?1:-1;
+        // Swung about this axle, a plate holding the roller snugly stops it at once (a bearing in its bore): on the
+        // axle it is an arm plate, off it the roller cannot swing about this axle at all. One that lets it go is the
+        // frame, and how far it lets it go is the arm's range.
+        const swung=plates.map(p=>({...p,pu:swing(p.o,q,l.q,p.pr,sgn),pd:swing(p.o,q,l.q,p.pr,-sgn)})),snug=p=>p.pu+p.pd<4;
+        const arms=swung.filter(snug),frames=swung.filter(p=>!snug(p));debug?.push({pivot:l.members.map(k=>nameOf(ctx,k)).slice(0,3).join('/'),swung:swung.map(p=>`${nameOf(ctx,p.k)} #${p.k} ${p.pd}/${p.pu}${pierces(l,p)?' on it':''}`)});
+        if(!arms.length||!frames.length||!arms.every(p=>pierces(l,p))||!frames.some(p=>pierces(l,p)))continue;
+        if(lines.some(o=>o!==l&&!coaxial(o.r,l.r,.12*inch)&&arms.some(p=>pierces(o,p))&&frames.some(p=>pierces(o,p))))continue;
+        let lo=-90,hi=90,stop=null;
+        for(const p of frames){if(p.pu<hi){hi=p.pu;stop={k:p.k,kind:p.o.slot(q,l.q,p.pr)?'slot':'cutout'};}if(-p.pd>lo)lo=-p.pd;}
+        if(hi-lo<5||hi<2)continue;
+        // What swings: the arm plates, the roller, a belt round both axles, and the parts fixed to the plates (a
+        // crossbar) that do not reach the frame.
+        const moving=new Set([...arms.map(p=>p.k),...g]),frame=new Set(frames.map(p=>p.k)),pivot=new Set(l.members),q2=to2(l.r.center);
+        const touch=(x,y)=>{const f=feat(x),h=feat(y),t=.02*inch;return [0,1,2].every(i=>f.lo[i]<=h.hi[i]+t&&h.lo[i]<=f.hi[i]+t);};
+        const grow=[...arms.map(p=>p.k)];while(grow.length){const x=grow.pop();for(const k of own){if(moving.has(k)||frame.has(k)||pivot.has(k)||claimed.has(k)||!touch(x,k))continue;if([...frame].some(f=>touch(k,f)))continue;moving.add(k);grow.push(k);}}
+        for(const k of own){if(moving.has(k)||claimed.has(k)||!/belt|chain/i.test(nameOf(ctx,k)))continue;const o=flat(k,a,u,w);if(inBox(o,q,.05*inch)&&inBox(o,q2,.05*inch))moving.add(k);}
+        // A pulley, sprocket or gear on the pivot: the arm turns on the axle that drives its roller, as is usual.
+        const plateNames=arms.map(p=>nameOf(ctx,p.k)).join(' '),drives=l.members.find(k=>/pulley|sprocket|gear/i.test(nameOf(ctx,k)));
+        return {moving,plates:arms.map(p=>p.k),origin:l.r.center,axis,lower:+Math.min(0,lo).toFixed(1),upper:+hi.toFixed(1),slot:stop,
+          why:`“${nameOf(ctx,l.members.find(k=>/shaft|axle/i.test(nameOf(ctx,k)))??l.members[0])}”${drives!==undefined?`, the axle that drives the roller (“${nameOf(ctx,drives)}” is on it)`:''}`,confidence:/arm|bar|link|pivot|swing|float|rocker/i.test(plateNames)?.75:.6};}
+      return null;
+    }
+    // A part flattened along an axis: its triangles in the plane across it (u, w), with boxes for quick rejects.
+    function flat(k,a,u,w){const key=k+':'+a.map(v=>v.toFixed(3)).join();let o=flats.get(key);if(o)return o;
+      const T=[];let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+      for(const t of ctx.trisOf(k)){const p=ctx.index3(t).map(i=>{const v=ctx.P(i);return [dot(v,u),dot(v,w)];});const b={p,x0:Math.min(p[0][0],p[1][0],p[2][0]),x1:Math.max(p[0][0],p[1][0],p[2][0]),y0:Math.min(p[0][1],p[1][1],p[2][1]),y1:Math.max(p[0][1],p[1][1],p[2][1])};
+        T.push(b);x0=Math.min(x0,b.x0);x1=Math.max(x1,b.x1);y0=Math.min(y0,b.y0);y1=Math.max(y1,b.y1);}
+      // A slot rather than a cutout: material on both sides of the axle's path, close to it, halfway along.
+      o={T,x0,x1,y0,y1,slot:(q,c,pr)=>{const t=Math.PI/36,x=c[0]+(q[0]-c[0])*Math.cos(t)-(q[1]-c[1])*Math.sin(t),y=c[1]+(q[0]-c[0])*Math.sin(t)+(q[1]-c[1])*Math.cos(t),rx=x-c[0],ry=y-c[1],l=Math.hypot(rx,ry)||1;
+        return near2(o,x+rx/l*pr*1.6,y+ry/l*pr*1.6,pr*.4)&&near2(o,x-rx/l*pr*1.6,y-ry/l*pr*1.6,pr*.4);}};flats.set(key,o);return o;}
     // ---- other assemblies: arms, claws and wrists on a hinge; lifts and slides along their rails
     const used=new Set([...intakeNames,...plans.map(p=>p.names)].flatMap(x=>x||[]).map(clean));
     for(const p of metaParts){const clean=String(p.name||'').replace(/\s*<\d+>$/,'').trim().toLowerCase();if(used.has(clean)||p.role==='chassis'||p.role==='indexer')continue;
@@ -412,7 +516,10 @@
     const indexers=metaParts.filter(p=>p.role==='indexer');let fed=0;
     for(const p of indexers){const own=[...leavesOf([p.name])].filter(k=>!claimed.has(k)&&rev(k));const groups=[];
       for(const k of own.filter(k=>WORDS.roller.test(nameOf(ctx,k))&&rev(k).radius*inch>=.3)){if(groups.some(g=>g.has(k)))continue;groups.push(coaxGroup(k,own,Math.max(.06*inch,rev(k).radius*.08)));}
-      for(const g of groups){fed++;const seed=[...g][0],r=rev(seed);add_({id:`feeder${fed}`,name:`Feeder wheels ${fed}`,type:'continuous',parts:refs(g),origin:r.center,axis:r.axis,radius:r.radius,drive:{signal:'feeder',of:'any'},source:'inferred',confidence:.6,note:`Wheels on one axle in “${p.name}”. They turn while the robot feeds a shot.`});for(const k of g)claimed.add(k);}}
+      const flat=[...leavesOf([p.name])].filter(k=>!claimed.has(k)&&feat(k)&&!rev(k));wheelAxles(own,flat,groups);
+      for(const g of groups){fed++;const seed=[...g][0],r=rev(seed),wheels=wheelsOn(g,flat.filter(k=>!claimed.has(k)));for(const k of wheels)g.add(k);
+        add_({id:`feeder${fed}`,name:`Feeder wheels ${fed}`,type:'continuous',parts:refs(g),origin:r.center,axis:r.axis,radius:Math.max(r.radius,...wheels.map(k=>reachFrom(k,r.center,unit(r.axis)))),drive:{signal:'feeder',of:'any'},source:'inferred',confidence:.6,
+          note:`Wheels on one axle in “${p.name}”${wheels.length?`, ${wheels.length} of them star or flex wheels (“${nameOf(ctx,wheels[0])}”) centred on it`:''}. They turn while the robot feeds a shot.`});for(const k of g)claimed.add(k);}}
     // ---- gears that mesh with a moving part turn with it
     // A gear beside a turret's turntable, a hood's gear rack or an arm's sector, on an axis parallel to the joint's, whose
     // teeth the moving part's own teeth reach into, turns the other way by the tooth ratio; so do the parts on its axle
@@ -480,6 +587,7 @@
     // From part names alone, a game mechanism's ramp, kicker or hood is moved by route actions: "Ramp down", "Hood shoot".
     if(fromNames)for(const j of joints){const d=j.drive?.signal;
       if(d==='deploy'){j.drive={signal:'action'};j.states={up:j.states.raised,down:j.states.lowered};j.speed=Math.abs(j.states.down-j.states.up)/.3||90;j.name=j.name.split(' · ')[0];}
+      else if(d==='float'){j.drive={signal:'action'};j.name=j.name.split(' · ')[0];}
       else if(d==='hood'){j.drive={signal:'action'};j.name=j.name.replace(' · shooter','');}
       else if(d==='turret'){j.drive={signal:'action'};j.states={front:-(j.zero||0)};j.name=j.name.replace(' · shooter','');}
       else if(d&&d!=='wheel'&&d!=='action')delete j.drive;
@@ -487,7 +595,7 @@
     // Route actions find parts by name, so names are unique.
     for(const j of joints){const same=joints.filter(x=>x.name===j.name);if(same.length>1)same.forEach((x,i)=>{if(i)x.name+=' '+(i+1);});}
     for(const j of joints){j.origin=j.origin.map(v=>+v.toFixed(4));j.axis=unit(j.axis).map(v=>+v.toFixed(6));if(j.radius)j.radius=+j.radius.toFixed(4);}
-    return {joints,couplings,report};
+    return {joints,couplings,report,intakes:fromNames?[]:kinds};
   }
   // A gear's tooth count from its name: "Spur gear (24 teeth)", "100t Hub Mount Gear", "9 Tooth", "24 Pinion Gear", "MOD 1 (24T)".
   const TEETH=/(?<![\d.])(\d{1,3})\s*-?\s*(?:t|teeth|tooth)\b|^\s*(\d{1,3})\s+(?:pinion|spur|gear)\b/i;

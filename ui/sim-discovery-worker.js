@@ -8,6 +8,6 @@ onmessage=e=>{
   try{const t=performance.now();if(!last||last.key!==key||arrays)last={key,ctx:DeckDiscovery.prepare(arrays)};const ctx=last.ctx;
     if(op==='sweep'){const model=DeckKinematics.sanitize(options.model),s=DeckCollide.sweep(ctx,model,options.joint,options);
       postMessage({id,ok:true,free:s.free,hits:s.hits.map(h=>({at:h.at,parts:h.parts,names:[...new Set(h.parts.flatMap(([a,b])=>[ctx.parts.name(a),ctx.parts.name(b)]))].slice(0,4)})),ms:performance.now()-t});return;}
-    const out=DeckDiscovery.discover(ctx,options);postMessage({id,ok:true,joints:out.joints,couplings:out.couplings,report:out.report,ms:performance.now()-t});}
+    const out=DeckDiscovery.discover(ctx,options);postMessage({id,ok:true,joints:out.joints,couplings:out.couplings,report:out.report,intakes:out.intakes,ms:performance.now()-t});}
   catch(err){postMessage({id,ok:false,error:err.message});}
 };

@@ -44,7 +44,7 @@
   const COUPLINGS={gear:'Gears',belt:'Belt or chain',rack:'Rack and pinion',screw:'Lead screw',cable:'Cable or spool',mimic:'Follows another joint',
     differential:'Differential (sum or difference)',planetary:'Planetary gearset',tendon:'Tendon (several joints)',cam:'Cam (follows a profile)',sequence:'Stages one after another',linkage:'Linkage (follows a table)'};
   // What a game can drive a joint with. The simulator's mechanism model gives these each tick.
-  const SIGNALS={turret:'Turret angle',hood:'Hood (rest / shooting)',flywheel:'Flywheel speed',roller:'Intake rollers',deploy:'Deploys while intaking',feeder:'Feeder',wheel:'Drive wheel',steer:'Swerve steering',action:'Route actions'};
+  const SIGNALS={turret:'Turret angle',hood:'Hood (rest / shooting)',flywheel:'Flywheel speed',roller:'Intake rollers',deploy:'Deploys while intaking',float:'Floats over pieces',feeder:'Feeder',wheel:'Drive wheel',steer:'Swerve steering',action:'Route actions'};
   // Spinning parts are drawn turning at most this fast (degrees a second) so a 3000 rpm flywheel does not strobe.
   const SHOW_SPIN=540;
   // ---------------------------------------------------------------- vectors and 4×4 matrices (column-major, as three.js)
@@ -395,7 +395,7 @@
   // ---------------------------------------------------------------- driving joints from a game and from actions
   // The engine runs one Driver per simulation. Each tick it reads the game's signals and steps the actuators, and
   // values() gives every driven joint's value (what the 3D view draws and recordings keep).
-  //   signals: {turrets:[deg], flywheel:0..1, kick:[0..1|null per intake], intake, spin, aim, feed, rpm}
+  //   signals: {turrets:[deg], flywheel:0..1, kick:[0..1|null per intake], lift:[0..1 per intake], intake, spin, aim, feed, rpm}
   class Driver{
     constructor(model){
       this.model=model;this.q={};this.axes=new Map();this.time=0;this.running=[];
@@ -434,6 +434,8 @@
       for(const j of m.joints){const d=j.drive;if(!d)continue;const n=+String(d.of||'').split(':')[1]||0,rate=rpm=>Math.min(SHOW_SPIN,Math.abs(rpm)*6)*Math.sign(rpm);
         if(d.signal==='turret')this.q[j.id]=(s.turrets?.[n]??0)-(j.zero||0);
         else if(d.signal==='deploy'){const f=clamp(s.kick?.[n]??0,0,1),up=j.states?.raised??0,down=j.states?.lowered??0;this.q[j.id]=up+(down-up)*f;}
+        // A roller on a swing arm rests where it sits and rides up over a piece as the intake takes it in.
+        else if(d.signal==='float'){const f=clamp(s.lift?.[n]??0,0,1),rest=j.states?.rest??0,top=j.states?.up??rest;this.q[j.id]=rest+(top-rest)*f;}
         else if(d.signal==='hood')this.q[j.id]=this.axes.get('hood:'+j.id).q;
         else if(d.signal==='flywheel')this.q[j.id]=wrap360(this.q[j.id]+rate((s.flywheel||0)*(j.rpm||s.rpm||3000))*dt);
         else if(d.signal==='roller')this.q[j.id]=wrap360(this.q[j.id]+rate(s.intake?(j.rpm||300):0)*dt);

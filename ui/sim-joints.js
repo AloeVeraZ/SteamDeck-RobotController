@@ -8,7 +8,7 @@
   // simulation.js gives the panel its host and an api; the panel never touches the project directly.
   const K=()=>root.DeckKinematics,D=()=>root.DeckDiscovery,R=()=>root.DeckRobotModel;
   const esc=s=>String(s??'').replace(/[&<>"]/g,c=>`&#${c.charCodeAt(0)};`),finite=Number.isFinite,fix=(v,d=1)=>+(+v).toFixed(d);
-  const COLORS={turret:0x8e4ec6,hood:0xf29d38,flywheel:0x2fa84f,roller:0x12a5c9,deploy:0xe5484d,feeder:0xd4a72c,wheel:0x7a8594,steer:0x7a8594,action:0x4ea1ff};
+  const COLORS={turret:0x8e4ec6,hood:0xf29d38,flywheel:0x2fa84f,roller:0x12a5c9,deploy:0xe5484d,float:0x3fbf9f,feeder:0xd4a72c,wheel:0x7a8594,steer:0x7a8594,action:0x4ea1ff};
   const hex=c=>'#'+c.toString(16).padStart(6,'0'),colorOf=j=>COLORS[j.drive?.signal]??0x4ea1ff;
   // The finder's three levels of certainty, as the team sees them, and a mechanism it could not find in the CAD.
   function level(j){
@@ -16,8 +16,9 @@
     return (j.confidence??0)>=.7?['likely','Found · likely right']:['check','Found · please check'];
   }
   // A saved finding older than this finder is looked at again (parts the team set stay): 2 links game mechanisms to
-  // CAD assemblies by themselves, finds the gears that drive them and each hood's launch angle.
-  const FINDER=2;
+  // CAD assemblies by themselves, finds the gears that drive them and each hood's launch angle; 3 looks for a hinge in
+  // every intake (a sweeper whose CAD swings a plate down is a ramp or kicker) and finds rollers on swing arms.
+  const FINDER=3;
   // How far a hood tilts to shoot: to the game's launch angle when its CAD launch angle is known, else as set.
   const shootTilt=(j,launch)=>finite(j.launch)&&finite(launch)?Math.max(j.lower??-180,Math.min(j.upper??180,launch-j.launch)):j.states?.shoot??0;
   const ctxCache=new WeakMap();
@@ -68,7 +69,10 @@
       return `<div class="sim-joint-buttons">${button}${c.hits.length&&(j.type==='revolute'||j.type==='prismatic')?'<button type="button" class="secondary" data-j="limits">Use as limits</button>':''}</div>
         <p class="hint">${c.hits.length?`Moves freely from ${fix(c.free[0],1)}${u} to ${fix(c.free[1],1)}${u}.`:`Moves its whole range (${fix(c.free[0],1)}${u} to ${fix(c.free[1],1)}${u}) without meeting anything.`} Checked with boxes around each part, so a contact is worth a look on the model, not certain; parts already touching in the CAD do not count.</p>${hits?`<ul class="sim-joint-alts">${hits}</ul>`:''}`;
     }
-    async function discover({quiet=false}={}){
+    // fromCad: the team asked for the robot to be set up from its CAD, so what the CAD shows an intake to be (a plate
+    // swinging down on a servo makes a sweeper a ramp or a kicker) is set; so it is on a CAD's first finding. Otherwise
+    // that intake's ramp or kicker offers it.
+    async function discover({quiet=false,fromCad=false}={}){
       const m=meta();if(!arrays()||!m?.id){if(!quiet)status('Moving parts are found in an imported STEP robot with named assemblies.');return false;}
       status('Looking for pivots, axles and moving parts in your CAD…');
       const found=await find({rows:rows(),unit:unit(),meta:m,mechanisms:api.mechanisms()});
@@ -79,14 +83,18 @@
       // The team's couplings stay; found ones (gears following a turret or hood) come with the joints found again.
       const all=new Set([...kept,...fresh].map(j=>j.id)),freshIds=new Set(fresh.map(j=>j.id)),couplings=[...(same?now.couplings.filter(c=>ids.has(c.to)):[]),...(found.couplings||[]).filter(c=>freshIds.has(c.to)&&all.has(c.from))];
       api.commit({...now,model:m.id,unit:unit(),discovered:true,finder:FINDER,joints:[...kept,...fresh],couplings,loops:same?now.loops:[],actuators:same?now.actuators:[],actions:same?now.actions:[]});
-      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole/i.test(r)),missing=fresh.filter(j=>j.source==='standin');
-      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`:'No moving parts were found. Add one with + Add.');
-      return true;
+      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole|swing arm/i.test(r)),missing=fresh.filter(j=>j.source==='standin');
+      const intakes=api.mechanisms().intakes,kinds=(found.intakes||[]).filter(x=>intakes[x.intake]&&!['ramp','kicker'].includes(intakes[x.intake].kind)&&fresh.some(j=>j.id===x.joint)),set=fromCad||!same;
+      for(const x of set?kinds:[])api.setIntake(x.intake,{kind:x.kind});
+      const told=kinds.map(x=>`Intake ${x.intake+1} ${set?'is now':'looks like'} a ${x.kind==='ramp'?'deployable ramp':'kicker'}: ${x.why}${set?'':'. Open its '+(x.kind==='ramp'?'ramp':'kicker')+' below to set it up that way'}.`);
+      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${told.join(' ')} ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`:'No moving parts were found. Add one with + Add.');
+      return {moving:n,told:[...told,...found.report.filter(r=>/swing arm/i.test(r))]};
     }
     // ---- drawing the panel (a number box gets a slider only when it has a lower bound: angles may be negative)
     const driveOptions=j=>{const m=api.mechanisms(),out=[['none','Nothing: it follows other joints'],['action','Route actions (named positions)']];
       (m.enabled?m.shooters:[]).forEach((s,n)=>{if(s.type==='turret'&&!s.sharesTurret)out.push([`turret:shooter:${n}`,`Turret (turning) of shooter ${n+1}`]);out.push([`hood:shooter:${n}`,`Hood (pitch) of shooter ${n+1}`],[`flywheel:shooter:${n}`,`Flywheel of shooter ${n+1}`]);});
-      (m.enabled?m.intakes:[]).forEach((i,n)=>{out.push([`roller:intake:${n}`,`Rollers of intake ${n+1}`]);if(i.kind==='ramp'||i.kind==='kicker')out.push([`deploy:intake:${n}`,`${i.kind==='kicker'?'Kicker':'Ramp'} of intake ${n+1}`]);});
+      (m.enabled?m.intakes:[]).forEach((i,n)=>{out.push([`roller:intake:${n}`,`Rollers of intake ${n+1}`]);if(i.kind==='ramp'||i.kind==='kicker'||j.drive?.signal==='deploy'&&j.drive.of==='intake:'+n)out.push([`deploy:intake:${n}`,`${i.kind==='kicker'?'Kicker':'Ramp'} of intake ${n+1}`]);
+        if(i.kind!=='kicker')out.push([`float:intake:${n}`,`Roller arm of intake ${n+1} (rides over pieces)`]);});
       out.push(['feeder:any','Feeder (while shooting)'],['wheel','Drive wheel (rolls with the robot)']);return out;};
     const driveKey=j=>j.drive?j.drive.signal+(j.drive.of?':'+j.drive.of:''):'none';
     const where=j=>{const o=toRobot(j.origin),a=dirToRobot(j.axis),names=[['forward','back'],['left','right'],['up','down']],part=(v,i)=>`${fix(Math.abs(v),1)} in ${v>=0?names[i][0]:names[i][1]}`;
@@ -98,8 +106,11 @@
       const d=j.drive?.signal,n=+String(j.drive?.of||'').split(':')[1]||0,m=api.mechanisms(),intake=d==='deploy'?m.intakes[n]:null,[lv]=level(j),parts=leavesOf(j).size;
       const others=joints().filter(x=>x.id!==j.id);let roleBits='';
       if(d==='turret')roleBits=`<div class="start-xy">${num('zero',j.zero||0,{label:'Faces in your CAD',unit:'° from the front',min:-180,max:180})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="zero" data-v="-90">−90°</button><button type="button" class="secondary" data-j="zero" data-v="90">+90°</button><button type="button" class="secondary" data-j="zero" data-v="180">180°</button></div></div><p class="hint">The arrow shows which way it fires as your CAD has it; a turret angle of 0° faces the robot’s front. It turns ${m.turret?.min??-170}° to ${m.turret?.max??170}° at ${m.turret?.speed??240}°/s (Shooter timing).</p>`;
-      else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;
-        roleBits=`<div class="start-xy">${num('state:raised',a,{label:'Up',unit:'°'})}${num('state:lowered',b,{label:'Down',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="raised">Show up</button><button type="button" class="secondary" data-j="show" data-v="lowered">Show down</button><button type="button" class="secondary" data-j="floor">Down to the floor</button></div>
+      else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0,kind=/^kicker/i.test(j.name)?'kicker':'ramp';
+        // Found in the CAD of an intake set up as something that does not swing: it would never go down.
+        const still=intake&&intake.kind!=='ramp'&&intake.kind!=='kicker'?`<p class="hint sim-joint-needs">Intake ${n+1} is set up as ${{sweeper:'a sweeper roller',siderollers:'side rollers'}[intake.kind]||esc(intake.kind)}, so this stays up in runs. In your CAD it swings down on a hinge: make intake ${n+1} a ${kind==='ramp'?'deployable ramp':'kicker'} to have it go down while intaking.</p>
+          <div class="sim-joint-buttons"><button type="button" class="primary" data-j="intake-kind" data-v="${kind}">Make intake ${n+1} a ${kind==='ramp'?'deployable ramp':'kicker'}</button><button type="button" class="secondary" data-j="intake-kind" data-v="${kind==='ramp'?'kicker':'ramp'}">A ${kind==='ramp'?'kicker':'deployable ramp'} instead</button></div>`:'';
+        roleBits=`${still}<div class="start-xy">${num('state:raised',a,{label:'Up',unit:'°'})}${num('state:lowered',b,{label:'Down',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="raised">Show up</button><button type="button" class="secondary" data-j="show" data-v="lowered">Show down</button><button type="button" class="secondary" data-j="floor">Down to the floor</button></div>
         ${intake?`<div class="start-xy">${num('intake:down',intake.down,{label:'Goes down in',unit:'s',min:0,max:3})}${num('intake:up',intake.up,{label:'Goes up in',unit:'s',min:0,max:3})}</div>`:''}<p class="hint">It goes down while an Intake action runs and back up after; it picks up only once it is all the way down.</p>
         ${intake&&parts?`<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="pickup">Pickup box from the ${j.name.split(' · ')[0].toLowerCase()}</button></div><p class="hint">Sets the intake’s box (the green one: where it picks up) to what the ${j.name.split(' · ')[0].toLowerCase()}’s parts reach when down: ${fix(intake.reach,2)} in out, ${intake.width?fix(intake.width,2)+' in wide':'the whole edge wide'}, ${fix(intake.height,2)} in high now.</p>`:''}`;}
       else if(d==='hood'){const a=j.states?.rest??0,b=j.states?.shoot??0,game=m.shooter?.hood??75;
@@ -111,6 +122,9 @@
             return `<p class="hint${held?' sim-joint-needs':''}">${held?`To shoot at ${fix(game,1)}° it would tilt ${fix(want,1)}°, past its limit, so it stops at ${fix(tilt,1)}° (shots leave at ${fix(j.launch+tilt,1)}° in the picture; the game physics still uses ${fix(game,1)}°). Widen the limits if your hood really goes further, or set the tilt yourself.`:`Its gears turn it ${fix(tilt,1)}° from how your CAD has it, so shots leave at the launch angle, while the shooter spins up and aims; it rests at its resting tilt.`} Positive tilts raise the shot; empty limits mean none.</p>`;})()}`
           :`<div class="start-xy">${num('state:rest',a,{label:'Resting',unit:'°'})}${num('state:shoot',b,{label:'Shooting',unit:'°'})}</div><div class="start-xy">${num('speed',j.speed??120,{label:'Moves at',unit:'°/s',min:1,max:3600})}<div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="shoot">Show shooting</button></div></div>
         ${a===b?'<p class="hint sim-joint-needs">Set how far it tilts to shoot; until then it stays still.</p>':'<p class="hint">It tilts to its shooting angle while the shooter spins up or aims. Shots leave at the launch angle the game physics uses either way.</p>'}`;}
+      else if(d==='float'){const top=j.states?.up??0;
+        roleBits=`<div class="start-xy">${num('state:rest',j.states?.rest??0,{label:'Rests at',unit:'°'})}${num('state:up',top,{label:'Rides up to',unit:'°'})}</div><div class="sim-joint-buttons"><button type="button" class="secondary" data-j="show" data-v="rest">Show resting</button><button type="button" class="secondary" data-j="show" data-v="up">Show up</button></div>
+          <p class="hint">It rests where your CAD has it and rides up over each piece the intake takes in, then settles back${finite(j.upper)?`. Its frame lets it go ${fix(j.upper,1)}° up`:''}. Nothing drives it: it floats.</p>`;}
       else if(d==='flywheel')roleBits=`<p class="hint">Spins at the flywheel speed (${m.shooter?.rpm??3000} rpm, set below under Flywheel and turret), drawn slower so it can be seen.</p>`;
       else if(d==='roller'||d==='feeder')roleBits=`<div class="start-xy">${num('rpm',j.rpm??(d==='roller'?300:200),{label:'Spins at',unit:'rpm',min:1,max:60000})}</div>`;
       else if(d==='wheel')roleBits='<p class="hint">Turns as the robot drives, rolling on the floor.</p>';
@@ -322,6 +336,7 @@
       const solved=new Set(K().pose(kin(),{}).solved),t0=performance.now(),step=now=>{const t=(now-t0)/1000,ph=(Math.sin(t*1.4)+1)/2,v={};
         for(const j of joints()){const d=j.drive?.signal;if(solved.has(j.id))continue;
           if(d==='turret')v[j.id]=60*Math.sin(t*.9);else if(d==='deploy'){const a=j.states?.raised??0,b=j.states?.lowered??0;v[j.id]=a+(b-a)*ph;}
+          else if(d==='float'){const a=j.states?.rest??0,b=j.states?.up??a;v[j.id]=a+(b-a)*ph;}
           // A hood with limits shows its whole pitch range; else it goes between resting and shooting.
           else if(d==='hood'){const lim=finite(j.lower)&&finite(j.upper)&&j.upper-j.lower>1,a=lim?j.lower:j.states?.rest??0,b=lim?j.upper:shootTilt(j,api.mechanisms().shooter?.hood);v[j.id]=a+(b-a)*ph;}else if(['flywheel','roller','feeder','wheel'].includes(d))v[j.id]=(t*240)%360;
           else if(j.type==='revolute'){const a=j.lower??-30,b=j.upper??30;v[j.id]=a+(b-a)*ph;}else if(j.type==='prismatic'){const a=j.lower??0,b=j.upper??4;v[j.id]=a+(b-a)*ph;}else if(j.type==='continuous')v[j.id]=(t*90)%360;}
@@ -360,6 +375,9 @@
       if(what==='show'){const v=j.drive?.signal==='hood'&&b.dataset.v==='shoot'?shootTilt(j,api.mechanisms().shooter?.hood):j.states?.[b.dataset.v];if(finite(v)){values={...values,[id]:v};showPose();const r=li.querySelector('[data-try]');if(r)r.value=v;}return;}
       if(what==='unlaunch'){change(id,x=>{x.states={...x.states,shoot:+shootTilt(x,api.mechanisms().shooter?.hood).toFixed(2)};delete x.launch;});return;}
       if(what==='pickup'){pickupBox(j);return;}
+      if(what==='intake-kind'){const n=+String(j.drive?.of||'').split(':')[1]||0,kind=b.dataset.v==='kicker'?'kicker':'ramp';api.setIntake(n,{kind});
+        if(!j.name.toLowerCase().startsWith(kind)){const next=structuredClone(kin()),x=next.joints.find(y=>y.id===id);x.name=x.name.replace(/^(Ramp|Kicker)\b/,kind==='kicker'?'Kicker':'Ramp');api.commit(next);}
+        lastKey='';render();status(`Intake ${n+1} is a ${kind==='ramp'?'deployable ramp':'kicker'} now: ${j.name.split(' · ')[0].toLowerCase()} goes down while it intakes. Its servo and timing are under Intakes.`);return;}
       if(what==='motor-add'){const next=structuredClone(kin());let mid=j.id+'_motor';while(next.actuators.some(x=>x.id===mid))mid+='b';
         next.actuators.push({id:mid,name:j.name,joint:j.id,kind:'dcmotor',mode:'position',speed:j.speed??90});
         // Steps that moved the part now move its motor.

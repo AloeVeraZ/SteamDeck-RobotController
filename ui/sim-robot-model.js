@@ -289,7 +289,8 @@
   function gameValues(model,m){const out={};if(!m)return out;
     for(const j of model.joints){const d=j.drive;if(!d)continue;const n=+String(d.of||'').split(':')[1]||0;
       if(d.signal==='turret')out[j.id]=(m.turrets?.[n]??m.turret??0)-(j.zero||0);
-      else if(d.signal==='deploy'){const f=Array.isArray(m.deploy)?m.deploy[n]:null,v=Number.isFinite(f)?f:0,up=j.states?.raised??0,down=j.states?.lowered??0;out[j.id]=up+(down-up)*v;}}
+      else if(d.signal==='deploy'){const f=Array.isArray(m.deploy)?m.deploy[n]:null,v=Number.isFinite(f)?f:0,up=j.states?.raised??0,down=j.states?.lowered??0;out[j.id]=up+(down-up)*v;}
+      else if(d.signal==='float'){const f=Array.isArray(m.lift)?m.lift[n]:null,v=Number.isFinite(f)?f:0,rest=j.states?.rest??0,top=j.states?.up??rest;out[j.id]=rest+(top-rest)*v;}}
     return out;}
   // Puts every link where the joint values say (degrees and inches; missing ones at home).
   function pose(holder,values={}){

@@ -2104,7 +2104,10 @@ public class MyAuto implements DeckAutonomous {
         else{part.mount=loc.mount;part.at=point;status('#mech-model-help',`Shooter ${+n+1}: ${MECH.MOUNTS[loc.mount].toLowerCase()} of the robot.`);}});}:joints.picker());
     joints.render();
   }
-  $('#mech-from-cad').onclick=()=>{const out=setUpFromCad();save();robotPanel();mechanismsPanel();void placeModel().then(()=>joints.discover({quiet:true}));reload();status('#mech-model-help',out?.found.length?'Set up from your CAD: '+out.found.join('; ')+'.':'No intake, shooter or chassis parts were named in this CAD.');};
+  // The names say what each assembly is; then its moving parts are found, and what their shapes show is set too (a
+  // plate swinging down on a servo makes the intake a ramp or a kicker, whatever its name says).
+  $('#mech-from-cad').onclick=()=>{const out=setUpFromCad(),said=out?.found.length?'Set up from your CAD: '+out.found.join('; ')+'.':'No intake, shooter or chassis parts were named in this CAD.';save();robotPanel();mechanismsPanel();
+    void placeModel().then(()=>joints.discover({quiet:true,fromCad:true})).then(r=>{if(r?.told?.length)status('#mech-model-help',`${said} ${r.told.join(' ')}`);});reload();status('#mech-model-help',said);};
   // Mechanisms are on while the robot has any part; adding the first part starts from that part alone.
   function setMech(change){const m=structuredClone(project.mechanisms);if(!m.enabled){m.intakes=[];m.shooters=[];}change(m);m.enabled=m.intakes.length>0||m.shooters.length>0;project.mechanisms=MECH.sanitize(m);save();mechanismsPanel();reload();}
   $('[data-mech-add=intake]').onclick=()=>setMech(m=>{const free=MECH.EDGES.find(e=>!m.intakes.some(i=>i.sides.includes(e)));if(free)m.intakes.push({kind:m.intakes[0]?.kind||'sweeper',sides:[free]});});

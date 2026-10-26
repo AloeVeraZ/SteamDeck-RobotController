@@ -199,6 +199,8 @@
     constructor(m,held=0,dims={}){this.m=m;this.dims=dims;this.turrets=m.shooters.map(()=>0);this.flywheel=0;this.turret=0;this.time=0;this.sinceShot=Infinity;this.shots=0;this.pending=false;this.held=held;
       // How far down each kicker or ramp is (0 up, 1 down); null for an intake that does not move.
       this.queue=Array.from({length:held},(_,i)=>({arrives:-Infinity,index:i?m.indexer.seconds:0}));this.kick=m.intakes.map(i=>deploys(i.kind)?0:null);
+      // How far a roller on a swing arm has ridden up over the last piece taken in (0 at rest, 1 at the top).
+      this.caught=-Infinity;this.lift=m.intakes.map(()=>0);
       // Behind a servo pusher the next piece drops into place while the pusher is back at rest, so its indexing time
       // passes whether or not the pusher is pushing; a push fires the piece that is in place.
       this.settles=pusherOnly(m);}
@@ -212,7 +214,9 @@
       const sentDown=i=>i.kind==='ramp'&&typeof cmd.ramp==='boolean'?cmd.ramp:!!cmd.intake;
       this.kick=this.kick.map((v,k)=>{if(v===null)return null;const i=m.intakes[k];return sentDown(i)?Math.min(1,v+(i.down>0?dt/i.down:1)):Math.max(0,v-(i.up>0?dt/i.up:1));});
       const kicking=this.kick.some((v,k)=>v>0&&m.intakes[k].kind==='kicker'),onlyKickers=m.intakes.length>0&&m.intakes.every(i=>i.kind==='kicker');
-      for(let k=this.held;k<held;k++){const ahead=this.queue.length;this.queue.push(onlyKickers&&kicking?{arrives:Infinity,scooped:true,index:ahead?m.indexer.seconds:0}:{arrives:this.time+travel(m,ahead),index:ahead?m.indexer.seconds:0});}
+      for(let k=this.held;k<held;k++){const ahead=this.queue.length;this.queue.push(onlyKickers&&kicking?{arrives:Infinity,scooped:true,index:ahead?m.indexer.seconds:0}:{arrives:this.time+travel(m,ahead),index:ahead?m.indexer.seconds:0});this.caught=this.time;}
+      // The piece goes under the roller: it rides up quickly and settles back down.
+      const since=this.time-this.caught,up=since<.08?since/.08:since<.2?1:since<.45?1-(since-.2)/.25:0;this.lift=m.intakes.map(i=>i.kind==='kicker'?0:up);
       // Back up: what the kickers scooped starts its transfer.
       if(!kicking)this.queue.forEach((p,k)=>{if(p.scooped){p.scooped=false;p.arrives=this.time+travel(m,k);}});
       this.held=held;this.sinceShot+=dt;
@@ -248,7 +252,7 @@
     // Where shooter n points, in degrees from the robot's front.
     aim(n){const s=this.m.shooters[n];return !s?0:s.type==='turret'?this.turrets[n]:FACING[s.facing];}
     state(){const q=this.queue,front=q[0];return {flywheel:this.flywheel,turret:this.turret,turrets:this.turrets.slice(),aligned:!!this.aligned,ready:!!this.ready,shots:this.shots,held:this.held,
-      deploy:this.kick.slice(),kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
+      deploy:this.kick.slice(),lift:this.lift.slice(),kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
   }
   // Runs route actions the way the generated robot code does, with no piece sensor. At a pin the action
   // is busy until it finishes; on an action path it runs while the path is driven. "Shoot N" spins up
@@ -317,9 +321,11 @@
     for(const p of parts.filter(p=>p.role==='intake')){const b=p.box,out={front:b.x1-hl,back:-hl-b.x0,left:b.y1-hw,right:-hw-b.y0},center={x:(b.x0+b.x1)/2,y:(b.y0+b.y1)/2};
       let edge=Object.entries(out).sort((a,c)=>c[1]-a[1])[0];edge=edge[1]>.25?edge[0]:locate(center,L,W).edge;
       const along=edge==='front'||edge==='back',span=Math.min(along?b.y1-b.y0:b.x1-b.x0,along?W:L);
-      if(intakes.some(i=>i.sides.includes(edge)))continue;
-      intakes.push({kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]});
-      found.push(`Intake “${p.name}”: ${edge}, ${round(Math.max(0,out[edge]))} in out, ${round(span)} in wide`);}
+      // Another assembly on the same edge (a ramp plate, a roller arm) is part of that intake: its moving parts are
+      // looked for there too. What the intake is stays as its first assembly says; the CAD's shapes decide the rest.
+      const same=intakes.find(i=>i.sides.includes(edge));if(same){if(same.parts.length<8&&!same.parts.includes(p.name))same.parts.push(p.name);continue;}
+      intakes.push({kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]});}
+    for(const i of intakes)found.push(`Intake ${i.parts.map(n=>`“${n}”`).join(' + ')}: ${i.sides[0]}, ${i.reach} in out, ${i.width} in wide`);
     // Shooters. A flywheel assembly (named shooter, launcher... or for its piece) is one shooter; assemblies that
     // overlap on the robot's footprint (a flywheel and its hood) are the same one, unless they take different pieces.
     // An assembly named only "turret" turns the flywheels that sit over it: each of them gets its own turret, so one
