@@ -2253,6 +2253,28 @@ public class MyAuto implements DeckAutonomous {
     window.DeckWiring.bind(box,{project:()=>project,apply:applyWiring,setKind:deviceKind,share:shareDevice});
     for(const type of ['focusin','pointerdown'])box.addEventListener(type,e=>focusMech(focusOf(e.target)));
     box.addEventListener('toggle',e=>{if(e.target.open)focusMech(focusOf(e.target));},true);}
+  // Motors and servos named in the CAD (goBILDA, REV, Axon... part numbers and names): each goes to the mechanism it sits
+  // in (DeckHardware.assignCad), setting that device's type and model. Drive motors all take the model found on one.
+  function actuatorsFromCad(){
+    const H=window.DeckHardware,W=window.DeckWiring,tree=model?.geometry?.userData?.parts;if(!tree||project.controller!=='ftc')return [];
+    const idx=window.DeckKinematics.partIndex(tree),parts=[],clean=n=>String(n).replace(/\s*<\d+>$/,'');
+    const inner=n=>{for(const c of n.children){const m=H.fromCadName(c.name);if(m?.model)return m;const d=inner(c);if(d)return d;}return null;};
+    const visit=(n,path)=>{const m=H.fromCadName(n.name);if(m){const d=m.model?null:inner(n);parts.push({name:clean(n.name),key:n.key,path,...m,...(d&&(d.kind===m.kind||m.kind==='servo'&&d.kind==='crservo')?{kind:d.kind,model:d.model}:{})});return;}for(const c of n.children)visit(c,[...path,n.name]);};
+    for(const n of idx.nodes.filter(n=>n.parent<0||!idx.nodes[n.parent]))visit(n,[]);if(!parts.length)return [];
+    const st=W.state(project),chassis=(project.model?.parts||[]).filter(p=>p.role==='chassis'&&p.key).map(p=>p.key);
+    const partOf=key=>{const k=H.parseKey(key);return k?.list?`${k.list==='intakes'?'intake':'shooter'}:${k.index}`:k?.kin?`kin:${project.kinematics.actuators.find(a=>a.id===k.kin)?.joint}`:null;};
+    const devices=st.rows.filter(r=>(r.family==='motor'||r.family==='servo')&&!['pod','sensor','imu'].includes(r.role))
+      .map(r=>({key:r.key,role:r.role,family:r.family,scope:r.role==='drive'||r.role==='steer'?chassis:W.focusRefs(project,partOf(r.key)||r.key),own:W.focusRefs(project,r.key)}));
+    const found=H.assignCad(parts,devices),drive=found.find(f=>st.rows.find(r=>r.key===f.key)?.role==='drive'&&f.model);
+    for(const r of st.rows.filter(r=>r.role==='drive'))if(drive&&!found.some(f=>f.key===r.key))found.push({...drive,key:r.key});
+    const m=structuredClone(project.mechanisms),said=[];let wiring=project.robot.wiring;
+    for(const f of found){const row=st.rows.find(r=>r.key===f.key),k=H.parseKey(f.key),part=k?.list?m[k.list]?.[k.index]:null;if(!row)continue;
+      if(part&&row.role==='roller')part.device=f.kind==='crservo'?'crservo':'motor';
+      if(part&&row.role==='feeder')part.indexerKind=f.kind==='dcmotor'?'motor':f.kind==='crservo'?'crservo':['pusher','gate'].includes(part.indexerKind)?part.indexerKind:'pusher';
+      if(row.role==='turret')m.turret.kind=f.kind==='dcmotor'?'motor':'servo';
+      if(f.model)wiring=W.setModel(wiring,f.key,f.model);
+      said.push(`${row.label}: ${f.model?H.MODELS[f.model].short:{dcmotor:'a motor',servo:'a servo',crservo:'a continuous servo',linear:'a linear servo'}[f.kind]} (“${f.part}”)`);}
+    project.mechanisms=MECH.sanitize(m);project.robot=C.robot({...project.robot,wiring},project.controller);return said;}
   // Configure from CAD: each mechanism added is looked for in the CAD by the names most like it. The game's intakes and
   // shooters take the CAD's named intake and shooter assemblies (their side, size, spot and parts; what the team chose
   // stays); then every moving mechanism added without parts is looked for (DeckMechanismTypes.likeness) and its pivot,
@@ -2269,6 +2291,7 @@ public class MyAuto implements DeckAutonomous {
       if(r?.matched?.length)said.push(r.matched.map(x=>`${x.name} → “${x.cad}”`).join('; '));
       if(r?.unmatched?.length)said.push(`Not found by name: ${r.unmatched.join(', ')}. Name its assembly like it in your CAD, or press Choose its parts on its card`);
       if(r?.told?.length)said.push(...r.told.map(t=>t.replace(/\.$/,'')));
+      const hardware=actuatorsFromCad();if(hardware.length){said.push(`Motors and servos from your CAD: ${hardware.join('; ')}`);save();}
       reload();mechanismsPanel();status('#mech-list-status',said.length?`Configured from your CAD: ${said.join('. ')}.`:'Nothing in your CAD is named like these mechanisms. Name the assemblies in your CAD (Intake, Lift, Claw…), or choose each one’s parts on the model.');
     }finally{button.disabled=!project.model;}};
   // Mechanisms are on while the robot has any part; adding the first part starts from that part alone.

@@ -215,6 +215,62 @@
         ...(dev?.joints?{joints:dev.joints}:joint?{joints:[joint.id]}:{}),...(dev?.parts?{parts:dev.parts}:{})});}
     return out;
   }
+  // ---- motors and servos named in a CAD -------------------------------------------------------------------------------
+  // What a CAD part's name says it is: {kind: dcmotor|servo|crservo|linear, model: catalog id or null}, or null. Vendor
+  // part numbers first (goBILDA 5203/5202-…, REV-41-…, 2000-0025-…), then names with an rpm or a gear ratio.
+  const GB_RATIO={'0001':6000,'0003':1620,'0005':1150,'0014':435,'0019':312,'0027':223,'0051':117,'0071':84,'0100':60,'0139':43,'0188':30};
+  const nearest=(rpm,list)=>list.reduce((a,b)=>Math.abs(b.rpm-rpm)<Math.abs(a.rpm-rpm)?b:a);
+  function fromCadName(raw){
+    const s=String(raw||'').toLowerCase().replace(/[_]+/g,' ');if(!s)return null;let m;
+    const gb=MOTORS.filter(x=>/^gobilda-5203-/.test(x.id)),rpmOf=/(\d{2,4}(?:\.\d+)?)\s*rpm/.exec(s),ratioOf=/(\d{1,3}(?:\.\d+)?)\s*:\s*1\b/.exec(s);
+    if((m=/520[23]-\d{4}-(\d{4})/.exec(s))&&GB_RATIO[m[1]])return {kind:'dcmotor',model:'gobilda-5203-'+GB_RATIO[m[1]]};
+    if(/yellow ?jacket|520[23][- ]series|\b520[23]\b|gobilda.*motor/.test(s)){if(rpmOf)return {kind:'dcmotor',model:nearest(+rpmOf[1],gb).id};
+      if(ratioOf){const r=+ratioOf[1];return {kind:'dcmotor',model:gb.reduce((a,b)=>Math.abs(6000/b.rpm-r)<Math.abs(6000/a.rpm-r)?b:a).id};}return {kind:'dcmotor',model:null};}
+    if(/rev-?41-?1300|core ?hex/.test(s))return {kind:'dcmotor',model:'rev-core-hex'};
+    if(/rev-?41-?1301|hd ?hex|ultraplanetary|rev-?41-?1600/.test(s)){const r=ratioOf?+ratioOf[1]:null,ultra=MOTORS.filter(x=>/^rev-ultra-|^rev-hd-hex/.test(x.id));
+      return {kind:'dcmotor',model:rpmOf?nearest(+rpmOf[1],ultra).id:r?ultra.reduce((a,b)=>Math.abs(6000/b.rpm-r)<Math.abs(6000/a.rpm-r)?b:a).id:/ultraplanetary|1600/.test(s)?'rev-ultra-20':'rev-hd-hex'};}
+    if(/neverest/.test(s))return {kind:'dcmotor',model:/3\.7|orbital 3/.test(s)?'neverest-3-7':/60/.test(s)?'neverest-60':/40/.test(s)?'neverest-40':'neverest-20'};
+    if(/torquenado/.test(s))return {kind:'dcmotor',model:'torquenado'};if(/maverick/.test(s))return {kind:'dcmotor',model:'studica-maverick'};
+    const cr=/continuous|\bcr\b|cont\.? ?rot/.test(s),pick=(id,crId)=>({kind:cr&&crId?'crservo':'servo',model:cr&&crId?crId:id});
+    if(/2000-0025-0002|torque servo|dual mode.*torque/.test(s))return pick('gobilda-torque','gobilda-torque-cr');
+    if(/2000-0025-0004|super ?speed/.test(s))return pick('gobilda-superspeed','gobilda-superspeed-cr');
+    if(/2000-0025-0003|speed servo|dual mode.*speed/.test(s))return pick('gobilda-speed','gobilda-speed-cr');
+    if(/2000-0025-0503|5[- ]turn/.test(s))return {kind:'servo',model:'gobilda-5turn'};
+    if((m=/axon\s*(max|mini|micro)/.exec(s)))return pick('axon-'+m[1],'axon-'+m[1]+'-cr');
+    if(/rev-?41-?3336|ultraspeed/.test(s))return {kind:'servo',model:'rev-smart-ultra'};
+    if(/rev-?41-?1097|smart robot servo/.test(s))return pick('rev-smart','rev-smart-cr');
+    if(/75007|200 fast/.test(s))return {kind:'servo',model:'studica-multimode-fast'};if(/75002|multi-?mode/.test(s))return pick('studica-multimode','studica-multimode-cr');
+    if((m=/sr-servo-0([1-5])/.exec(s)))return {kind:'servo',model:'swyft-'+['speed','balance','torque','slim','nano'][+m[1]-1]};
+    if(/plex-09-0017-0001/.test(s))return {kind:'servo',model:'plex-speed'};if(/plex-09-0017-0002/.test(s))return {kind:'servo',model:'plex-torque'};
+    if((m=/torctex\s*(max|pro|micro)/.exec(s)))return {kind:'servo',model:'torctex-'+m[1]};
+    if(/l16/.test(s)&&/actuonix|linear/.test(s))return {kind:'linear',model:/140/.test(s)?'actuonix-l16-140':/100/.test(s)?'actuonix-l16-100':'actuonix-l16-50'};
+    if(/hls12/.test(s))return {kind:'linear',model:'hitec-hls12'};if(/hs-?485/.test(s))return {kind:'servo',model:'hitec-485'};
+    // A part simply called a motor or a servo: its kind, its model left to the team.
+    if(/\bservo\b/.test(s)&&!/servo (hub|horn|block|mount|bracket|shaft|plate|spline)|hub shaft/.test(s))return {kind:cr?'crservo':'servo',model:null};
+    if(/\bmotor\b/.test(s)&&!/motor (mount|bracket|plate|pinion|spacer|shaft|gear|pulley)/.test(s))return {kind:'dcmotor',model:null};
+    return null;}
+  // Which device each actuator found in a CAD drives. parts: [{name, path (its assembly names, outermost first), kind,
+  // model}]; devices: rows {key, role, family, scope: CAD refs of its mechanism, own: refs of what it moves}; key of each
+  // part: its CAD ref. A part goes to a device of its family in whose mechanism it sits, preferring words in its path that
+  // say what the device does and the parts the device moves; in a shooter the fastest motor turns the flywheel.
+  // Returns [{key: device key, part, kind, model}].
+  const ROLE_WORDS={flywheel:/fly ?wheel|launch|shoot|outtake/,turret:/turret|turntable|lazy ?susan|rotat/,hood:/hood/,feeder:/kick|feed|index|transfer|push|gate|flick/,
+    ramp:/ramp|deploy|pivot|flip|wrist/,kicker:/kick|scoop/,roller:/roller|intake|sweep|brush|spin/,drive:/drive|chassis|mecanum|base|frame/,steer:/steer|swerve|module/};
+  const FAMILY_KINDS={motor:['dcmotor','crservo'],servo:['servo','linear','crservo']};
+  function assignCad(parts,devices){
+    const within=(ref,refs)=>refs.some(r=>ref===r||ref.startsWith(r+'/')),pairs=[];
+    for(const d of devices){const kinds=FAMILY_KINDS[d.family]||[];if(!kinds.length)continue;
+      for(const p of parts){if(!kinds.includes(p.kind)||(d.family==='motor'&&p.kind==='crservo'&&!['roller','feeder','steer'].includes(d.role)))continue;
+        // Its own name and the assemblies around it say what it drives ("Turret motor" on the chassis still turns the turret).
+        const words=ROLE_WORDS[d.role],named=!!words&&words.test(p.name.toLowerCase()),inside=d.scope.length?within(p.key,d.scope):d.role==='drive';if(!inside&&!named)continue;
+        let score=(inside?1:0)+(named?4:words&&words.test(p.path.join('/').toLowerCase())?3:0)+(d.own.length&&within(p.key,d.own)?2:0)-(d.scope.length?0:.5);
+        if(d.role==='flywheel'||d.role==='turret'){const rpm=MODELS[p.model]?.rpm||0;score+=d.role==='flywheel'?rpm/10000:-rpm/10000;}
+        pairs.push({d,p,score});}}
+    pairs.sort((a,b)=>b.score-a.score);const used=new Set(),done=new Set(),out=[];
+    for(const {d,p} of pairs){if(done.has(d.key)||used.has(p.key))continue;
+      // Drive motors: one CAD part each, but four of one kind usually: every drive motor takes the model found.
+      done.add(d.key);used.add(p.key);out.push({key:d.key,part:p.name,kind:p.kind,model:p.model});}
+    return out;}
   // ---- an offline port plan -------------------------------------------------------------------------------------------
   const problem=(level,keys,text)=>({level,keys,text});
   // Ports to try, in order, for one row on one hub: touch sensors on odd digital channels and REV potentiometers on even
@@ -329,5 +385,5 @@
     return `${thing} "${row.name}"${at}${tells.length?'; '+tells.join('; '):''}.${ROLES[row.role]?.explain&&!row.hub&&!tells.length?' '+ROLES[row.role].explain:''}`;
   }
   return {HUBS,FAMILIES,MODELS,ACTUATORS,MOTORS,SERVOS,CRSERVOS,LINEARS,SENSORS,SENSOR_MODELS,ROLES,USES,DEVICE_KEYS,DRIVE_SLOTS,modelsFor,sensorsFor,xmlTypeOf,familyOfKind,
-    settingKey,parseKey,sanitizeWiring,wiringOf,reindex,prune,hubName,portLabel,rows,plan,placed,conflicts,wire,needs,explain};
+    fromCadName,assignCad,settingKey,parseKey,sanitizeWiring,wiringOf,reindex,prune,hubName,portLabel,rows,plan,placed,conflicts,wire,needs,explain};
 });

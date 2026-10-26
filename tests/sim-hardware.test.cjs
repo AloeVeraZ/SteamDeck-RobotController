@@ -153,3 +153,17 @@ test('plain words for each device: what it is, where it is plugged in and what i
   assert.match(H.explain({key:'kin.x',label:'Arm',role:'kin-motor',family:'motor',kind:'dcmotor',name:'arm'}),/^Motor "arm": Deck picks its port\. Runs to encoder counts/);
   assert.deepEqual([rows.find(r=>r.key==='robot.frontLeft').planned,rows.find(r=>r.key==='shooters.0.hood').planned],[true,undefined]);
 });
+
+test('motors and servos named in a CAD: the model from part numbers and names, and which mechanism each one drives',()=>{
+  const n=x=>H.fromCadName(x);
+  assert.deepEqual(n('5203 Series Yellow Jacket Planetary Gear Motor (19.2:1 Ratio, 312 RPM) 5203-2402-0019'),{kind:'dcmotor',model:'gobilda-5203-312'});
+  assert.deepEqual(n('goBILDA Yellow Jacket 6000 RPM'),{kind:'dcmotor',model:'gobilda-5203-6000'});assert.deepEqual(n('REV-41-1300 Core Hex Motor'),{kind:'dcmotor',model:'rev-core-hex'});
+  assert.deepEqual(n('2000-0025-0002 Dual Mode Servo'),{kind:'servo',model:'gobilda-torque'});assert.deepEqual(n('axon mini continuous'),{kind:'crservo',model:'axon-mini-cr'});
+  assert.deepEqual(n('Ramp servo'),{kind:'servo',model:null});assert.equal(n('Servo Hub Shaft - 16mm (GB)'),null);assert.equal(n('Motor Mount Plate'),null);
+  const S='Robot/Shooter',parts=[{name:'Turret motor',key:'Robot/Chassis/Turret motor',path:['Robot','Chassis'],kind:'dcmotor',model:'gobilda-5203-435'},
+    {name:'Flywheel motor',key:S+'/Flywheel motor',path:['Robot','Shooter'],kind:'dcmotor',model:'gobilda-5203-6000'},{name:'Kicker servo',key:S+'/Kicker servo',path:['Robot','Shooter'],kind:'servo',model:null},
+    {name:'Hood servo',key:S+'/Hood servo',path:['Robot','Shooter'],kind:'servo',model:'axon-max'}];
+  const d=(key,role,family)=>({key,role,family,scope:[S],own:[]});
+  const got=Object.fromEntries(H.assignCad(parts,[d('shooters.0.turretMotor','turret','motor'),d('shooters.0.motor','flywheel','motor'),d('shooters.0.indexer','feeder','servo'),d('shooters.0.hood','hood','servo')]).map(x=>[x.key,x.part]));
+  assert.deepEqual(got,{'shooters.0.motor':'Flywheel motor','shooters.0.turretMotor':'Turret motor','shooters.0.indexer':'Kicker servo','shooters.0.hood':'Hood servo'},'a turret motor mounted on the chassis still turns the turret');
+});
