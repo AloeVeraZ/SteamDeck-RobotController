@@ -56,7 +56,7 @@ checkouts are protected from replacement. Apple Silicon updates are ad-hoc signe
 ## Publishing later
 
 The remote is `https://github.com/AloeVeraZ/SteamDeck-RobotController.git`.
-Main and Testing are published branches; Main 2.4.2 is a stable release. New work
+Main and Testing are published branches; Main publishes stable releases (v2.4.22 and later). New work
 continues on Testing until promotion is requested. Initial install commands always
 read `main/install.sh` or `main/install.ps1` and resolve the newest stable release,
 so users can reuse the same command for future versions. No separate download
