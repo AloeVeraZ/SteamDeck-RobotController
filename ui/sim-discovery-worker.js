@@ -1,7 +1,7 @@
 // Looks through a CAD body off the page's thread, so a big robot does not stall the page: finding its moving parts
 // (DeckDiscovery), and sweeping a moving part through its range for contacts (DeckCollide). The body's arrays come
 // with each request; the last body's prepared form is kept for the next one.
-importScripts('sim-kinematics.js','sim-mechanisms.js','sim-discovery.js','sim-collide.js');
+importScripts('sim-kinematics.js','sim-mechanisms.js','sim-mechanism-types.js','sim-discovery.js','sim-collide.js');
 let last=null;
 onmessage=e=>{
   const {id,op='discover',key,arrays,options}=e.data;

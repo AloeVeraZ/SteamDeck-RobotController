@@ -94,6 +94,11 @@ Status key: **Tested** means checked against an independent answer in `tests/`. 
 - **WPILib DCMotor.** R = V/I_stall, Kv = ω_free/(V − R·I_free), Kt = τ_stall/I_stall, giving a linear torque–speed line scaled by voltage. This is the **motor response model**. https://github.wpilib.org/allwpilib/docs/release/cpp/_d_c_motor_8h_source.html
 - **gm0 (FTC).** Continuous rigging extends the last stage first, then the next-to-last, and so on; cascade moves all stages together. https://gm0.org/en/latest/docs/common-mechanisms/linear-motion-guide/rigging.html
 - **CoreXY.** Both motors turning the same way move the carriage along x, opposite ways along y. corexy.com describes this qualitatively. The engine's x = (A+B)/2, y = (A−B)/2 follows from the belt paths. https://corexy.com/theory.html
+- **Mechanism types (`sim-mechanism-types.js`).** The catalogue of what a moving part can be came from:
+  - gm0's common mechanisms: drivetrains, linear motion (drawer, extrusion and bearing slides, lead screws, rack and pinion, rigging), arms (single arm, pivot extension, multi-axis, arms for end effectors on servos), linkages (linkage slides, four bar, virtual four bar, double-reverse four bar, virtual DR4B), passive intakes and claws, active intakes, transfers, dead wheels, and full and mini turrets. https://gm0.org/en/latest/docs/common-mechanisms/index.html, https://gm0.org/en/latest/docs/common-mechanisms/linkages.html, https://gm0.org/en/latest/docs/common-mechanisms/arms.html, https://gm0.org/en/latest/docs/common-mechanisms/turrets/index.html
+  - FRC teams' list of common systems: swerve, continuous and cascade elevators, telescoping tubes, big pivots, flywheel shooters with hoods, indexers (spindexers, hoppers), turrets, slapdown, four-bar and under-the-bumper intakes. https://www.chiefdelphi.com/t/basic-mechanical-devices-systems-to-know/502098; FIRST's extender lesson (elevators that lift, reach and climb). https://www.firstinspires.org/hubfs/lms/frc-guided-experience/m2/l4-extenders-lift-reach-climb-pdf.pdf
+  - FTC game years: DECODE launchers (single or dual flywheel, servo flicker), gates bumped or opened by a servo arm, conveyors, carousels and hoppers, spindexers (https://www.studica.com/blog/?p=20817, https://www.chiefdelphi.com/t/emu-robotics-ftc/506276); hangs and ascents (hooks, winches, linear actuators); CENTERSTAGE drone launchers; Freight Frenzy carousel spinners and buckets.
+  - General robotics: articulated arm joints (waist, shoulder, elbow, wrist roll, pitch and yaw; the first three place the tool, the wrist orients it), SCARA, delta, Cartesian and gantry robots (https://www.kuka.com/en-us/company/iimagazine/2022/from-delta-to-scara,-c-,-overview-of-industrial-robot-types, https://toolbox.igus.com/4185/types-of-industrial-robots), humanoid roll, pitch and yaw naming (NAO joint docs), legs, grippers, pan-tilt heads, car steering, pneumatic cylinders, spindles and thrusters.
 
 ## 4. Design decisions
 
@@ -110,6 +115,7 @@ Status key: **Tested** means checked against an independent answer in `tests/`. 
 | D9 | Every format becomes one description (links, joints, loops, couplings, actuators, notes), then one path to the body and the joints. | New formats add a reader only. What cannot be read goes into `notes` rather than being guessed. | — |
 | D10 | Timelines are worked out ahead for ideal actuators. They are ticked through the driver (1/240 s) when an action waits on a sensor or uses a motor model. Driver steps hand over on the tick they end. | Scrubbing and recordings must be deterministic. A wait or motor response cannot be computed ahead in closed form. | — |
 | D11 | Joints in a loop from a file are left for the solver unless an actuator in the file drives them. | Which joint is the input of a linkage is not in the geometry. Guessing would drive the wrong one. | — |
+| D12 | A mechanism type is a set of defaults on an ordinary joint (`kind`), not a new joint kind. A name's last mechanism word decides it; hardware and vendor names say nothing. | A claw, a hang hook and a wrist are all revolute joints with different positions, speeds and motors, so the engine needs nothing new, and the team can change any setting or the type. Team assembly names put the head noun last ("Intake slides", "Claw wrist"), while vendor parts and fasteners carry mechanism words they do not stand for ("Arm motor mount", "Gecko Wheel (GB)"). | gm0, Chief Delphi, the team's CAD |
 
 ## 5. Test coverage
 
@@ -281,3 +287,22 @@ Found and fixed in the app:
 - a loop-solved rocker offered a motor;
 - motor figures were rounded to two decimals (0.105 N·m showed as 0.1);
 - gearing, pose and sensor rows and step controls stacked full width.
+
+**Iteration 15** (alongside the intake work logged as iteration 14 in `MECHANISM_ENGINE.md`). Concept: what a moving part is (a claw, a lift, a hang hook), found from the names teams give their CAD assemblies, and chosen by hand when it is not.
+
+Gaps:
+- **+ Add** made a blank "Moving part" that the team had to set up from nothing;
+- names were read only on the CAD's top-level assemblies, as either "hinged" or "slide", so an "Outtake › Lift › Arm › Claw" gave at most one joint, and nothing rode on anything;
+- on another field an "Outtake" assembly was taken for a shooter, and its biggest round part for a flywheel.
+
+Changes:
+- `sim-mechanism-types.js`: 57 types in ten groups, each with its joint type, direction, positions, speed, limits, motor and name words; `detect` reads a name;
+- the finder walks the whole tree: nested named assemblies become nested joints, claws get a joint per finger closing together, pivoting slides find their slides, swerve modules their wheels, spindexers and turrets their turntables; types set which way is up;
+- the panel: **+ Add** opens the grouped, searchable list; each part has a **Mechanism** picker and says what usually drives it; **+ Motor** adds that motor; rows show the type when the name does not.
+
+Checked:
+- `tests/sim-mechanism-types.test.cjs`: 84 names (the team's own CAD names among them), every type through the route-action driver, retyping, and a robot with a claw on an arm on a lift, an extendo, a spindexer and a hang hook (positions, parents, closing fingers, raising arm, lifting carriage);
+- the team's CAD in Node with the committed and the new finder: the same 22 parts, now with their types, and no new ones, since its "4BAR N" and "A arm" are copies of separate links;
+- the app (Playwright on Electron, the team's setup in a temporary data folder): the list, the search, adding a claw, making it a lift, its motor, at 1400 and 420 px wide.
+
+Found and fixed on the way: "Turret drive" and "Hook pivot" read as mechanisms (drive and pivot are now hardware after a mechanism word); a spinning type kept the old part's positions; the game's own turret and intake were found a second time by name.

@@ -114,6 +114,8 @@
       // cylinder's stroke, a universal joint's two angles. (A ball joint's per-angle stops approximate a cone.)
       ...(n&&type!=='revolute'&&type!=='prismatic'&&Array.isArray(raw.limits)?(l=>l.some(Boolean)?{limits:l}:{})(Array.from({length:n},(_,i)=>{const x=raw.limits[i];return Array.isArray(x)&&finite(x[0])&&finite(x[1])&&x[0]<=x[1]?[+x[0],+x[1]]:null;})):{}),
       ...(Object.keys(states).length?{states}:{}),...(drive?{drive}:{}),
+      // What the part is (a claw, a lift, a turret: DeckMechanismTypes), for its defaults and the panel's labels.
+      ...(typeof raw.kind==='string'&&/^[a-z][a-z0-9-]{0,31}$/.test(raw.kind)?{kind:raw.kind}:{}),
       // How fast it moves to a position (units a second), or how fast it spins at full speed (rpm).
       ...(finite(raw.speed)&&raw.speed>0?{speed:clamp(raw.speed,.01,1e5)}:{}),...(finite(raw.rpm)&&raw.rpm>0?{rpm:clamp(raw.rpm,.1,60000)}:{}),
       // A turret's heading in the CAD (degrees counterclockwise from the robot's front, seen from above).
