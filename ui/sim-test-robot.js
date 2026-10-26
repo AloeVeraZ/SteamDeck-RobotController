@@ -296,14 +296,15 @@
   }
   // Robot wiring as on the robot: Control Hub motors 0-3 drive, I2C bus 0 its IMU and bus 1 the Pinpoint, servos 0-2
   // ramp, kicker and hood; Expansion Hub 2 motors 0-2 flywheel, turret and intake. The flywheel and turret read their
-  // motors' own encoders.
+  // motors' own encoders; the ramp is an Axon MAX whose feedback wire (analog port 0) tells when it is down or up.
   const WIRING={hubs:{expansion:{address:2}},devices:{
     'robot.frontLeft':{model:'gobilda-5203-435',hub:'control',port:0},'robot.frontRight':{model:'gobilda-5203-435',hub:'control',port:1},
     'robot.backLeft':{model:'gobilda-5203-435',hub:'control',port:2},'robot.backRight':{model:'gobilda-5203-435',hub:'control',port:3},
     'robot.imu':{hub:'control',bus:0},'robot.pinpoint':{hub:'control',bus:1},
-    'intakes.0.servo':{model:'gobilda-torque',hub:'control',port:0},'shooters.0.indexer':{model:'gobilda-speed',hub:'control',port:1},'shooters.0.hood':{model:'gobilda-torque',hub:'control',port:2},
+    'intakes.0.servo':{model:'axon-max',hub:'control',port:0},'shooters.0.indexer':{model:'gobilda-speed',hub:'control',port:1},'shooters.0.hood':{model:'gobilda-torque',hub:'control',port:2},
     'shooters.0.motor':{model:'gobilda-5203-6000',hub:'expansion',port:0},'shooters.0.turretMotor':{model:'gobilda-5203-435',hub:'expansion',port:1},'intakes.0.motor':{model:'gobilda-5203-1150',hub:'expansion',port:2}},
-    sensors:[{id:'flywheelEncoder',model:'motor-encoder',for:'shooters.0.motor',use:'velocity'},{id:'turretEncoder',model:'motor-encoder',for:'shooters.0.turretMotor',use:'position'}]};
+    sensors:[{id:'flywheelEncoder',model:'motor-encoder',for:'shooters.0.motor',use:'velocity'},{id:'turretEncoder',model:'motor-encoder',for:'shooters.0.turretMotor',use:'position'},
+    {id:'rampPosition',model:'axon-feedback',for:'intakes.0.servo',use:'position',hub:'control',port:0,name:'rampPosition'}]};
   // The whole setup ("Test setup"): BIOBUZZ red, FTC Control Hub, Pinpoint, the robot above and its long autonomous. The
   // model (and kinematics.model) is set by the app once it has stored the generated CAD.
   function setup(){

@@ -53,8 +53,8 @@ function hubSensorType(s){const m=Hardware?.SENSORS?.find?.(x=>x.id===s.model),k
   if(kind==='throughBore'||m?.family==='encoder')return 'encoder';
   if(m)return null;
   return /touch/i.test(id)?'touch':/limit|magnet|switch/i.test(id)?'digital':/colou?r/i.test(id)?'color':/dist|tof|range|lidar/i.test(id)?'distance':/bore|encoder|quad/i.test(id)?'encoder':/axon|analog|pot|abs/i.test(id)?'analog':null;}
-function hubSensors(robot,kin,mechanisms){
-  if(typeof Ftc.sensorHardware==='function')return Ftc.sensorHardware(robot,kin,mechanisms)||[];
+function hubSensors(robot,kin,mechanisms,localization){
+  if(typeof Ftc.sensorHardware==='function')return Ftc.sensorHardware(robot,kin,mechanisms,localization)||[];
   const actuators=new Set((kin?.actuators||[]).map(a=>a.id)),joints=new Set((kin?.joints||[]).map(j=>j.id));
   return (robot?.wiring?.sensors||[]).map(s=>{const type=hubSensorType(s);if(!type)return null;const [list,index,field]=String(s.for||'').split('.'),n=+index,m=Hardware?.SENSORS?.find?.(x=>x.id===s.model);
     // What it measures: a part of the robot's own design, a shooter's turret or hood, or a game piece at an intake or shooter.
@@ -391,7 +391,7 @@ class SimEngine{
       if(!['mecanum','tank'].includes(config.drives[this.config.robot.drivetrain].engine))throw Error('The virtual Control Hub runs mecanum and tank-style drivetrains; choose one of those robots.');
       hub={...Ftc.hardware(this.config.robot,this.config.sensors.localization),files:program.files,opmode:program.opMode};if(this.config.mechanisms.enabled)hub.mechanisms=Ftc.mechanismHardware(this.config.mechanisms);
       // The robot's own moving parts and its sensors, fed from the simulated joints (see hubKinematics).
-      const parts=hubKinematics(this.config.kinematics,this.config.robot),sensed=hubSensors(this.config.robot,this.config.kinematics,this.config.mechanisms);
+      const parts=hubKinematics(this.config.kinematics,this.config.robot),sensed=hubSensors(this.config.robot,this.config.kinematics,this.config.mechanisms,this.config.sensors.localization);
       if(parts.length)hub.kinematics=parts;if(sensed.length)hub.sensors=sensed;hub.modules=hubModules(this.config.robot);
     }
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');

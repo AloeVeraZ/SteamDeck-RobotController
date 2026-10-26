@@ -105,7 +105,8 @@ async function main(){
         console.log(`Mechanisms (${name}): TeamCode, OnBot Java and Pedro, with the check TeleOp, compile against the real SDK.`);
       }
       // The example setups, exported exactly as `deck-sim export` does (mechanisms included).
-      for(const file of fs.readdirSync(path.join(root,'examples')).filter(f=>f.endsWith('.json')&&!f.endsWith('.pins.json'))){
+      // tests/fixtures/route-parts.json: the robot's own moving parts (Parts.java) on a servo with feedback and a motor.
+      for(const file of [...fs.readdirSync(path.join(root,'examples')).filter(f=>f.endsWith('.json')&&!f.endsWith('.pins.json')),'../tests/fixtures/route-parts.json']){
         const setup=Cli.readSetup(path.join(root,'examples',file)),{e:ex,info,l}=await Cli.load(setup);
         try{const route=Cli.planRoute(setup,l,info);
           for(const format of ['teamcode','onbot',...(route.nonholonomic?[]:['pedro'])]){const {files}=Cli.exported(setup,l,route,info,format),name=`${file} ${format}`;

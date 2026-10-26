@@ -318,7 +318,7 @@ test('a deployable ramp is a sweeper with a ramp on a servo: the ramp moves only
   // Intake runs only the rollers; ramp(down) moves the ramp, and Ramp down / Ramp up wait its time at a pin.
   assert.match(java,/INTAKE_1 = "rollers";/);assert.match(java,/RAMP_1 = "rampServo";/);assert.match(java,/public void ramp\(boolean down\) \{\n\s+ramp1\.setPosition\(down \? RAMP_1_DOWN : RAMP_1_UP\);/);
   assert.doesNotMatch(java.slice(java.indexOf('public void intake('),java.indexOf('public void ramp(')),/ramp1/,'intake() leaves the ramp alone');
-  assert.match(java,/RAMP_DOWN_SECONDS = 0\.5, RAMP_UP_SECONDS = 0\.4;/);assert.match(F.mechanismAction('Ramp down',m),/mech\.ramp\(true\);\n\s+return step\.moving \|\| step\.elapsed >= Mechanisms\.RAMP_DOWN_SECONDS;/);
+  assert.match(java,/RAMP_DOWN_SECONDS = 0\.5, RAMP_UP_SECONDS = 0\.4;/);assert.match(F.mechanismAction('Ramp down',m),/mech\.ramp\(true\);\n\s+return step\.moving \|\| mech\.rampsAt\(true, step\.elapsed\);/);assert.match(java,/public boolean rampsAt\(boolean down, double elapsed\) \{\n\s+double timed = down \? RAMP_DOWN_SECONDS : RAMP_UP_SECONDS;\n\s+return elapsed >= timed;/,'without a sensor the ramp keeps its time');
   const py=MM.autonomous(route,Timed.settings({}),{name:'Ramp',mechanisms:m,target:{x:59.25,y:58.56}});assert.match(py,/RAMPS = \[\n\s+\("rampServo", 0, 0\.0, 180\.0\),/);
   assert.match(py,/for servo, down, up in self\.kickers:\n/);assert.match(py,/def ramp\(self, down\):/);assert.match(py,/RAMP_DOWN_SECONDS, RAMP_UP_SECONDS = 0\.5, 0\.4/);
   assert.deepEqual(MM.mechanismHardware(m).ramps,[{servo:0,down:0,up:180}]);

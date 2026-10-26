@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.hardware.sparkfun.SparkFunOTOS;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
@@ -40,6 +41,8 @@ public class PlannedRouteAuto extends LinearOpMode {
         follower.setPose(PlannedRoute.START);
         actions = new RobotActions();
         actions.init(hardwareMap, telemetry);
+        // Each hub reads all its inputs in one go per loop (bulk caching), so sensors and encoders cost no extra time.
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         DeckFollower.Path[] legs = PlannedRoute.legs();
         telemetry.addData("Route", legs.length + " legs");
         telemetry.update();
@@ -174,6 +177,7 @@ public class PlannedRouteAuto extends LinearOpMode {
     }
 
     private void report(int leg, int legs, String phase) {
+        actions.update();
         DeckFollower.Pose p = follower.pose();
         telemetry.addData("Leg", (leg + 1) + " of " + legs);
         telemetry.addData("Phase", phase);
@@ -322,6 +326,10 @@ public class PlannedRouteAuto extends LinearOpMode {
         boolean done = step.last || (!step.moving && step.duration <= 0);
         mech.intake(!done);
         return done;
+    }
+
+    /** Called every loop by the autonomous: moving parts finish their moves on their own. */
+    public void update() {
     }
 
     /** Called when the autonomous ends or is stopped: stop every mechanism. */
@@ -782,7 +790,7 @@ public class PlannedRouteAuto extends LinearOpMode {
         return motor;
     }
 
-    /** Intake on or off: rollers run at their power; kickers and ramps go down, and back up when it stops. */
+    /** Intake on or off: rollers run at their power; kickers go down, and back up when it stops. */
     public void intake(boolean on) {
         if (on) lastIntake = clock.seconds();
         intake1.setPower(on ? INTAKE_1_POWER : 0);
@@ -820,6 +828,12 @@ public class PlannedRouteAuto extends LinearOpMode {
     public void turnTurrets(double degrees) {
         turnTurret1(degrees);
         turnTurret2(degrees);
+    }
+
+    /** The turret of shooter n (0 the first) to this angle, degrees from the robot's front (counterclockwise). */
+    public void turnTurret(int shooter, double degrees) {
+        if (shooter == 0) turnTurret1(degrees);
+        if (shooter == 1) turnTurret2(degrees);
     }
 
     /** Degrees from the robot's front (counterclockwise) to (x, y), from a turret at (dx, dy) on the robot. */

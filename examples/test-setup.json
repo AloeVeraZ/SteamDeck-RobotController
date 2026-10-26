@@ -64,7 +64,7 @@
           "bus": 1
         },
         "intakes.0.servo": {
-          "model": "gobilda-torque",
+          "model": "axon-max",
           "hub": "control",
           "port": 0
         },
@@ -106,6 +106,15 @@
           "model": "motor-encoder",
           "for": "shooters.0.turretMotor",
           "use": "position"
+        },
+        {
+          "id": "rampPosition",
+          "model": "axon-feedback",
+          "for": "intakes.0.servo",
+          "use": "position",
+          "hub": "control",
+          "port": 0,
+          "name": "rampPosition"
         }
       ]
     }

@@ -6,7 +6,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MESH_TYPES={'.glb':'glb','.gltf':'gltf','.stl':'stl','.obj':'obj'},STEP_TYPES=['.step','.stp'];
 const MODEL_LIMIT=200*1024*1024,STORED_LIMIT=150*1024*1024,SOURCE_LIMIT=200*1024,PROJECT_LIMIT=150*1024*1024,EXPORT_LIMIT=4*1024*1024;
-const EXPORTS={onbot:{name:'OnBot Java autonomous',extensions:['java']},java:{name:'Route Java',extensions:['java']},pp:{name:'Deck path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']},motionmodule:{name:'MotionModule autonomous',extensions:['py']}};
+const EXPORTS={onbot:{name:'OnBot Java autonomous',extensions:['java']},java:{name:'Route Java',extensions:['java']},pp:{name:'Deck path file',extensions:['pp']},timed:{name:'Timed drive commands',extensions:['json']},motionmodule:{name:'MotionModule autonomous',extensions:['py']},config:{name:'Robot configuration',extensions:['xml']}};
 const validKey=key=>typeof key==='string'&&/^[\w-]{1,64}$/.test(key);
 
 class SimulationHost{
@@ -143,8 +143,12 @@ class SimulationHost{
       const r=await dialog.showOpenDialog(win,{title:'Choose your TeamCode java folder (TeamCode/src/main/java)',properties:['openDirectory','createDirectory']});
       if(r.canceled||!r.filePaths[0])return null;const base=path.resolve(r.filePaths[0]);
       const keep=new Set(Array.isArray(data.keep)?data.keep.filter(k=>typeof k==='string'):[]),kept=[];
-      for(const [rel,text] of entries){const file=path.resolve(base,rel);if(!file.startsWith(base+path.sep))throw Error('Invalid TeamCode path.');if(keep.has(rel)&&fs.existsSync(file)){kept.push(path.basename(rel));continue;}fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);}
-      return {name:path.basename(base),count:entries.length-kept.length,kept};
+      const retired=[];
+      for(const [rel,text] of entries){const file=path.resolve(base,rel);if(!file.startsWith(base+path.sep))throw Error('Invalid TeamCode path.');
+        // A kept file is the team's, but its untouched empty methods for actions Deck now runs would override Deck's code.
+        if(keep.has(rel)&&fs.existsSync(file)){kept.push(path.basename(rel));const slots=Array.isArray(data.retire?.[rel])?data.retire[rel].filter(s=>typeof s==='string'):[];
+          if(slots.length){const r=require('../ui/sim-ftc.js').retireStubs(fs.readFileSync(file,'utf8'),slots);if(r.removed.length){fs.writeFileSync(file+'.bak',fs.readFileSync(file));fs.writeFileSync(file,r.text);retired.push(...r.removed);}}continue;}fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);}
+      return {name:path.basename(base),count:entries.length-kept.length,kept,retired};
     }
     // Route exports. The window may only write to a file the user picked in a save dialog; with
     // "keep updated" that choice is remembered per field layout and format.
