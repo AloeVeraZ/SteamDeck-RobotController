@@ -252,6 +252,11 @@
           if(q){const busy=new Set(list.filter(x=>x.kind==='octoquad'&&at(x)?.hub===hub&&at(x)?.bus===q[1].bus).map(x=>at(x).channel));const ch=[0,1,2,3,4,5,6,7].find(c=>!busy.has(c));if(ch!==undefined){placed={hub,bus:q[1].bus,channel:ch};break;}}}
         for(const port of portOrder(r,hub)){const p=r.family==='i2c'?{hub,bus:port,...(r.kind==='octoquad'?{channel:0}:{})}:{hub,port};if(!clash(r,p)){placed=p;break;}}if(placed)break;}
       if(!placed&&own&&!clash(r,own))placed=own;
+      // An odometry pod with no motor port of its own goes on the encoder input of a motor that does not read its own
+      // encoder (usually a drive motor): the robot reads it through that motor's name.
+      if(!placed&&r.role==='pod'){const m=[...used.entries()].find(([slot,o])=>/:motor:/.test(slot)&&o.family==='motor'&&!o.encoder&&o.role!=='pod'&&!used.has(slot.replace(':motor:',':encoder:')));
+        if(m){const [hub,,port]=m[0].split(':'),p={hub,port:+port};used.set(`${hub}:encoder:${port}`,r);assign[r.key]={...p,wired:false,label:label(r,p),via:m[1].name};
+          problems.push(problem('amber',[r.key],`${r.label} goes on the encoder input of ${label(r,p)}, beside "${m[1].name}": the code reads it as "${r.name}", so name it "${m[1].name}" in Robot controller → Device names.`));continue;}}
       if(!placed){const fam=FAMILIES[r.family];problems.push(problem('red',[r.key],`No ${fam} is free for ${r.label}.${r.family==='motor'?(w.hubs.expansion?' Run a roller on a continuous servo, or free a motor port.':' Add an Expansion Hub, or run a roller on a continuous servo.'):r.family==='servo'?(w.hubs.servoHub?' Free a servo port.':' Add a Servo Hub or an Expansion Hub.'):w.hubs.expansion?'':' Add an Expansion Hub.'}`));continue;}
       take(r,placed,false);
       if(r.fast&&r.family==='encoder'&&!HUBS[placed.hub].fastEncoders.includes(placed.port))problems.push(problem('amber',[r.key],`${r.label} is on ${assign[r.key].label}: ports 1 and 2 count in software and can miss counts from its ${SENSOR_MODELS[r.model]?.cpr||8192} a turn. Encoder ports 0 and 3 are taken.`));}
