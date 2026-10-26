@@ -13,7 +13,9 @@
   // The timed plan as MotionModule PLAN steps. Forward/strafe are fractions of DRIVE_SPEED; strafe is
   // positive to the right (MotionModule's convention); turns are degrees left of the start heading.
   // The Python call that runs a built-in action (the Mechanisms settings), or '' for the team's own.
-  function builtIn(name,mech){if(Mech.action(name).kind==='wait')return 'step.last or step.duration <= 0';const k=mech?Mech.action(name):null;if(!k)return '';const shooter=mech.shooter.type!=='none';
+  // The app loads this file before sim-mechanisms.js, so the mechanisms module is looked up when it is needed.
+  const Mechs=()=>Mech||globalThis.DeckMechanisms;
+  function builtIn(name,mech){if(/^\s*wait\s*$/i.test(String(name||'')))return 'step.last or step.duration <= 0';const M=Mechs(),k=mech&&M?M.action(name):null;if(!k)return '';const shooter=mech.shooter.type!=='none';
     if(k.kind==='intake'||shooter&&['spin','aim','shoot'].includes(k.kind))return `MECHANISMS.run(${pyString(k.kind)}, ${k.count||0}, step)`;
     if(k.kind==='ramp'&&mech.intakes.some(i=>i.kind==='ramp'))return `MECHANISMS.run("ramp", ${k.down?1:0}, step)`;
     if(k.kind==='turret'&&mech.shooters.some(s=>s.type==='turret')){const own=mech.shooters.map(s=>s.type==='turret'&&!s.sharesTurret),place=k.turret===null?null:own[k.turret]?own.slice(0,k.turret).filter(Boolean).length:-1;
@@ -533,7 +535,7 @@ def stop(module):
     // MotionModule turrets are servos; with a servo turret set in Deck its center and range come from there.
     const center=m.turret.kind==='servo'?m.turret.servoCenter*180:90,perDegree=m.turret.kind==='servo'?180/m.turret.servoDegrees:1;
     if(m.shooters.length)out.shooters=m.shooters.map(s=>{
-      const kind=s.indexerKind,indexer=kind==='crservo'?{channel:crservo++,servo:true,mount:mount(s.indexerReversed)}:Mech.servoFeeder(kind)?{channel:servo++,positional:true,kind,feed:+(s.feedPos*180).toFixed(3),rest:+(s.restPos*180).toFixed(3)}:{channel:next(),servo:false,mount:mount(s.indexerReversed)};
+      const kind=s.indexerKind,indexer=kind==='crservo'?{channel:crservo++,servo:true,mount:mount(s.indexerReversed)}:Mechs().servoFeeder(kind)?{channel:servo++,positional:true,kind,feed:+(s.feedPos*180).toFixed(3),rest:+(s.restPos*180).toFixed(3)}:{channel:next(),servo:false,mount:mount(s.indexerReversed)};
       return {indexer,flywheels:[{channel:next(),mount:mount(s.reversed)},...(s.motor2?[{channel:next(),mount:mount(s.reversed2)}]:[])],...(s.type==='turret'&&!s.sharesTurret?{turret:{servo:servo++,center,perDegree,mount:mount(s.turretReversed)}}:{})};});
     return out;
   }
@@ -548,7 +550,7 @@ def stop(module):
     // cell 'other': the hive cell that faces up after the first tip, mirrored across the pivot.
     return (segment,heading,cell)=>{const end=route.segments?.[segment]?.points?.at(-1);if(!end||!Number.isFinite(heading))return undefined;
       const t=cell==='other'?{x:target.x,y:144-target.y}:target;
-      if(turrets.length>1)return turrets.map(s=>clamp(Mech.bearingFrom(Mech.mountOffset(s.mount,robot),{x:end.x,y:end.y,heading},t)));
+      if(turrets.length>1)return turrets.map(s=>clamp(Mechs().bearingFrom(Mechs().mountOffset(s.mount,robot),{x:end.x,y:end.y,heading},t)));
       return clamp(((Math.atan2(t.y-end.y,t.x-end.x)-heading)*DEG%360+540)%360-180);};
   }
   function mechanismsPython(m){
@@ -580,7 +582,7 @@ class Mechanisms:
     INTAKES = ${list((hw.intakes||[]).map((r,k)=>`(${pyString(rollerNames[k][0])}, ${py(r.channel)}, ${num(rollerNames[k][1]*r.mount)}, ${r.servo?'True':'False'})`))}
     # (hardware.py name, fallback servo channel, angle down, angle up) for each kicker: it swings down while an Intake runs.
     KICKERS = ${list(m.intakes.filter(i=>i.kind==='kicker').map((i,k)=>`(${pyString(i.servo)}, ${hw.kickers[k].servo}, ${num(i.downPos*180)}, ${num(i.upPos*180)})`))}
-    KICKER_UP_SECONDS = ${num(Mech.liftSeconds(m))}
+    KICKER_UP_SECONDS = ${num(Mechs().liftSeconds(m))}
     # (hardware.py name, fallback servo channel, angle down, angle up) for each ramp: Ramp down and Ramp up move it and it
     # stays there; Intake runs only its rollers (in INTAKES). RAMP_DOWN_SECONDS / RAMP_UP_SECONDS: how long it takes.
     RAMPS = ${list(m.intakes.filter(i=>i.kind==='ramp').map((i,k)=>`(${pyString(i.servo)}, ${hw.ramps[k].servo}, ${num(i.downPos*180)}, ${num(i.upPos*180)})`))}
@@ -591,8 +593,8 @@ class Mechanisms:
     SHOOTERS = ${list(m.shooters.map((s,k)=>{const h=hw.shooters[k],x=h.indexer,names=[s.motor,s.motor2].filter(Boolean);
       return `([${h.flywheels.map((f,i)=>`(${pyString(names[i])}, ${py(f.channel)}, ${f.mount})`).join(', ')}], (${pyString(s.indexer)}, ${py(x.channel)}, "${s.indexerKind}", ${x.mount??1}, ${x.positional?`${num(x.feed)}, ${num(x.rest)}`:'None, None'}), ${h.turret?`(${pyString(s.turretMotor)}, ${h.turret.servo}, ${h.turret.mount})`:'None'})`;}))}
     INDEXER_POWER, SHOOTER_POWER = ${num(m.indexer.power)}, ${num(m.shooter.control==='power'?m.shooter.power:1)}
-    TRANSFER_SECONDS, INDEX_SECONDS, FIRE_MARGIN_SECONDS = ${num(m.transfer.seconds)}, ${num(m.indexer.seconds)}, ${num(Mech.FIRE_MARGIN)}
-    FEED_CYCLE_SECONDS, LAST_SHOT_SECONDS, PUSH_SECONDS = ${num(pusher?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds)}, ${num(Mech.shootSeconds(m,1))}, ${num(m.indexer.pushSeconds)}
+    TRANSFER_SECONDS, INDEX_SECONDS, FIRE_MARGIN_SECONDS = ${num(m.transfer.seconds)}, ${num(m.indexer.seconds)}, ${num(Mechs().FIRE_MARGIN)}
+    FEED_CYCLE_SECONDS, LAST_SHOT_SECONDS, PUSH_SECONDS = ${num(pusher?Math.max(m.indexer.seconds,2*m.indexer.pushSeconds):m.indexer.seconds)}, ${num(Mechs().shootSeconds(m,1))}, ${num(m.indexer.pushSeconds)}
     SPIN_UP_SECONDS, STORAGE = ${num(m.shooter.spinUp)}, ${m.storage}
     TURRET_SERVO_CENTER, TURRET_SERVO_PER_DEGREE = ${num(m.turret.kind==='servo'?m.turret.servoCenter*180:90)}, ${num(m.turret.kind==='servo'?180/m.turret.servoDegrees:1)}
     TURRET_MIN, TURRET_MAX, TURRET_SPEED = ${num(m.turret.min)}, ${num(m.turret.max)}, ${num(m.turret.speed)}
