@@ -13,7 +13,8 @@
         "DECK_PREVIEW_SSID": "9999-C-RC",
         "DECK_PREVIEW_STEAMDECK": "1"
       },
-      "port": 8787
+      "port": 8787,
+      "url": "http://127.0.0.1:8787"
     },
     {
       "name": "preview-2",
@@ -27,7 +28,8 @@
         "DECK_PREVIEW_SSID": "9999-C-RC",
         "DECK_PREVIEW_STEAMDECK": "1"
       },
-      "port": 8797
+      "port": 8797,
+      "url": "http://127.0.0.1:8797"
     }
   ]
 }
