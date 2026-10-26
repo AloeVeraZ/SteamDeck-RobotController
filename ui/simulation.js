@@ -349,6 +349,8 @@ public class MyAuto implements DeckAutonomous {
   // ------------------------------------------------------------------ engine
   // Nearest clear pose to the left-wall default, scanning inward and along the wall.
   function clearStart(g,heading=start.heading){
+    // Nothing to check against while the engine reloads (info is cleared); callers fall back to the wall pose.
+    if(!info)return null;
     const edge=field.edgePose(heading,g);let best=null,bestD=Infinity;
     for(let dx=0;dx<=48;dx+=2)for(let dy=-60;dy<=60;dy+=3){const p=field.constrain({x:edge.x+dx,y:edge.y+dy,heading},g),d=Math.hypot(p.x-edge.x,p.y-edge.y);
       if(d<bestD&&planner.safePose(p,info.fieldZones,info.footprint,info.bounds)){best=p;bestD=d;}}
