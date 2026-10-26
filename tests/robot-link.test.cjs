@@ -1,0 +1,183 @@
+'use strict';
+// Send to robot: a Control Hub's robot configuration read over Robocol and checked against every device name an export
+// uses, and the export uploaded and built with the hub's OnBot Java server. Runs against the simulated Control Hub
+// (tools/ftc-sim.cjs), which answers the same commands and routes as FTC SDK 12.0.
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const RobotConfig=require('../ui/ftc/robot-config.js'),F=require('../ui/sim-ftc.js'),Mech=require('../ui/sim-mechanisms.js'),P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js');
+const {startUdpRobot,startOnBotJava,CONFIG_XML,HUBS,OP_MODES}=require('../tools/ftc-sim.cjs'),{readRobot,writeConfiguration,runCheck,OnBotJava,send,buildErrors,formEncode,checkHost}=require('../src/robot-link.cjs');
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+const {FtcSocket}=require('../src/ftc.cjs'),robot={drivetrain:'mecanum',length:17,width:17,heightIn:12,driveRpm:312,intakeIn:0};
+// The simulated robot and this station use their own loopback addresses (Robocol needs port 20884 on both ends), so these
+// tests can run beside ftc.test.cjs, which uses 127.0.0.1 and 127.0.0.2.
+const ROBOT='127.0.0.4',station=()=>new FtcSocket(ROBOT,{localAddress:'127.0.0.5'}).open();
+const read=async(options={})=>{const socket=await station();try{return await readRobot(ROBOT,{...options,socket});}finally{await socket.close();}};
+
+test('a robot configuration: every device with its kind, hub and port',()=>{
+  const c=RobotConfig.parse(CONFIG_XML);
+  assert.deepEqual(c.hubs.map(h=>[h.name,h.address]),[['Expansion Hub 2',2],['Control Hub',173]]);
+  assert.deepEqual(c.devices.map(d=>[d.name,d.kind,d.hub,d.port]),[['shooter','motor','Expansion Hub 2',0],['indexer','motor','Expansion Hub 2',1],['turret','motor','Expansion Hub 2',2],['intake','motor','Expansion Hub 2',3],
+    ['front_left','motor','Control Hub',0],['front_right','motor','Control Hub',1],['back_left','motor','Control Hub',2],['back_right','motor','Control Hub',3],['imu','imu','Control Hub',0],['pinpoint','pinpoint','Control Hub',0]]);
+  assert.equal(c.devices.find(d=>d.name==='pinpoint').bus,1);
+  // Servos, continuous servos, a SPARK Mini, entities in names, comments, and motor types added after this list.
+  const other=RobotConfig.parse(`<?xml version="1.0"?><!-- a comment <Servo name="ghost"/> --><Robot type="FirstInspires-FTC"><LynxUsbDevice name="Portal" serialNumber="(embedded)" parentModuleAddress="173"><LynxModule name="Control Hub" port="173">
+    <Servo name="kicker" port="0"/><ServoFullRange name="gate" port="1"/><ContinuousRotationServo name="roller &amp; belt" port="2"/><RevSPARKMini name="spark" port="3"/><goBILDA5203NewSeriesMotor name="new" port="0"/><RevColorSensorV3 name="color" port="0" bus="2"/></LynxModule></LynxUsbDevice><Webcam name="Webcam 1" serialNumber="SN1"/></Robot>`);
+  assert.deepEqual(other.devices.map(d=>[d.name,d.kind]),[['kicker','servo'],['gate','servo'],['roller & belt','crservo'],['spark','crservo'],['new','motor'],['color','other'],['Webcam 1','webcam']]);
+  assert.throws(()=>RobotConfig.parse('<html></html>'),/not an FTC robot configuration/);
+});
+
+test('the check: names the export uses against the robot, with suggestions, wrong kinds and the setting to change',()=>{
+  const m=Mech.sanitize({enabled:true}),needs=F.robotNeeds(robot,'fused',m);
+  assert.deepEqual(needs.map(n=>[n.name,n.need]),[['front_left','motor'],['front_right','motor'],['back_left','motor'],['back_right','motor'],['imu','imu'],['pinpoint','pinpoint'],['intake','motorOrCr'],['shooter','motor'],['indexer','motorOrCr'],['turret','motor']]);
+  assert.deepEqual(needs.find(n=>n.name==='turret').setting,{list:'shooters',index:0,field:'turretMotor'});assert.deepEqual(needs[0].setting,{robot:'frontLeft'});
+  const all=RobotConfig.check(needs,RobotConfig.parse(CONFIG_XML));assert.equal(all.ok,true,JSON.stringify(all.rows.filter(r=>r.status!=='ok')));assert.deepEqual(all.unused,[]);
+  // A robot configured with the Pedro Quickstart's drive names, a continuous servo intake and a servo turret.
+  const theirs=RobotConfig.parse(CONFIG_XML.replace('"front_left"','"leftFront"').replace('"front_right"','"rightFront"').replace('"back_left"','"leftRear"').replace('"back_right"','"rightRear"')
+    .replace('<goBILDA5202SeriesMotor name="intake" port="3" />','<ContinuousRotationServo name="Intake" port="0" />').replace('<goBILDA5202SeriesMotor name="turret" port="2" />','<Servo name="turret" port="1" />'));
+  const r=RobotConfig.check(needs,theirs),row=name=>r.rows.find(x=>x.name===name);assert.equal(r.ok,false);
+  assert.deepEqual(['front_left','front_right','back_left','back_right'].map(n=>row(n).suggestion),['leftFront','rightFront','leftRear','rightRear'],'drive names that mean the same wheel');
+  assert.equal(row('intake').suggestion,'Intake','a continuous servo fits an intake roller, and the name differs only in case');
+  assert.equal(row('turret').status,'kind');assert.match(RobotConfig.explain(row('turret')),/is a servo on the robot; the code needs a motor\. In Mechanisms, set the turret to turn on a servo\./);
+  assert.equal(row('shooter').status,'ok');assert.match(RobotConfig.explain(row('shooter')),/"shooter" is a motor on Expansion Hub 2, port 0\./);
+  // A robot device is suggested once, and a name already in use goes last.
+  const two=RobotConfig.check([{name:'intake',need:'motorOrCr',label:'A'},{name:'intake2',need:'motorOrCr',label:'B'}],RobotConfig.parse('<Robot><LynxModule name="Control Hub" port="173"><ContinuousRotationServo name="Intake" port="0"/></LynxModule></Robot>'));
+  assert.deepEqual(two.rows.map(x=>x.suggestion??null),['Intake',null]);
+  // Two Deck devices of different kinds under one name.
+  const dup=RobotConfig.check([{name:'arm',need:'motor',label:'Turret'},{name:'arm',need:'servo',label:'Kicker'}],{devices:[]});assert.match(RobotConfig.explain(dup.rows[1]),/also the name Deck uses for turret/);
+  assert.deepEqual(RobotConfig.tokens('left_front_drive'),RobotConfig.tokens('frontLeftMotor'));assert.deepEqual(RobotConfig.tokens('LF'),['front','left']);assert.notDeepEqual(RobotConfig.tokens('intake2'),RobotConfig.tokens('intake'));
+});
+
+test('Send to robot reads the active configuration over Robocol, as a Driver Station does',async t=>{
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot2.close());
+  const r=await read();assert.deepEqual(r.active,{name:'competition',dirty:false});assert.deepEqual(r.configurations,['competition']);assert.equal(r.devices.length,10);assert.equal(r.xml,CONFIG_XML);
+  assert.ok(r.opModes.length>0,'the op mode list comes along');
+  // No active configuration on the robot: nothing to check against, and that is said.
+  robot2.sim.active='No Config Set';const none=await read();assert.equal(none.active,null);assert.deepEqual(none.devices,[]);
+});
+
+test('adding devices to a configuration: free ports on the right hubs, and nothing already there changed',()=>{
+  const portals=HUBS.map(h=>RobotConfig.lynxModules(JSON.stringify({serialNumber:h.serial,modules:h.modules}))),config=RobotConfig.parse(CONFIG_XML),modules=RobotConfig.modulesOf(config,portals);
+  assert.deepEqual(modules.map(m=>[m.name,m.parent,m.imu]),[['Expansion Hub 2',false,'BNO055'],['Control Hub',true,'BHI260']]);
+  // The setup adds a kicker servo and a second flywheel motor to the robot in CONFIG_XML, whose eight motor ports are full.
+  const m=Mech.sanitize({enabled:true,intakes:[{kind:'kicker',sides:['front'],motor:'intake',servo:'kicker'}],shooters:[{type:'turret',mount:'center',motor:'shooter',motor2:'shooter2',indexer:'indexer',turretMotor:'turret'}]});
+  const adds=RobotConfig.missingDevices(RobotConfig.check(F.robotNeeds(robot,'fused',m),config).rows);
+  assert.deepEqual(adds.map(a=>[a.name,a.device]),[['kicker','servo'],['shooter2','motor']]);
+  const plan=RobotConfig.planPorts(adds,{modules,devices:config.devices});
+  assert.deepEqual(plan.assignments.map(a=>[a.name,RobotConfig.portLabel(a),a.tag]),[['kicker','Control Hub servo port 0','Servo']]);
+  assert.deepEqual(plan.problems,['No motor port is free for "shooter2" (Shooter 1 second flywheel motor). Add an Expansion Hub, or run a roller on a continuous servo.']);
+  const xml=RobotConfig.addDevices(CONFIG_XML,plan.assignments);
+  assert.equal(xml,CONFIG_XML.replace('            <goBILDAPinpoint name="pinpoint" port="0" bus="1" />\n','$&            <Servo name="kicker" port="0" />\n'),'one line added inside the Control Hub, everything else as it was');
+  // Sensors start at I2C bus 1, past the hub's IMU; a port another device takes is skipped, and one name gets one port.
+  const otos=RobotConfig.planPorts([{name:'sensor_otos',label:'SparkFun OTOS',device:'otos'},{name:'odo',label:'Pod',device:'motor'},{name:'odo',label:'Pod',device:'motor'}],{modules,devices:config.devices.filter(d=>d.name!=='intake')});
+  assert.deepEqual(otos.assignments.map(a=>[a.name,RobotConfig.portLabel(a),a.tag]),[['sensor_otos','Control Hub I2C bus 2','SparkFunOTOS'],['odo','Expansion Hub 2 motor port 3','goBILDA5202SeriesMotor']]);
+  // A team's own device type might be on a motor or a servo port, so neither is offered; digital devices take neither.
+  const own=RobotConfig.parse(CONFIG_XML.replace('<goBILDAPinpoint','<MyServoThing name="thing" port="0" />\n            <RevTouchSensor name="touch" port="1" />\n            <goBILDAPinpoint'));
+  assert.deepEqual(RobotConfig.planPorts([{name:'a',label:'A',device:'servo'},{name:'b',label:'B',device:'servo'}],{modules,devices:own.devices}).assignments.map(a=>a.port),[1,2]);
+  // A hub's IMU type decides its tag; a hub the scan did not report gets none, and the reason is given.
+  const imu=[{name:'imu',label:'IMU',device:'imu'}],bare={modules:RobotConfig.modulesOf(RobotConfig.parse('<Robot><LynxUsbDevice name="P" serialNumber="(embedded)" parentModuleAddress="173"><LynxModule name="Control Hub" port="173" /></LynxUsbDevice></Robot>'),portals)};
+  assert.equal(RobotConfig.planPorts(imu,bare).assignments[0].tag,'ControlHubImuBHI260AP');
+  assert.match(RobotConfig.planPorts(imu,{modules:bare.modules.map(h=>({...h,imu:'UNKNOWN'}))}).problems[0],/could not tell which IMU Control Hub has/);
+  // A name with an XML escape or a ; cannot travel in CMD_SAVE_CONFIGURATION, which the robot splits at ;.
+  assert.throws(()=>RobotConfig.addDevices(CONFIG_XML.replace('"shooter"','"shooter &amp; feeder"'),plan.assignments),/cannot be sent to the robot/);
+  assert.equal(RobotConfig.configurationName('competition Deck',['Competition Deck','competition Deck 2']),'competition Deck 3');assert.equal(RobotConfig.configurationName('Deck lunala: red/auto'),'Deck lunala red auto');
+  assert.equal(RobotConfig.validName('competition Deck'),true);for(const bad of ['a;b',' a','a/b','',null,'x'.repeat(41)])assert.equal(RobotConfig.validName(bad),false,String(bad));
+});
+
+test('a configuration for a robot that has none: every hub the scan found, in the SDK\'s own layout, and ports to swap',()=>{
+  const portals=HUBS.map(h=>RobotConfig.lynxModules(JSON.stringify({serialNumber:h.serial,modules:h.modules}))),modules=RobotConfig.modulesFromScan(portals);
+  assert.deepEqual(modules.map(m=>[m.name,m.parent]),[['Control Hub',true],['Expansion Hub 2',false]]);
+  const needs=F.robotNeeds(robot,'fused',Mech.sanitize({enabled:true}));
+  let {assignments,problems}=RobotConfig.planPorts(RobotConfig.missingDevices(RobotConfig.check(needs,{devices:[]}).rows),{modules});assert.deepEqual(problems,[]);
+  assert.deepEqual(assignments.map(a=>[a.name,RobotConfig.portLabel(a)]),[['front_left','Control Hub motor port 0'],['front_right','Control Hub motor port 1'],['back_left','Control Hub motor port 2'],['back_right','Control Hub motor port 3'],
+    ['imu','Control Hub I2C bus 0'],['pinpoint','Control Hub I2C bus 1'],['intake','Expansion Hub 2 motor port 0'],['shooter','Expansion Hub 2 motor port 1'],['indexer','Expansion Hub 2 motor port 2'],['turret','Expansion Hub 2 motor port 3']],'drive motors on the Control Hub, mechanism motors on the Expansion Hub');
+  // Moving a device onto another planned device's port swaps them; a configured device's port is refused.
+  const at=name=>assignments.findIndex(a=>a.name===name),choices=RobotConfig.portChoices(assignments,at('intake'),{modules});
+  assert.deepEqual(choices.filter(c=>c.swap).map(c=>[c.label,c.swap]).slice(0,2),[['Control Hub motor port 0','front_left'],['Control Hub motor port 1','front_right']]);
+  for(const [name,port] of [['shooter',0],['indexer',1],['turret',2]])assignments=RobotConfig.movePort(assignments,at(name),choices.find(c=>c.module.address===2&&c.port===port).key,{modules});
+  assert.equal(RobotConfig.portLabel(assignments[at('intake')]),'Expansion Hub 2 motor port 3');
+  const arm=[{name:'arm',kind:'motor',module:{portal:'(embedded)',address:173},port:1}],armPort=RobotConfig.portChoices(assignments,0,{modules,devices:arm}).find(c=>c.taken);
+  assert.equal(armPort.label,'Control Hub motor port 1');assert.throws(()=>RobotConfig.movePort(assignments,0,armPort.key,{modules,devices:arm}),/has "arm"/);
+  // With the fixture's names and ports, it is the configuration Configure Robot saved (CONFIG_XML), line for line.
+  assert.equal(RobotConfig.newConfiguration(portals,assignments),CONFIG_XML);
+  assert.equal(RobotConfig.withType(assignments[0],'RevRoboticsCoreHexMotor').tag,'RevRoboticsCoreHexMotor');
+  // An Expansion Hub on its own USB cable is a second portal, and the Control Hub stays the parent.
+  const usb=RobotConfig.modulesFromScan([...portals,{serial:'DQ12AB34',modules:[{address:3,parent:true,imu:'BNO055'}]}]);assert.deepEqual(usb.map(m=>[m.name,m.parent]),[['Control Hub',true],['Expansion Hub 2',false],['Expansion Hub 3',false]]);
+  assert.match(RobotConfig.newConfiguration([...portals,{serial:'DQ12AB34',modules:[{address:3,parent:true,imu:'BNO055'}]}],[]),/<LynxUsbDevice name="Expansion Hub Portal 1" serialNumber="DQ12AB34" parentModuleAddress="3">\n        <LynxModule name="Expansion Hub 3" port="3" \/>/);
+  assert.deepEqual(RobotConfig.lynxSerials('{"map":[{"key":"(embedded)","value":"LYNX_USB_DEVICE"},{"key":"UVC:046D:0825","value":"WEBCAM"}]}'),['(embedded)']);
+});
+
+test('Send to robot scans the hubs and saves a new configuration as the active one, never over a saved one',async t=>{
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot2.close());
+  const r=await read({scan:true});assert.deepEqual(r.portals,[{serial:'(embedded)',modules:[{address:173,parent:true,imu:'BHI260'},{address:2,parent:false,imu:'BNO055'}]}]);
+  const plan=RobotConfig.planPorts([{name:'kicker',label:'Intake 1 kicker servo',device:'servo'}],{modules:RobotConfig.modulesOf(r,r.portals),devices:r.devices}),xml=RobotConfig.addDevices(r.xml,plan.assignments);
+  const write=async(name,text)=>{const socket=await station();try{return await writeConfiguration(ROBOT,{name,xml:text},{socket});}finally{await socket.close();}};
+  assert.deepEqual(await write('competition Deck',xml),{name:'competition Deck',devices:11,restarted:true});
+  assert.equal(robot2.sim.active,'competition Deck');assert.equal(robot2.sim.restarts,1,'the robot restarts to build its hardware map from it');
+  assert.equal(robot2.sim.configurations.find(c=>c.name==='competition').xml,CONFIG_XML,'the configuration it came from is kept as it was');
+  const after=await read();assert.equal(after.active.name,'competition Deck');assert.deepEqual(after.configurations,['competition','competition Deck']);
+  assert.ok(after.devices.some(d=>d.name==='kicker'&&d.kind==='servo'&&d.hub==='Control Hub'&&d.port===0));
+  await assert.rejects(write('Competition deck',xml),/already has a configuration named “Competition deck”/);assert.equal(robot2.sim.restarts,1);
+  await assert.rejects(write('bad;name',xml),/letters, digits, spaces/);
+  await assert.rejects(write('other',xml.replace('"kicker"','"a;b"')),/cannot take a configuration with a ;/);
+  // A robot with no configuration at all.
+  robot2.sim.configurations=[];robot2.sim.active='No Config Set';const none=await read({scan:true});assert.equal(none.active,null);assert.equal(none.portals.length,1);
+});
+
+test('the guided check runs from Deck: INIT and START, answers pressed on gamepad 1, the results read back, then STOP',async t=>{
+  // The simulated hub runs a stand-in for any op mode named "... check (Deck)": a wheel question, then a servo to move.
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT,opModes:[...OP_MODES,{flavor:'TELEOP',group:'Deck Driver Station',name:'Test check (Deck)',source:'ONBOTJAVA'}]});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot2.close());const socket=await station(),updates=[];
+  try{
+    const check=runCheck(ROBOT,'Test check (Deck)',{socket,onUpdate:u=>updates.push(u)});
+    const seen=async test=>{const end=Date.now()+8000;while(Date.now()<end){const u=updates.at(-1);if(u&&test(u.lines||[]))return u;await delay(40);}throw Error('not seen; last: '+JSON.stringify(updates.at(-1)));};
+    await seen(l=>l.includes('Answer : A: yes | B: no, the other way | X: nothing moved | Y: again'));assert.equal(robot2.sim.opState,'running','INIT, then START');
+    assert.equal(check.press('b'),true);await seen(l=>l.some(x=>x.startsWith('Answer : D-pad up/down: move')));
+    check.press('dpad_up');await delay(400);check.press('dpad_right');await seen(l=>l.some(x=>x.includes('Now at 0.460.')));
+    // Controller 1 of this computer answers too, held as long as it is held.
+    check.pad({buttons:Object.assign([],{0:{pressed:true}})});await delay(250);check.pad({buttons:[]});
+    const done=await seen(l=>l.includes('Step : Done'));
+    assert.deepEqual(F.checkResults(done.lines.find(x=>x.startsWith('Deck results : '))),{'robot.frontLeft.reversed':'false','intakes.0.downPos':'0.460'});
+    assert.equal(check.press('start'),false,'only the buttons the check answers with');
+    check.stop();assert.equal(await check.ended,'stopped');assert.equal(robot2.sim.opState,'stopped','Deck stops the op mode');assert.equal(check.press('a'),false);
+    await assert.rejects(runCheck(ROBOT,'Missing check (Deck)',{socket}).ended,/The robot has no op mode “Missing check \(Deck\)”\. Send to robot first/);
+  }finally{await socket.close();}
+});
+
+test('Send to robot refuses a robot that another Driver Station is using, and an address that is not one',async t=>{
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT,reject:true});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot2.close());
+  await assert.rejects(read(),/Another Driver Station is connected/);
+  for(const bad of ['http://192.168.43.1','192.168.43.1:8080','a b','',null])assert.throws(()=>checkHost(bad),/Enter the robot address/);assert.equal(checkHost(' 192.168.43.1 '),'192.168.43.1');
+});
+
+test('Send to robot uploads the export with OnBot Java, builds it, keeps a copy of a file someone changed on the robot, and reports compile errors',async t=>{
+  let onbot;try{onbot=await startOnBotJava({address:'127.0.0.2',port:0});}catch(e){t.skip('127.0.0.2 loopback is unavailable: '+e.message);return;}
+  t.after(()=>onbot.close());const client=new OnBotJava('127.0.0.2',{port:onbot.port}),backupDir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-robot-backups-'));
+  // The real OnBot Java export: the autonomous and its check TeleOp.
+  const start={x:9.83,y:27,heading:0},route=P.plan({start,zones:[],pins:[{x:40,y:30,action:'Shoot'}],clearance:2},{front:8.5,rear:8.5,half:8.5}),layout={name:'Send test',start,zones:[]};
+  const out=F.onBotJava({route,layout,tuning:{},robot,localization:'fused',mechanisms:Mech.sanitize({enabled:true}),target:{x:59,y:58},setupName:'Send test',routeJava:X.java(route,layout,{polygon:P.polygon})});
+  const progress=[],first=await send('127.0.0.2',out.files,{client,backupDir,onProgress:(stage,file)=>progress.push(stage+(file?' '+file:''))});
+  assert.equal(first.built,true);assert.deepEqual(first.written,['PlannedRouteAuto.java','PlannedRouteCheck.java']);assert.deepEqual(first.backups,[]);assert.equal(onbot.counts.builds,1);
+  assert.deepEqual([...onbot.files.keys()],['/src/org/firstinspires/ftc/teamcode/PlannedRouteAuto.java','/src/org/firstinspires/ftc/teamcode/PlannedRouteCheck.java']);
+  assert.equal(onbot.files.get('/src/org/firstinspires/ftc/teamcode/PlannedRouteAuto.java'),out.source,'the file arrives exactly as exported');assert.deepEqual(progress,['uploading PlannedRouteAuto.java','uploading PlannedRouteCheck.java','building']);
+  // Someone edited the autonomous in OnBot Java: sending again keeps their copy on this computer first.
+  onbot.files.set('/src/org/firstinspires/ftc/teamcode/PlannedRouteAuto.java',out.source.replace('// Example: private DcMotorEx intake;','private int theirs;'));
+  const again=await send('127.0.0.2',out.files,{client,backupDir});assert.equal(again.backups.length,1);assert.match(fs.readFileSync(again.backups[0],'utf8'),/private int theirs;/);assert.match(path.basename(again.backups[0]),/PlannedRouteAuto\.java$/);
+  // Files in keep are written only when the robot does not have them yet.
+  const kept=await send('127.0.0.2',{'org/firstinspires/ftc/teamcode/RobotActions.java':'class RobotActions {}'},{client,keep:['org/firstinspires/ftc/teamcode/RobotActions.java']});assert.deepEqual(kept.written,['RobotActions.java']);
+  const keptAgain=await send('127.0.0.2',{'org/firstinspires/ftc/teamcode/RobotActions.java':'class RobotActions { int changed; }'},{client,keep:['org/firstinspires/ftc/teamcode/RobotActions.java']});assert.deepEqual([keptAgain.written,keptAgain.kept],[[],['RobotActions.java']]);
+  // A build that fails reports each error with its file and line.
+  const failing=await startOnBotJava({address:'127.0.0.2',port:0,compile:()=>['/src/org/firstinspires/ftc/teamcode/PlannedRouteAuto.java:42: error: cannot find symbol']});t.after(()=>failing.close());
+  const bad=await send('127.0.0.2',out.files,{client:new OnBotJava('127.0.0.2',{port:failing.port})});assert.equal(bad.built,false);assert.deepEqual(bad.errors,[{file:'PlannedRouteAuto.java',line:42,message:'cannot find symbol'}]);
+  // Paths stay under /src as Java files.
+  await assert.rejects(send('127.0.0.2',{'../evil.java':'x'},{client}),/not a Java source path/);
+});
+
+test('the OnBot Java form encoding and build log parsing',async()=>{
+  const text='a+b = 100% & "quoted" \'single\' (x)*! é\r\nline';assert.equal(new URLSearchParams('data='+formEncode(text)).get('data'),text,'every character survives the robot\'s form decoding');
+  assert.doesNotMatch(formEncode("!'()*"),/[!'()*]/);
+  assert.deepEqual(buildErrors('Foo.java:3:5: error: ; expected\nnote: something\nsrc/org/Bar.java:10: error: incompatible types'),[{file:'Foo.java',line:3,message:'; expected'},{file:'Bar.java',line:10,message:'incompatible types'}]);
+  // Nothing listening: the message says where it looked and what to check.
+  await assert.rejects(new OnBotJava('127.0.0.2',{port:9,timeout:2000}).available(),/Could not reach the robot's OnBot Java at http:\/\/127\.0\.0\.2:9.*Join the robot's Wi-Fi/);
+});

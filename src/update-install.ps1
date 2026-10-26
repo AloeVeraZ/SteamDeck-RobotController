@@ -34,6 +34,33 @@ try {
 if (Test-Path -LiteralPath (Join-Path $source 'DeckDriverStation.exe')) {
     Copy-Item -LiteralPath (Join-Path $source 'DeckDriverStation.exe') -Destination $destination -Force
 }
+# Explorer caches shortcut icons by path, so point shortcuts at a versioned icon file.
+try {
+    $iconVersion=(Get-Content -LiteralPath (Join-Path $destination 'app/package.json') -Raw | ConvertFrom-Json).version
+    $iconDir=Join-Path $destination 'icons'
+    New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
+    $icon=Join-Path $iconDir ('deck-'+$iconVersion+'.ico')
+    Copy-Item -LiteralPath (Join-Path $destination 'app/ui/icon.ico') -Destination $icon -Force
+    # Keep previous icon paths valid for cached, pinned and OneDrive-synced shortcuts.
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class DeckIconNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e,uint f,IntPtr a,IntPtr b); [DllImport("shell32.dll", EntryPoint="SHChangeNotify", CharSet=CharSet.Unicode)] public static extern void Path(uint e,uint f,string a,IntPtr b); }'
+    $launcher=Join-Path $destination 'DeckDriverStation.exe'
+    $shell=New-Object -ComObject WScript.Shell
+    $folders=@([Environment]::GetFolderPath('Desktop'), (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs'), (Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'))
+    foreach ($folder in $folders) {
+        if (!(Test-Path -LiteralPath $folder)) { continue }
+        foreach ($file in Get-ChildItem -LiteralPath $folder -Filter '*.lnk') {
+            $link=$shell.CreateShortcut($file.FullName)
+            if ($link.TargetPath -ieq $launcher) {
+                $link.IconLocation=$icon+',0'; $link.Save()
+                [DeckIconNotify]::Path(0x2000,0x1005,$file.FullName,[IntPtr]::Zero)
+            }
+        }
+    }
+    [DeckIconNotify]::SHChangeNotify(0x08000000,0,[IntPtr]::Zero,[IntPtr]::Zero)
+    $refresh=Join-Path $env:SystemRoot 'System32\ie4uinit.exe'
+    if (Test-Path -LiteralPath $refresh) { Start-Process -FilePath $refresh -ArgumentList '-show' -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue }
+    Write-Output 'Shortcut icons refreshed'
+} catch { Write-Output ('Shortcut icon refresh skipped: '+$_.Exception.Message) }
 $uninstallKey='HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\DeckDriverStation'
 if ((Test-Path -LiteralPath $uninstallKey) -and (Get-ItemProperty -LiteralPath $uninstallKey).InstallLocation -eq $destination) {
     $installedVersion=(Get-Content -LiteralPath (Join-Path $destination 'app/package.json') -Raw | ConvertFrom-Json).version

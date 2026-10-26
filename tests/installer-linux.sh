@@ -11,7 +11,7 @@ printf '#!/usr/bin/env bash\nprintf "%%s\\n" "%s/desktop"\n' "$fixture" > "$fixt
 for command in gio update-desktop-database; do printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/bin/$command"; done
 case "$shell_os" in MINGW*|MSYS*) printf '#!/usr/bin/env bash\ncase "$1" in -s) echo Linux;; -m) echo x86_64;; *) exit 1;; esac\n' > "$fixture/bin/uname";; esac
 chmod +x "$fixture/bin/"*
-export PATH="$fixture/bin:$PATH" XDG_DATA_HOME="$fixture/data" XDG_CONFIG_HOME="$fixture/config" TMPDIR="$fixture/tmp"
+export PATH="$fixture/bin:$PATH" XDG_DATA_HOME="$fixture/data" XDG_CONFIG_HOME="$fixture/config" TMPDIR="$fixture/tmp" DECK_NO_LAUNCH=1
 printf 'saved robot library' > "$fixture/config/robots.json"
 installer="$repo/dist/DeckDriverStation-SteamDeck.run"
 [[ -f "$installer" ]]

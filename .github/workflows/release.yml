@@ -16,6 +16,7 @@ jobs:
           node-version: '24'
       - run: node --test tests/*.test.cjs
       - run: bash tests/install-bootstrap.sh
+      - run: pwsh -NoProfile -File tests/install-bootstrap.ps1
       - id: meta
         shell: bash
         run: |
@@ -43,8 +44,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - run: sudo apt-get update && sudo apt-get install -y p7zip-full
         if: matrix.target == 'windows'
+      - name: Build the offline simulator (public assets only)
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in steamdeck) t=linux-x64;; windows) t=win32-x64;; macos-arm64) t=darwin-arm64;; esac
+          node tools/simulation/fetch.cjs --targets "$t"
+          node tools/simulation/build.cjs --public
       - run: python3 tools/package.py --target ${{ matrix.target }}
         env:
           PYTHONUTF8: '1'
@@ -74,3 +84,17 @@ jobs:
           args=()
           if [[ "$GITHUB_REF_NAME" == testing ]]; then args+=(--prerelease); fi
           gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "Deck Driver Station $TAG" --generate-notes "${args[@]}"
+      # The in-app updater reads this fixed download first, so update checks do not spend
+      # GitHub's 60-per-hour API allowance. Sizes and digests come from the release itself.
+      - name: Update the channel manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" == testing ]]; then channel=testing; else channel=main; fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" | jq --arg channel "$channel" '{schema:1,channel:$channel,releases:[{tag_name,prerelease,draft,body,assets:[.assets[]|{name,size,digest,state,browser_download_url}]}]}' > channel.json
+          jq -e --arg tag "$TAG" '.releases[0].tag_name==$tag and (.releases[0].assets|length)>0 and all(.releases[0].assets[];.digest!=null and .size>0)' channel.json
+          if ! gh release view "$channel-channel" >/dev/null 2>&1; then
+            gh release create "$channel-channel" --prerelease --latest=false --target "$GITHUB_SHA" --title "Deck Driver Station $channel channel (updater manifest)" --notes "Used by the in-app updater. Install from the versioned releases."
+          fi
+          gh release upload "$channel-channel" channel.json --clobber

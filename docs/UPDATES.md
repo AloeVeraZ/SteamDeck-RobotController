@@ -1,10 +1,12 @@
 # App updates and branches
 
-Open **⋮ → Updates**. The larger popup shows the installed version, saved channel, and GitHub
-repository. Switch between Main (stable) and Testing (experimental) in its dropdown.
+Open **⋮ → Updates**. The larger popup shows the installed version, saved channel, and two channel
+buttons: Main (stable) and Testing (experimental). The update source is fixed to
+this project; there is no editable repository field. Older saved repository
+overrides are ignored.
 Entering Testing requires accepting an experimental-features warning. The choice
 is saved outside the installation and survives restarts and updates. **Check for updates** reads GitHub Releases over HTTPS. Testing builds
-use prereleases named `testing-v2.4.2`; stable builds use `v2.4.2` and channel `main`.
+use prereleases such as `testing-v2.4.3`; stable builds use tags such as `v2.4.2` and channel `main`.
 The newest release in that channel must have the asset for this device. The app
 can return to an older Main version.
 
@@ -13,10 +15,36 @@ been published yet**. Errors and unpublished releases never say “up to date.�
 Private repositories need a distribution solution with authentication; this
 personal app uses public release downloads and stores no GitHub access tokens.
 
+**Checking without GitHub's API limit.** Unauthenticated GitHub API calls are limited to 60
+per hour for each network, shared by every device and tool on it. Each publish therefore also
+uploads `channel.json` to a fixed `testing-channel` / `main-channel` prerelease, with the
+newest release's assets, sizes and SHA-256 digests. **Check for updates** reads that file as
+an ordinary download, which the API limit does not apply to. Only if it is missing does the app
+call the API, sending the saved ETag so an unchanged list costs nothing. If GitHub still refuses,
+the app uses the last saved list, or says when the limit resets.
+
+**Update size.** Each release also publishes a small
+`DeckDriverStation-<version>-App-<base>.tar.gz` holding only the app code (well under 1 MB).
+`<base>` fingerprints what an installed copy keeps when only the code changes: the Electron
+version and the launchers. An install whose `app/build.json` base matches downloads just
+that package; anything else (an Electron upgrade, installs from before 2.4.18) downloads the
+full package for its platform. The dialog shows the exact size GitHub lists for the chosen
+asset before you download, and the progress counts against that size. A code-only update is
+rebuilt locally from this install's own runtime and then installed exactly like a full one.
+
+**Icons.** Windows shortcuts point at a versioned `icons\deck-<version>.ico`, and the update
+helper repoints Desktop, Start menu and pinned taskbar shortcuts and refreshes the shell icon
+cache. Linux refreshes the menu icon copy and desktop entries; macOS refreshes the bundle icon
+and re-registers the app with LaunchServices.
+
+Windows keeps previous versioned icon files so cached, pinned and OneDrive-synced
+shortcuts can still resolve them. Each updated shortcut also gets an explicit shell
+refresh notification.
+
 **Download update** checks the GitHub asset SHA-256 digest (or its exact matching
 `.sha256` file), size, and repository/release URL. Failed downloads are discarded.
-**Install & restart** extracts a new copy, validates its app name/version/runtime,
-then starts a helper that waits for this app to exit. The helper keeps the previous
+After verification, the same action automatically extracts a new copy, validates its app name/version/runtime,
+and starts a helper that waits for this app to exit. The helper keeps the previous
 app under the update's staging folder, replaces the installed files, and restarts.
 Saved robots, browser sessions, and operating-system Wi-Fi profiles remain outside
 the replaced installation. Helpers write `install.log` in the staging folder.

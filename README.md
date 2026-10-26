@@ -2,59 +2,30 @@
 
 ## ⬇️ Download
 
-**Install Main first.** Pick a download below or paste one command into your terminal.
-The commands always install the latest stable Main release; Testing is never selected during installation.
-Keep the same terminal command for future installs and updates—no version number needs editing.
+Paste the command for your terminal. It detects the supported device, downloads and verifies
+**Main**, installs the app, creates its desktop icon, and launches it. Reuse the same command
+for future Main releases; saved robots and settings are kept.
 
-| Device | Download Main 2.4.2 | Open it |
-| --- | --- | --- |
-| **Steam Deck LCD / OLED** | **[⬇ Download for Steam Deck](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-SteamDeck.run)** | Desktop Mode → Konsole: `bash ~/Downloads/DeckDriverStation-2.4.2-SteamDeck.run` |
-| **Windows x64** | **[⬇ Download Windows installer](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-Windows-Setup.exe)** | Double-click the downloaded installer. |
-| **Apple Silicon Mac** | **[⬇ Download for Apple Silicon](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/download/v2.4.2/DeckDriverStation-2.4.2-macOS-arm64.zip)** | Extract, then open `Install-Mac.command`. |
+| Device | One-line install |
+| --- | --- |
+| **Steam Deck LCD / OLED · Konsole** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh \| bash` |
+| **Windows x64 · PowerShell** | `irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 \| iex` |
+| **Apple Silicon · Terminal** | `curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh \| bash` |
 
-The installer creates the app shortcuts and preserves saved robots and settings.
-After installation, open **⋮ → Updates** to switch to **Testing**. Accept the experimental
-warning to use it; switch back to **Main** from the same menu whenever you want.
-
-### Steam Deck (or Linux x64)
-
-In Desktop Mode, open **Konsole** and paste:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash
-```
-
-This downloads and verifies the current Main installer, then installs it. No laptop download server is needed.
-
-### Windows
-
-Open **PowerShell** and paste:
-
-```powershell
-irm https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.ps1 | iex
-```
-
-The command downloads and verifies the current Main installer, installs it, and opens the app.
-
-### Mac (Apple Silicon)
-
-Open **Terminal** and paste:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/AloeVeraZ/SteamDeck-RobotController/main/install.sh | bash
-```
-
-The command downloads and verifies the current Main package, then runs its installer.
-
-No administrator account is required. The one-line commands check the download's SHA-256
-checksum first. After installing, use **⋮ → Updates** inside the app to stay current.
-All versions are on the [Releases page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases).
+Steam Deck/Linux and Apple Silicon use the **same command**. Windows uses its built-in
+PowerShell shell. No administrator account is required. On Steam Deck, run from Desktop Mode;
+add the installed app through Steam → Games → Add a Non-Steam Game for Gaming Mode.
+After installing, **⋮ → Updates** lets you opt into experimental **Testing** or return to **Main**.
+Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/latest).
 
 ---
 
 An app for driving your robots from Steam Deck, Linux, Windows, and Mac.
 The robot icon is preserved. There are two main views: **Drive** (the robot's
 controls) and **Settings** (Wi-Fi and saved addresses).
+The shared theme follows MotionModule: warm near-black surfaces, locally bundled
+Inter/Barlow Condensed fonts, steel-blue actions and distinct connection, warning
+and stop states. See the [design audit and scope](docs/DESIGN.md).
 
 The app works with two kinds of robots, detected automatically when an address is opened:
 
@@ -80,24 +51,110 @@ The app works with two kinds of robots, detected automatically when an address i
    credentials when switching networks; a password prompt appears if needed.
    Settings also shows every robot saved for the current Wi-Fi as a grid of cards.
 
-Two controller indicators appear in the header. On Deck, controller one is the
-built-in gamepad when it is the first connected gamepad. A second Bluetooth/USB
-controller can be shown. The robot website retains its own controller assignments;
-the launcher does not invent second-controller robot controls.
+Controller 1 is the default. Recognized built-in handheld controls are preferred; if the OS
+exposes an ordinary Xbox-style controller or an unknown handheld, its first standard gamepad
+is selected. Both controller icons are always visible. Click one to open its live test screen:
+sticks, triggers, and buttons show their standard gamepad names, indices, and values.
+Choose **Assign/Reassign** and press any button on the desired pad. Selecting the other
+slot's pad swaps them. The assignment press is suppressed until buttons are released and
+sticks centered. **Use automatic assignment** restores the preferred built-in Controller 1.
+The test screen stays open until you close it and holds robot gamepad outputs at rest.
 
-## Package details
+The dashboard is **touch first**: tap Drive/Settings, menus, Wi-Fi rows, saved robots
+and controller cards; swipe lists to scroll. Tap a text field for the built-in keyboard,
+including addresses, Wi-Fi passwords and robot sign-in forms. It also handles taps
+reported as mouse clicks on recognized handhelds. Gamepad inputs are reserved for the
+robot; the dashboard reads live controller diagnostics through its separate input bridge.
+Robot inputs stay neutral while its touch keyboard is open and until controls return
+to center after closing it. See [touchscreen controls](docs/TOUCH.md).
 
-Each release (and a local `dist` build) contains version-numbered packages, plus version-free copies used by the links above:
+Input support follows the actual **standard Gamepad layout** reported by Electron,
+without a brand allowlist. That includes recognized Logitech, Nintendo, PlayStation,
+Xbox and third-party USB/Bluetooth gamepads. Controller setup identifies the physical
+model only when the driver provides enough information. Nintendo and PlayStation
+button labels follow their physical positions; robot button indices stay standard.
+Unmapped devices are available for raw diagnostics, but their robot outputs stay neutral.
+Use a supported gamepad mode (Logitech **X**, or Steam Input **Gamepad**) and reconnect.
+See [controller support and limitations](docs/CONTROLLERS.md) and the
+[100-profile software regression catalog](docs/CONTROLLER-PROFILES.md).
 
-| Platform | Package | Install |
-| --- | --- | --- |
-| Steam Deck / Linux x64 | `DeckDriverStation-2.4.2-SteamDeck.run` | Run `bash DeckDriverStation-2.4.2-SteamDeck.run`. Creates application-menu and desktop shortcuts. Tar archive is also available. |
-| Windows x64 | `DeckDriverStation-2.4.2-Windows-Setup.exe` | Run the setup executable. Creates branded desktop/Start-menu shortcuts and an installed-app entry. Portable ZIP is also available. |
-| Apple Silicon Mac | `DeckDriverStation-2.4.2-macOS-arm64.zip` | Extract; run `Install-Mac.command`. It installs and ad-hoc signs the app locally. |
+The live illustration follows [Hardware Tester's controller layout](https://hardwaretester.com/gamepad):
+one flat standard-input diagram, detached shoulders/triggers, offset sticks, and live
+stick-position plots. All 17 standard button indices and analog trigger levels remain visible.
+This is an input map rather than a picture of the connected physical model. Known model names appear throughout setup;
+ambiguous Xbox/XInput or virtual drivers display **Generic controller**. **Driver details**
+keeps the original OS identifier available. A Steam Deck host alone cannot prove that an
+Xbox-compatible input is its built-in controller. Steam Deck desktop-shortcut guidance
+appears only on detected Steam Deck hardware when launched outside Steam.
 
-The Apple Silicon package is not Apple-notarized; approval may be required in Privacy &
-Security. See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md),
-and [validation and remaining device checks](docs/VALIDATION.md).
+Saved robots default to **one controller**. Choose **Two controllers** in that robot's Settings
+when it needs a second operator. Slot assignment applies to the FTC station and websites
+using the standard Gamepad API; a custom USB, Bluetooth, or proprietary robot protocol needs
+its own compatible integration. Browser gamepad visibility may require pressing a button first.
+Two identical controllers without distinct OS identities may need reassignment after reconnecting.
+
+The expand button between **Close robot** and the robot-view label opens **robot-only
+fullscreen**. Only a corner **×** remains. Click it or press **Esc** to restore the
+previous app view; the robot page and controller assignments remain open. The three-dot
+menu's **Toggle fullscreen** still controls the whole app independently.
+
+**Steam Deck desktop shortcut:** keep Steam running and hold **☰ Menu** until Gamepad Mode
+appears, then press **A**. In Desktop Mode, Steam can map sticks to the mouse and scroll;
+the app needs gamepad input. Verify both sticks in the test screen before returning to Drive.
+For Gaming Mode, add the app to Steam and use a **Gamepad** layout with both sticks as joysticks.
+Windows/Linux handheld utilities and Steam Input layouts need the same gamepad output mode;
+external controllers pair through the OS. The app does not change system-wide desktop bindings.
+See [Steam Input's gamepad emulation documentation](https://partner.steamgames.com/doc/features/steam_controller/steam_input_gamepad_emulation_bestpractices).
+
+The Apple Silicon package is not Apple-notarized; approval may be required in Privacy & Security.
+See [full setup](docs/QUICKSTART.md), [website compatibility](docs/COMPATIBILITY.md), and
+[validation and remaining device checks](docs/VALIDATION.md).
+
+## Offline autonomous simulator
+
+The **Simulate** tab plans and test-drives FTC autonomous routes offline, with no extra
+downloads: physics, the path follower and the Java runtime it needs ship inside the app.
+
+- Set up your robot (drivetrain, size, motor RPM, sensors) and a field: BIOBUZZ (this season), or a
+  custom field with your own obstacles for any season.
+- Click to add paths or draw the route; the planner keeps the whole robot clear of obstacles and can
+  turn it to fit. Like the Pedro Pathing visualizer, a path can be a **custom curve** with draggable
+  handles, and the robot can hold a heading, turn, face a target or **face along the path**. Right-click
+  a pin or a path for pauses, turns, spins and **action paths** (run an intake or shooter while driving).
+  Switching the BIOBUZZ alliance moves the route to the other side. Drag the route preview to slide a
+  robot outline along the plan before running physics.
+- Describe your **mechanisms** in plain settings (intake sides, storage, index time, turret or fixed
+  shooter, spin-up) and the hardware they run on: motor or continuous-servo rollers, one- or two-motor
+  flywheels with or without an encoder, motor, servo pusher or servo gate feeders, motor or servo
+  turrets, and which way each device turns. Routes use Intake, Spin up, Aim and Shoot, and the physics
+  picks up, launches and scores real BIOBUZZ pieces. How these reach the robot is explained in
+  [mechanism actions](docs/MECHANISM_ACTIONS.md).
+- Run it through physics and replay it with a timeline and mechanism views, graph its speed, heading, sensor error, drive power and mechanisms, see a run analysis (pieces picked up, shot and scored), then export
+  for your controller: Control Hub OnBot Java or TeamCode with working mechanism code, **Pedro Pathing
+  3** TeamCode for a Pedro Quickstart project, or a MotionModule `autonomous.py`, plus a `.pp` path file
+  or timed commands (a `.pp` from the Pedro Pathing visualizer can be imported too). Every Control Hub export is compiled against the real FTC SDK 12.0 (and Pedro
+  Pathing 3.0.2) by the project's checks, and each export lists what still needs your robot: hardware
+  names, tuning and a real test. Control Hub exports come with a guided check TeleOp that turns each
+  drive motor and mechanism device on the robot and asks what it did, then finds where the odometry
+  pods, Pinpoint or OTOS sit from two pushes by hand and a turn on the spot. **Send to robot** checks the
+  device names against the Control Hub's own configuration (and can use its names), adds any missing
+  device to a new configuration with the port to plug it into, uploads and builds the OnBot Java over
+  Wi-Fi, and runs the guided check from the app, putting its answers (directions, servo positions,
+  turret calibration, flywheel PIDF, odometry offsets) into the setup. Open a log from your real robot to compare where
+  it drove with the plan.
+- Or do all of it from a terminal with `deck-sim` (plan, test-drive, optimize, export, compare a robot log) and have the
+  result open in the app on Run & review.
+
+See [the simulator guide](docs/SIMULATION.md).
+
+## License and credits
+
+Deck Driver Station's own code is [MIT licensed](LICENSE). It builds on Electron, Pedro Pathing,
+DSIM, Rapier, three.js, OpenJDK and more; see [credits and third-party notices](THIRD-PARTY-NOTICES.md),
+also in the app under Settings → Preferences → Licenses and credits. The simulator's physics come
+from [DSIM](https://github.com/genius0412/dsim) by Dohun Kim, which is licensed for noncommercial
+use only, so complete releases are free for noncommercial use such as team practice. Not
+affiliated with or endorsed by FIRST®, REV Robotics, Valve or any project above.
 
 ## Why the local bridge exists
 
@@ -107,7 +164,8 @@ robot's HTTP, API, camera, and same-port WebSocket traffic through loopback. The
 robot still supplies the HTML, JavaScript, controls, sessions, and safety behavior.
 Nothing is hosted in the cloud.
 
-Robot content runs without Node or desktop IPC.
+Robot content has no Node access or desktop settings API. A narrow data-only
+input bridge supplies controller slots; assignment stays in the app's UI.
 The desktop uses a separate sandboxed WebContentsView, so robots with frame
 restrictions still work. Robot browser cookies are isolated by network/address.
 Robot passwords are never stored in the address JSON. The app does not bypass
@@ -119,17 +177,30 @@ transport (an FTC robot is sent STOP first). The robot's own stop/watchdog
 behavior remains authoritative.
 No launcher can provide a hardware emergency stop for an arbitrary robot website.
 
+Once detected by the station, controllers stay assigned across robot reloads and Close robot/reopen.
+The station forwards their current input to the robot; each robot page needs no separate controller activation.
+
+Sleep or a lost Wi-Fi connection keeps the selected robot's address and network.
+After reconnecting Wi-Fi, choose **Try again** to reopen it without restarting the app
+or retyping its address. Controls stay neutral until held sticks/buttons are released;
+robot enable and initialization are never automatically restored.
+The station forwards their current input to the robot; each robot page needs no separate controller activation.
+
+Robot-hosted Wi-Fi can use [Find robot automatically](docs/DISCOVERY.md) in Settings.
+It is opt-in and checks the hotspot gateway only; home/shared networks keep manual or saved addresses.
+Controller setup includes [drift measurement and app deadzones](docs/CONTROLLERS.md#calibration-and-steam-deck-navigation).
+
 ## Development
 
-Use **⋮ → Updates** to check the GitHub repository, download a verified update,
-then **Install & restart**. Builds from `main` follow the **Main** (stable) channel; builds from `testing` follow **Testing**.
+Use **⋮ → Updates → Check for updates**, then **Download update**. The app verifies
+the download, installs it automatically, and restarts. Builds from `main` follow the **Main** (stable) channel; builds from `testing` follow **Testing**.
 Checks distinguish no published release, current version, available version, and
 network/access errors. A robot hotspot without internet cannot check GitHub.
 See [update and release setup](docs/UPDATES.md).
 
 New work belongs on `testing`; approved changes merge into `main`.
 Public install commands always read Main and select its latest stable release.
-Testing remains available through the installed app's update-channel selector.
+Testing remains available through the installed app's Main and Testing buttons.
 
 ```bash
 npm install

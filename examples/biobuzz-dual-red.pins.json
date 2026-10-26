@@ -1,0 +1,53 @@
+[
+  {
+    "x": 13,
+    "y": 24,
+    "action": "Shoot",
+    "note": "Shoot the 4 preloads from beside the start: 3 tip the hive (its start cell holds 3 nectar)",
+    "path": {
+      "kind": "action",
+      "action": "Spin up",
+      "style": "spline",
+      "note": "Off the wall, flywheels spinning up"
+    }
+  },
+  {
+    "x": 10,
+    "y": 13,
+    "action": "Intake",
+    "actionSeconds": 0.1,
+    "path": {
+      "kind": "action",
+      "action": "Intake",
+      "style": "sharp",
+      "note": "Front intake sweeps the 4 garden pollen in the corner"
+    },
+    "note": "Front intake holds the last garden pollen a moment"
+  },
+  {
+    "x": 28,
+    "y": 104,
+    "action": "Shoot",
+    "cell": "other",
+    "note": "Shoot the garden pollen into the other cell (up after the tip)",
+    "path": {
+      "kind": "action",
+      "action": "Spin up",
+      "style": "spline",
+      "note": "Up the left side to the rear of the hive"
+    }
+  },
+  {
+    "x": 11,
+    "y": 107,
+    "action": "Shoot",
+    "cell": "other",
+    "note": "PARK in the red loading zone and shoot its 4 pollen into the other cell",
+    "path": {
+      "kind": "action",
+      "action": "Intake",
+      "style": "sharp",
+      "note": "Right-side intake sweeps the 4 loading-zone pollen"
+    }
+  }
+]

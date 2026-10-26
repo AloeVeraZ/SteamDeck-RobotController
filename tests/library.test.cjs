@@ -1,6 +1,12 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict');const fs=require('node:fs'),path=require('node:path'),os=require('node:os');const {Library,normalizeUrl}=require('../src/library.cjs');
 function setup(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-library-test-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return path.join(dir,'robots.json');}
+test('saved robots default to one controller and remember an explicit second controller',t=>{
+ const file=setup(t),lib=new Library(file),p=lib.upsert({url:'robot.local'});assert.equal(p.controllerCount,1);
+ lib.upsert({...p,controllerCount:2});assert.equal(new Library(file).get(p.id).controllerCount,2);assert.equal(lib.upsert({id:p.id,url:p.url}).controllerCount,2);
+ for(const count of [0,3,'bad'])assert.throws(()=>lib.upsert({...p,controllerCount:count}));
+ const old=JSON.parse(fs.readFileSync(file));delete old.robots[0].controllerCount;fs.writeFileSync(file,JSON.stringify(old));assert.equal(new Library(file).get(p.id).controllerCount,1);
+});
 test('IP, hostname, port, path, and query normalize; non-web URLs and credentials are refused',()=>{
   assert.equal(normalizeUrl('192.168.4.1'),'http://192.168.4.1/');assert.equal(normalizeUrl('robot.local:8080/drive?mode=teleop'),'http://robot.local:8080/drive?mode=teleop');
   for(const s of ['file:///etc/passwd','javascript:alert(1)','http://user:secret@robot.local',''])assert.throws(()=>normalizeUrl(s));

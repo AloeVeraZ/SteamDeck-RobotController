@@ -1,12 +1,12 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><title>FTC Driver Station</title><link rel="stylesheet" href="ds.css"></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><title>FTC Driver Station</title><link rel="stylesheet" href="../tokens.css"><link rel="stylesheet" href="ds.css"><link rel="stylesheet" href="../motion-theme.css"><link rel="stylesheet" href="../touch.css"></head>
 <body>
 <header class="bar">
   <div class="brand" title="Deck Driver Station"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="20" rx="6"/><circle cx="11.5" cy="16" r="3" class="eye"/><circle cx="20.5" cy="16" r="3" class="eye"/><path d="M11 22h10M16 7V3" class="line"/><circle cx="16" cy="3" r="1.6"/></svg><span id="ds-name">Driver Station</span></div>
   <div id="link-banner" class="banner searching"><span id="link-text">Searching for Robot</span></div>
   <div class="net"><div><span>Network:</span> <b id="network">—</b></div><div><span>Ping:</span> <b id="ping">No Heartbeat</b></div></div>
   <div id="signal" class="signal" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
-  <button id="pad-1" class="pad" title="Press START + A on a gamepad to make it User 1"><svg viewBox="0 0 48 30" aria-hidden="true"><path d="M13 3h22c6 0 10 5 11 12l1 7c.4 4-2 6-5 6-2.4 0-4-1.6-5.5-3.8L34 20H14l-2.5 4.2C10 26.4 8.4 28 6 28c-3 0-5.4-2-5-6l1-7C3 8 7 3 13 3Z"/></svg><span>User 1</span></button>
-  <button id="pad-2" class="pad" title="Press START + B on a gamepad to make it User 2"><svg viewBox="0 0 48 30" aria-hidden="true"><path d="M13 3h22c6 0 10 5 11 12l1 7c.4 4-2 6-5 6-2.4 0-4-1.6-5.5-3.8L34 20H14l-2.5 4.2C10 26.4 8.4 28 6 28c-3 0-5.4-2-5-6l1-7C3 8 7 3 13 3Z"/></svg><span>User 2</span></button>
+  <button id="pad-1" class="pad" title="Click, then press a button to assign controller 1"><svg viewBox="0 0 48 30" aria-hidden="true"><path d="M13 3h22c6 0 10 5 11 12l1 7c.4 4-2 6-5 6-2.4 0-4-1.6-5.5-3.8L34 20H14l-2.5 4.2C10 26.4 8.4 28 6 28c-3 0-5.4-2-5-6l1-7C3 8 7 3 13 3Z"/></svg><span>User 1</span></button>
+  <button id="pad-2" class="pad" title="Click, then press a button to assign controller 2"><svg viewBox="0 0 48 30" aria-hidden="true"><path d="M13 3h22c6 0 10 5 11 12l1 7c.4 4-2 6-5 6-2.4 0-4-1.6-5.5-3.8L34 20H14l-2.5 4.2C10 26.4 8.4 28 6 28c-3 0-5.4-2-5-6l1-7C3 8 7 3 13 3Z"/></svg><span>User 2</span></button>
   <button id="ds-more" class="more" aria-label="Driver Station menu" aria-expanded="false">•••</button>
   <div id="ds-menu" class="menu" hidden>
     <button id="menu-restart">Restart Robot</button><button id="menu-manage">Program &amp; Manage</button><button id="menu-camera">Camera Stream</button><button id="menu-gamepads">Gamepad assignment</button><button id="menu-about">About</button>
@@ -37,17 +37,17 @@
       <div class="tile ds-batt"><span id="ds-battery-text">DS: —</span><span class="batt small"><i id="ds-battery-fill"></i></span></div>
       <div id="volts-tile" class="tile volts"><span class="batt big"><b>−</b><b>+</b></span><div><b id="volts"></b><small id="volts-min"></small></div><small id="rc-battery" hidden></small></div>
     </div>
-    <div class="status">
-      <p id="status-line">Status : Robot is stopped</p>
-      <p id="system-message" class="system" hidden></p>
+    <div class="status"><h2 class="status-heading">Robot status &amp; telemetry</h2>
+      <p id="status-line" role="status">Status : Robot is stopped</p>
+      <p id="system-message" class="system" role="alert" hidden></p>
       <div id="telemetry" class="lines" aria-live="polite"></div>
       <figure id="camera" class="camera" hidden><img id="camera-image" alt="Robot camera frame"><figcaption>Tap the image for a new frame · <button id="camera-close" class="link">Close camera</button></figcaption></figure>
     </div>
   </section>
 </main>
-<section id="assign-hint" class="assign" hidden><b>Gamepad connected</b><span>Press <kbd>START</kbd> + <kbd>A</kbd> for User 1 or <kbd>START</kbd> + <kbd>B</kbd> for User 2</span></section>
+<section id="assign-hint" class="assign" hidden><b>Controller 1</b><span>Click the Controller 1 icon in the app header, then press a button to assign it.</span></section>
 <div id="picker" class="picker" hidden><div class="picker-card" role="dialog" aria-labelledby="picker-title"><div class="picker-head"><h2 id="picker-title">Op Modes</h2><button id="picker-close" class="link">Close</button></div><div id="picker-list" class="picker-list" role="listbox"></div></div></div>
 <dialog id="ds-dialog"><h2 id="dialog-title"></h2><pre id="dialog-text"></pre><div class="dialog-actions"><button id="dialog-ok" class="ok">OK</button></div></dialog>
 <div id="progress" class="progress" hidden><span id="progress-text"></span><progress id="progress-bar"></progress></div>
 <div id="ds-toast" class="toast" role="status" hidden></div>
-<script src="robocol.js"></script><script src="ds.js"></script></body></html>
+<script src="../controllers.js"></script><script src="robocol.js"></script><script src="ds.js"></script></body></html>

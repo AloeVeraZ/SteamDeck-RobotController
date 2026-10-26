@@ -1,0 +1,5 @@
+{
+  "name": "cad-build-deps",
+  "private": true,
+  "dependencies": { "meshoptimizer": "0.25.0" }
+}

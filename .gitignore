@@ -4,3 +4,11 @@ dist/
 test-results/
 __pycache__/
 *.log
+sim-runtime/
+ui/vendor/
+ui/assets/robots/*.glb
+
+# Third-party CAD whose terms do not allow redistribution: kept for personal local builds only,
+# never committed or packaged (see THIRD-PARTY-NOTICES.md).
+ui/assets/fields/*.glb.gz
+ui/assets/robots/*.glb.gz

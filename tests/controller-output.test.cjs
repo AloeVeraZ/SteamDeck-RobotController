@@ -1,0 +1,8 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {controllerOutput}=require('../src/controller-output.cjs');
+const slots=[{id:'Built-in',index:3,mapping:'standard'},{id:'USB pad',index:0,mapping:'standard'}];
+function state(){return {count:2,slots,readings:slots.map(p=>({...p,axes:[.012345,-.678901,0,0],buttons:[.612345,1],buttonPressed:[false,true],buttonTouched:[true,true]})),blocked:[],deadzones:[0,0]};}
+test('station output forwards both logical pads with analog precision and physical press flags',()=>{const result=controllerOutput(state());assert.deepEqual(result.map(p=>p.index),[0,1]);assert.equal(result[0].axes[1],-.678901);assert.deepEqual(result[0].buttons[0],{value:.612345,pressed:false,touched:true});assert.equal(result[1].id,'USB pad');assert.equal(result[0].buttonPressed,undefined);});
+test('no raw driving data leaks to robot IPC while paused, captured, blocked, or unmapped',()=>{for(const change of [{paused:true},{capture:{slot:1}},{blocked:['3:Built-in','0:USB pad']},{slots:slots.map(p=>({...p,mapping:''}))}]){const result=controllerOutput({...state(),...change});assert.ok(result.every(p=>p.axes.every(v=>v===0)&&p.buttons.every(b=>b.value===0&&!b.pressed&&!b.touched)));}});
+test('inactive slots and mismatched identities disappear; explicit deadzone is applied once',()=>{const s=state();s.count=1;assert.equal(controllerOutput(s)[1],null);s.readings[0].id='Another device';assert.equal(controllerOutput(s)[0],null);const calibrated=state();calibrated.deadzones=[.1,0];calibrated.readings[0].axes=[0,.55,0,0];assert.ok(Math.abs(controllerOutput(calibrated)[0].axes[1]-.5)<1e-10);assert.equal(controllerOutput(calibrated)[1].axes[0],.012345);});

@@ -8,6 +8,9 @@ if [[ "$platform" == darwin ]]; then
   /usr/bin/codesign --force --deep --sign - "$source_dir"
   mv -- "$destination" "$stage/previous.app"
   if ! mv -- "$source_dir" "$destination"; then mv -- "$stage/previous.app" "$destination"; exit 1; fi
+  # Finder and the Dock cache bundle icons; touching and re-registering shows the new one.
+  touch -- "$destination" || true
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$destination" >/dev/null 2>&1 || true
   /usr/bin/open "$destination"
 else
   [[ -f "$destination/app/package.json" && -f "$source_dir/launch.sh" ]] || exit 1
@@ -23,5 +26,16 @@ else
     mv -- "$source_dir/$item" "$destination/$item"; installed+=("$item")
   done
   trap - ERR
+  # Refresh the menu icon copy and desktop entries so launchers show the updated icon.
+  data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+  menu_icon="$data_dir/icons/hicolor/scalable/apps/deck-driver-station.svg"
+  if [[ -f "$menu_icon" && -f "$destination/app/ui/icon.svg" ]]; then cp -- "$destination/app/ui/icon.svg" "$menu_icon" || true; fi
+  desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || printf '%s/Desktop' "$HOME")"
+  for entry in "$data_dir/applications/deck-driver-station.desktop" "$desktop_dir/Deck Driver Station.desktop"; do
+    if [[ -f "$entry" ]]; then touch -- "$entry" || true; fi
+  done
+  if [[ -d "$data_dir/icons/hicolor" ]]; then touch -- "$data_dir/icons/hicolor" || true; fi
+  command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$data_dir/icons/hicolor" >/dev/null 2>&1 || true
+  command -v update-desktop-database >/dev/null && update-desktop-database "$data_dir/applications" >/dev/null 2>&1 || true
   "$destination/launch.sh" >/dev/null 2>&1 &
 fi

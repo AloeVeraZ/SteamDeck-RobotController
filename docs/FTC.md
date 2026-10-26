@@ -52,10 +52,16 @@ desktops, stacked on narrow windows like the phone app.
 | Status | `Robot is stopped` / `Initialized …` / `Running …`, robot errors and warnings, then the op mode's telemetry (classic, monospace, and HTML formats) |
 | ••• menu | Restart Robot, Program & Manage, Camera Stream, Gamepad assignment, About |
 
-- **Gamepads:** like the FTC Driver Station, press **START + A** to make a gamepad User 1
-  (`gamepad1`) or **START + B** for User 2 (`gamepad2`). On a Steam Deck, the built-in controls
-  become User 1 automatically; a second controller still uses START + B (START is the ☰ button).
-  Inputs are sent only after assignment, and only while the Driver Station is visible and
+- **Gamepads (Testing 2.4.5):** Controller 1 (`gamepad1`) defaults to recognized built-in
+  handheld controls, or the OS's first standard gamepad. This also works on ordinary
+  computers and unknown handhelds. Both header slots stay visible. Click a slot to
+  test its sticks, triggers and buttons; choose **Assign/Reassign**, then press a button
+  to select a pad. The test screen stays open until **Done**. Manual choices are saved.
+  Each saved robot defaults to one controller. Select **Two controllers** in its
+  Settings to send Controller 2 (`gamepad2`) to the robot; it can be assigned on standby
+  beforehand. Choosing the other slot's pad swaps the two. Assignment presses stay
+  neutral until buttons are released and sticks centered.
+  Inputs are sent only while the Driver Station is visible and
   focused. Opening Settings, a dialog, or another window sends the gamepads back to rest.
 - **Auto-transition:** when an Autonomous op mode with `autoTransition` stops, its TeleOp is
   selected and initialized automatically.
@@ -83,8 +89,33 @@ desktops, stacked on narrow windows like the phone app.
 - This is an independent implementation written from the published FTC SDK sources. It is not
   the REV Driver Hub software and is not certified for FIRST competitions; event rules may
   require an official Driver Station.
-- Not implemented: robot configuration editing, Wi-Fi channel/password changes, firmware
-  updates, Self Inspect, match logging, and gamepad LED effects.
+- Not implemented: editing a robot configuration device by device, Wi-Fi channel/password
+  changes, firmware updates, Self Inspect, match logging, and gamepad LED effects. The simulator's
+  Send to robot (below) saves new configurations, but never changes or replaces a saved one.
+
+## Sending an autonomous from the simulator
+
+Simulation → Run & review → Export → **Send to robot** puts an OnBot Java autonomous and its
+check TeleOp on a Control Hub over its Wi-Fi. It reads the robot's active configuration with the
+same commands the FTC Driver Station uses (`CMD_REQUEST_CONFIGURATIONS`,
+`CMD_REQUEST_PARTICULAR_CONFIGURATION`) and checks every device name the code uses. A device the
+robot does not have goes into a new configuration: Deck scans the hubs (`CMD_SCAN`,
+`CMD_DISCOVER_LYNX_MODULES`), plans a port for each device, and saves and activates the result
+(`CMD_SAVE_CONFIGURATION`, then `CMD_RESTART_ROBOT`). Then it uploads and builds the files with
+the hub's own OnBot Java server on port 8080, and Drive selects the new autonomous the next time
+the robot is opened. It never starts the autonomous.
+
+Its **Guided check** runs the check TeleOp from the same panel: INIT and START as a Driver Station,
+each question shown with buttons that press gamepad 1 on the robot (Controller 1 answers too), STOP
+or Space to stop. With odometry pods, a Pinpoint or an OTOS, its last steps are on the floor: two
+pushes by hand and one turn on the spot find which way each pod counts and where each one sits.
+The answers are put into the setup. Close the robot in Drive first, because only
+one Driver Station can talk to a robot at a time. See
+[the simulator guide](SIMULATION.md#send-to-robot).
+
+`node tools/ftc-sim.cjs 127.0.0.2 --onbot` also serves a simulated OnBot Java on port 8080, with a
+robot configuration (or none, with `--empty`), a hub scan, and a stand-in for the check TeleOp,
+for trying it all without a robot.
 
 ## Testing without a robot
 

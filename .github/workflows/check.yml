@@ -17,6 +17,93 @@ jobs:
       - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
       - run: mkdir -p test-results && bash tests/update-linux.sh
       - run: bash tests/install-bootstrap.sh
+      - run: pwsh -NoProfile -File tests/install-bootstrap.ps1
+  # Real installers and in-app updates on each OS's own runner: install version A, launch it,
+  # update to B with the small App package and with the full package, relaunch, check icons.
+  install-update:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: steamdeck
+          - os: windows-latest
+            target: windows
+          - os: macos-latest
+            target: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build the offline simulator (public assets only)
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in steamdeck) t=linux-x64;; windows) t=win32-x64;; macos-arm64) t=darwin-arm64;; esac
+          node tools/simulation/fetch.cjs --targets "$t"
+          node tools/simulation/build.cjs --public
+      - name: Unit tests on this OS
+        run: node --test tests/*.test.cjs
+      - name: Build two versions (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python tools/package.py --target windows --version 9.0.0
+          python tools/package.py --target windows --version 9.0.1
+          python tools/package.py --target app --version 9.0.1
+      - name: Build two versions
+        if: runner.os != 'Windows'
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          python3 tools/package.py --target ${{ matrix.target }} --version 9.0.0
+          python3 tools/package.py --target ${{ matrix.target }} --version 9.0.1
+          python3 tools/package.py --target app --version 9.0.1
+      - name: Linux display and sandbox
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Windows update helpers
+        if: runner.os == 'Windows'
+        run: |
+          node tests/update-install.cjs
+          node tests/update-app-install.cjs
+      - name: Install and update end to end
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then xvfb-run -a node tests/install-e2e.cjs dist 9.0.0 9.0.1
+          else node tests/install-e2e.cjs dist 9.0.0 9.0.1; fi
+      - name: Check simulation in native Windows and Apple Silicon Electron
+        if: runner.os != 'Linux'
+        shell: bash
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm install --prefix .cache/ui-check --no-save playwright@1.62.1
+          export DECK_PLAYWRIGHT="$(node -p 'require("path").resolve(".cache/ui-check/node_modules/playwright")')"
+          electron=$(node -p 'require("./package.json").devDependencies.electron')
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            ditto -x -k ".cache/electron-v$electron-darwin-arm64.zip" .cache/simulation-runtime
+            export DECK_ELECTRON="$PWD/.cache/simulation-runtime/Electron.app/Contents/MacOS/Electron"
+            sudo ifconfig lo0 alias 127.0.0.2
+            sudo ifconfig lo0 alias 127.0.0.3
+          else
+            export DECK_ELECTRON="$(node -p 'require("path").resolve(".cache/runtime-win32-x64-"+require("./package.json").devDependencies.electron+"/electron.exe")')"
+          fi
+          node tests/simulation-ui.cjs
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os != 'Linux'
+        with:
+          name: simulation-${{ matrix.target }}
+          path: test-results/simulation/*.png
   desktop:
     needs: verify
     runs-on: ubuntu-latest
@@ -28,13 +115,88 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - run: sudo apt-get update && sudo apt-get install -y p7zip-full
         if: matrix.target == 'windows'
+      - name: Build the offline simulator (public assets only)
+        shell: bash
+        run: |
+          case "${{ matrix.target }}" in steamdeck) t=linux-x64;; windows) t=win32-x64;; macos-arm64) t=darwin-arm64;; esac
+          node tools/simulation/fetch.cjs --targets "$t"
+          node tools/simulation/build.cjs --public
       - run: python3 tools/package.py --target ${{ matrix.target }}
         env:
           PYTHONUTF8: '1'
       - run: bash tests/installer-linux.sh
         if: matrix.target == 'steamdeck'
+      - name: Check handheld controller assignment in Linux Electron
+        if: matrix.target == 'steamdeck'
+        env:
+          DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          DECK_TEST_CONTROLLERS_ONLY: '1'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb openbox libgtk-3-0t64 libnss3 libasound2t64 libgbm1
+          export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          for model in 'Steam Deck LCD' 'Steam Deck OLED' 'ROG Ally X' 'Lenovo Legion Go'; do
+            DECK_TEST_MODEL="$model" xvfb-run -a node tests/ftc-app.cjs
+          done
+          for model in 'Steam Deck LCD' 'Windows handheld' 'Apple Silicon'; do
+            DECK_TEST_MODEL="$model" xvfb-run -a node tests/controller-app.cjs
+          done
+      - name: Check redesigned controller and FTC layouts in Linux Electron
+        if: matrix.target == 'steamdeck'
+        env:
+          DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm install --prefix .cache/ui-check --no-save playwright@1.62.1
+          export DECK_PLAYWRIGHT="$PWD/.cache/ui-check/node_modules/playwright"
+          export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          DECK_UI_LAYOUT_ONLY=1 xvfb-run -a node tests/ui.cjs
+          xvfb-run -a node tests/controller-ui.cjs
+          xvfb-run -a node tests/layout-audit.cjs
+          xvfb-run -a node tests/controller-session.cjs
+          DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/keyboard-app.cjs
+          xvfb-run -a node tests/recovery-app.cjs
+          xvfb-run -a node tests/discovery-ui.cjs
+          xvfb-run -a node tests/simulation-ui.cjs
+          xvfb-run -a node tests/design-ui.cjs
+          DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/robot-fullscreen.cjs
+          DECK_TEST_WINDOW_MANAGER=openbox xvfb-run -a node tests/touch-ui.cjs
+          xvfb-run -a node tests/controller-compatibility.cjs
+      - uses: actions/upload-artifact@v4
+        if: matrix.target == 'steamdeck' && always()
+        with:
+          name: driver-station-ui-checks
+          path: |
+            test-results/controllers/*.png
+            test-results/design/*.png
+            test-results/v2/*.png
+            test-results/touch/*.png
+            test-results/discovery/*.png
+            test-results/simulation/*.png
+            test-results/recovery/*.png
+            test-results/layout-audit/*.png
+            test-results/layout-audit/report.json
+      - uses: actions/checkout@v4
+        if: matrix.target == 'steamdeck'
+        with:
+          repository: AloeVeraZ/MotionModule
+          ref: bbd8c33dadcd68256bb98e20437b02a0e99b3a0b
+          path: .cache/motionmodule-source
+          persist-credentials: false
+      - name: Check actual MotionModule driver station with simulated GPIO
+        if: matrix.target == 'steamdeck'
+        env:
+          DECK_ELECTRON_TEST_NO_SANDBOX: '1'
+          DECK_PYTHON: python3
+        run: |
+          python3 -m pip install --target .cache/motionmodule-test-deps 'Flask>=3.1,<4' 'smbus2>=0.5,<1' 'pyserial>=3.5,<4'
+          export DECK_ELECTRON="$PWD/.cache/runtime-linux-x64-$(node -p 'require("./package.json").devDependencies.electron')/electron"
+          export DECK_MOTIONMODULE_SOURCE="$PWD/.cache/motionmodule-source"
+          xvfb-run -a node tests/motionmodule-app.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}-installer

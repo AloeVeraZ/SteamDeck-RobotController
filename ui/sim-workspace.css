@@ -1,0 +1,375 @@
+/* Planning and review keep the field in view; setup remains a document page. */
+#simulation-field,#simulation-field *{user-select:none;-webkit-user-select:none}
+.sim-workspace .simulation-layout{user-select:none;-webkit-user-select:none}
+.sim-workspace input,.sim-workspace textarea{user-select:text;-webkit-user-select:text}
+#simulation-field{touch-action:none}
+#simulation-field:focus,#simulation-field:focus-visible{outline:none}
+#simulation-field:focus-visible .sim-walls{stroke:var(--accent)}
+#simulation-field text{pointer-events:none}
+.sim-workspace .sim-panel .sim-planning-steps{display:grid;grid-template-columns:repeat(var(--steps,3),minmax(0,1fr));gap:4px;margin:0 0 12px}
+.sim-workspace .sim-panel .sim-planning-steps button{min-width:0;min-height:40px;font-size:11px;padding:5px}
+.sim-workspace .sim-toolbar [role=group]{flex-wrap:wrap}
+.sim-diagnostics ul{list-style:none;padding:0;margin:8px 0;font-size:12px}
+.sim-diagnostics li{padding:7px 0;border-bottom:1px solid var(--line);line-height:1.4}
+.sim-diagnostics .sim-issue{color:var(--text)}
+.sim-diagnostics li.sim-issue,.sim-diagnostics li.warn{margin:6px 0;padding:7px 9px;border-radius:var(--radius-control)}
+.sim-diagnostics .text-button{display:block;font-size:11px}
+.sim-popover{box-sizing:border-box;padding:8px 10px}
+.sim-popover input{min-height:30px;height:30px;font-size:12px;padding:4px 7px}
+.sim-popover input[type=checkbox]{width:auto;height:auto;min-height:0}
+.sim-popover input.num-slider{display:none}
+.sim-popover label{font-size:11px;margin:5px 0 3px}
+.sim-popover .sim-settings-tabs{gap:3px;margin:6px 0}
+.sim-popover .sim-settings-tabs button,.sim-popover .sim-seg button{font-size:11px;min-height:30px;padding:4px}
+.sim-popover .sim-pop-sec{padding-top:6px;margin-top:6px}
+.sim-popover .hint{font-size:10px;line-height:1.3}
+.sim-popover .sim-pop-head h3{font-size:14px}
+.sim-popover textarea{height:46px;min-height:38px;resize:none}
+.sim-active-setup{display:flex;align-items:baseline;gap:8px;width:100%;min-width:0;text-align:left;margin:0 0 8px;padding:6px 10px;min-height:32px;border:1px solid var(--line);background:var(--surface);border-radius:6px;color:var(--text)}.sim-active-setup:hover{background:var(--hover)}.sim-active-setup>span{flex:none;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.sim-active-setup>strong{min-width:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sim-live-status{display:block;width:100%;text-align:left;font-size:11px;margin:0 0 8px;padding:5px 8px;min-height:28px;color:var(--muted);border:1px solid var(--line);background:var(--surface);border-radius:6px}
+.sim-live-status.has-issues{color:var(--text)}
+/* The route checks open under the status line (and only in Path planning, where the line shows). */
+.sim-live-status[aria-expanded=true]{border-bottom-left-radius:0;border-bottom-right-radius:0;margin-bottom:0}
+#sim-plan-diagnostics{margin:0 0 8px;padding:0 8px 4px;border:1px solid var(--line);border-top:0;border-radius:0 0 6px 6px;background:var(--surface)}
+#sim-plan-diagnostics h3{display:none}
+#sim-live-status[hidden]+#sim-plan-diagnostics,#sim-live-status[aria-expanded=false]+#sim-plan-diagnostics{display:none}
+@media(max-height:600px){.sim-popover .hint{display:none}.sim-popover label{margin-top:3px}.sim-popover{max-height:calc(100dvh - 110px)}}
+body.sim-workspace{overflow:hidden}
+.sim-workspace #simulation-view{height:calc(100dvh - 76px);padding:4px 16px 12px;box-sizing:border-box;display:flex;flex-direction:column;min-height:0}
+.sim-workspace .simulation-heading,.sim-workspace .sim-setup-bar{display:none}
+.sim-workspace .sim-navigation{flex:none;margin-bottom:8px}
+.sim-workspace .sim-tabs>button{min-height:38px;padding-block:6px}
+.sim-workspace .sim-planning-steps{flex:none;margin-bottom:8px;gap:6px}
+.sim-workspace .sim-planning-steps button{min-height:34px;padding:4px 8px}
+.sim-workspace .simulation-layout,.sim-workspace #simulation-view[data-tab=run] .simulation-layout{flex:1;min-height:0;grid-template-columns:minmax(0,1fr) 350px;gap:16px;align-items:stretch}
+.sim-workspace .field-area{position:static;min-height:0;display:flex;flex-direction:column}
+/* The field square is capped by the width left beside the Run timing column in every
+   workspace tab, and the toolbar and footer have fixed heights, so planning and review match. */
+.sim-workspace .field-area{--sim-timing-column:262px;container-type:inline-size}
+.sim-workspace .sim-toolbar{flex:none;margin-bottom:4px;height:44px;box-sizing:border-box;flex-wrap:nowrap}
+.sim-field-row{display:flex;gap:12px;min-height:0}
+.sim-workspace .sim-field-row{flex:1}
+.sim-field-row>.sim-stage{flex:1;min-width:0}
+.sim-workspace .sim-field-footer{flex:none;height:52px;overflow:hidden}
+.sim-workspace .sim-field-footer #field-help{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sim-run-timing[hidden]{display:none!important}
+/* Run & review's left column: clock, practice mode and Run stay on top; the period lengths
+   and live readout scroll under them when the window is short. */
+.sim-run-timing{flex:none;box-sizing:border-box;width:calc(var(--sim-timing-column,262px) - 12px);display:flex;flex-direction:column;min-height:0;text-align:left;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.sim-run-controls{flex:none;display:grid;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.sim-run-details{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:2px 14px 14px}
+.sim-workspace .sim-run-timing .sim-practice-clock{flex-direction:column;align-items:flex-start;border:0;padding:0;margin:0;gap:0}
+.sim-workspace .sim-run-timing .sim-practice-clock>span{font-size:13px}
+.sim-workspace .sim-run-timing .sim-practice-clock>strong{font-size:40px;line-height:1.1}
+.driver-station .sim-run-timing .sim-seg{display:flex;gap:3px;width:100%;box-sizing:border-box;margin:0}
+.driver-station .sim-run-timing .sim-seg>button{flex:1 1 auto;min-height:32px;padding:0 6px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sim-run-timing .sim-run-row{grid-template-columns:minmax(0,1fr) 72px;gap:6px}
+.sim-run-timing #sim-run,.sim-run-timing #sim-speed{height:40px;min-height:40px;margin:0}
+.sim-run-timing #sim-speed{width:100%;min-width:0;box-sizing:border-box;padding-inline:8px}
+.sim-run-timing [role=status]{margin:0;font-size:13px;line-height:1.4}.sim-run-timing [role=status]:empty{display:none}
+.sim-run-timing .sim-error{margin:0}
+.sim-run-timing .hint{font-size:11px;line-height:1.4;margin:10px 0 0}.sim-run-timing .hint:empty{display:none}
+.sim-run-timing #sim-run-sensors,.sim-run-timing #sim-run-plan{width:100%;margin-top:8px}
+/* Under Run: what it will do, or what to fix first, spaced by the column's own gap. */
+.sim-run-controls>.hint,.sim-run-timing .sim-run-controls>#sim-run-sensors,.sim-run-timing .sim-run-controls>#sim-run-plan{margin:0}
+/* The controller help and live readout scroll; the period lengths fold into one line under them. */
+.sim-workspace .sim-run-timing .sim-run-details>#sim-telemetry{margin-top:10px;padding-top:0;border-top:0}
+.sim-workspace .sim-run-timing .sim-run-details>.hint:not(:empty)+#sim-telemetry{padding-top:10px;border-top:1px solid var(--line)}
+.sim-run-timing .sim-period-fold{margin:12px 0 0;padding-top:8px}.sim-run-timing .sim-period-fold>summary{font-size:12px}
+.sim-run-timing .sim-period-fold[open]>summary{margin-bottom:6px}
+.driver-station .sim-run-timing h3{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px}
+.sim-run-timing .sim-grid3{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.driver-station .sim-run-timing label{display:block;font-size:11px;margin:0 0 3px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.driver-station .sim-run-timing input{height:36px;box-sizing:border-box;width:100%;min-width:0;min-height:36px;margin:0;padding:4px 8px;font-size:16px;font-variant-numeric:tabular-nums}
+.sim-run-timing input.num-slider{display:none}
+.sim-run-timing .num-field:focus-within .num-slider{display:block;height:22px;min-height:22px;margin-top:6px}
+.sim-workspace .sim-run-timing .sim-telemetry{grid-template-columns:auto minmax(0,1fr);gap:4px 10px;font-size:12px;margin:14px 0 0;padding-top:12px;border-top:1px solid var(--line)}
+.sim-workspace .sim-stage{flex:1;min-height:0}
+.sim-workspace #simulation-field{width:100%;height:100%;max-height:calc(100cqw - var(--sim-timing-column))!important;min-height:0!important}
+@media(max-height:760px) and (min-width:701px){
+ .sim-run-controls{gap:7px;padding:10px 12px}
+ .sim-run-details{padding-inline:12px}
+ .sim-workspace .sim-run-timing .sim-practice-clock>strong{font-size:30px}
+ .sim-run-timing #sim-run,.sim-run-timing #sim-speed{height:36px;min-height:36px}
+ .driver-station .sim-run-timing input{height:32px;min-height:32px;font-size:15px}
+ .sim-workspace .sim-run-timing .sim-telemetry{font-size:11px;margin-top:10px;padding-top:8px}
+}
+/* Too short to keep Run pinned and still show a recording under it: the whole column scrolls as one. */
+@media(max-height:660px) and (min-width:701px){
+ .sim-run-timing{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+ .sim-run-details{flex:none;overflow:visible}
+}
+.sim-workspace .sim-3d{height:100%;min-height:0}
+.sim-workspace #field-help{font-size:11px;line-height:1.3;flex:none}
+.sim-workspace #field-coordinates{font-size:12px;margin:2px 0}
+.sim-workspace .sim-telemetry{grid-template-columns:auto 1fr auto 1fr;gap:1px 8px;max-width:none;font-size:10px;margin-top:4px}
+.sim-workspace .sim-panel{min-height:0;max-width:none;width:100%;box-sizing:border-box;margin:0}
+.sim-workspace .sim-panel h2{font-size:15px;margin:0 0 8px}
+.sim-workspace .sim-panel h3{font-size:13px;margin:10px 0 6px}
+.sim-workspace .sim-panel input,.sim-workspace .sim-panel select{min-height:30px;margin-bottom:5px}
+.sim-workspace .sim-panel input.num-slider{min-height:22px;height:22px;margin:0 0 5px}
+.sim-workspace .sim-panel .hint{font-size:11px;line-height:1.35;margin-block:6px}
+.sim-workspace .sim-panel .sim-seg{margin-bottom:7px}
+.sim-workspace .sim-panel .sim-seg button{min-height:30px;font-size:11px;padding:4px}
+.sim-workspace .sim-panel .button-row{margin:6px 0;gap:6px}
+.sim-workspace .sim-panel .sim-export-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.sim-workspace .sim-panel .sim-export-buttons button{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.sim-workspace .sim-panel .sim-export-buttons .primary{grid-column:1/-1}
+/* Export: Send to robot first, then the one file to save and upload, then the folded extras. */
+.sim-workspace #sim-panel-run #sim-export-title{margin:0 0 8px;font-size:14px}
+.sim-workspace #sim-panel-run .sim-send{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px}
+.sim-workspace #sim-panel-run .sim-send h3{margin:0 0 4px;font-size:13px}
+.sim-export-or{margin:14px 0 6px;font-size:12px;font-weight:650;color:var(--muted)}.sim-export-or[hidden]{display:none!important}
+.sim-workspace .sim-panel .sim-export-main{display:grid;grid-template-columns:minmax(0,1fr);gap:6px}.sim-export-main[hidden]{display:none!important}
+.sim-workspace .sim-panel .sim-export-main button{min-width:0;white-space:normal;overflow-wrap:anywhere}
+#sim-panel-run #sim-execution-note{margin:6px 0 0}#sim-panel-run #sim-export-status:empty{display:none}
+#sim-export-more .sim-export-buttons{margin-top:0}
+/* The guided check folds under Send to robot until a send has built on the robot. */
+.sim-check-fold{margin-top:12px;padding-top:8px;border-top:1px solid var(--line)}.sim-check-fold>summary{cursor:pointer;padding:2px 0;font-size:13px}
+.sim-check-fold .sim-check{margin-top:6px;padding-top:0;border-top:0}
+#sim-send-status:empty,#sim-send .sim-send-devices:empty,#sim-check-status:empty{display:none}
+.sim-workspace .sim-panel button{min-height:30px;padding-block:5px}
+.sim-settings-tabs{display:flex;gap:6px;margin:0 0 14px}
+.sim-workspace .sim-settings-tabs>button{flex:1;min-width:0;padding:5px 6px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+/* Five or more views wrap to rows of three so every label has room. */
+.sim-settings-tabs:has(>:nth-child(5)){display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.sim-settings-tabs [aria-selected=true]{border-color:var(--accent);color:var(--on-accent,var(--bg));background:var(--accent);font-weight:600}
+.sim-settings-tabs [aria-selected=false]{background:transparent;border-color:var(--line)}
+.sim-heading-arrow{fill:none;stroke-width:.65;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.sim-aim-target{fill:none;stroke:#49cbb3;stroke-width:.6;pointer-events:none}
+#simulation-view #sim-effects{position:fixed;z-index:10000;width:min(340px,calc(100vw - 8px));max-height:calc(100dvh - 8px);bottom:auto;right:auto;left:var(--editor-left,4px);top:var(--editor-top,4px)}
+#sim-effects .sim-pop-head{cursor:move;touch-action:none;user-select:none;gap:8px}
+#sim-effects select{width:100%;box-sizing:border-box;min-height:32px;font-size:12px;padding:5px 7px}
+#sim-effects [hidden]{display:none!important}
+.sim-path-tooltip{position:fixed;z-index:11000;max-width:min(320px,calc(100vw - 16px));padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface);color:var(--text);box-shadow:0 5px 22px #0005;pointer-events:none;font-size:12px;line-height:1.5;overflow-wrap:anywhere;text-align:left}
+.sim-path-tooltip strong{display:block;margin-bottom:3px}
+.sim-path-tooltip[hidden]{display:none!important}
+.sim-editor-grip{margin-left:auto;cursor:move;color:var(--muted);font-size:24px;line-height:1}
+.sim-editor-save-note{font-size:11px;color:var(--muted);margin:8px 0 4px}
+.sim-program-preview{font:12px/1.5 var(--font);white-space:pre-wrap;overflow-wrap:anywhere;padding:10px;background:var(--well);border:1px solid var(--line);border-radius:8px;max-height:180px;overflow:auto}
+#sim-effects .button-row{justify-content:flex-end}
+.sim-legend .key-hold{color:#aeb8c5}.sim-legend .key-power{color:#f2bc62}.sim-legend .key-rotation{color:#b79bff}.sim-legend .key-track{color:#49cbb3}.sim-legend .key-action{color:#63c5ff}
+.sim-settings-page[hidden]{display:none!important}
+.sim-workspace .sim-pin-row input.num-slider{display:none}
+.sim-workspace .sim-pin-row:focus-within input.num-slider{display:block}
+.sim-workspace .sim-list{max-height:none;overflow:visible;margin:8px 0}
+.sim-pin-pages{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}
+.sim-workspace .sim-practice-clock{padding:8px 0;margin:6px 0}
+.sim-workspace .sim-practice-clock>strong{font-size:26px}
+.sim-workspace #sim-source{min-height:100px;height:calc(100dvh - 400px);max-height:300px;resize:none}
+.sim-workspace .sim-log pre{max-height:calc(100dvh - 310px)}
+.sim-workspace .sim-credit{font-size:10px}
+.sim-workspace #sim-plan-next{margin:10px 0 0}
+.sim-grab-cursor{stroke:var(--accent);stroke-width:.7;pointer-events:none;fill:none}
+#simulation-field[data-dragging=true]{cursor:none!important}
+.number-entry-done{position:fixed;right:22px;bottom:14px;z-index:1000;min-height:38px;box-shadow:0 3px 16px #0006}
+.number-entry-done[hidden]{display:none!important}
+.sim-workspace #simulation-view[data-tab=run] #field-help{display:none}
+.sim-workspace .sim-pin-row[hidden]{display:none!important}
+.sim-workspace #start-edge-plan,.sim-workspace #sim-start-step>.hint{display:none}
+.sim-settings-unit[hidden],.sim-section-pages[hidden]{display:none!important}
+.sim-section-pages{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:8px 0;font-size:11px}
+.sim-section-pages button{padding-inline:8px}
+@media(max-width:700px){
+ .sim-workspace #simulation-view[data-tab=run] .sim-toolbar{position:static}
+ .sim-workspace .sim-toolbar{height:auto}
+ .sim-workspace .sim-field-row{flex-direction:column;gap:6px}
+ .sim-workspace #simulation-field{max-height:none!important}
+ .sim-workspace .sim-field-footer{height:auto}
+ .sim-run-timing{width:auto;align-self:stretch;overflow:visible}
+ .sim-run-controls{grid-template-columns:auto minmax(0,1.5fr) minmax(0,1fr);align-items:center;gap:6px 10px;padding:6px 10px;border-bottom:0}
+ .sim-run-controls>[role=status],.sim-run-controls>.sim-error{grid-column:1/-1}
+ .sim-run-details{overflow:visible;padding:0 10px 6px}
+ .sim-run-details>.hint,.driver-station .sim-run-details>h3{display:none}
+ .sim-workspace .sim-run-timing .sim-practice-clock>strong{font-size:20px}
+ .driver-station .sim-run-timing .sim-seg>button{min-height:28px;font-size:11px}
+ .sim-run-timing #sim-run,.sim-run-timing #sim-speed{height:32px;min-height:32px}
+ .driver-station .sim-run-timing input{height:30px;min-height:30px;font-size:13px;padding:3px 7px}
+ .sim-workspace #simulation-view{padding-inline:8px}
+ .sim-workspace .simulation-layout,.sim-workspace #simulation-view[data-tab=run] .simulation-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(140px,.9fr) minmax(0,1.1fr);gap:6px}
+ .sim-workspace #simulation-view[data-tab=run] .simulation-layout{grid-template-rows:minmax(300px,1.3fr) minmax(0,1fr)}
+ .sim-workspace #field-help,.sim-workspace #sim-telemetry{display:none!important}
+ .sim-workspace .sim-stage{min-height:60px}
+ .sim-workspace .sim-toolbar{position:absolute;z-index:2;right:10px;gap:3px}
+ /* Plan and Run scroll as one page here, so the field keeps the full width (it was squeezed under the toolbar and
+    the timing card) and the toolbar sits above the field instead of over its top edge. */
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]){overflow-y:auto}
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]) .simulation-layout{grid-template-rows:auto auto;flex:none;min-height:auto}
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]) .sim-stage{flex:none;aspect-ratio:168/172;width:100%;min-height:0}
+ .sim-workspace #simulation-view:is([data-tab=plan],[data-tab=run]) .sim-toolbar{position:static}
+ .sim-workspace #sim-source{height:120px}
+ .sim-workspace .sim-panel input.num-slider{display:none}
+ .sim-workspace .sim-panel .num-field:focus-within input.num-slider{display:block}
+ .sim-workspace .sim-panel .hint{font-size:10px}
+ .sim-workspace .sim-navigation{margin-bottom:4px}
+ .sim-workspace .sim-panel [role=status]{margin-block:4px;min-height:0}
+ .sim-workspace .sim-settings-tabs{margin-bottom:5px}
+ .sim-workspace .sim-panel h2{margin-bottom:4px}
+}
+@media(max-height:600px){
+ .sim-workspace .sim-panel input,.sim-workspace .sim-panel select{padding:5px 7px;min-height:28px}
+ .sim-workspace .sim-panel button{min-height:26px;padding-block:3px}
+ .sim-workspace .sim-panel label{margin-bottom:3px;font-size:11px}
+ .sim-workspace .sim-panel .hint{font-size:10px;line-height:1.25;margin-block:4px}
+ .sim-workspace #sim-source{height:70px;min-height:60px}
+ .sim-workspace .sim-log pre{max-height:90px}
+ .sim-workspace #field-help{display:none}
+}
+@media(max-width:700px) and (max-height:600px){
+ .sim-workspace #sim-plan-next{display:none}
+ .sim-workspace .sim-panel .sim-planning-steps{margin-bottom:4px}
+ .sim-workspace .sim-panel .sim-planning-steps button{min-height:30px}
+ .sim-workspace .sim-live-status{min-height:24px;margin-bottom:4px}
+ .sim-workspace .sim-settings-tabs>button{min-height:26px}
+ .sim-workspace .sim-panel h2{font-size:13px;margin-block:3px}
+}
+/* Run data (Run & review → Data, and the Graph view): timeline, graph lanes, mechanism and wheel views. */
+.sim-data [hidden]{display:none!important}
+.sim-data h3{font-size:13px;margin:16px 0 8px}.sim-data h3:first-child,.sim-data-recorded>:first-child{margin-top:0}
+.sim-data h4{font-size:12px;font-weight:600;color:var(--muted);margin:0 0 2px;text-align:center}
+.sim-data-empty{margin:0 0 6px;padding:12px;border:1px dashed var(--line-strong);border-radius:8px;font-size:12px;line-height:1.45;color:var(--muted)}
+.sim-data-lanes{display:grid;gap:10px;touch-action:none;cursor:ew-resize;user-select:none}
+.sim-data-lane{padding:6px 8px 4px;border:1px solid var(--line);border-radius:8px;background:var(--well)}
+.sim-data-lane-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px}
+.sim-data-lane-head span{color:var(--muted)}.sim-data-lane-head strong{font-variant-numeric:tabular-nums}
+.sim-data-graph{display:block;width:100%;height:44px;margin:3px 0 1px}
+.sim-data-line{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.sim-data-zero{stroke:var(--line-strong);stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+.sim-data-cursor{stroke:var(--text);stroke-width:1;opacity:.7;vector-effect:non-scaling-stroke}
+.sim-data-lane-range{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sim-data-pick{margin-top:8px;font-size:12px}.sim-data-pick summary{cursor:pointer;color:var(--muted);padding:4px 0}
+.sim-data-views{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.sim-data-track{border-radius:6px;padding:6px 4px;border:1px solid var(--line)}
+.sim-data-track input[type=range]{width:100%;margin:0;min-height:0}
+.sim-data-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px}
+.sim-data-clock{font-variant-numeric:tabular-nums;font-size:12px}
+.sim-data-row .secondary{min-height:30px;padding:4px 14px}
+.sim-data-series{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px}
+.driver-station .sim-data-series label.check{display:flex;justify-content:flex-start;align-items:center;font-size:12px;margin:3px 0;gap:6px}.driver-station .sim-data-series label.check input{width:16px;height:16px;min-height:0;margin:0;flex:none}.sim-data-series label[hidden]{display:none!important}
+.sim-data-swatch{width:10px;height:10px;border-radius:2px;display:inline-block;flex:none}
+.sim-data-mech,.sim-data-wheels{width:100%;max-width:200px;display:block;margin:4px auto}
+.sim-data-caption{text-align:center;font-variant-numeric:tabular-nums}
+.sim-data-chassis{fill:var(--well);stroke:var(--line-strong);stroke-width:1.5}
+.sim-data-front{fill:none;stroke:var(--muted);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sim-data-intake{fill:var(--line-strong)}.sim-data-intake.on{fill:#49cbb3}
+.sim-data-piece{fill:none;stroke:var(--muted);stroke-width:1.2}.sim-data-piece.held{fill:#f2d14b;stroke:#b8962a}.sim-data-piece.nectar{stroke:#e5484d}.sim-data-piece.nectar.held{fill:#e5484d;stroke:#a8282c}
+.sim-data-turret{fill:var(--raised);stroke:var(--muted);stroke-width:1.5}.sim-data-turret.aligned{stroke:#49cbb3}
+.sim-data-barrel{stroke:var(--text);stroke-width:4;stroke-linecap:round}.sim-data-barrel.nectar{stroke:#ff8a8e}
+.sim-data-chassis.highlight,.sim-data-intake.highlight,g.highlight>.sim-data-turret{stroke:var(--accent);stroke-width:2.5;stroke-dasharray:4 3}
+.sim-data-spin{fill:none;stroke:#f2bc62;stroke-width:3;stroke-linecap:round}.sim-data-spin.ready{stroke:#49cbb3}
+.sim-data-module{fill:var(--muted)}
+.sim-data-vector{stroke:#4ea1ff;stroke-width:2.5;stroke-linecap:round;fill:none}.sim-data-vector.chassis{stroke:#f2bc62}
+/* Run readout in the timing column: one short value per row. */
+.sim-workspace .sim-run-timing .sim-telemetry dd{overflow-wrap:anywhere}
+/* Run & review's right side: the setup button and view tabs stay put while the chosen view
+   scrolls, so long graph lists and logs are never cut off at the window edge. */
+.sim-workspace .sim-panel{overflow-y:auto;scrollbar-width:thin}
+.sim-workspace #simulation-view[data-tab=run] .sim-panel{display:flex;flex-direction:column;overflow:hidden}
+.sim-workspace #sim-panel-run{flex:1;min-height:0;display:flex;flex-direction:column}
+.sim-workspace #sim-panel-run>.sim-settings-tabs{flex:none;display:flex;gap:4px;margin-bottom:10px}
+.sim-workspace #sim-panel-run>.sim-settings-tabs>button{padding-inline:2px;text-overflow:clip}
+.sim-workspace #sim-panel-run>.sim-settings-page{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-gutter:stable;padding-right:2px}
+.sim-workspace #sim-panel-run .sim-run-analysis{margin:0 0 12px}
+
+/* Run analysis: what the run picked up, shot and scored. */
+.sim-run-analysis{margin-top:14px;padding:10px 12px;border:1px solid var(--line);border-radius:8px}.sim-run-analysis[hidden]{display:none!important}
+.sim-run-analysis h3{margin:0 0 6px;font-size:14px}
+.sim-analysis-list{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;margin:0;font-size:13px;font-variant-numeric:tabular-nums}
+.sim-analysis-list dt{color:var(--muted)}.sim-analysis-list dd{margin:0;font-weight:600}
+/* Run report: verdict, facts, time per path and next steps. Colours carry meaning only with a word or icon beside them. */
+.sim-run-report h4{margin:14px 0 6px;font-size:12px;font-weight:650;color:var(--muted)}
+.sim-report-verdict{display:flex;align-items:flex-start;gap:8px;margin:0 0 10px;font-size:14px;line-height:1.35}
+.sim-report-icon{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:12px;font-weight:800;color:var(--bg)}
+.sim-report-verdict.ok .sim-report-icon{background:var(--connected)}.sim-report-verdict.warn .sim-report-icon{background:var(--warning)}.sim-report-verdict.bad .sim-report-icon{background:var(--danger)}
+.sim-report-facts dd.warn{color:var(--warning)}.sim-report-facts dd.bad{color:var(--danger)}
+/* A fact whose label has a technical explanation: hover or long-press it. */
+.sim-report-facts dt[title]{text-decoration:underline dotted;text-underline-offset:3px;cursor:help}
+.sim-report-issues{list-style:none;margin:10px 0 0;padding:0;font-size:12px;line-height:1.4}
+.sim-report-issues li{padding:6px 8px;margin-top:4px;border-radius:6px;background:var(--warning-bg)}.sim-report-issues li.bad{background:var(--danger-bg)}
+#simulation-view .sim-run-report .sim-report-edit{display:block;min-height:0;margin-top:2px;font-size:12px;font-weight:600;padding:0}
+.sim-report-bar{display:flex;gap:2px;height:30px}
+#simulation-view .sim-run-report .sim-report-leg{flex:1 1 0;min-width:14px;min-height:0;height:auto;position:relative;display:flex;padding:0;margin:0;border:0;border-radius:4px;overflow:hidden;background:var(--control)}
+.sim-run-report .sim-report-leg:hover .sim-report-mix,.sim-run-report .sim-report-leg:focus-visible .sim-report-mix{filter:brightness(1.2)}
+.sim-report-mix{display:flex;width:100%}.sim-report-mix i,.sim-report-key i{display:block}
+.sim-report-label{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;text-shadow:0 1px 2px #000a;pointer-events:none}
+.sim-run-report i.drive{background:#4e8fd6}.sim-run-report i.turn{background:#a58ae6}.sim-run-report i.pause{background:#d9a640}.sim-run-report i.idle{background:#7a7f87}
+/* The time bar on the period's scale: start-up, the paths, then what is left; seconds under it; the chosen path's breakdown below. */
+#simulation-view .sim-run-report .sim-report-leg[aria-pressed=true]{outline:2px solid var(--text);outline-offset:1px}
+.sim-report-gap{flex:1 1 0;min-width:3px;border-radius:4px;background:var(--control)}
+.sim-report-spare{flex:1 1 0;min-width:0;display:grid;place-items:center;overflow:hidden;border:1px dashed var(--line-strong);border-radius:4px;font-size:11px;color:var(--muted);white-space:nowrap}
+.sim-report-spare>span{overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 4px;box-sizing:border-box}
+.sim-report-scale{position:relative;height:14px;margin-top:3px;font-size:10px;line-height:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sim-report-scale span{position:absolute;top:0;transform:translateX(-50%)}.sim-report-scale span:first-child{transform:none}.sim-report-scale span:last-child{transform:translateX(-100%)}
+.sim-report-leg-detail{margin-top:6px;padding:8px 10px;border-radius:6px;background:var(--control);font-size:12px;line-height:1.4}
+.sim-report-leg-title{margin:0}.sim-report-leg-title strong{font-weight:650}
+.sim-report-leg-parts{display:flex;flex-wrap:wrap;gap:2px 12px;list-style:none;margin:4px 0 0;padding:0;font-variant-numeric:tabular-nums}
+.sim-report-leg-parts li{display:inline-flex;align-items:center;gap:5px}.sim-report-leg-parts i{display:block;width:9px;height:9px;border-radius:2px}
+.sim-report-key{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 0;font-size:11px;color:var(--muted)}
+.sim-report-key span{display:inline-flex;align-items:center;gap:5px}.sim-report-key i{width:9px;height:9px;border-radius:2px}
+.sim-report-tips{margin:0;padding-left:18px;font-size:12px;line-height:1.45}.sim-report-tips li+li{margin-top:6px}
+.sim-report-note{margin:12px 0 0;font-size:11px}
+/* What to do after the run: one primary action, the rest quieter. */
+.sim-report-next{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 2px}
+#simulation-view .sim-report-next button{flex:1 1 auto;min-height:34px;margin:0;padding:6px 12px;font-size:12px}
+#simulation-view .sim-report-next button.secondary{flex:0 1 auto}
+/* Results before the first run: what Run will do and what appears here. */
+.sim-results-ready{padding:12px 14px;border:1px dashed var(--line-strong);border-radius:8px;font-size:13px;line-height:1.45}.sim-results-ready[hidden]{display:none!important}
+.sim-results-ready h3{margin:0 0 6px;font-size:14px}.sim-results-ready p{margin:0}.sim-results-ready p+p{margin-top:6px}
+#simulation-view .sim-results-ready button{margin:10px 0 0}
+.sim-results-ready.blocked{border-style:solid;border-color:var(--warning);background:var(--warning-bg)}
+.sim-replay[hidden]{display:none!important}.sim-replay>h3{margin:0 0 8px;font-size:13px}
+/* Folded sections under Results: a quiet row that opens in place. */
+.sim-fold{margin:14px 0 0;padding-top:10px;border-top:1px solid var(--line)}.sim-fold>summary{cursor:pointer;padding:4px 0;font-size:13px}
+.sim-fold[open]>summary{margin-bottom:8px}.sim-fold>summary:hover{color:var(--accent-text,var(--text))}
+/* A view tab with something new in it, such as Results when a run ends while Export is open. */
+.sim-settings-tabs>button.has-news::after{content:'';display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:var(--accent);vertical-align:middle}
+/* Pin and path editor: the order at a pin, and actions as buttons. */
+.sim-popover .sim-pop-steps{display:flex;flex-wrap:wrap;gap:2px 0;margin:4px 0 6px;padding:0;list-style:none;counter-reset:step;font-size:10px;color:var(--muted)}
+.sim-popover .sim-pop-steps li{counter-increment:step}.sim-popover .sim-pop-steps li::before{content:counter(step) ' ';font-weight:700;color:var(--text)}.sim-popover .sim-pop-steps li+li::before{content:'→ ' counter(step) ' '}
+.sim-popover .sim-pop-steps li+li{margin-left:4px}
+.driver-station .sim-popover .sim-pop-label{display:block;margin:8px 0 4px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.driver-station .sim-popover .sim-chips{gap:4px}
+.driver-station .sim-popover .sim-chip{min-height:28px;padding:2px 10px;font-size:11px}
+.sim-popover [data-custom][hidden],.sim-popover [data-for][hidden],.sim-popover [data-for-time][hidden],.sim-popover .sim-chip[hidden]{display:none}
+/* Paths: a Pedro Pathing-style list. One row per path; the selected one opens in place. */
+.sim-planning-steps button[hidden]{display:none!important}
+.sim-path-bar{display:flex;align-items:center;gap:6px;margin:4px 0}
+.sim-path-bar .sim-edit-tools{flex:1;min-width:0;margin:0}
+.sim-workspace #sim-route-step .sim-settings-page>.sim-settings-unit:first-child>h2{display:none}
+.sim-path-bar .primary{flex:none;min-height:34px;padding:4px 12px;white-space:nowrap}
+/* Editing help: opens over the path list from the ? beside + Add path. */
+#sim-route-step .sim-settings-page{position:relative}
+.sim-path-bar .sim-help-button{flex:none;min-width:34px;min-height:34px;padding:4px;font-weight:700}
+.sim-help-button[aria-expanded=true]{border-color:var(--accent);color:var(--accent)}
+.sim-help-pop{position:absolute;left:0;right:0;z-index:5;max-height:440px;overflow-y:auto;overscroll-behavior:contain;margin-top:2px;padding:4px 12px 8px;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 8px 24px rgb(0 0 0 / .35)}
+.sim-help-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sim-workspace .sim-panel .sim-help-head h3{margin:6px 0 2px}
+.sim-path-list.sim-list,.sim-workspace .sim-path-list.sim-list{display:grid;align-content:start;gap:4px;max-height:min(52vh,460px);overflow:auto;margin:6px 0 10px;overscroll-behavior:contain}
+.sim-path-start,.sim-path-head{display:flex;align-items:center;gap:6px;min-width:0}
+.sim-path-start{padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-control);font-size:12px}
+.sim-path-start .text-button{margin-left:auto;font-size:12px}
+.sim-path-row{border:1px solid var(--line);border-radius:var(--radius-control);background:var(--surface)}
+.sim-path-row.selected{border-color:var(--line-strong);background:var(--raised)}
+.sim-path-pick{flex:1;display:flex;align-items:center;gap:8px;min-width:0;min-height:36px;padding:4px 8px;background:none;border:0;color:var(--text);font:600 12px var(--font);text-align:left;cursor:pointer}
+.sim-path-swatch{flex:none;width:10px;height:10px;border-radius:50%}
+.sim-path-title{flex:none;font-weight:700}
+.sim-path-at{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-weight:400;font-variant-numeric:tabular-nums}
+.sim-path-head .icon-button{flex:none;width:30px;height:30px;min-height:30px;padding:0}
+.sim-path-row .sim-pin-summary{margin:-4px 8px 6px 26px;font-size:11px}
+.sim-path-row .sim-pin-summary:empty,.sim-path-row.selected .sim-pin-summary{display:none}
+.sim-path-body{padding:2px 10px 10px;border-top:1px solid var(--line)}
+.sim-path-body label{font-size:11px;margin:6px 0 2px}
+.sim-path-body input,.sim-path-body select{min-height:30px;height:30px;margin:0;font-size:12px;padding:3px 7px}
+.sim-path-body input.num-slider{display:none}
+.sim-path-more{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px}
+.sim-path-more .text-button{font-size:12px}
+.sim-path-empty{padding:8px}
+.sim-robot-example{margin:0 0 10px;padding:8px 10px;border:1px solid var(--warning);box-shadow:0 0 0 1px var(--warning),0 0 10px color-mix(in srgb,var(--warning) 40%,transparent);background:var(--warning-bg);border-radius:var(--radius-control);color:var(--text)}
+/* Phones: the Run button and speed get their own row under the clock and modes, so "Run" never squeezes. */
+@media(max-width:480px){
+ .sim-run-controls{grid-template-columns:auto minmax(0,1fr)}
+ .sim-run-controls>.sim-run-row{grid-column:1/-1}
+ #sim-run{white-space:nowrap}
+}
+/* Readouts that change many times a second during a run lay out on their own, not the whole page. */
+#sim-telemetry,.sim-data-lanes{contain:content}

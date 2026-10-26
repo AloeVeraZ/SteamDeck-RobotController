@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- A four-bar linkage in SDFormat 1.6 (joint poses relative to their child link, one axis in the model frame):
+     crank AB = 0.02, coupler BC = 0.06, rocker DC = 0.05, ground AD = 0.06 m, built with the crank at 60°. The joint
+     from the coupler to the rocker closes the loop. A gearbox couples two more gears. -->
+<sdf version="1.6">
+  <model name="fourbar">
+    <link name="ground"/>
+    <link name="crank">
+      <pose>0 0 0 0 0 1.0471975511965976</pose>
+      <visual name="bar"><pose>0.01 0 0 0 0 0</pose><geometry><box><size>0.02 0.004 0.004</size></box></geometry></visual>
+    </link>
+    <joint name="j_crank" type="revolute">
+      <parent>ground</parent><child>crank</child>
+      <axis><xyz>0 0 1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis>
+    </joint>
+    <link name="coupler"><pose>0.010000000000000002 0.017320508075688773 0 0 0 0</pose></link>
+    <joint name="j_coupler" type="revolute">
+      <parent>crank</parent><child>coupler</child>
+      <axis><xyz>0 0 1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis>
+    </joint>
+    <link name="rocker"><pose>0.06 0 0 0 0 0</pose></link>
+    <joint name="j_rocker" type="revolute">
+      <parent>ground</parent><child>rocker</child>
+      <axis><xyz>0 0 1</xyz><use_parent_model_frame>true</use_parent_model_frame></axis>
+    </joint>
+    <joint name="j_close" type="revolute">
+      <parent>coupler</parent><child>rocker</child>
+      <pose>0.00032015300873866614 0.04999897501000391 0 0 0 0</pose>
+      <axis><xyz>0 0 1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis>
+    </joint>
+    <link name="gear1"><pose>0 -0.1 0 0 0 0</pose></link>
+    <link name="gear2"><pose>0.1 -0.1 0 0 0 0</pose></link>
+    <joint name="g1" type="revolute"><parent>ground</parent><child>gear1</child><axis><xyz>0 0 1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis></joint>
+    <joint name="g2" type="revolute"><parent>ground</parent><child>gear2</child><axis><xyz>0 0 -1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis></joint>
+    <joint name="mesh" type="gearbox">
+      <parent>gear1</parent><child>gear2</child>
+      <gearbox_reference_body>ground</gearbox_reference_body>
+      <gearbox_ratio>2</gearbox_ratio>
+      <axis><xyz>0 0 1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis>
+      <axis2><xyz>0 0 1</xyz><use_parent_model_frame>false</use_parent_model_frame></axis2>
+    </joint>
+    <include><uri>model://camera</uri></include>
+  </model>
+</sdf>

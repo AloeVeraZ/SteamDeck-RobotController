@@ -21,12 +21,22 @@ releases. Close the app before running an installer again; saved data is kept se
 4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
-5. Select **Gamepad With Joystick Trackpad** and leave Proton disabled. Use
-   **Steam + X** to type in text fields.
+5. Select a **Gamepad** template with both sticks set to joysticks and leave Proton disabled.
+   Use the screen to navigate. In Testing 2.4.10+, tapping a text field opens the app's
+   touch keyboard; **Steam + X** remains available for the system keyboard.
 
 The app runs natively without root or changes to SteamOS's read-only system.
 The LCD and OLED Decks both have 1280×800 built-in screens; the app also resizes
 for docked displays and display scaling. The installer includes its own runtime.
+
+### Desktop shortcut: sticks scroll or move the mouse
+
+Keep Steam running. Hold the Deck's **☰ Menu** button until Gamepad Mode appears,
+then press **A**. Click **Controller 1** in this app to see its live test screen.
+Left X/Y should follow the left stick; Right X/Y should follow the right stick.
+If the default desktop layout was customized, restore it in Steam's Controller →
+Desktop Layout settings, or launch this app through Steam with a Gamepad layout.
+The app cannot turn mouse/scroll events back into the original joystick positions.
 
 ## Windows
 
@@ -92,11 +102,17 @@ STOP, mechanisms, and camera controls belong to that page.** The launcher sends
 none of those commands on its own. Header controls only reload, navigate back,
 close the page, or open the three-dot settings menu.
 
-Controller one is the Deck when it is the first connected gamepad, as expected
-when using the built-in controller alone. Up to two indicators are displayed.
-Bluetooth/USB controller pairing is handled by the OS. The robot website decides
-which gamepad index it reads and whether it implements a second controller;
-this app does not add an operator-two mapping to firmware that lacks one.
+Controller 1 defaults to recognized built-in handheld controls, with the first
+standard gamepad as a fallback on other devices. Both slots stay visible. Click an
+icon for the live test screen, then use **Assign/Reassign** to choose a pad. The test
+screen stays open after assignment, and **Done** returns to Drive. Saved robots default to one controller;
+select **Two controllers** in that robot's Settings for a second operator. Controller 2
+can be assigned on standby before it is needed. Choosing the other assigned pad swaps slots. The assignment
+press is consumed until buttons are released and sticks centered. Manual preferences
+are saved in `controller-settings.json` in the user-data directory.
+Bluetooth/USB pairing is handled by the OS. Standard Gamepad API websites receive
+Controller 1 at index 0 and Controller 2 at index 1. The robot must implement its own
+second-operator behavior; proprietary controller APIs require a compatible integration.
 
 Opening Settings hides the robot without disconnecting it; press Drive to return.
 Changing Wi-Fi or closing the robot closes its transport (FTC robots are sent STOP).
@@ -106,8 +122,8 @@ Keep the robot's normal physical stop/power controls available.
 ## Saved data and updates
 
 Use **⋮ → Updates → Check for updates**. Stable builds follow Main releases (Testing builds follow testing releases)
-from GitHub. **Download update** verifies the package; **Install & restart**
-updates the installed app. Saved robot data is retained. No update is available until a
+from GitHub. **Download update** verifies the package, automatically installs it, and restarts
+the app. Saved robot data is retained. No update is available until a
 release is published. [Release setup](UPDATES.md).
 
 Desktop settings normally live in Electron's **Deck Driver Station** user-data

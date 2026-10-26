@@ -1,0 +1,63 @@
+<!-- An arm in MJCF: default classes and a childclass, capsules from fromto, a body turned by euler angles, two joints
+     in one body (a wrist), a mesh in meshdir at millimetre scale, mirrored fingers tied by a joint equality, and
+     actuators (one, a muscle, is not read). -->
+<mujoco model="mjcf_arm">
+  <compiler angle="degree" meshdir="meshes"/>
+  <default>
+    <joint damping="1"/>
+    <geom type="capsule" size="0.03" rgba="0.8 0.3 0.2 1"/>
+    <default class="arm">
+      <joint type="hinge" axis="0 1 0" range="-90 90"/>
+    </default>
+    <default class="visual">
+      <geom group="1" contype="0" conaffinity="0"/>
+    </default>
+    <default class="collision">
+      <geom group="3"/>
+    </default>
+  </default>
+  <asset>
+    <mesh name="hand" file="hand.stl" scale="0.001 0.001 0.001"/>
+    <material name="steel" rgba="0.6 0.6 0.65 1"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="1 1 0.1"/>
+    <body name="base" pos="0 0 0.1">
+      <geom type="cylinder" size="0.05 0.05" material="steel"/>
+      <joint name="yaw" type="hinge" axis="0 0 1"/>
+      <body name="upper" pos="0 0 0.05" childclass="arm">
+        <joint name="shoulder"/>
+        <geom fromto="0 0 0 0 0 0.3"/>
+        <geom class="collision" type="box" size="0.04 0.04 0.15" pos="0 0 0.15"/>
+        <body name="fore" pos="0 0 0.3" euler="0 90 0">
+          <joint name="elbow" axis="0 1 0" range="0 135"/>
+          <geom fromto="0 0 0 0 0 0.25"/>
+          <body name="hand" pos="0 0 0.25">
+            <joint name="wrist_pitch" axis="1 0 0" range="-60 60"/>
+            <joint name="wrist_roll" axis="0 0 1"/>
+            <site name="tool" pos="0 0 0.1"/>
+            <geom class="visual" type="mesh" mesh="hand"/>
+            <body name="finger_l" pos="0.02 0 0.08">
+              <joint name="finger_l" type="slide" axis="1 0 0" range="0 0.03"/>
+              <geom type="box" size="0.005 0.01 0.02"/>
+            </body>
+            <body name="finger_r" pos="-0.02 0 0.08">
+              <joint name="finger_r" type="slide" axis="-1 0 0" range="0 0.03"/>
+              <geom type="box" size="0.005 0.01 0.02"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <equality>
+    <joint joint1="finger_r" joint2="finger_l" polycoef="0 1 0 0 0"/>
+  </equality>
+  <actuator>
+    <motor name="yaw_motor" joint="yaw" gear="50"/>
+    <position name="shoulder_servo" joint="shoulder" kp="100"/>
+    <velocity joint="elbow"/>
+    <position name="grip" joint="finger_l" kp="50"/>
+    <muscle joint="wrist_roll"/>
+  </actuator>
+</mujoco>

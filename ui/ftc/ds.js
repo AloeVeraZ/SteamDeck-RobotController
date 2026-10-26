@@ -5,7 +5,7 @@
 const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_SECONDS=30;
 const host=window.ftcHost;
 let session=null,info={name:'FTC Robot',host:'',ssid:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0,minVolts=null,dsBattery=null;
-const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0},held=new Set();let deckAssigned=null;
+const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0};
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.hidden=true;},Math.max(1500,ms));}
@@ -22,6 +22,8 @@ function render(){
   if(s.activeOpMode!==STOP&&selected?.name!==s.activeOpMode){selected=opMode(s.activeOpMode)||{name:s.activeOpMode};}
   if(selected&&s.opModes.length&&!busy&&!opMode(selected.name))selected=null;
   const bad=['rejected','incompatible'].includes(s.connection);
+  // Presentation only: distinguish stopped, initialized, running and lost-link states.
+  document.body.dataset.robotState=s.robotState==='EMERGENCY_STOP'?'emergency':connected?s.opModeState:'disconnected';
   $('#link-banner').className='banner '+(connected?'connected':bad?'bad':'searching');
   $('#link-text').textContent=connected?'Robot Connected':s.connection==='rejected'?'Another DS Connected':s.connection==='incompatible'?'Robot Not Supported':'Searching for Robot';
   $('#network').textContent=info.ssid||info.host||'—';
@@ -42,9 +44,11 @@ function render(){
   $('#timer-switch').checked=timerOn;$('#timer-switch').disabled=state==='running';
   $('#config').textContent=s.activeConfig?.name?`${s.activeConfig.name}${s.activeConfig.dirty?' *':''}`:'<No Config Set>';
   const name=s.activeOpMode===STOP?'':s.activeOpMode;
-  $('#status-line').textContent=!connected?(s.connection==='rejected'?'Status : Another Driver Station is connected to this robot':`Status : Looking for robot at ${info.host||'its address'}`)
+  const statusText=!connected?(s.connection==='rejected'?'Status : Another Driver Station is connected to this robot':`Status : Looking for robot at ${info.host||'its address'}`)
     :s.robotState==='EMERGENCY_STOP'?'Status : EMERGENCY STOP':state==='running'?`Status : Running ${name}`:state==='init'?`Status : Initialized ${name}`:'Status : Robot is stopped';
-  const sys=$('#system-message');sys.hidden=!(s.systemError||s.systemWarning);sys.textContent=s.systemError||s.systemWarning;sys.className='system '+(s.systemError?'error':'warning');
+  // Live regions announce changes, not every heartbeat/telemetry packet.
+  if($('#status-line').textContent!==statusText)$('#status-line').textContent=statusText;
+  const sys=$('#system-message'),message=s.systemError||s.systemWarning||'';sys.hidden=!message;if(sys.textContent!==message)sys.textContent=message;sys.className='system '+(s.systemError?'error':'warning');
   if(s.telemetry.updated!==lastTelemetry)renderTelemetry(s.telemetry);
   renderPractice();watchTransitions(s);
 }
@@ -130,42 +134,30 @@ function mainAction(){
 }
 function stop(){stopCountdown();session.stopOpMode();queueRender();}
 
-// ---- Gamepads: START+A assigns User 1, START+B assigns User 2 ---------------------------------
+// ---- Gamepads: shared driver-station controller slots ---------------------------------
 const dead=v=>{v=Math.max(-1,Math.min(1,Number(v)||0));return Math.abs(v)<0.05?0:v;};
-function gamepadType(id){return /054c|sony|dualshock|dualsense|wireless controller/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
+function gamepadType(id){return /054c|sony|dualshock|dualsense|\bps4\b/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
 function ftcPad(p,rest){
-  const base={id:p.index+1,gamepadType:gamepadType(p.id)};if(rest)return base;
+  const base={id:p.index+1,gamepadType:gamepadType(p.id)};if(rest||p.mapping!=='standard')return base;
   const on=i=>!!p.buttons[i]?.pressed,val=i=>Math.max(0,Math.min(1,p.buttons[i]?.value||0));
   return {...base,left_stick_x:dead(p.axes[0]),left_stick_y:dead(p.axes[1]),right_stick_x:dead(p.axes[2]),right_stick_y:dead(p.axes[3]),left_trigger:val(6),right_trigger:val(7),
     a:on(0),b:on(1),x:on(2),y:on(3),left_bumper:on(4),right_bumper:on(5),back:on(8),start:on(9),left_stick_button:on(10),right_stick_button:on(11),dpad_up:on(12),dpad_down:on(13),dpad_left:on(14),dpad_right:on(15),guide:on(16),touchpad:on(17)};
 }
 function inputsLive(){return inputsOn&&!document.hidden&&document.hasFocus();}
 function pollGamepads(){
-  if(!session)return;const pads=[...(navigator.getGamepads?.()||[])].filter(p=>p&&p.connected),present=new Set(pads.map(p=>p.index));
-  for(const u of [1,2])if(users[u]!==null&&!present.has(users[u])){users[u]=null;session.setGamepad(u,null);toast(`User ${u} gamepad disconnected`);}
-  if(deckAssigned!==null&&!present.has(deckAssigned))deckAssigned=null;
-  // Steam Deck: its built-in controls become User 1 without START + A. Valve's controller (vendor 28de, or the first
-  // pad when Steam Input renames it) is chosen once; START + A / START + B still reassign, and a reconnect repeats it.
-  if(info.steamDeck&&deckAssigned===null&&users[1]===null&&pads.length){
-    const deck=pads.find(p=>/28de|valve|steam deck/i.test(p.id))||pads[0];
-    if(deck.index!==users[2]){users[1]=deck.index;deckAssigned=deck.index;if(deck.buttons.some(b=>b.pressed))held.add(deck.index);toast('Steam Deck controls are User 1',2500);}
-  }
-  for(const p of pads){
-    const pressed=i=>!!p.buttons[i]?.pressed;
-    if(inputsLive()&&pressed(9)&&(pressed(0)||pressed(1))){
-      const u=pressed(0)?1:2,other=3-u;
-      if(users[u]!==p.index){if(users[other]===p.index){users[other]=null;session.setGamepad(other,null);}users[u]=p.index;held.add(p.index);toast(`Gamepad assigned to User ${u}`,2000);}
-    }
-    if(held.has(p.index)&&!p.buttons.some(b=>b.pressed))held.delete(p.index);
-  }
+  if(!session)return;const pads=Array.from(navigator.getGamepads?.()||[]),count=window.__deckControllerInput?.state().count||info.controllerCount||1;
+  $('#pad-2').hidden=false;$('#pad-2').classList.toggle('standby',count<2);
+  if(count<2)$('#pad-2').title='Controller 2 is on standby. Choose Two controllers in this robot’s Settings to send User 2 input.';
   for(const u of [1,2]){
-    const index=users[u],button=$('#pad-'+u);button.classList.toggle('assigned',index!==null);if(index===null){button.classList.remove('active');continue;}
-    const p=pads.find(x=>x.index===index),pad=ftcPad(p,!inputsLive()||held.has(index)),key=JSON.stringify(pad);
-    if(key!==padKeys[u]){padKeys[u]=key;padStamps[u]=Date.now();}
-    session.setGamepad(u,{...pad,timestamp:padStamps[u]});button.classList.toggle('active',!R.atRest(pad));button.title=`User ${u}: ${p.id}`;
+    const p=u<=count?pads[u-1]:null,button=$('#pad-'+u),previous=users[u];users[u]=p?.connected?u-1:null;
+    button.classList.toggle('assigned',users[u]!==null);
+    if(users[u]===null){if(previous!==null)session.setGamepad(u,null);button.classList.remove('active');continue;}
+    const pad=ftcPad(p,!inputsLive()),key=JSON.stringify(pad);if(key!==padKeys[u]){padKeys[u]=key;padStamps[u]=Date.now();}
+    session.setGamepad(u,{...pad,timestamp:padStamps[u]});button.classList.toggle('active',!R.atRest(pad));button.title='Assign controller '+u+' · '+p.id;
   }
-  $('#assign-hint').hidden=!(session.state.connection==='connected'&&users[1]===null&&pads.some(p=>p.index!==users[2]));
+  $('#assign-hint').hidden=!(session.state.connection==='connected'&&users[1]===null);
 }
+
 async function rumble(effect){
   const token=++rumbleToken,index=users[effect.user===2?2:1],actuator=index===null?null:navigator.getGamepads?.()[index]?.vibrationActuator;if(!actuator?.playEffect)return;
   for(const step of effect.steps){if(token!==rumbleToken)return;const duration=step.duration<0?10000:Math.min(step.duration,10000);
@@ -184,7 +176,7 @@ $('#menu-restart').onclick=()=>menu(()=>{session.restartRobot();toast('Restartin
 $('#menu-manage').onclick=()=>menu(()=>{Promise.resolve(host.programAndManage?.()).catch(e=>toast(e.message));});
 $('#menu-camera').onclick=()=>menu(openCamera);
 $('#menu-about').onclick=()=>menu(()=>{session.requestAbout();const r=session.state.robot;showDialog('About',`Robot: ${info.name}\nAddress: ${info.host}\nRobocol: ${session.identity.version}${r?.sdk?`\nRobot Controller SDK: ${r.sdk}`:''}\n\nWaiting for the Robot Controller’s details…`);});
-$('#menu-gamepads').onclick=()=>menu(()=>showDialog('Gamepad assignment',`Press START + A on a gamepad to make it User 1 (gamepad1).\nPress START + B to make it User 2 (gamepad2).\n\nOn Steam Deck, START is the ☰ button.\n\nUser 1: ${users[1]===null?'not assigned':navigator.getGamepads()[users[1]]?.id||'assigned'}\nUser 2: ${users[2]===null?'not assigned':navigator.getGamepads()[users[2]]?.id||'assigned'}`));
+$('#menu-gamepads').onclick=()=>menu(()=>showDialog('Gamepad assignment','Click Controller 1 in the app header, then press any button on that controller.\n\nFor a two-controller robot, select Two controllers in Settings, then click Controller 2 to assign or swap it.\n\nBuilt-in controls are preferred for Controller 1; other devices use the first detected controller.'));
 $('#camera-image').onclick=()=>session.requestFrame();$('#camera-close').onclick=closeCamera;
 $('#auto-list').onclick=()=>openPicker('AUTONOMOUS');$('#teleop-list').onclick=()=>openPicker('TELEOP');
 $('#opmode-name').onclick=()=>openPicker(selected?.flavor==='AUTONOMOUS'?'AUTONOMOUS':'TELEOP');
@@ -194,7 +186,7 @@ $('#timer').onclick=()=>{if(countdown===null){timerOn=!timerOn;queueRender();}};
 $('#timer-switch').onchange=()=>{timerOn=$('#timer-switch').checked;queueRender();};
 $('#practice-play').onclick=()=>practice?stopPractice():choosePractice();
 $('#dialog-ok').onclick=()=>$('#ds-dialog').close();
-$('#pad-1').onclick=$('#pad-2').onclick=()=>$('#menu-gamepads').click();
+for(const slot of [1,2])$('#pad-'+slot).onclick=()=>Promise.resolve(host.controllerCapture?.(slot)).catch(e=>toast(e.message));
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){closePicker();setMenu(false);}
   // Space stops an initialized or running op mode, like an emergency stop key.
@@ -204,11 +196,16 @@ document.addEventListener('keydown',e=>{
 async function boot(){
   if(!host){$('#link-text').textContent='Driver Station Unavailable';$('#link-banner').className='banner bad';$('#status-line').textContent='Status : Open this robot from Deck Driver Station Settings.';return;}
   try{info={...info,...await host.info()};}catch{}
+  window.deckControllerAssignments=()=>Array.from(navigator.getGamepads?.()||[]).slice(0,2).map(p=>p?{id:p.id,index:p.index,mapping:p.mapping,connected:true}:null);
+  $('#pad-1').title='Click, then press a button to assign controller 1';
   $('#ds-name').textContent=dsName();document.title=`${info.name||'FTC Robot'} · ${dsName()}`;
   try{const b=await navigator.getBattery?.();if(b){dsBattery=b;for(const e of ['levelchange','chargingchange'])b.addEventListener(e,renderBattery);}}catch{}renderBattery();
   session=new R.DriverStation({send:bytes=>host.send(bytes)});host.onPacket(bytes=>session.receive(bytes));
   host.onActive?.(on=>{inputsOn=on;pollGamepads();});
   session.on('state',queueRender);
+  // The autonomous the simulator's Send to robot just built is selected once the robot lists it, unless one is chosen first.
+  let sent=info.select||null;
+  session.on('state',s=>{if(!sent)return;if(selected||s.opModeState!=='stopped'){sent=null;return;}const m=opMode(sent);if(m){selected=m;sent=null;toast(`${m.name} is selected: Deck just sent it to the robot.`);queueRender();}});
   session.on('op-mode-ended',m=>{const next=m.autoTransition&&opMode(m.autoTransition);if(next&&next.flavor==='TELEOP'){selected=next;timerOn=false;session.initOpMode(next.name);toast(`Initializing ${next.name}`);}});
   session.on('toast',t=>toast(t.message,(t.duration||3)*1000));
   session.on('dialog',d=>{$('#ds-dialog').dataset.id=d.id;showDialog(d.title||'Robot Controller',d.message);});

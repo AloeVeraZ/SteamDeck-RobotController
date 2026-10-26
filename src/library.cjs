@@ -12,7 +12,7 @@ class Library {
     this.file=file;this.data={version:2,robots:[],lastId:null};
     if(fs.existsSync(file)){
       const old=JSON.parse(fs.readFileSync(file,'utf8'));
-      if(old.version===2&&Array.isArray(old.robots)){this.data=old;}
+      if(old.version===2&&Array.isArray(old.robots)){this.data=old;for(const robot of this.data.robots)robot.controllerCount=robot.controllerCount===2?2:1;}
       else if(old.addresses||old.custom){
         const defaults={pushbot:['PushBot','Pushbot'], '3dbu':['3DBU / Big Zippy','3DBU-Robot'],motionmodule:['MotionModule','MotionModule'],'3tsahur':['3TSahur','3TSahur-Swarm'],omnibot:['OmniBot','OmniBot']};
         for(const [id,addresses] of Object.entries(old.addresses||{})){if(defaults[id]&&addresses[0])this.upsert({name:defaults[id][0],ssid:defaults[id][1],url:addresses[0]});}
@@ -28,7 +28,8 @@ class Library {
     const old=input.id?this.get(input.id):this.data.robots.find(p=>p.url===url&&p.ssid===ssid);
     // A typed name always wins over the website title; echoing back an automatic name keeps it automatic.
     const explicit=!!typed&&!(old?.autoName&&typed===old.name),kind=['web','ftc'].includes(input.kind)?input.kind:input.kind==='auto'?undefined:old?.url===url?old.kind:undefined;
-    const p={id:old?.id||randomUUID(),name:explicit?typed:title.slice(0,90)||old?.name||ssid||new URL(url).hostname,url,ssid,autoName:!explicit,createdAt:old?.createdAt||Date.now(),lastOpened:opened?Date.now():old?.lastOpened||0};
+    const controllerCount=input.controllerCount===undefined?old?.controllerCount||1:Number(input.controllerCount);if(![1,2].includes(controllerCount))throw Error('Choose one or two controllers.');
+    const p={id:old?.id||randomUUID(),name:explicit?typed:title.slice(0,90)||old?.name||ssid||new URL(url).hostname,url,ssid,controllerCount,autoName:!explicit,createdAt:old?.createdAt||Date.now(),lastOpened:opened?Date.now():old?.lastOpened||0};
     if(kind)p.kind=kind;
     this.data.robots=this.data.robots.filter(p2=>p2.id!==p.id);this.data.robots.push(p);if(opened)this.data.lastId=p.id;this.save();return p;
   }
