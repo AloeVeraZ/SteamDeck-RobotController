@@ -43,7 +43,8 @@ function download(url,file,expected){
 const tar=process.platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32','tar.exe'):'tar';
 function extract(archive,dir){
   fs.rmSync(dir,{recursive:true,force:true});fs.mkdirSync(dir,{recursive:true});
-  if(archive.endsWith('.zip')&&process.platform!=='win32')execFileSync('unzip',['-q',archive,'-d',dir],{stdio:'inherit'});
+  // Without unzip (some runner images), Python's zipfile does it; only the target JDK's jmods are read from a zip here.
+  if(archive.endsWith('.zip')&&process.platform!=='win32')try{execFileSync('unzip',['-q',archive,'-d',dir],{stdio:'inherit'});}catch(e){if(e.code!=='ENOENT')throw e;execFileSync('python3',['-m','zipfile','-e',archive,dir],{stdio:'inherit'});}
   else execFileSync(tar,['-xf',archive,'-C',dir],{stdio:'inherit'});
   const [top]=fs.readdirSync(dir);const home=path.join(dir,top);
   return fs.existsSync(path.join(home,'Contents/Home'))?path.join(home,'Contents/Home'):home;
