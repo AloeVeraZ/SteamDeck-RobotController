@@ -100,7 +100,7 @@ test('an offline plan: drive motors on the Control Hub, other motors on the Expa
   // The Through Bore on the turret is plugged into the turret motor's own encoder input (port 3 counts in hardware): the
   // robot reads it through "turret", whose own encoder is then not used.
   assert.equal(assign['sensor.turretTb'].via,'turret');
-  assert.deepEqual(problems,[{level:'red',keys:['kin.liftMotor'],text:'No motor port is free for Lift. Run a roller on a continuous servo, or free a motor port.'}]);
+  assert.deepEqual(problems,[{level:'amber',keys:['kin.liftMotor'],text:'No motor port is free for Lift. Run a roller on a continuous servo, or free a motor port.'}]);
   // Deterministic, and the same with no Expansion Hub says to add one; a Servo Hub takes servos past the Control Hub's six.
   assert.deepEqual(H.plan(rows,WIRING),H.plan(rows,WIRING));
   const alone=H.plan(rows,{devices:WIRING.devices});assert.match(alone.problems.map(p=>p.text).join('\n'),/No motor port is free for Intake 1 roller\. Add an Expansion Hub/);

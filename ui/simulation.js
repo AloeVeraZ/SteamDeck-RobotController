@@ -232,6 +232,7 @@ public class MyAuto implements DeckAutonomous {
         <div class="sim-mech-layout"><div class="sim-mech-main">
         <div id="mech-preset" class="sim-mech-preset" hidden><p id="mech-preset-text"></p></div>
         <div class="sim-mech-toolbar"><button type="button" class="primary" id="mech-add" aria-expanded="false" aria-controls="mech-picker">+ Add mechanism</button><button type="button" class="secondary" id="mech-from-cad">Configure from CAD</button></div>
+        <div id="mech-hubs" class="sim-wire-block" hidden></div>
         <p id="mech-list-status" class="hint sim-mech-status" role="status"></p><p id="mech-cad-note" class="hint"></p>
         <div id="mech-picker" hidden></div>
         <div id="mech-intakes"></div><div id="mech-shooters"></div><div id="mech-parts"></div>
@@ -2199,7 +2200,8 @@ public class MyAuto implements DeckAutonomous {
   // Every motor and servo on a mechanism, with its model, hub port and sensors and a line on what it does and how it is
   // read. The CAD is every part's zero: encoders count from it, a servo's center holds it, named positions are from it.
   function wireBlocks(){
-    const W=window.DeckWiring,ftc=project.controller==='ftc',st=ftc?W.state(project):null,focus=document.activeElement?.id;
+    const W=window.DeckWiring,ftc=project.controller==='ftc',st=ftc?W.state(project):null,focus=document.activeElement?.id,hubs=$('#mech-hubs');
+    hubs.hidden=!ftc;const hubsHtml=ftc?`<span class="sim-mech-label">Hubs on the robot</span>${W.hubsHtml(st)}`:'';if(hubs.dataset.html!==hubsHtml){hubs.innerHTML=hubsHtml;hubs.dataset.html=hubsHtml;}
     for(const box of $$('[data-wire-for]')){box.hidden=!ftc;if(!ftc){box.innerHTML='';box.dataset.html='';continue;}
       const [kind,id]=box.dataset.wireFor.split(':'),rows=st.rows.filter(r=>r.role!=='sensor'&&(kind==='kin'?/^kin\./.test(r.key)&&r.joints?.includes(id):r.key.startsWith(`${kind}s.${id}.`)));
       const html=rows.length?`<span class="sim-mech-label">Hardware · model, port and sensors</span>${rows.map(r=>W.deviceHtml(r,st,{sensors:true,model:kind!=='kin'})).join('')}`:'';
@@ -2220,6 +2222,7 @@ public class MyAuto implements DeckAutonomous {
     mechCards=new IntersectionObserver(list=>{if(setupStep!=='mechanisms'||document.activeElement?.closest?.('.sim-mech-main [data-part],.sim-mech-main [data-mech]'))return;
       const top=list.filter(e=>e.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top)[0];if(top)focusMech(focusOf(top.target));},{rootMargin:'-30% 0px -50% 0px'});
     for(const card of $$('.sim-mech-main [data-part],.sim-mech-main [data-mech]'))mechCards.observe(card);}
+  window.DeckWiring.bind($('#mech-hubs'),{project:()=>project,apply:applyWiring});
   for(const host of ['#mech-intakes','#mech-shooters','#mech-parts']){const box=$(host);
     window.DeckWiring.bind(box,{project:()=>project,apply:applyWiring});
     for(const type of ['focusin','pointerdown'])box.addEventListener(type,e=>focusMech(focusOf(e.target)));
