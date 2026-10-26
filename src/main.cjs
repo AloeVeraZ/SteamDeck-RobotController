@@ -347,6 +347,8 @@ handle('robot-link',async(action,data)=>{
     return true;}
   if(action==='read')return robotLink.readRobot(data?.host,{scan:data?.scan===true});
   if(action==='read-usb')return robotLink.readUsb();
+  if(action==='read-all')return robotLink.readConfigurations(data?.host);
+  if(action==='activate')return robotLink.activateConfiguration(data?.host,data?.name);
   if(action==='configure')return robotLink.writeConfiguration(data?.host,{name:data?.name,xml:data?.xml});
   if(action==='send')return robotLink.send(data?.host,data?.files,{keep:Array.isArray(data?.keep)?data.keep:[],backupDir:path.join(app.getPath('userData'),'robot-backups'),onProgress:(stage,file)=>emit('robot-link-progress',{stage,file})});
   throw Error('Unknown robot action.');

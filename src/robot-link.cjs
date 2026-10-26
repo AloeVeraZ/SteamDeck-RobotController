@@ -86,6 +86,18 @@ async function writeConfiguration(host,{name,xml}={},{timeout=8000,socket=null,r
   },{timeout,socket});
 }
 
+// Every configuration the robot keeps, read as Configure Robot lists them: {configurations, active, files: {name: xml}}.
+async function readConfigurations(host,{timeout=8000,socket=null}={}){
+  return session(host,async link=>{const {ask}=link,{files,active}=await configurations(link,timeout),out={};
+    for(const f of files.slice(0,24)){try{const xml=await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(configFile(f.name)));if(/<Robot\b/.test(xml))out[f.name]=xml;}catch{}}
+    return {source:'wifi',host,configurations:Object.keys(out),active:{name:active},files:out};},{timeout,socket});}
+// Makes a saved configuration the active one, as the Driver Station's Configure Robot does, then restarts the robot so
+// its hardware map is built from it.
+async function activateConfiguration(host,name,{timeout=8000,socket=null,restart=true}={}){
+  return session(host,async link=>{const {ds,until,sent}=link,{files}=await configurations(link,timeout);if(!files.some(c=>c.name===name))throw Error(`The robot has no configuration named “${name}”.`);
+    await sent(ds.command('CMD_ACTIVATE_CONFIGURATION',JSON.stringify(configFile(name))));await until(s=>s.activeConfig?.name===name,15000,`The robot did not make “${name}” active.`);
+    if(restart)await sent(ds.restartRobot());return {name,restarted:restart};},{timeout,socket});}
+
 // ---- the guided check, run from Deck
 // Runs the check TeleOp as a Driver Station does (INIT, then START once it has initialized) and stays connected while
 // it runs: onUpdate gets its telemetry, press() presses a gamepad 1 button for the person answering in Deck, and stop()
@@ -223,4 +235,4 @@ async function readUsb({run}={}){
     try{blocks=blocksHardware(await getLocal(port,'/hardware',10000));}catch{}}catch{}finally{adb(['-s',serial,'forward','--remove',`tcp:${port}`],{run}).catch(()=>{});}
   const name=active&&out[active]?active:names[0],parsed=RobotConfig.parse(out[name]);
   return {source:'usb',serial,configurations:names,active:{name,...(active&&out[active]?{}:{guessed:true})},xml:out[name],...parsed,blocks,files:out};}
-module.exports={readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};
+module.exports={readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};

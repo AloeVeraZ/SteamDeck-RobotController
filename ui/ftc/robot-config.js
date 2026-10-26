@@ -317,6 +317,23 @@
   // Every device of a configuration as Java: the imports, the fields and the init lines, variables kept apart.
   function javaOf(devices){const used=new Set(),list=(devices||[]).map(d=>{const j=javaFor(d);let v=j.variable,n=2;while(used.has(v))v=j.variable+n++;used.add(v);return {...j,variable:v,declare:`${j.type} ${v} = ${j.get};`,device:d};});
     return {list,imports:[...new Set(list.map(j=>j.import))].sort().map(i=>`import ${i};`),fields:list.map(j=>`private ${j.type} ${j.variable};`),init:list.map(j=>`${j.variable} = ${j.get};`)};}
-  return {javaFor,javaOf,variableOf,parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
+  // ---- Configure Robot in Deck: the types a port of each family takes, and a configuration written again after editing
+  const EDIT_TYPES={motor:Object.entries(MOTOR_TYPES).map(([tag,label])=>[tag,label]),
+    servo:[['Servo','Servo'],['ServoFullRange','Servo, full range (500–2500 µs)'],['ContinuousRotationServo','Continuous rotation servo'],['RevBlinkinLedDriver','REV Blinkin LED driver'],['RevSPARKMini','REV SPARK Mini']],
+    analog:[['AnalogInput','Analog input'],['OpticalDistanceSensor','Optical distance sensor']],digital:[['DigitalDevice','Digital device'],['RevTouchSensor','REV Touch Sensor'],['Led','LED']],
+    i2c:[['RevColorSensorV3','REV Color Sensor V3'],['REV_VL53L0X_RANGE_SENSOR','REV 2m Distance Sensor'],['goBILDAPinpoint','goBILDA Pinpoint'],['SparkFunOTOS','SparkFun OTOS'],['OctoQuadFTC','OctoQuad'],['HuskyLens','HuskyLens'],['ControlHubImuBHI260AP','Control Hub IMU (BHI260AP)'],['LynxEmbeddedIMU','Hub IMU (BNO055)']]};
+  const PORT_COUNT={motor:4,servo:6,analog:4,digital:8,i2c:4};
+  const familyOfTag=tag=>{for(const [f,list] of Object.entries(EDIT_TYPES))if(list.some(([t])=>t===tag))return f;return portFamily(kindOf(tag));};
+  // The configuration with its devices replaced by `devices` ({name, tag, port, bus?, module: {portal, address,
+  // servoHub?}}), hubs and anything outside a hub (a webcam, a Limelight) kept as they were.
+  function rebuild(xml,devices){
+    const {hubs}=parse(xml),portals=[];for(const h of hubs){let p=portals.find(x=>x.serial===h.portal);if(!p){p={serial:h.portal,modules:[],servoHubs:[]};portals.push(p);}
+      if(h.tag==='ServoHub')p.servoHubs.push({address:h.address,name:h.name});else p.modules.push({address:h.address,parent:h.parent});}
+    for(const d of devices||[])if(!validName(d.name))throw Error(`“${d.name}” cannot be a device name: use letters, digits, spaces, - and _.`);
+    const names=new Set();for(const d of devices||[]){if(names.has(d.name.toLowerCase()))throw Error(`Two devices are named “${d.name}”.`);names.add(d.name.toLowerCase());}
+    const out=newConfiguration(portals,(devices||[]).map(d=>({...d,device:kindOf(d.tag)})));
+    const outside=elements(xml).filter(e=>!e.close&&e.attrs.name&&!CONTAINERS.has(e.tag)&&!within(e,HUBS)).map(e=>'    '+xml.slice(e.start,xml.indexOf('>',e.start)+1).replace(/\s*>$/,'').replace(/\/$/,'').trim()+' />');
+    return outside.length?out.replace(/(<Robot[^>]*>)/,'$1\n'+outside.join('\n')):out;}
+  return {EDIT_TYPES,PORT_COUNT,familyOfTag,rebuild,javaFor,javaOf,variableOf,parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
     addDevices,newConfiguration,configurationFor,modulesOf,modulesFromScan,configurationName,validName,lynxSerials,lynxModules,deviceXml};
 });

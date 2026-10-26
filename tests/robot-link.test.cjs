@@ -289,3 +289,18 @@ test('the OnBot Java form encoding and build log parsing',async()=>{
   // Nothing listening: the message says where it looked and what to check.
   await assert.rejects(new OnBotJava('127.0.0.2',{port:9,timeout:2000}).available(),/Could not reach the robot's OnBot Java at http:\/\/127\.0\.0\.2:9.*Join the robot's Wi-Fi/);
 });
+
+test('Configure Robot from Deck over Wi-Fi: every configuration read, an edited one saved as new and active, another made active',async t=>{
+  let robot;try{robot=await startUdpRobot({address:ROBOT});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  t.after(()=>robot.close());const {readConfigurations,activateConfiguration}=require('../src/robot-link.cjs');
+  const withSocket=async f=>{const socket=await station();try{return await f(socket);}finally{await socket.close();}};
+  const all=await withSocket(socket=>readConfigurations(ROBOT,{socket}));assert.deepEqual(all.active,{name:'competition'});assert.equal(all.files.competition,CONFIG_XML);
+  // Rename the intake, move it to port 0's neighbour, add a touch sensor: the robot's XML as Configure Robot writes it.
+  const devices=RobotConfig.parse(CONFIG_XML).devices.map(d=>d.name==='intake'?{...d,name:'roller'}:d);devices.push({name:'liftHome',tag:'RevTouchSensor',port:1,module:{portal:'(embedded)',address:173}});
+  const xml=RobotConfig.rebuild(CONFIG_XML,devices);assert.match(xml,/<goBILDA5202SeriesMotor name="roller" port="3" \/>/);assert.match(xml,/<RevTouchSensor name="liftHome" port="1" \/>\n            <ControlHubImuBHI260AP/);
+  assert.throws(()=>RobotConfig.rebuild(CONFIG_XML,[...devices,{...devices[0]}]),/Two devices are named/);
+  const saved=await withSocket(socket=>writeConfiguration(ROBOT,{name:'competition Deck',xml},{socket}));assert.deepEqual(saved,{name:'competition Deck',devices:11,restarted:true});
+  const back=await withSocket(socket=>activateConfiguration(ROBOT,'competition',{socket}));assert.deepEqual(back,{name:'competition',restarted:true});
+  const now=await withSocket(socket=>readConfigurations(ROBOT,{socket}));assert.deepEqual(now.configurations.sort(),['competition','competition Deck']);assert.equal(now.active.name,'competition');
+  await assert.rejects(withSocket(socket=>activateConfiguration(ROBOT,'nope',{socket})),/no configuration named/);
+});
