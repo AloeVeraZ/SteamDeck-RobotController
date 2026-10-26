@@ -190,7 +190,7 @@
     const jointsOf=(role,setting)=>{if(!setting?.list)return [];const part=`${setting.list==='intakes'?'intake':'shooter'}:${setting.index}`;
       return joints.filter(j=>j.drive&&(SIGNALS[role]||[]).includes(j.drive.signal)&&(j.drive.of===part||role==='feeder'&&j.drive.of==='any')).map(j=>j.id);};
     const add=(n,extra={})=>{const key=settingKey(n.setting);if(!key||seen.has(key))return;seen.add(key);const k=parseKey(key);if(!k||k.sensor)return;
-      const act=k.kin?actuators.find(a=>a.id===k.kin):null,role=k.kin?`kin-${{dcmotor:'motor',servo:'servo',crservo:'crservo',linear:'linear'}[act?.kind]||'servo'}`:roleOf(n.setting,mech);if(!role)return;
+      const act=k.kin?actuators.find(a=>a.id===k.kin||a.device2&&a.id+'-2'===k.kin):null,role=k.kin?`kin-${{dcmotor:'motor',servo:'servo',crservo:'crservo',linear:'linear'}[act?.kind]||'servo'}`:roleOf(n.setting,mech);if(!role)return;
       const e=w.devices[key]||{},model=act?.model||e.model||null,md=MODELS[model],kind=act?.kind||(md&&ROLES[role]?.kinds.includes(md.kind)&&md.kind==='linear'&&n.device==='servo'?'linear':kindOfDevice(n.device)),family=role==='pod'?'motor':familyOfKind(kind);
       // Whether it reads its own motor encoder: a flywheel's speed, a motor turret's or part's position (unless a Through
       // Bore or an OctoQuad channel reads it instead), drive motors when the robot finds its place from them.
@@ -205,7 +205,8 @@
       for(const [key,label] of slots)add({name:key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),device:STEER.includes(key)?'crservo':'motor',label,setting:{robot:key}});}
     (mech?.enabled?mech.shooters||[]:[]).forEach((s,i)=>{if(s.hood)add({name:s.hood,device:'servo',label:`Shooter ${i+1} hood`,setting:{list:'shooters',index:i,field:'hood'}});});
     for(const a of actuators){if(!['servo','crservo','dcmotor','linear'].includes(a.kind))continue;const j=joints.find(x=>x.id===a.joint);if(j?.drive&&j.drive.signal!=='action')continue;
-      const servoPwm=a.servo?.pwm;add({name:a.device||camel(a.name),device:a.kind==='dcmotor'?'motor':a.kind==='linear'?'servo':a.kind,label:a.name||a.id,setting:{kin:a.id}},{...(servoPwm?{pwm:servoPwm}:{}),...(a.reversed?{reversed:true}:{})});}
+      const servoPwm=a.servo?.pwm,device=a.kind==='dcmotor'?'motor':a.kind==='linear'?'servo':a.kind;add({name:a.device||camel(a.name),device,label:a.name||a.id,setting:{kin:a.id}},{...(servoPwm?{pwm:servoPwm}:{}),...(a.reversed?{reversed:true}:{})});
+      if(a.device2)add({name:a.device2,device,label:`${a.name||a.id} (second)`,setting:{kin:a.id+'-2'}},{...(servoPwm?{pwm:servoPwm}:{}),...(a.reversed2?{reversed:true}:{})});}
     for(const s of w.sensors){const md=SENSOR_MODELS[s.model],dev=byKey.get(s.for),k=parseKey(s.for),joint=k?.kin?joints.find(j=>j.id===k.kin):null;
       if(dev)dev.sensors.push({id:s.id,model:s.model,kind:md.kind,use:s.use,...(s.hub?{hub:s.hub,...(s.bus!==undefined?{bus:s.bus}:{port:s.port}),...(s.channel!==undefined?{channel:s.channel}:{})}:{})});
       if(md.kind==='motorEncoder')continue;

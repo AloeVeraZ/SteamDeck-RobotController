@@ -227,6 +227,8 @@
   function hardwareOf(a){
     const out={};if(typeof a.model==='string'&&/^[a-z0-9][a-z0-9-]{0,47}$/.test(a.model))out.model=a.model;
     if(typeof a.device==='string'&&DEVICE.test(a.device.trim()))out.device=a.device.trim();if(a.reversed===true)out.reversed=true;
+    // A second motor or servo on the same part (a lift's other side, a mirrored wrist servo), driven with the first.
+    if(typeof a.device2==='string'&&DEVICE.test(a.device2.trim())){out.device2=a.device2.trim();if(a.reversed2===true)out.reversed2=true;}
     const s=a.servo;if(s&&typeof s==='object'){const pulses=v=>Array.isArray(v)&&v.length===2&&v.every(finite)&&v[0]>=100&&v[1]<=3000&&v[1]-v[0]>=50?[+v[0],+v[1]]:null;
       let lo=unitNum(s.min)??0,hi=unitNum(s.max)??1;if(lo>hi)[lo,hi]=[hi,lo];
       out.servo={min:lo,max:hi,center:clamp(unitNum(s.center)??.5,lo,hi),range:num(s.range,300,1,7200),...(pulses(s.pwm)?{pwm:pulses(s.pwm)}:{}),...(pulses(s.pulse)?{pulse:pulses(s.pulse)}:{})};}

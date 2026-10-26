@@ -4,23 +4,179 @@
   "setupName": "Route parts",
   "controller": "ftc",
   "imuSource": "device",
-  "robot": {"drivetrain": "mecanum", "length": 17, "width": 17, "heightIn": 12, "massLb": 24, "driveRpm": 435, "wheelDiameterMm": 104, "appearance": "plain",
-    "wiring": {"hubs": {"expansion": null, "servoHub": null}, "devices": {"kin.armServo": {"model": "axon-max", "hub": "control", "port": 0}, "kin.liftMotor": {"hub": "control", "port": 0}},
-      "sensors": [{"id": "armAngle", "model": "axon-feedback", "for": "kin.armServo", "use": "position", "hub": "control", "port": 0, "name": "armAngle"}]}},
-  "sensors": {"localization": "fused"},
-  "tuning": {"maxPathSpeed": 0.8},
-  "mechanisms": {"enabled": false},
-  "kinematics": {"model": null, "unit": 1, "joints": [
-      {"id": "arm", "name": "Arm", "type": "revolute", "axis": [0, 1, 0], "lower": -10, "upper": 180, "states": {"down": 0, "up": 90}},
-      {"id": "lift", "name": "Lift", "type": "prismatic", "axis": [0, 0, 1], "lower": 0, "upper": 20, "states": {"down": 0, "up": 12}}],
+  "robot": {
+    "drivetrain": "mecanum",
+    "length": 17,
+    "width": 17,
+    "heightIn": 12,
+    "massLb": 24,
+    "driveRpm": 435,
+    "wheelDiameterMm": 104,
+    "appearance": "plain",
+    "wiring": {
+      "hubs": {
+        "expansion": null,
+        "servoHub": null
+      },
+      "devices": {
+        "kin.armServo": {
+          "model": "axon-max",
+          "hub": "control",
+          "port": 0
+        },
+        "kin.liftMotor": {
+          "hub": "control",
+          "port": 0
+        }
+      },
+      "sensors": [
+        {
+          "id": "armAngle",
+          "model": "axon-feedback",
+          "for": "kin.armServo",
+          "use": "position",
+          "hub": "control",
+          "port": 0,
+          "name": "armAngle"
+        },
+        {
+          "id": "liftHome",
+          "model": "rev-touch",
+          "for": "kin.liftMotor",
+          "use": "home",
+          "hub": "control",
+          "port": 1,
+          "name": "liftHome"
+        }
+      ]
+    }
+  },
+  "sensors": {
+    "localization": "fused"
+  },
+  "tuning": {
+    "maxPathSpeed": 0.8
+  },
+  "mechanisms": {
+    "enabled": false
+  },
+  "kinematics": {
+    "model": null,
+    "unit": 1,
+    "joints": [
+      {
+        "id": "arm",
+        "name": "Arm",
+        "type": "revolute",
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "lower": -10,
+        "upper": 180,
+        "states": {
+          "down": 0,
+          "up": 90
+        }
+      },
+      {
+        "id": "lift",
+        "name": "Lift",
+        "type": "prismatic",
+        "axis": [
+          0,
+          0,
+          1
+        ],
+        "lower": 0,
+        "upper": 20,
+        "states": {
+          "down": 0,
+          "up": 12
+        }
+      }
+    ],
     "actuators": [
-      {"id": "armServo", "name": "Arm servo", "joint": "arm", "kind": "servo", "model": "axon-max", "speed": 90, "device": "armServo", "servo": {"center": 0.3}},
-      {"id": "liftMotor", "name": "Lift motor", "joint": "lift", "kind": "dcmotor", "speed": 8, "device": "liftMotor", "cpr": 537.7, "ratio": 20}]},
-  "layouts": [{"id": "partsroute", "name": "Parts route", "field": "empty", "alliance": "red", "width": 144, "height": 144, "elements": true,
-    "start": {"x": 24, "y": 24, "heading": 0}, "zones": [], "clearance": 2, "style": "spline", "rotate": true,
-    "pins": [{"x": 48, "y": 24, "wait": 0, "action": "Arm up", "path": {"style": "sharp"}},
-             {"x": 72, "y": 24, "wait": 0, "action": "Lift up", "path": {"style": "sharp"}},
-             {"x": 96, "y": 24, "wait": 0, "action": "Arm down", "path": {"style": "sharp"}}]}],
+      {
+        "id": "armServo",
+        "name": "Arm servo",
+        "joint": "arm",
+        "kind": "servo",
+        "model": "axon-max",
+        "speed": 90,
+        "device": "armServo",
+        "servo": {
+          "center": 0.3
+        }
+      },
+      {
+        "id": "liftMotor",
+        "name": "Lift motor",
+        "joint": "lift",
+        "kind": "dcmotor",
+        "speed": 8,
+        "device": "liftMotor",
+        "cpr": 537.7,
+        "ratio": 20,
+        "device2": "liftMotor2",
+        "reversed2": true
+      }
+    ]
+  },
+  "layouts": [
+    {
+      "id": "partsroute",
+      "name": "Parts route",
+      "field": "empty",
+      "alliance": "red",
+      "width": 144,
+      "height": 144,
+      "elements": true,
+      "start": {
+        "x": 24,
+        "y": 24,
+        "heading": 0
+      },
+      "zones": [],
+      "clearance": 2,
+      "style": "spline",
+      "rotate": true,
+      "pins": [
+        {
+          "x": 48,
+          "y": 24,
+          "wait": 0,
+          "action": "Arm up",
+          "path": {
+            "style": "sharp"
+          }
+        },
+        {
+          "x": 72,
+          "y": 24,
+          "wait": 0,
+          "action": "Lift up",
+          "path": {
+            "style": "sharp"
+          }
+        },
+        {
+          "x": 96,
+          "y": 24,
+          "wait": 0,
+          "action": "Arm down",
+          "path": {
+            "style": "sharp"
+          }
+        }
+      ]
+    }
+  ],
   "active": "partsroute",
-  "export": {"packageName": "org.firstinspires.ftc.teamcode", "className": "PartsRoute", "keep": false}
+  "export": {
+    "packageName": "org.firstinspires.ftc.teamcode",
+    "className": "PartsRoute",
+    "keep": false
+  }
 }

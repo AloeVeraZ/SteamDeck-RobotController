@@ -29,6 +29,10 @@ test('Parts.java: each part on its motor or servo, closed on its sensor, and the
   assert.deepEqual(ex.parts.list.map(p=>[p.method,p.device,p.name]),[['armServo','servo','armServo'],['liftMotor','motor','liftMotor']]);
   assert.match(src,/public static final String PART_ARM_SERVO_SENSOR = "armAngle";/);assert.match(src,/Math\.abs\(armServoMeasured\(\) - armServoTarget\) <= TOLERANCE_DEGREES/);
   assert.match(src,/liftMotor\.setMode\(DcMotor\.RunMode\.STOP_AND_RESET_ENCODER\);/,'the CAD pose is the encoder zero');assert.match(src,/!liftMotor\.isBusy\(\)/);
+  // The lift's second motor (mirrored) runs to the same target, and the home switch re-zeroes the encoders when sent home.
+  assert.match(src,/liftMotor2 = map\.tryGet\(DcMotorEx\.class, PART_LIFT_MOTOR_2\);/);assert.match(src,/liftMotor2\.setTargetPosition\(\(int\) Math\.round\(value \* PART_LIFT_MOTOR_COUNTS_PER_UNIT\)\);/);
+  assert.match(src,/public boolean liftMotorAtHome\(\) \{\n\s+return liftMotorHome\.isPressed\(\);/);assert.match(src,/if \(liftMotorAtHome\(\) && Math\.abs\(liftMotorTarget - PART_LIFT_MOTOR_HOME\) < 1e-6/);
+  const H=require('../ui/sim-hardware.js'),rows=H.rows({robot,kinematics:kin,sensors:{localization:'fused'}});assert.deepEqual(rows.filter(r=>/^kin\./.test(r.key)).map(r=>[r.key,r.name]),[['kin.armServo','armServo'],['kin.liftMotor','liftMotor'],['kin.liftMotor-2','liftMotor2']],'the second motor is in the configuration');
   assert.equal(F.mechanismAction('Arm up',null,ex.parts),'if (step.first) parts.armServo(90.0);\n        return step.moving || parts.armServoDone();');
   assert.equal(F.mechanismAction('Lift to 5',null,ex.parts),'if (step.first) parts.liftMotor(5.0);\n        return step.moving || parts.liftMotorDone();');
   assert.equal(F.mechanismAction('Claw open',null,ex.parts),'','a name no part has stays the team\'s to write');
