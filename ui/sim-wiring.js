@@ -13,16 +13,24 @@
     const D=H();let value;
     try{const wiring=D.wiringOf(p.robot),raw=p.controller==='motionmodule'?[]:D.rows(p),rows=D.placed(raw,wiring),problems=D.conflicts(raw,wiring);value={wiring,rows,problems,error:null};}
     catch(e){value={wiring:D.wiringOf(p.robot),rows:[],problems:[],error:e.message};}
-    memo={key,value};return value;}
+    value.project=p;memo={key,value};return value;}
   const problemsOf=(st,key)=>st.problems.filter(x=>x.keys.includes(key));
   const red=(st,test)=>st.problems.filter(x=>x.level==='red'&&x.keys.some(test));
   // The setup step a device belongs to: the drivetrain and its sensors on Robot, everything else on Mechanisms.
   const stepOf=key=>/^robot\./.test(key)?'robot':'mechanisms';
   // ---- choices ------------------------------------------------------------------------------------------------------
+  // The types a device may be, by what it does: a roller on a DC motor or a continuous servo, a feeder that spins or a
+  // servo that pushes or gates... Setting one sets the mechanism (setKind in Setup); the Model list then shows that type.
+  const TYPES={roller:[['dcmotor','DC motor'],['crservo','Continuous servo']],ramp:[['servo','Servo'],['linear','Linear servo']],kicker:[['servo','Servo'],['linear','Linear servo']],
+    hood:[['servo','Servo'],['linear','Linear servo']],feeder:[['dcmotor','DC motor'],['crservo','Continuous servo'],['pusher','Servo pusher'],['gate','Servo gate']],
+    turret:[['dcmotor','DC motor'],['servo','Servo']],steer:[['crservo','Continuous servo'],['servo','Servo'],['dcmotor','DC motor']]};
+  function typeOf(row,st){if(row.role==='feeder'){const s=st.project?.mechanisms?.shooters?.[row.setting?.index];return {motor:'dcmotor',crservo:'crservo',pusher:'pusher',gate:'gate'}[s?.indexerKind]||row.kind;}return row.kind;}
+  function typeSelect(row,st){const list=TYPES[row.role];if(!list||/^kin\./.test(row.key))return '';const now=typeOf(row,st);
+    return `<div><label for="wire-type-${esc(row.key)}">Type</label><select id="wire-type-${esc(row.key)}" data-wire-kind="${esc(row.key)}">${list.map(([k,l])=>`<option value="${k}"${k===now?' selected':''}>${esc(l)}</option>`).join('')}</select></div>`;}
   // Models a row may run on: its kind (a servo row may take a linear servo when its role allows one), grouped by maker.
   function modelChoices(row){
     const D=H(),role=D.ROLES[row.role];if(!role||!role.kinds.length)return [];
-    const kinds=row.kind==='servo'?role.kinds.filter(k=>k==='servo'||k==='linear'):role.kinds.filter(k=>k===row.kind);
+    const kinds=role.kinds.filter(k=>k===row.kind);
     return D.ACTUATORS.filter(m=>kinds.includes(m.kind));}
   const groupOf=m=>m.family||(m.name.split(/\s/)[0]);
   function modelSelect(row){
@@ -39,8 +47,13 @@
     return out;}
   function portSelect(row,st,{id='wire-port-'+row.key,attr='data-wire-port',key=row.key,family=row.family,set=row.wired?(row.family==='i2c'?`${row.hub}:${row.bus}`:`${row.hub}:${row.port}`):''}={}){
     if(!family||row.role==='imu')return `<div><span class="sim-mech-label">Plugged into</span><p class="sim-wire-fixed">${esc(row.portLabel||'Control Hub I2C bus 0')}</p></div>`;
-    const planned=row.portLabel&&!set?row.portLabel:'';
-    return `<div><label for="${esc(id)}">Plugged into</label><select id="${esc(id)}" ${attr}="${esc(key)}"><option value="">${planned?`Deck picks · ${esc(planned)}`:'Deck picks a free port'}</option>${portChoices(family,st,{skip:row.key}).map(o=>`<option value="${o.value}"${o.value===set?' selected':''}>${esc(o.label)}</option>`).join('')}</select></div>`;}
+    const planned=row.portLabel&&!set?row.portLabel:'',mates=attr==='data-wire-port'&&(family==='motor'||family==='servo')?shareable(row,st):[],shared=sharedWith(row,st);
+    const share=mates.length?`<optgroup label="Same ${family==='motor'?'motor':'servo'} as another mechanism (belted or geared together)">${mates.map(r=>`<option value="share:${esc(r.key)}"${shared?.key===r.key?' selected':''}>${esc(r.label)} · ${esc(r.name)}</option>`).join('')}</optgroup>`:'';
+    return `<div><label for="${esc(id)}">Plugged into</label><select id="${esc(id)}" ${attr}="${esc(key)}"><option value=""${!shared&&!set?' selected':''}>${planned?`Deck picks · ${esc(planned)}`:'Deck picks a free port'}</option>${portChoices(family,st,{skip:row.key}).map(o=>`<option value="${o.value}"${!shared&&o.value===set?' selected':''}>${esc(o.label)}</option>`).join('')}${share}</select></div>`;}
+  // Devices this one could share an actuator with (the same family, not a sensor, pod or the IMU), and the one it shares
+  // with: another device of its family with the same configuration name.
+  const shareable=(row,st)=>st.rows.filter(r=>r.key!==row.key&&r.family===row.family&&!['sensor','pod','imu'].includes(r.role));
+  const sharedWith=(row,st)=>st.rows.find(r=>r.key!==row.key&&r.family===row.family&&r.name===row.name&&!['sensor','pod','imu'].includes(r.role))||null;
   const problemLines=list=>list.map(x=>`<p class="sim-wire-problem ${x.level}">${esc(x.text)}</p>`).join('');
   // ---- one device -----------------------------------------------------------------------------------------------------
   // A device's row: its name, model, port, a sentence on what it is and does, and its problems (red: blocks the next steps).
@@ -49,7 +62,7 @@
     const role=D.ROLES[row.role],why=role?.explain?`<p class="hint sim-wire-why">${esc(role.explain)}</p>`:'';
     const pod=row.role==='pod'?'<p class="hint">Plug the pod into the encoder input of a motor port: the code reads it through the name of the motor on that port.</p>':'';
     return `<div class="sim-wire-row${level?' '+level:''}" data-wire-row="${esc(row.key)}"><div class="sim-wire-head"><b>${esc(row.label)}</b><code title="Its name in the robot configuration">${esc(row.name)}</code></div>
-      <div class="start-xy">${model?modelSelect(row):''}${portSelect(row,st)}</div><p class="sim-wire-explain">${esc(D.explain(row,st.wiring))}</p>${pod}${sensors?sensorsHtml(row,st):''}${problemLines(list)}${sensors?'':why}</div>`;}
+      ${model&&TYPES[row.role]&&!/^kin\./.test(row.key)?`<div class="start-xy">${typeSelect(row,st)}${modelSelect(row)}</div><div class="start-xy">${portSelect(row,st)}</div>`:`<div class="start-xy">${model?modelSelect(row):''}${portSelect(row,st)}</div>`}<p class="sim-wire-explain">${esc(D.explain(row,st.wiring))}${sharedWith(row,st)?` It shares this ${row.family==='servo'?'servo':'motor'} with ${esc(sharedWith(row,st).label.toLowerCase())}: they are belted or geared together and always turn together.`:''}</p>${pod}${sensors?sensorsHtml(row,st):''}${problemLines(list)}${sensors?'':why}</div>`;}
   // Sensors on one device: each with its model, what it is used for and its port, and an Add choice of the sensors the
   // export can use on that device.
   function sensorsHtml(row,st){
@@ -66,7 +79,16 @@
   function hubsHtml(st){
     const w=st.wiring,box=(id,name,note)=>`<div class="sim-wire-hub"><label class="check" for="wire-hub-${id}"><input id="wire-hub-${id}" type="checkbox" data-wire-hub="${id}"${w.hubs[id]?' checked':''}> ${name}</label>${w.hubs[id]?`<label for="wire-address-${id}">Address</label><select id="wire-address-${id}" data-wire-address="${id}">${Array.from({length:20},(_,i)=>i+1).filter(a=>a!==173).map(a=>`<option${a===w.hubs[id].address?' selected':''}>${a}</option>`).join('')}</select>`:''}<p class="hint">${note}</p></div>`;
     return `<div class="sim-wire-hubs"><div class="sim-wire-hub"><label class="check"><input type="checkbox" checked disabled> Control Hub</label><p class="hint">Always there: 4 motor ports (each with an encoder input), 6 servo ports, 4 analog, 8 digital, 4 I2C buses; its own IMU is on I2C bus 0.</p></div>
-      ${box('expansion','Expansion Hub','4 more motor ports and 6 more servo ports, on the Control Hub’s RS485 cable.')}${box('servoHub','Servo Hub','6 servo ports at 6 V (servos run a little faster than on a hub’s 5 V ports).')}</div>`;}
+      ${box('expansion','Expansion Hub','4 more motor ports and 6 more servo ports, on the Control Hub’s RS485 cable.')}</div>${['control',...(w.hubs.expansion?['expansion']:[])].map(h=>portGrid(st,h)).join('')}`;}
+  // Every motor port, servo port and I2C bus of one hub with what is plugged into it, as Configure Robot shows a hub:
+  // pick a device for a port and it moves there (whatever the team had put on that port goes back to Deck's choice).
+  function portGrid(st,hub){
+    const D=H(),w=st.wiring,devices=st.rows.filter(r=>!['sensor','pod','imu'].includes(r.role));
+    const fams=[['motor','Motor port',D.HUBS[hub].motor,0],['servo','Servo port',D.HUBS[hub].servo,0],['i2c','I2C bus',D.HUBS[hub].i2c,hub==='control'?1:0]];
+    const cells=fams.map(([fam,name,n,from])=>Array.from({length:n-from},(_,k)=>{const i=k+from,on=devices.find(r=>r.family===fam&&r.hub===hub&&(fam==='i2c'?r.bus===i:r.port===i)),id=`wire-slot-${hub}-${fam}-${i}`;
+      const opts=devices.filter(r=>r.family===fam).map(r=>`<option value="${esc(r.key)}"${on?.key===r.key?' selected':''}>${esc(r.label)} · ${esc(r.name)}${on?.key===r.key&&r.planned?' (Deck picked)':''}</option>`).join('');
+      return `<div class="sim-wire-slot"><label for="${id}">${name} ${i}</label><select id="${id}" data-wire-slot="${hub}|${fam}|${i}"><option value="">Nothing</option>${opts}</select></div>`;}).join('')).join('');
+    return `<div class="sim-wire-grid"><h4 class="sim-setup-group">${esc(D.hubName(hub,w))}${hub==='control'?' · I2C bus 0: its IMU':''}</h4><div class="sim-wire-slots">${cells}</div></div>`;}
   // ---- the whole configuration ----------------------------------------------------------------------------------------
   // Every port in use, hub by hub, as it goes into the robot's configuration.
   function summaryHtml(st){
@@ -97,16 +119,24 @@
     const devices={...w.devices};if(Object.keys(e).length)devices[key]=e;else delete devices[key];return D.sanitizeWiring({...w,devices});}
   const setModel=(wiring,key,model)=>setDevice(wiring,key,e=>{e.model=model||undefined;});
   const setPort=(wiring,key,value,family)=>setDevice(wiring,key,e=>{delete e.hub;delete e.port;delete e.bus;Object.assign(e,parsePort(value,family)||{});});
-  function setHub(wiring,hub,on,address){const D=H(),w=D.wiringOf({wiring});return D.sanitizeWiring({...w,hubs:{...w.hubs,[hub]:on?{address:address??w.hubs[hub]?.address??D.HUBS[hub].address}:null}});}
+  function setHub(wiring,hub,on,address){const D=H(),w=D.wiringOf({wiring});return D.sanitizeWiring({...w,hubs:{...w.hubs,[hub]:on?{address:address??w.hubs[hub]?.address??D.HUBS[hub].address}:hub==='expansion'?false:null}});}
+  // A device picked for one port: it moves there, and a device the team had put on that port goes back to Deck's choice.
+  function setSlot(wiring,st,hub,fam,i,key){let w=wiring;const on=st.rows.find(r=>r.family===fam&&r.hub===hub&&(fam==='i2c'?r.bus===i:r.port===i)&&r.role!=='sensor'&&r.role!=='pod');
+    if(on&&on.key!==key&&on.wired)w=setPort(w,on.key,'',fam);if(key)w=setPort(w,key,`${hub}:${i}`,fam);return w;}
   function setSensor(wiring,id,change){const D=H(),w=D.wiringOf({wiring});return D.sanitizeWiring({...w,sensors:w.sensors.map(s=>{if(s.id!==id)return s;const e={...s};change(e,D.SENSOR_MODELS[s.model]);return e;}).filter(Boolean)});}
   const removeSensor=(wiring,id)=>{const D=H(),w=D.wiringOf({wiring});return D.sanitizeWiring({...w,sensors:w.sensors.filter(s=>s.id!==id)});};
   const setSensorPort=(wiring,id,value)=>setSensor(wiring,id,(e,md)=>{delete e.hub;delete e.port;delete e.bus;Object.assign(e,parsePort(value,md.family)||{});});
   // Binds a host's controls: every change calls apply(newWiring).
-  function bind(host,{project,apply,focus}){
+  function bind(host,{project,apply,focus,setKind,share}){
     host.addEventListener('change',e=>{const el=e.target,d=el.dataset,w=project().robot.wiring,st=state(project());let next;
       if(d.wireModel)next=setModel(w,d.wireModel,el.value);
-      else if(d.wirePort){const row=st.rows.find(r=>r.key===d.wirePort);next=setPort(w,d.wirePort,el.value,row?.family);}
+      else if(d.wirePort){const row=st.rows.find(r=>r.key===d.wirePort);
+        // Sharing takes the other device's name and port; a port of its own again gives it a name of its own.
+        if(el.value.startsWith('share:')){if(share)share(d.wirePort,el.value.slice(6));return;}
+        if(row&&sharedWith(row,st)&&share)share(d.wirePort,null);next=setPort(project().robot.wiring,d.wirePort,el.value,row?.family);}
       else if(d.wireHub)next=setHub(w,d.wireHub,el.checked);
+      else if(d.wireSlot){const [hub,fam,i]=d.wireSlot.split('|');next=setSlot(w,st,hub,fam,+i,el.value);}
+      else if(d.wireKind){if(setKind)setKind(d.wireKind,el.value);return;}
       else if(d.wireAddress)next=setHub(w,d.wireAddress,true,+el.value);
       else if(d.wireSensorAdd){if(!el.value)return;const row=st.rows.find(r=>r.key===d.wireSensorAdd),allowed=H().ROLES[row?.role]?.sensors||{},md=H().SENSOR_MODELS[el.value];
         const D=H(),wiring=D.wiringOf({wiring:w}),base=row?.name||'sensor';let id=`${base}${md.kind[0].toUpperCase()}${md.kind.slice(1)}`.replace(/[^\w-]/g,'').slice(0,28),n=1;if(!/^[A-Za-z]/.test(id))id='s'+id;while(wiring.sensors.some(s=>s.id===id))id=`${id.slice(0,26)}${++n}`;
@@ -116,5 +146,5 @@
       else return;apply(next);});
     host.addEventListener('click',e=>{const b=e.target.closest('[data-wire-sensor-remove]');if(b)apply(removeSensor(project().robot.wiring,b.dataset.wireSensorRemove));});
     if(focus)host.addEventListener('focusin',e=>{const r=e.target.closest('[data-wire-row]');if(r)focus(r.dataset.wireRow);});}
-  return {state,stepOf,focusRefs,red,problemsOf,modelChoices,portChoices,deviceHtml,sensorsHtml,hubsHtml,summaryHtml,setModel,setPort,setHub,setSensor,setSensorPort,removeSensor,bind,esc};
+  return {state,stepOf,focusRefs,sharedWith,shareable,TYPES,typeOf,setSlot,portGrid,red,problemsOf,modelChoices,portChoices,deviceHtml,sensorsHtml,hubsHtml,summaryHtml,setModel,setPort,setHub,setSensor,setSensorPort,removeSensor,bind,esc};
 });

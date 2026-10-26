@@ -44,6 +44,9 @@
     {id:'motor-encoder',name:'Motor encoder (built into the motor)',short:'Motor encoder',kind:'motorEncoder',family:'encoder',xmlType:null,javaType:'DcMotorEx',measures:['position','velocity','home']},
     {id:'rev-through-bore',name:'REV Through Bore Encoder (REV-11-1271)',short:'REV Through Bore',kind:'throughBore',family:'encoder',xmlType:null,javaType:'DcMotorEx',measures:['position'],cpr:8192,fast:true},
     {id:'rev-through-bore-v2',name:'REV Through Bore Encoder V2',short:'REV Through Bore V2',kind:'throughBore',family:'encoder',xmlType:null,javaType:'DcMotorEx',measures:['position'],cpr:8192,fast:true},
+    {id:'gobilda-pod-encoder',name:'goBILDA odometry pod or swingarm encoder (2000 counts a turn)',short:'goBILDA pod encoder',kind:'throughBore',family:'encoder',xmlType:null,javaType:'DcMotorEx',measures:['position','velocity'],cpr:2000},
+    {id:'quadrature-encoder',name:'Another quadrature encoder (US Digital E4T, CUI AMT102, Andymark): set its counts a turn',short:'Quadrature encoder',kind:'throughBore',family:'encoder',xmlType:null,javaType:'DcMotorEx',measures:['position','velocity'],cpr:2048},
+    {id:'rev-through-bore-abs',name:'REV Through Bore Encoder V2, absolute output on an analog port',short:'Through Bore V2 absolute',kind:'analogAbs',family:'analog',xmlType:'AnalogInput',javaType:'AnalogInput',measures:['position'],degrees:360,voltage:3.3,channels:'any'},
     {id:'axon-feedback',name:"Axon servo's feedback wire (its 4th wire)",short:'Axon feedback wire',kind:'axonFeedback',family:'analog',xmlType:'AnalogInput',javaType:'AnalogInput',measures:['position'],degrees:360,voltage:3.3,channels:'any'},
     {id:'rev-potentiometer',name:'REV Potentiometer (REV-31-1155)',short:'REV Potentiometer',kind:'potentiometer',family:'analog',xmlType:'AnalogInput',javaType:'AnalogInput',measures:['position'],degrees:270,voltage:3.3,channels:'even'},
     {id:'andymark-am5200',name:'AndyMark HexBore absolute encoder (am-5200), analog output',short:'AndyMark HexBore',kind:'analogAbs',family:'analog',xmlType:'AnalogInput',javaType:'AnalogInput',measures:['position'],degrees:360,voltage:1.056,channels:'any'},
@@ -52,6 +55,7 @@
     {id:'rev-magnetic-limit',name:'REV Magnetic Limit Switch (REV-31-1462)',short:'REV Magnetic Limit Switch',kind:'magnetic',family:'digital',xmlType:'DigitalDevice',javaType:'DigitalChannel',measures:['home'],channels:'any',activeLow:true},
     {id:'limit-switch',name:'Limit switch or microswitch (goBILDA 3103-0001)',short:'Limit switch',kind:'limit',family:'digital',xmlType:'DigitalDevice',javaType:'DigitalChannel',measures:['home','piece'],channels:'any',activeLow:true},
     {id:'rev-color-v3',name:'REV Color Sensor V3 (REV-31-1557)',short:'REV Color Sensor V3',kind:'color',family:'i2c',xmlType:'RevColorSensorV3',javaType:'NormalizedColorSensor',measures:['piece'],rangeCm:[1,10]},
+    {id:'rev-color-v2',name:'REV Color Sensor V2',short:'REV Color Sensor V2',kind:'color',family:'i2c',xmlType:'LynxColorSensor',javaType:'NormalizedColorSensor',measures:['piece'],rangeCm:[1,6]},
     {id:'rev-2m-distance',name:'REV 2m Distance Sensor (REV-31-1505)',short:'REV 2m Distance',kind:'distance',family:'i2c',xmlType:'REV_VL53L0X_RANGE_SENSOR',javaType:'DistanceSensor',measures:['piece','position'],rangeCm:[5,200]},
     {id:'andymark-tof',name:'AndyMark 2m TOF Lidar',short:'AndyMark TOF',kind:'distance',family:'i2c',xmlType:'AndyMarkTOF',javaType:'DistanceSensor',measures:['piece','position'],rangeCm:[5,200],sinceSdk:'11.1'},
     {id:'octoquad',name:'DigitalChickenLabs OctoQuad FTC (MK2): an encoder on one of its 8 channels',short:'OctoQuad',kind:'octoquad',family:'i2c',xmlType:'OctoQuadFTC',javaType:'OctoQuad',measures:['position','velocity'],channels:8}];
@@ -66,29 +70,32 @@
   const HOME={touch:'home',magnetic:'home',limit:'home'},PIECE={color:'piece',distance:'piece',touch:'piece',limit:'piece'},ANGLE={axonFeedback:'position',analogAbs:'position'};
   const R=(name,family,kinds,sensors,explain,o={})=>({name,family,kinds,sensors,explain,...o});
   const ROLES={
-    drive:R('Drive motor','motor',['dcmotor'],{motorEncoder:'position'},'Turns a wheel. Its encoder counts the wheel’s turns when the robot finds its place from the drive motors.'),
+    drive:R('Drive motor','motor',['dcmotor'],{motorEncoder:'position',throughBore:'position'},'Turns a wheel. Its encoder counts the wheel’s turns when the robot finds its place from the drive motors.'),
+    steer:R('Swerve steering','servo',['crservo','servo','dcmotor'],{...ANGLE,throughBore:'position',motorEncoder:'position'},'Turns a swerve module to its angle. An absolute encoder (an Axon\u2019s feedback wire, a Through Bore V2) tells where it points.'),
     pod:R('Odometry pod','motor',[],{},'A free wheel with an encoder, plugged into a motor port’s encoder input. The robot reads it through the name configured on that port.'),
     imu:R('IMU','i2c',[],{},'The hub’s own IMU, on I2C bus 0: it tells which way the robot faces.'),
     pinpoint:R('goBILDA Pinpoint','i2c',[],{},'Reads both odometry pods and its own IMU and tells where the robot is. It goes on an I2C bus other than the IMU’s bus 0.'),
     otos:R('SparkFun OTOS','i2c',[],{},'Watches the floor and tells where the robot is. It goes on an I2C bus other than the IMU’s bus 0.'),
-    roller:R('Intake roller','motor',['dcmotor','crservo'],{...PIECE},'Spins the intake rollers on power, so it needs no sensor. A colour or distance sensor can tell a piece is in.'),
-    ramp:R('Ramp','servo',['servo','linear'],{...ANGLE,potentiometer:'position',...HOME},'Lowers the ramp to take pieces and lifts it back. A servo goes to set positions; an Axon’s feedback wire or a potentiometer tells where it really is.'),
-    kicker:R('Kicker','servo',['servo','linear'],{...ANGLE,potentiometer:'position',...HOME},'Swings down to scoop pieces in and back up. A servo goes to set positions; an Axon’s feedback wire or a potentiometer tells where it really is.'),
+    roller:R('Intake roller','motor',['dcmotor','crservo'],{...PIECE,motorEncoder:'velocity'},'Spins the intake rollers on power, so it needs no sensor. A colour or distance sensor can tell a piece is in.'),
+    ramp:R('Ramp','servo',['servo','linear'],{...ANGLE,potentiometer:'position',throughBore:'position',...HOME},'Lowers the ramp to take pieces and lifts it back. A servo goes to set positions; an Axon’s feedback wire or a potentiometer tells where it really is.'),
+    kicker:R('Kicker','servo',['servo','linear'],{...ANGLE,potentiometer:'position',throughBore:'position',...HOME},'Swings down to scoop pieces in and back up. A servo goes to set positions; an Axon’s feedback wire or a potentiometer tells where it really is.'),
     flywheel:R('Flywheel','motor',['dcmotor'],{motorEncoder:'velocity'},'Spins the flywheel at a set speed. Only its motor’s own encoder can read that speed.'),
-    feeder:R('Feeder','motor',['dcmotor','crservo','servo'],{...PIECE},'Pushes pieces into the flywheel: a motor or continuous servo spins, a servo pusher or gate moves between two positions. A piece sensor can tell storage is empty.'),
+    feeder:R('Feeder','motor',['dcmotor','crservo','servo'],{...PIECE,motorEncoder:'position',throughBore:'position',...ANGLE},'Pushes pieces into the flywheel: a motor or continuous servo spins, a servo pusher or gate moves between two positions. A piece sensor can tell storage is empty.'),
     turret:R('Turret','motor',['dcmotor','servo','crservo'],{motorEncoder:'position',throughBore:'position',octoquad:'position',...ANGLE,...HOME},'Turns the shooter to aim. A motor counts its encoder (or a Through Bore on the turret, best on encoder port 0 or 3); a servo goes to positions; a continuous servo needs an absolute sensor such as an Axon’s feedback wire. A limit switch can find its zero.',{needs:{crservo:['axonFeedback','analogAbs','throughBore','octoquad']}}),
-    hood:R('Hood','servo',['servo','linear'],{...ANGLE,potentiometer:'position'},'Tilts the hood to its shooting angle for Spin up and Shoot, and back after. A servo goes to set positions; an Axon’s feedback wire tells where it is.'),
-    'kin-servo':R('Servo','servo',['servo'],{...ANGLE,potentiometer:'position',...HOME,color:'piece',distance:'piece'},'Goes to the part’s named positions. Its position is where it was told to go; an Axon’s feedback wire or a potentiometer tells where it really is.'),
+    hood:R('Hood','servo',['servo','linear'],{...ANGLE,potentiometer:'position',throughBore:'position',...HOME},'Tilts the hood to its shooting angle for Spin up and Shoot, and back after. A servo goes to set positions; an Axon’s feedback wire tells where it is.'),
+    'kin-servo':R('Servo','servo',['servo'],{...ANGLE,potentiometer:'position',throughBore:'position',octoquad:'position',...HOME,color:'piece',distance:'piece'},'Goes to the part’s named positions. Its position is where it was told to go; an Axon’s feedback wire or a potentiometer tells where it really is.'),
     'kin-crservo':R('Continuous servo','servo',['crservo'],{...ANGLE,throughBore:'position',octoquad:'position',...HOME},'Spins on power. To stop at a named position it needs a sensor: an Axon’s feedback wire, an absolute encoder or a limit switch.',{needs:{crservo:['axonFeedback','analogAbs','throughBore','octoquad','touch','magnetic','limit']}}),
     'kin-motor':R('Motor','motor',['dcmotor'],{motorEncoder:'position',throughBore:'position',octoquad:'position',potentiometer:'position',analogAbs:'position',distance:'position',...HOME},'Runs to encoder counts for each named position, counted from the pose in the CAD. A limit switch can find that zero after a restart.'),
-    'kin-linear':R('Linear servo','servo',['linear'],{...HOME,distance:'position'},'Pushes its rod out to set positions; the position is where it was told to go.'),
+    'kin-linear':R('Linear servo','servo',['linear'],{...HOME,distance:'position',...ANGLE,throughBore:'position'},'Pushes its rod out to set positions; the position is where it was told to go.'),
     sensor:R('Sensor',null,[],{},'')};
   for(const r of Object.values(ROLES))r.models=r.kinds.flatMap(k=>ofKind(k).map(m=>m.id));
   const modelsFor=role=>(ROLES[role]?.models||[]).map(id=>MODELS[id]);
   const sensorsFor=role=>SENSORS.filter(s=>Object.hasOwn(ROLES[role]?.sensors||{},s.kind));
   // ---- setting keys ---------------------------------------------------------------------------------------------------
   // As sim-config's DEVICE_KEYS: drive motors, IMU, Pinpoint, OTOS and odometry pods.
-  const DEVICE_KEYS=['frontLeft','frontRight','backLeft','backRight','left','right','imu','pinpoint','otos','par','perp','par_left','par_right'],DRIVE_KEYS=DEVICE_KEYS.slice(0,6),PODS=['par','perp','par_left','par_right'];
+  // Drive motors of drivetrains Deck exports no code for (Kiwi, H-drive, swerve...): wired as on the robot all the same.
+  const MORE_DRIVE=['front','center','frontLeftB','frontRightB','backLeftB','backRightB'],STEER=['steerFrontLeft','steerFrontRight','steerBackLeft','steerBackRight'];
+  const DEVICE_KEYS=['frontLeft','frontRight','backLeft','backRight','left','right','imu','pinpoint','otos','par','perp','par_left','par_right',...MORE_DRIVE,...STEER],DRIVE_KEYS=[...DEVICE_KEYS.slice(0,6),...MORE_DRIVE],PODS=['par','perp','par_left','par_right'];
   const FIELDS={intakes:['motor','motor2','servo'],shooters:['motor','motor2','indexer','turretMotor','hood']},ID=/^[A-Za-z][\w-]{0,31}$/,NAME=/^[A-Za-z][\w .-]{0,39}$/;
   function settingKey(s){
     if(typeof s==='string')return parseKey(s)?s:null;if(!s||typeof s!=='object')return null;
@@ -104,7 +111,7 @@
   // on a motor or a servo port, depending on what drives it).
   function keyFamily(key,model){
     const md=MODELS[model];if(md)return familyOfKind(md.kind);const k=parseKey(key);if(!k)return null;
-    if(k.robot)return ['imu','pinpoint','otos'].includes(k.robot)?'i2c':'motor';
+    if(k.robot)return ['imu','pinpoint','otos'].includes(k.robot)?'i2c':STEER.includes(k.robot)?'servo':'motor';
     if(k.field==='servo'||k.field==='hood')return 'servo';if(k.list==='shooters'&&(k.field==='motor'||k.field==='motor2'))return 'motor';return null;}
   // ---- project.robot.wiring -------------------------------------------------------------------------------------------
   const EMPTY=()=>({hubs:{expansion:null,servoHub:null},devices:{},sensors:[]});
@@ -122,7 +129,7 @@
   function sanitizeWiring(raw){
     try{
       if(!raw||typeof raw!=='object')return null;const h=raw.hubs&&typeof raw.hubs==='object'?raw.hubs:{},out=EMPTY();
-      if(h.expansion)out.hubs.expansion={address:address(h.expansion.address,2)};
+      if(h.expansion)out.hubs.expansion={address:address(h.expansion.address,2)};else if(h.expansion===false)out.hubs.expansion=false;
       if(h.servoHub){let a=address(h.servoHub.address,3);while(a===out.hubs.expansion?.address||a===173)a++;out.hubs.servoHub={address:a};}
       const devices=raw.devices&&typeof raw.devices==='object'?raw.devices:{};
       for(const key of Object.keys(devices).slice(0,160)){const v=devices[key],k=parseKey(key);if(!v||typeof v!=='object'||!k||k.sensor)continue;
@@ -140,7 +147,7 @@
         if(finite(s.zeroVolts)&&s.zeroVolts>=0&&s.zeroVolts<=5)e.zeroVolts=+s.zeroVolts.toFixed(4);
         for(const f of ['voltsPerUnit','countsPerUnit'])if(finite(s[f])&&s[f]!==0&&Math.abs(s[f])<1e6)e[f]=+s[f].toPrecision(6);
         out.sensors.push(e);}
-      return out.hubs.expansion||out.hubs.servoHub||Object.keys(out.devices).length||out.sensors.length?out:null;
+      return out.hubs.expansion||out.hubs.expansion===false||out.hubs.servoHub||Object.keys(out.devices).length||out.sensors.length?out:null;
     }catch{return null;}
   }
   // A robot's wiring with every part present (nothing set: a Control Hub alone, Deck plans every port).
@@ -159,7 +166,7 @@
   const SIGNALS={roller:['roller'],ramp:['deploy'],kicker:['deploy'],flywheel:['flywheel'],feeder:['feeder'],turret:['turret'],hood:['hood']};
   const kindOfDevice=d=>d==='motor'?'dcmotor':d==='servo'||d==='crservo'||d==='linear'?d:d==='imu'||d==='pinpoint'||d==='otos'?d:null;
   function roleOf(setting,mech){
-    if(setting?.robot)return DRIVE_KEYS.includes(setting.robot)?'drive':PODS.includes(setting.robot)?'pod':setting.robot;
+    if(setting?.robot)return DRIVE_KEYS.includes(setting.robot)?'drive':STEER.includes(setting.robot)?'steer':PODS.includes(setting.robot)?'pod':setting.robot;
     const f=setting?.field;if(setting?.list==='intakes')return f==='servo'?(mech?.intakes?.[setting.index]?.kind==='ramp'?'ramp':'kicker'):'roller';
     if(setting?.list==='shooters')return {motor:'flywheel',motor2:'flywheel',indexer:'feeder',turretMotor:'turret',hood:'hood'}[f]||null;return null;}
   const camel=v=>A?A.camel(v):String(v||'');
@@ -171,6 +178,11 @@
   // sensor, with for, use, channels?, fast?; its name is the configuration name it gets: the sensors on one OctoQuad
   // share "octoquad"). needs: DeckSimFtc.robotNeeds' rows (taken from DeckSimFtc when not given); kinematics actuators
   // and the hood are added when the needs lack them.
+  const DL={frontLeft:'Front left drive motor',frontRight:'Front right drive motor',backLeft:'Back left drive motor',backRight:'Back right drive motor',left:'Left drive motor',right:'Right drive motor',front:'Front drive motor',center:'Centre (strafe) drive motor',
+    frontLeftB:'Front left module, second motor',frontRightB:'Front right module, second motor',backLeftB:'Back left module, second motor',backRightB:'Back right module, second motor',steerFrontLeft:'Front left steering',steerFrontRight:'Front right steering',steerBackLeft:'Back left steering',steerBackRight:'Back right steering'};
+  const slots=keys=>keys.map(k=>[k,DL[k]]),FOUR=['frontLeft','frontRight','backLeft','backRight'];
+  const DRIVE_SLOTS={mecanum:slots(FOUR),xdrive:slots(FOUR),butterfly:slots(FOUR),tank:slots(['left','right']),tank2:slots(['left','right']),tank6:slots(['left','right']),tank8:slots(['left','right']),tracks:slots(['left','right']),
+    kiwi:slots(['front','backLeft','backRight']),hdrive:slots(['left','right','center']),swerve:slots([...FOUR,...STEER]),coaxSwerve:slots([...FOUR,...STEER]),diffSwerve:slots([...FOUR,'frontLeftB','frontRightB','backLeftB','backRightB'])};
   function rows(project,needs){
     const p=project||{},robot=p.robot||{},w=wiringOf(robot),mech=p.mechanisms,kin=p.kinematics||{},joints=Array.isArray(kin.joints)?kin.joints:[],actuators=Array.isArray(kin.actuators)?kin.actuators:[];
     if(!Array.isArray(needs)){try{const F=globalThis.DeckSimFtc||(typeof require==='function'?require('./sim-ftc.js'):null);needs=F?F.robotNeeds(robot,p.sensors?.localization,mech):[];}catch{needs=[];}}
@@ -189,6 +201,8 @@
         ...(e.hub?{hub:e.hub,...(e.bus!==undefined?{bus:e.bus}:{port:e.port})}:{}),wired:!!e.hub,encoder,sensors:[],...(moved.length?{joints:moved}:{}),...(parts.length?{parts}:{}),...extra};
       out.push(row);byKey.set(key,row);};
     for(const n of needs||[])add(n);
+    if(!out.some(r=>r.role==='drive')){const slots=DRIVE_SLOTS[robot.drivetrain||'mecanum']||DRIVE_SLOTS.mecanum;
+      for(const [key,label] of slots)add({name:key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),device:STEER.includes(key)?'crservo':'motor',label,setting:{robot:key}});}
     (mech?.enabled?mech.shooters||[]:[]).forEach((s,i)=>{if(s.hood)add({name:s.hood,device:'servo',label:`Shooter ${i+1} hood`,setting:{list:'shooters',index:i,field:'hood'}});});
     for(const a of actuators){if(!['servo','crservo','dcmotor','linear'].includes(a.kind))continue;const j=joints.find(x=>x.id===a.joint);if(j?.drive&&j.drive.signal!=='action')continue;
       const servoPwm=a.servo?.pwm;add({name:a.device||camel(a.name),device:a.kind==='dcmotor'?'motor':a.kind==='linear'?'servo':a.kind,label:a.name||a.id,setting:{kin:a.id}},{...(servoPwm?{pwm:servoPwm}:{}),...(a.reversed?{reversed:true}:{})});}
@@ -314,6 +328,6 @@
       return k.kind==='motorEncoder'?`its encoder tells ${how}`:k.kind==='axonFeedback'?`its feedback wire${on} tells ${how}`:`a ${lower(k.short)}${on} tells ${how}`;});
     return `${thing} "${row.name}"${at}${tells.length?'; '+tells.join('; '):''}.${ROLES[row.role]?.explain&&!row.hub&&!tells.length?' '+ROLES[row.role].explain:''}`;
   }
-  return {HUBS,FAMILIES,MODELS,ACTUATORS,MOTORS,SERVOS,CRSERVOS,LINEARS,SENSORS,SENSOR_MODELS,ROLES,USES,DEVICE_KEYS,modelsFor,sensorsFor,xmlTypeOf,familyOfKind,
+  return {HUBS,FAMILIES,MODELS,ACTUATORS,MOTORS,SERVOS,CRSERVOS,LINEARS,SENSORS,SENSOR_MODELS,ROLES,USES,DEVICE_KEYS,DRIVE_SLOTS,modelsFor,sensorsFor,xmlTypeOf,familyOfKind,
     settingKey,parseKey,sanitizeWiring,wiringOf,reindex,prune,hubName,portLabel,rows,plan,placed,conflicts,wire,needs,explain};
 });
