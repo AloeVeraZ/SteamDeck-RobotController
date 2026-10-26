@@ -116,28 +116,26 @@
     const hub=raw?.hub;if(!(hub==='control'||(hub==='expansion'||hub==='servoHub')&&hubs[hub]))return null;
     if(family==='i2c'){const bus=portIn(raw.bus??raw.port,count(hub,'i2c'));return bus===null?null:{hub,bus,...(channels&&portIn(raw.channel,8)!==null?{channel:portIn(raw.channel,8)}:{})};}
     const n=family?count(hub,family):Math.max(count(hub,'motor'),count(hub,'servo')),port=portIn(raw.port,n);return port===null?null:{hub,port};}
-  const slotOf=(family,p)=>!p||!family?null:`${p.hub}:${family}:${family==='i2c'?p.bus:p.port}`;
-  // Only what the team set is kept: unknown keys and models are dropped, ports held to the hub's range, a port two
-  // devices claim goes to the first (an odometry pod may share a drive motor's port: it is read through that motor's
-  // name), and 32 sensors at most. Returns null when nothing is set. Never throws.
+  // Only what the team set is kept: unknown keys and models are dropped, ports held to the hub's range, and 32 sensors at
+  // most. A port two devices claim is kept as set, so Setup shows it red (conflicts) until the team moves one of them.
+  // Returns null when nothing is set. Never throws.
   function sanitizeWiring(raw){
     try{
-      if(!raw||typeof raw!=='object')return null;const h=raw.hubs&&typeof raw.hubs==='object'?raw.hubs:{},out=EMPTY(),taken=new Map();
+      if(!raw||typeof raw!=='object')return null;const h=raw.hubs&&typeof raw.hubs==='object'?raw.hubs:{},out=EMPTY();
       if(h.expansion)out.hubs.expansion={address:address(h.expansion.address,2)};
       if(h.servoHub){let a=address(h.servoHub.address,3);while(a===out.hubs.expansion?.address||a===173)a++;out.hubs.servoHub={address:a};}
-      const claim=(slot,model)=>{if(!slot)return true;const was=taken.get(slot);if(was&&!(was==='octoquad'&&model==='octoquad'))return false;taken.set(slot,model||true);return true;};
       const devices=raw.devices&&typeof raw.devices==='object'?raw.devices:{};
       for(const key of Object.keys(devices).slice(0,160)){const v=devices[key],k=parseKey(key);if(!v||typeof v!=='object'||!k||k.sensor)continue;
         const e={};if(typeof v.model==='string'&&Object.hasOwn(MODELS,v.model))e.model=v.model;
         const family=keyFamily(key,e.model),at=placement(v,family,out.hubs);
-        if(at&&(PODS.includes(k.robot)||claim(slotOf(family,at))))Object.assign(e,at);
+        if(at)Object.assign(e,at);
         if(Object.keys(e).length)out.devices[key]=e;}
       const ids=new Set();
       for(const s of (Array.isArray(raw.sensors)?raw.sensors:[]).slice(0,64)){if(out.sensors.length>=32)break;
         const md=s&&typeof s==='object'?SENSOR_MODELS[s.model]:null,on=md&&typeof s.for==='string'&&parseKey(s.for)&&!parseKey(s.for).sensor?s.for:null;
         if(!on||typeof s.id!=='string'||!ID.test(s.id)||ids.has(s.id))continue;ids.add(s.id);
         const e={id:s.id,model:s.model,for:on,use:md.measures.includes(s.use)?s.use:/^shooters\.\d\.motor2?$/.test(on)&&md.measures.includes('velocity')?'velocity':md.measures[0]};
-        if(md.kind!=='motorEncoder'){const at=placement(s,md.family,out.hubs,{channels:md.kind==='octoquad'});if(at&&at.hub!=='servoHub'&&claim(slotOf(md.family,at),s.model))Object.assign(e,at);}
+        if(md.kind!=='motorEncoder'){const at=placement(s,md.family,out.hubs,{channels:md.kind==='octoquad'});if(at&&at.hub!=='servoHub')Object.assign(e,at);}
         const n=name(s.name);if(n)e.name=n;if(s.inverted===true)e.inverted=true;
         if(finite(s.zeroVolts)&&s.zeroVolts>=0&&s.zeroVolts<=5)e.zeroVolts=+s.zeroVolts.toFixed(4);
         for(const f of ['voltsPerUnit','countsPerUnit'])if(finite(s[f])&&s[f]!==0&&Math.abs(s[f])<1e6)e[f]=+s[f].toPrecision(6);

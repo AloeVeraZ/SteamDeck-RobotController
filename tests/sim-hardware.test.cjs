@@ -33,7 +33,7 @@ test('the catalogue: every model with its configuration tag, Axon servos with th
   for(const [id,r] of Object.entries(H.ROLES))if(id!=='sensor')assert.ok(r.explain.length>20,id);
 });
 
-test('setting keys and the wiring a robot keeps: unknown keys and models dropped, ports held to the hub, a port claimed twice goes to the first',()=>{
+test('setting keys and the wiring a robot keeps: unknown keys and models dropped, ports held to the hub, a port claimed twice kept for Setup to show red',()=>{
   assert.deepEqual([{robot:'frontLeft'},{list:'shooters',index:1,field:'hood'},{kin:'lift_motor'},{sensor:'liftHome'}].map(H.settingKey),['robot.frontLeft','shooters.1.hood','kin.lift_motor','sensor.liftHome']);
   assert.deepEqual(['robot.nothing','shooters.0.wheel','intakes.9.motor','kin.2bad',null].map(H.parseKey),[null,null,null,null,null]);assert.deepEqual(H.parseKey('intakes.1.servo'),{list:'intakes',index:1,field:'servo'});
   const raw={hubs:{expansion:{address:173},servoHub:{address:2}},devices:{
@@ -43,8 +43,10 @@ test('setting keys and the wiring a robot keeps: unknown keys and models dropped
       {id:'flyEnc',model:'motor-encoder',for:'shooters.0.motor',hub:'control',port:2},{id:'liftHome',model:'rev-touch',for:'kin.lift',hub:'servoHub',port:1,name:'lift home',inverted:true,zeroVolts:9},{id:'slot',model:'rev-color-v3',for:'intakes.0.motor',hub:'control',bus:1,voltsPerUnit:0}]};
   const w=C.robot({wiring:raw}).wiring;
   assert.deepEqual(w.hubs,{expansion:{address:2},servoHub:{address:3}},'173 is the Control Hub; the Servo Hub moves off the Expansion Hub’s address');
-  assert.deepEqual(w.devices,{'robot.frontLeft':{model:'gobilda-5203-312',hub:'control',port:0},'robot.par':{hub:'control',port:0},'robot.pinpoint':{hub:'control',bus:3},
-    'shooters.0.hood':{model:'axon-max',hub:'servoHub',port:5},'kin.lift':{model:'gobilda-5203-435'}},'front right lost the port to front left; a pod may share it (read through that name)');
+  assert.deepEqual(w.devices,{'robot.frontLeft':{model:'gobilda-5203-312',hub:'control',port:0},'robot.frontRight':{hub:'control',port:0},'robot.par':{hub:'control',port:0},'robot.pinpoint':{hub:'control',bus:3},
+    'shooters.0.hood':{model:'axon-max',hub:'servoHub',port:5},'kin.lift':{model:'gobilda-5203-435'}},'front right keeps front left’s port (a conflict); a pod may share it (read through that name)');
+  const both=H.conflicts(H.rows({robot:C.robot({wiring:{devices:{'robot.frontLeft':{hub:'control',port:0},'robot.frontRight':{hub:'control',port:0}}}}),sensors:{localization:'encoders'}}),{devices:{'robot.frontLeft':{hub:'control',port:0},'robot.frontRight':{hub:'control',port:0}}});
+  assert.ok(both.some(x=>x.level==='red'&&x.keys.includes('robot.frontRight')&&/Control Hub motor port 0 is used by/.test(x.text)),'two drive motors on one port are red');
   assert.deepEqual(w.sensors,[{id:'hoodAngle',model:'axon-feedback',for:'shooters.0.hood',use:'position',hub:'control',port:3},{id:'flyEnc',model:'motor-encoder',for:'shooters.0.motor',use:'velocity'},
     {id:'liftHome',model:'rev-touch',for:'kin.lift',use:'home',name:'lift home',inverted:true},{id:'slot',model:'rev-color-v3',for:'intakes.0.motor',use:'piece',hub:'control',bus:1}],'a Servo Hub has no sensor ports; a motor encoder is on its motor');
   assert.deepEqual(H.sanitizeWiring(w),w,'sanitizing again changes nothing');assert.deepEqual(C.robot(C.robot({wiring:raw})).wiring,w);

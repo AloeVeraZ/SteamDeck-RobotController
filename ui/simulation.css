@@ -466,3 +466,19 @@
 #sim-effects .sim-steps select.sim-step-pick{width:auto;min-height:28px;height:28px;padding:2px 6px;font-size:12px}
 #sim-effects .sim-steps .sim-step-tools .icon-button{width:24px;min-width:0;height:26px;min-height:26px;padding:0}
 .sim-step-name{white-space:nowrap}
+/* Control Hub wiring: the Robot step's popup, the device rows (also on Mechanisms) and the Robot controller's summary. */
+.sim-wiring-dialog{width:min(860px,calc(100vw - 32px));max-height:calc(100vh - 48px);display:none;flex-direction:column;padding:20px}.sim-wiring-dialog[open]{display:flex}
+.sim-wiring-scroll{overflow:auto;min-height:0;flex:1;padding-right:4px}.sim-wiring-dialog .dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.sim-wire-hubs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 16px}.sim-wire-hub select{width:auto;margin-left:8px}
+.sim-wire-row{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin:8px 0;background:var(--surface)}
+.sim-wire-row.red,.sim-wire-sensor.red{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger),0 0 10px color-mix(in srgb,var(--danger) 45%,transparent)}
+.sim-wire-row.amber,.sim-wire-sensor.amber{border-color:var(--warning)}
+.sim-wire-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sim-wire-head code{font:12px var(--mono);color:var(--muted)}.sim-wire-head .icon-button{margin-left:auto}
+.sim-wire-explain{margin:6px 0 0;font-size:13px}.sim-wire-fixed{margin:4px 0 0;font-size:13px}.sim-wire-why{margin:4px 0 0}
+.sim-wire-problem{margin:6px 0 0;font-size:13px}.sim-wire-problem.red{color:var(--danger)}.sim-wire-problem.amber{color:var(--warning)}
+.sim-wire-sensors ul{list-style:none;margin:0;padding:0}.sim-wire-sensor{border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;margin:6px 0}
+.sim-wire-table{width:100%;border-collapse:collapse;font-size:13px}.sim-wire-table th,.sim-wire-table td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line)}.sim-wire-table tr.red td{color:var(--danger)}
+#sim-wiring-open.sim-bad-input{border-color:var(--danger)!important;box-shadow:0 0 0 1px var(--danger),0 0 10px color-mix(in srgb,var(--danger) 45%,transparent)}
+.sim-wire-row.highlight,.sim-wire-row:focus-within{outline:2px solid var(--accent,var(--line-strong));outline-offset:1px}
+.driver-station .sim-wiring-dialog label.check{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin:8px 0 4px;font-size:14px}.driver-station .sim-wiring-dialog label.check input{width:18px;height:18px;min-height:0;margin:0;flex:none}
+.sim-wiring-dialog h3{margin:18px 0 6px}.sim-wire-hub>label:not(.check){display:inline-block;margin:0 0 0 28px;font-size:12px}.sim-wire-hub .hint{margin:4px 0 0 28px}
