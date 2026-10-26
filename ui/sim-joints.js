@@ -115,7 +115,7 @@
       else if(d==='roller'||d==='feeder')roleBits=`<div class="start-xy">${num('rpm',j.rpm??(d==='roller'?300:200),{label:'Spins at',unit:'rpm',min:1,max:60000})}</div>`;
       else if(d==='wheel')roleBits='<p class="hint">Turns as the robot drives, rolling on the floor.</p>';
       else if(!d&&kin().couplings.some(c=>c.to===j.id)){const c=kin().couplings.find(x=>x.to===j.id),from=joints().find(x=>x.id===c.from);
-        roleBits=`<p class="hint">Turns with “${esc(from?.name||c.from)}”, ${fix(Math.abs(c.ratio),2)}× as far${c.ratio<0?' the other way':''} (set under Linked to other parts).</p>`;}
+        roleBits=`<p class="hint">${linkText(c,from)} (set under Linked to other parts).</p>`;}
       else if(d==='action'||!d){const st=Object.entries(j.states||{});
         roleBits=`<span class="sim-mech-label">Named positions</span>${st.map(([k,v])=>`<div class="sim-joint-state"><input aria-label="Position name" data-state-name="${esc(k)}" value="${esc(k)}"><input type="number" data-slider="off" aria-label="${esc(k)} value" data-state-value="${esc(k)}" value="${fix(v,2)}" step="any"><button type="button" class="secondary" data-j="show" data-v="${esc(k)}">Show</button><button type="button" class="icon-button" data-j="unstate" data-v="${esc(k)}" aria-label="Remove ${esc(k)}">×</button></div>`).join('')}
           <button type="button" class="secondary" data-j="state">+ Position</button>${j.type==='revolute'||j.type==='prismatic'?`<div class="start-xy">${num('lower',j.lower,{label:'Lowest',unit:j.type==='prismatic'?'in':'°'})}${num('upper',j.upper,{label:'Highest',unit:j.type==='prismatic'?'in':'°'})}</div>`:''}
@@ -149,11 +149,14 @@
     }
     // Moving with other parts: following one by a ratio (gears, belts, a mirrored finger, a cascade stage), or pinned to
     // one at a shared pin, closing a loop (a four-bar's coupler and rocker), the free joints being solved to keep it shut.
+    const linkText=(c,from)=>{const name=`“${esc(from?.name||c.from)}”`,also=(c.plus||[]).map(t=>`“${esc(joints().find(x=>x.id===t.from)?.name||t.from)}”`);
+      if(c.curve)return `Follows ${name} through a table of ${c.curve.length} points${c.period?`, repeating every ${fix(c.period,1)}`:''} (a cam, a linkage or stages that move one after another)${also.length?`, plus ${also.join(' and ')}`:''}`;
+      return `Turns with ${name}, ${fix(Math.abs(c.ratio),3)}× as far${c.ratio<0?' the other way':''}${c.poly?' (and more at larger angles)':''}${also.length?`, plus ${also.join(' and ')} (a differential, a planetary set or a tendon)`:''}`;};
     function links(j){
       const k=kin(),one=K().dofOf(j).length===1,others=joints().filter(x=>x.id!==j.id&&K().dofOf(x).length===1),c=k.couplings.find(x=>x.to===j.id),loops=k.loops.map((l,i)=>({l,i})).filter(({l})=>l.a.joint===j.id||l.b.joint===j.id),open=c||loops.length;
       const pin=mode?.kind==='loop'&&mode.joint===j.id;
       return `<details class="sim-mech-code"${open?' open':''}><summary>Linked to other parts</summary>
-        ${one?`<div class="start-xy"><div><label>Follows<select data-link="from"><option value="">Nothing</option>${others.map(x=>`<option value="${esc(x.id)}"${c?.from===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>${c?num('link:ratio',c.ratio,{label:'Times',slider:false})+num('link:offset',c.offset,{label:'Plus',slider:false}):''}</div>
+        ${one?`<div class="start-xy"><div><label>Follows<select data-link="from"><option value="">Nothing</option>${others.map(x=>`<option value="${esc(x.id)}"${c?.from===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label></div>${c&&!c.curve?num('link:ratio',c.ratio,{label:'Times',slider:false})+num('link:offset',c.offset,{label:'Plus',slider:false}):''}${c&&(c.curve||c.plus||c.poly)?`<p class="hint">${linkText(c,joints().find(x=>x.id===c.from))}. Choosing another part here replaces it with a plain ratio.</p>`:''}</div>
         <p class="hint">Its ${j.type==='prismatic'?'travel':'angle'} is the other part’s times this: −1 mirrors it, a gear pair is minus the tooth ratio, a belt plus the pulley ratio, a cascade stage 1.</p>`:''}
         ${loops.map(({l,i})=>{const other=l.a.joint===j.id?l.b.joint:l.a.joint;return `<p class="hint">Pinned to ${esc(other?joints().find(x=>x.id===other)?.name||other:'the robot')} at a shared pin. <button type="button" class="text-button" data-j="unloop" data-v="${i}">Remove</button></p>`;}).join('')}
         <div class="sim-joint-buttons"><label class="sim-joint-parent">Pin it to<select data-loop-other><option value="">The robot</option>${joints().filter(x=>x.id!==j.id).map(x=>`<option value="${esc(x.id)}"${pin&&mode.other===x.id?' selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
