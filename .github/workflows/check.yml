@@ -13,6 +13,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # The tests load the git-ignored simulator bundles (ui/vendor, sim-runtime), so build them first.
+      - name: Build the offline simulator (public assets only)
+        run: |
+          node tools/simulation/fetch.cjs --targets linux-x64
+          node tools/simulation/build.cjs --public
       - run: node --test tests/*.test.cjs
       - run: bash -n packaging/install.sh packaging/launch.sh packaging/Install-Mac.command
       - run: mkdir -p test-results && bash tests/update-linux.sh
