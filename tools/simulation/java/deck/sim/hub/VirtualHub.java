@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.HardwareDevice;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import java.io.File;
 import java.io.StringWriter;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.DoubleSupplier;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
@@ -31,7 +33,9 @@ import javax.tools.ToolProvider;
  * then run in lockstep with the simulation: the drive motors with encoders (four
  * mecanum, or two or four tank), odometry pods, Pinpoint/OTOS and the built-in IMU are fed from the
  * simulated sensors, and the motor powers the OpMode sets are turned back into chassis motion
- * through mecanum or tank kinematics.
+ * through mecanum or tank kinematics. The robot's own moving parts (hub.kinematics: servos, continuous servos and motors
+ * that drive its joints) and sensors (hub.sensors: analog inputs, switches, distance and color sensors, extra encoders)
+ * are fed from the simulated joints each tick, and what the code commands them moves those joints.
  */
 public final class VirtualHub {
     /** A problem in the team code, reported with the stage it happened in. */
@@ -82,7 +86,74 @@ public final class VirtualHub {
      * command, a roller's pull-in, a flywheel's shooting spin, a feeder's feed (each mount x applied power), a servo's
      * position, a turret's commanded angle in degrees (NaN when it is not being turned). The guided check is tested with it. */
     private final Map<String, DoubleSupplier> devices = new LinkedHashMap<>();
+    /** The robot's own moving parts (hub.kinematics), each driving one joint of the simulated robot. */
+    private final List<Part> parts = new ArrayList<>();
+    /** What each sensor (hub.sensors) is told each tick, by its name: volts, a switch closed, millimetres, a color, counts. */
+    private final Map<String, Consumer<JsonElement>> sensors = new LinkedHashMap<>();
     private OpMode opMode;
+
+    /**
+     * An actuator of the robot's own design: {id, name, type servo|crservo|motor, reversed, countsPerUnit, port?,
+     * servo: {center, perUnit, sign, ratio?, pwm?, defaultPwm?}}. Joint values are degrees or inches from where the CAD
+     * has the part. A servo's joint value is (position - center) x perUnit / (sign x ratio), its position read from the
+     * pulse it sends against the pulses perUnit assumes (pwm, default 600-2400 us), so code that leaves out the setPwmRange
+     * the settings need sends the part elsewhere, as on a robot. A motor counts mount x value x countsPerUnit raw ticks
+     * (reversed: mounted to turn the other way, so the code sets REVERSE); RUN_TO_POSITION sends its target as a value, else
+     * its power (or velocity) moves the joint. A continuous servo's mount x power moves it.
+     */
+    private static final class Part {
+        final String id, type;
+        final int mount;
+        final double countsPerUnit, center, perUnit, sign, ratio;
+        final double[] pwm, defaultPwm;
+        SimServo servo;
+        SimCRServo crservo;
+        SimMotor motor;
+
+        Part(JsonObject k) {
+            id = k.get("id").getAsString();
+            type = k.has("type") ? k.get("type").getAsString() : "servo";
+            mount = k.has("reversed") && k.get("reversed").getAsBoolean() ? -1 : 1;
+            countsPerUnit = nonzero(num(k, "countsPerUnit", 1));
+            JsonObject s = k.has("servo") && k.get("servo").isJsonObject() ? k.getAsJsonObject("servo") : new JsonObject();
+            center = num(s, "center", .5); perUnit = num(s, "perUnit", 300); sign = nonzero(num(s, "sign", 1)); ratio = nonzero(num(s, "ratio", 1));
+            pwm = pair(s, "pwm", new double[] {600, 2400}); defaultPwm = pair(s, "defaultPwm", null);
+        }
+
+        /** What the code commands: {value} (a joint value; a motor's RUN_TO_POSITION also its power), {power} or
+         * {velocity} (units a second); null for a servo with no pulse yet. */
+        JsonObject command() {
+            JsonObject c = new JsonObject();
+            if (servo != null) {
+                double us = servo.pulse();
+                if (Double.isNaN(us)) return null;
+                c.addProperty("value", ((us - pwm[0]) / (pwm[1] - pwm[0]) - center) * perUnit / (sign * ratio));
+            } else if (crservo != null) c.addProperty("power", mount * crservo.output());
+            else {
+                double target = motor.targetTicks(), velocity = motor.targetVelocity();
+                if (!Double.isNaN(target)) { c.addProperty("value", mount * target / countsPerUnit); c.addProperty("power", Math.min(1, Math.abs(motor.getPower()))); }
+                else if (!Double.isNaN(velocity)) c.addProperty("velocity", mount * velocity / countsPerUnit);
+                else c.addProperty("power", mount * motor.commanded(1));
+            }
+            return c;
+        }
+
+        /** Its effect for devices(): a servo's position, else the joint value a motor heads for or the power it gets. */
+        double effect() {
+            if (servo != null) return servo.output();
+            if (crservo != null) return mount * crservo.output();
+            double target = motor.targetTicks();
+            return Double.isNaN(target) ? mount * motor.commanded(1) : mount * target / countsPerUnit;
+        }
+
+        private static double num(JsonObject o, String key, double fallback) { return o.has(key) && o.get(key).isJsonPrimitive() && Double.isFinite(o.get(key).getAsDouble()) ? o.get(key).getAsDouble() : fallback; }
+        private static double nonzero(double v) { return v == 0 ? 1 : v; }
+        private static double[] pair(JsonObject o, String key, double[] fallback) {
+            if (!o.has(key) || !o.get(key).isJsonArray() || o.getAsJsonArray(key).size() != 2) return fallback;
+            double lo = o.getAsJsonArray(key).get(0).getAsDouble(), hi = o.getAsJsonArray(key).get(1).getAsDouble();
+            return hi > lo ? new double[] {lo, hi} : fallback;
+        }
+    }
 
     private static final class Shooter {
         final List<SimMotor> flywheels = new ArrayList<>();
@@ -117,7 +188,7 @@ public final class VirtualHub {
         tank = d.has("kind") && "tank".equals(d.get("kind").getAsString());
         // Mecanum wheels turn on the sum of half-length and half-width; tank wheels on the half-track.
         turnArm = tank ? d.get("halfWidth").getAsDouble() : d.get("halfLength").getAsDouble() + d.get("halfWidth").getAsDouble();
-        int port = 0;
+        int port = 0, servoPort = 0, analogPort = 0, digitalPort = 0;
         for (Map.Entry<String, JsonElement> e : d.getAsJsonObject("motors").entrySet()) {
             JsonObject m = e.getValue().getAsJsonObject();
             SimMotor motor = new SimMotor(port++, m.get("mount").getAsInt());
@@ -138,10 +209,15 @@ public final class VirtualHub {
         // The Pinpoint and OTOS mounted as the setup says (pinpointMount, otosMount); older exports carry only their names.
         if (hub.has("pinpoint")) { pinpoint = new SimSensors.Pinpoint(hub.has("pinpointMount") ? hub.getAsJsonObject("pinpointMount") : null); map.put(hub.get("pinpoint").getAsString(), pinpoint); }
         if (hub.has("otos")) { otos = new SimSensors.Otos(hub.has("otosMount") ? hub.getAsJsonObject("otosMount") : null); map.put(hub.get("otos").getAsString(), otos); }
-        map.put("Control Hub", new SimSensors.Battery());
+        // The hubs under their configuration names (LynxModule for bulk caching, and each one's battery voltage):
+        // hub.modules [{name, address, parent}], else the Control Hub alone.
+        if (hub.has("modules")) for (JsonElement e : hub.getAsJsonArray("modules")) {
+            JsonObject h = e.getAsJsonObject();
+            map.put(h.get("name").getAsString(), new SimModule(h.has("address") ? h.get("address").getAsInt() : 173, h.has("parent") && h.get("parent").getAsBoolean()));
+        }
+        else map.put("Control Hub", new SimModule(173, true));
         if (hub.has("mechanisms")) {
             JsonObject mech = hub.getAsJsonObject("mechanisms");
-            int servoPort = 0;
             if (mech.has("intakes")) for (JsonElement e : mech.getAsJsonArray("intakes")) {
                 // A roller: {name, kind motor|crservo, mount, part}; older exports list motor names only.
                 JsonObject r = e.isJsonObject() ? e.getAsJsonObject() : new JsonObject();
@@ -218,11 +294,92 @@ public final class VirtualHub {
                     }
                     devices.put(t.get("name").getAsString(), shooter::turretTarget);
                 }
+                // A hood servo ({name} or its name): the code sets its shooting and rest positions; the simulator tilts
+                // the hood with the shooter's own commands.
+                if (s.has("hood")) {
+                    String hood = s.get("hood").isJsonObject() ? s.getAsJsonObject("hood").get("name").getAsString() : s.get("hood").getAsString();
+                    SimServo servo = new SimServo(servoPort++);
+                    map.put(hood, servo);
+                    devices.put(hood, servo::output);
+                }
                 shooters.add(shooter);
             }
         }
+        // The robot's own parts; a name the drive or a game mechanism already uses stays theirs.
+        if (hub.has("kinematics")) for (JsonElement e : hub.getAsJsonArray("kinematics")) {
+            JsonObject k = e.getAsJsonObject();
+            Part part = new Part(k);
+            String name = k.get("name").getAsString();
+            if (map.tryGet(HardwareDevice.class, name) != null) continue;
+            int at = k.has("port") ? k.get("port").getAsInt() : -1;
+            if ("motor".equals(part.type)) map.put(name, part.motor = new SimMotor(at >= 0 ? at : port++, 1));
+            else if ("crservo".equals(part.type)) map.put(name, part.crservo = new SimCRServo(at >= 0 ? at : servoPort++));
+            else map.put(name, part.servo = new SimServo(at >= 0 ? at : servoPort++, part.defaultPwm));
+            parts.add(part);
+            devices.put(name, part::effect);
+        }
+        // Sensors: {name, type analog|digital|touch|distance|color|encoder, port?, inverted?}. The simulator works out each
+        // reading from what the sensor measures; an encoder named like a motor reads into that motor's encoder input.
+        if (hub.has("sensors")) for (JsonElement e : hub.getAsJsonArray("sensors")) {
+            JsonObject s = e.getAsJsonObject();
+            String name = s.get("name").getAsString(), type = s.has("type") ? s.get("type").getAsString() : "analog";
+            int at = s.has("port") && s.get("port").isJsonPrimitive() ? s.get("port").getAsInt() : -1;
+            boolean inverted = s.has("inverted") && s.get("inverted").getAsBoolean();
+            if (!"encoder".equals(type) && map.tryGet(HardwareDevice.class, name) != null) continue;
+            switch (type) {
+                case "digital": case "touch": {
+                    SimDigital pin = new SimDigital(inverted);
+                    int p = at >= 0 ? at : digitalPort++;
+                    map.put(name, "touch".equals(type) ? pin.new Touch(p) : pin.new Channel(p));
+                    sensors.put(name, v -> pin.closed(v.isJsonPrimitive() && v.getAsBoolean()));
+                    devices.put(name, () -> pin.closed() ? 1 : 0);
+                    break;
+                }
+                case "distance": {
+                    SimRange.Distance r = new SimRange.Distance();
+                    map.put(name, r);
+                    sensors.put(name, v -> r.mm = millimetres(v));
+                    devices.put(name, () -> Double.isInfinite(r.mm) ? Double.NaN : r.mm);
+                    break;
+                }
+                case "color": {
+                    SimRange.Color c = new SimRange.Color();
+                    map.put(name, c);
+                    sensors.put(name, v -> {
+                        JsonObject o = v.isJsonObject() ? v.getAsJsonObject() : new JsonObject();
+                        c.mm = millimetres(o.get("mm"));
+                        c.red = channel(o, "r"); c.green = channel(o, "g"); c.blue = channel(o, "b"); c.alpha = channel(o, "a");
+                    });
+                    devices.put(name, () -> Double.isInfinite(c.mm) ? Double.NaN : c.mm);
+                    break;
+                }
+                case "encoder": {
+                    HardwareDevice own = map.tryGet(HardwareDevice.class, name);
+                    SimMotor m = own instanceof SimMotor ? (SimMotor) own : new SimMotor(at >= 0 ? at : port++, 1);
+                    if (m != own) map.put(name, m);
+                    // [counts, counts a second] as the encoder turns (its own direction already in the counts).
+                    sensors.put(name, v -> { if (v.isJsonArray() && v.getAsJsonArray().size() == 2) m.encoder(v.getAsJsonArray().get(0).getAsDouble(), v.getAsJsonArray().get(1).getAsDouble()); });
+                    break;
+                }
+                default: {
+                    SimAnalog a = new SimAnalog(at >= 0 ? at : analogPort++);
+                    map.put(name, a);
+                    sensors.put(name, v -> { if (v.isJsonPrimitive()) a.volts = Math.max(0, Math.min(a.getMaxVoltage(), v.getAsDouble())); });
+                    devices.put(name, a::getVoltage);
+                }
+            }
+        }
+        // Where the parts and sensors are as the program starts, so init() reads them (and zeroes encoders there).
+        if (hub.has("state") && hub.get("state").isJsonObject()) {
+            JsonObject state = hub.getAsJsonObject("state");
+            kinematicsState(state.has("kin") && state.get("kin").isJsonObject() ? state.getAsJsonObject("kin") : null);
+            sensorState(state.has("sensors") && state.get("sensors").isJsonObject() ? state.getAsJsonObject("sensors") : null);
+        }
         className = hub.get("opmode").getAsString();
     }
+
+    private static double millimetres(JsonElement v) { return v != null && v.isJsonPrimitive() && Double.isFinite(v.getAsDouble()) ? Math.max(0, v.getAsDouble()) : Double.POSITIVE_INFINITY; }
+    private static float channel(JsonObject o, String key) { return o.has(key) && o.get(key).isJsonPrimitive() ? (float) Math.max(0, Math.min(1, o.get(key).getAsDouble())) : 0; }
 
     /** Compiles the team files, runs the OpMode's init and returns once it waits for start. */
     public static VirtualHub start(JsonObject hub, double heading, File workDir) throws Exception {
@@ -417,6 +574,30 @@ public final class VirtualHub {
         }
         return out;
     }
+    /** Where each motor-driven part is ({id: [value, value a second]}), read by the code through its motor's encoder. */
+    public void kinematicsState(JsonObject state) {
+        if (state == null) return;
+        for (Part p : parts) {
+            if (p.motor == null || !state.has(p.id) || !state.get(p.id).isJsonArray()) continue;
+            com.google.gson.JsonArray q = state.getAsJsonArray(p.id);
+            if (q.size() < 2) continue;
+            p.motor.encoder(p.mount * q.get(0).getAsDouble() * p.countsPerUnit, p.mount * q.get(1).getAsDouble() * p.countsPerUnit);
+        }
+    }
+
+    /** Each sensor's reading this tick ({name: reading}); a sensor not mentioned keeps its last reading. */
+    public void sensorState(JsonObject state) {
+        if (state == null) return;
+        sensors.forEach((name, feed) -> { if (state.has(name)) feed.accept(state.get(name)); });
+    }
+
+    /** What the code commands each part to do this tick ({id: {value} | {value, power} | {power} | {velocity}}). */
+    public JsonObject kinematicsOutputs() {
+        JsonObject out = new JsonObject();
+        for (Part p : parts) { JsonObject c = p.command(); if (c != null) out.add(p.id, c); }
+        return out;
+    }
+    public boolean hasKinematics() { return !parts.isEmpty(); }
     public Map<String, String> telemetry() { return telemetry.shown(); }
 
     /** Gamepad 1 or 2 as the Driver Station sends it: sticks and triggers, then buttons. */

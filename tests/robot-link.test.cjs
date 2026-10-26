@@ -3,8 +3,8 @@
 // uses, and the export uploaded and built with the hub's OnBot Java server. Runs against the simulated Control Hub
 // (tools/ftc-sim.cjs), which answers the same commands and routes as FTC SDK 12.0.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const RobotConfig=require('../ui/ftc/robot-config.js'),F=require('../ui/sim-ftc.js'),Mech=require('../ui/sim-mechanisms.js'),P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js');
-const {startUdpRobot,startOnBotJava,CONFIG_XML,HUBS,OP_MODES}=require('../tools/ftc-sim.cjs'),{readRobot,writeConfiguration,runCheck,OnBotJava,send,buildErrors,formEncode,checkHost}=require('../src/robot-link.cjs');
+const RobotConfig=require('../ui/ftc/robot-config.js'),Hardware=require('../ui/sim-hardware.js'),C=require('../ui/sim-config.js'),F=require('../ui/sim-ftc.js'),Mech=require('../ui/sim-mechanisms.js'),P=require('../ui/sim-planner.js'),X=require('../ui/sim-export.js');
+const {startUdpRobot,startOnBotJava,CONFIG_XML,SENSOR_CONFIG_XML,HUBS,OP_MODES}=require('../tools/ftc-sim.cjs'),{readRobot,writeConfiguration,runCheck,OnBotJava,send,buildErrors,formEncode,checkHost}=require('../src/robot-link.cjs');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const {FtcSocket}=require('../src/ftc.cjs'),robot={drivetrain:'mecanum',length:17,width:17,heightIn:12,driveRpm:312,intakeIn:0};
 // The simulated robot and this station use their own loopback addresses (Robocol needs port 20884 on both ends), so these
@@ -21,7 +21,7 @@ test('a robot configuration: every device with its kind, hub and port',()=>{
   // Servos, continuous servos, a SPARK Mini, entities in names, comments, and motor types added after this list.
   const other=RobotConfig.parse(`<?xml version="1.0"?><!-- a comment <Servo name="ghost"/> --><Robot type="FirstInspires-FTC"><LynxUsbDevice name="Portal" serialNumber="(embedded)" parentModuleAddress="173"><LynxModule name="Control Hub" port="173">
     <Servo name="kicker" port="0"/><ServoFullRange name="gate" port="1"/><ContinuousRotationServo name="roller &amp; belt" port="2"/><RevSPARKMini name="spark" port="3"/><goBILDA5203NewSeriesMotor name="new" port="0"/><RevColorSensorV3 name="color" port="0" bus="2"/></LynxModule></LynxUsbDevice><Webcam name="Webcam 1" serialNumber="SN1"/></Robot>`);
-  assert.deepEqual(other.devices.map(d=>[d.name,d.kind]),[['kicker','servo'],['gate','servo'],['roller & belt','crservo'],['spark','crservo'],['new','motor'],['color','other'],['Webcam 1','webcam']]);
+  assert.deepEqual(other.devices.map(d=>[d.name,d.kind]),[['kicker','servo'],['gate','servo'],['roller & belt','crservo'],['spark','crservo'],['new','motor'],['color','color'],['Webcam 1','webcam']]);
   assert.throws(()=>RobotConfig.parse('<html></html>'),/not an FTC robot configuration/);
 });
 
@@ -44,6 +44,114 @@ test('the check: names the export uses against the robot, with suggestions, wron
   // Two Deck devices of different kinds under one name.
   const dup=RobotConfig.check([{name:'arm',need:'motor',label:'Turret'},{name:'arm',need:'servo',label:'Kicker'}],{devices:[]});assert.match(RobotConfig.explain(dup.rows[1]),/also the name Deck uses for turret/);
   assert.deepEqual(RobotConfig.tokens('left_front_drive'),RobotConfig.tokens('frontLeftMotor'));assert.deepEqual(RobotConfig.tokens('LF'),['front','left']);assert.notDeepEqual(RobotConfig.tokens('intake2'),RobotConfig.tokens('intake'));
+});
+
+test('sensors, a Servo Hub and a Limelight: each device on its own kind of port',()=>{
+  const c=RobotConfig.parse(SENSOR_CONFIG_XML),device=n=>c.devices.find(d=>d.name===n);
+  assert.deepEqual(['wristAngle','liftHome','turretHome','slot','extendDistance','limelight','hood','wrist','imu'].map(n=>device(n).kind),['analog','touch','digital','color','distance','limelight','servo','servo','imu']);
+  assert.deepEqual(device('hood').module,{portal:'(embedded)',address:3,servoHub:true});assert.equal(device('limelight').module,undefined,'a Limelight is on no hub');
+  assert.deepEqual(['wristAngle','liftHome','turretHome','slot','hood','lift'].map(n=>RobotConfig.portsTaken(device(n))),[['(embedded)#2:analog:0'],['(embedded)#2:digital:1'],['(embedded)#2:digital:2'],['(embedded)#2:i2c:1.0'],['(embedded)#3:servo:0'],['(embedded)#2:motor:0']]);
+  const modules=RobotConfig.modulesOf(c);assert.deepEqual(modules.map(m=>[m.name,!!m.parent,!!m.servoHub]),[['Expansion Hub 2',false,false],['Control Hub',true,false],['Servo Hub 3',false,true]]);
+  // Analog and digital devices get ports of their own: a REV potentiometer an even analog channel, a touch sensor an odd
+  // digital one and other switches an even one first; I2C past the buses taken; servos on the Control Hub, then the Servo Hub.
+  const adds=[{name:'armAngle',label:'Arm angle',device:'analog'},{name:'armPot',label:'Arm pot',device:'analog',channels:'even'},{name:'armHome',label:'Arm home',device:'touch'},{name:'gate',label:'Gate',device:'digital'},
+    {name:'intakeColor',label:'Intake colour',device:'color'},...Array.from({length:7},(_,i)=>({name:'s'+i,label:'S'+i,device:'servo'}))];
+  const plan=RobotConfig.planPorts(adds,{modules,devices:c.devices});assert.deepEqual(plan.problems,[]);
+  assert.deepEqual(plan.assignments.map(a=>[a.name,RobotConfig.portLabel(a),a.tag]).slice(0,5),[['armAngle','Control Hub analog port 0','AnalogInput'],['armPot','Control Hub analog port 2','AnalogInput'],['armHome','Control Hub digital port 1','RevTouchSensor'],
+    ['gate','Control Hub digital port 0','DigitalDevice'],['intakeColor','Control Hub I2C bus 3','RevColorSensorV3']]);
+  assert.deepEqual(plan.assignments.slice(-2).map(RobotConfig.portLabel),['Control Hub servo port 5','Servo Hub 3 servo port 1'],'the Servo Hub’s port 0 has the hood');
+  // Added inside each hub where the SDK would write them, the Servo Hub too.
+  const xml=RobotConfig.addDevices(SENSOR_CONFIG_XML,plan.assignments),after=RobotConfig.parse(xml);assert.equal(after.devices.length,c.devices.length+adds.length);
+  assert.match(xml,/<ServoHub name="Servo Hub 3" port="3">\n            <Servo name="hood" port="0" \/>\n            <Servo name="s6" port="1" \/>\n        <\/ServoHub>/);
+  assert.match(xml,/<goBILDAPinpoint name="pinpoint" port="0" bus="1" \/>\n            <REV_VL53L0X_RANGE_SENSOR name="extendDistance" port="0" bus="2" \/>\n(            <[^\n]+\n){11}        <\/LynxModule>/);
+  // The check: a sensor of the right kind is ok; a REV Touch Sensor where the code reads a digital device is not, and says how to fix it.
+  const check=RobotConfig.check([{name:'wristAngle',need:'analog',label:'Wrist angle'},{name:'liftHome',need:'digital',label:'Lift home'},{name:'extendDistance',need:'distance',label:'Extension'},{name:'slot',need:'distance',label:'Slot'}],c);
+  assert.deepEqual(check.rows.map(r=>r.status),['ok','kind','ok','ok'],'a colour sensor V3 reads distance too');
+  assert.match(RobotConfig.explain(check.rows[1]),/"liftHome" is a touch sensor on the robot; the code needs a digital device\. Set it to "Digital Device" in Configure Robot/);
+  assert.ok(check.unused.some(d=>d.name==='turretHome'&&d.kind==='digital'),'unused sensors are listed too');
+  // With the hubs' devices written back in the SDK's order (motors, servos, analog, digital, I2C; the Servo Hub after the
+  // hubs), it is the configuration the fixture has, line for line, but for the Limelight, which a scan configures.
+  const portals=[{serial:'(embedded)',modules:[{address:173,parent:true,imu:'BHI260'},{address:2,parent:false,imu:'NONE'}],servoHubs:[{address:3}]}],scanned=RobotConfig.modulesFromScan(portals);
+  const DEVICE={analog:'analog',touch:'touch',digital:'digital',color:'color',distance:'distance'};
+  const back=c.devices.filter(d=>d.module).map(d=>({name:d.name,device:DEVICE[d.kind]||d.kind,tag:d.tag,module:scanned.find(m=>m.address===d.module.address),port:d.port,...(d.bus!==undefined?{bus:d.bus}:{})}));
+  assert.equal(RobotConfig.newConfiguration(portals,[...back].reverse()),SENSOR_CONFIG_XML.replace(/    <EthernetDevice[^\n]*\n/,''));
+});
+
+test('Setup’s wiring: a device lands on the port Setup gave it, a taken port or a missing hub is a problem, the rest plan around it',()=>{
+  const portals=HUBS.map(h=>RobotConfig.lynxModules(JSON.stringify({serialNumber:h.serial,modules:h.modules}))),modules=RobotConfig.modulesFromScan(portals),m=Mech.sanitize({enabled:true,intakes:[{kind:'ramp',sides:['front'],motor:'intake',servo:'ramp'}]});
+  const wiring={devices:{'intakes.0.motor':{hub:'expansion',port:0},'shooters.0.turretMotor':{hub:'expansion',port:0},'intakes.0.servo':{hub:'servoHub',port:0},'robot.frontLeft':{hub:'control',port:3,model:'rev-core-hex'}}};
+  const needs=Hardware.wire(F.robotNeeds(robot,'fused',m),C.robot({wiring:{hubs:{expansion:{},servoHub:{}},...wiring}}).wiring),adds=RobotConfig.missingDevices(RobotConfig.check(needs,{devices:[]}).rows);
+  assert.deepEqual(adds.find(a=>a.name==='front_left'),{name:'front_left',label:'Front left drive motor',device:'motor',setting:{robot:'frontLeft'},wired:{hub:'control',port:3},model:'rev-core-hex',xmlType:'RevRoboticsCoreHexMotor'});
+  const {assignments,problems}=RobotConfig.planPorts(adds,{modules});
+  assert.deepEqual(assignments.map(a=>[a.name,RobotConfig.portLabel(a),a.tag,!!a.fixed]),[['front_left','Control Hub motor port 3','RevRoboticsCoreHexMotor',true],['front_right','Control Hub motor port 0','goBILDA5202SeriesMotor',false],
+    ['back_left','Control Hub motor port 1','goBILDA5202SeriesMotor',false],['back_right','Control Hub motor port 2','goBILDA5202SeriesMotor',false],['imu','Control Hub I2C bus 0','ControlHubImuBHI260AP',false],
+    ['pinpoint','Control Hub I2C bus 1','goBILDAPinpoint',false],['intake','Expansion Hub 2 motor port 0','goBILDA5202SeriesMotor',true],['shooter','Expansion Hub 2 motor port 1','goBILDA5202SeriesMotor',false],['indexer','Expansion Hub 2 motor port 2','goBILDA5202SeriesMotor',false]]);
+  assert.deepEqual(problems,['Intake 1 ramp servo: Setup has it on a Servo Hub, which the robot does not have.','Shooter 1 turret: Expansion Hub 2 motor port 0 has "intake".']);
+  // A device Setup placed keeps its port when sending (change it in Setup); another device cannot be swapped onto it.
+  assert.deepEqual(RobotConfig.portChoices(assignments,0,{modules}),[]);
+  const choices=RobotConfig.portChoices(assignments,assignments.findIndex(a=>a.name==='shooter'),{modules});assert.deepEqual(choices.find(c=>c.label==='Expansion Hub 2 motor port 0').taken,'intake');
+  // Setup's port on a hub of the robot's configuration that is already taken, and a touch sensor on an even channel.
+  const config=RobotConfig.parse(CONFIG_XML),own=RobotConfig.modulesOf(config,portals);
+  const taken=RobotConfig.planPorts([{name:'kicker',label:'Kicker',device:'servo',wired:{hub:'control',port:1}},{name:'arm',label:'Arm',device:'motor',wired:{hub:2,port:3}},{name:'home',label:'Home',device:'touch',wired:{hub:'control',port:2}}],{modules:own,devices:config.devices});
+  assert.deepEqual(taken.assignments.map(a=>[a.name,RobotConfig.portLabel(a)]),[['kicker','Control Hub servo port 1']]);
+  assert.deepEqual(taken.problems,['Arm: Expansion Hub 2 motor port 3 has "intake".','Home: it reads only on odd digital channels (1, 3, 5 and 7); Setup has it on Control Hub digital port 2.']);
+});
+
+test('the check says when a device is on another port than Setup has it, or configured as another motor type',()=>{
+  const wiring=C.robot({wiring:{devices:{'robot.frontLeft':{hub:'control',port:1,model:'rev-ultra-20'},'shooters.0.motor':{hub:'expansion',port:0,model:'gobilda-5203-6000'},'robot.pinpoint':{hub:'control',bus:2}}}}).wiring;
+  const needs=Hardware.wire(F.robotNeeds(robot,'fused',Mech.sanitize({enabled:true})),wiring),r=RobotConfig.check(needs,RobotConfig.parse(CONFIG_XML)),row=n=>r.rows.find(x=>x.name===n);
+  assert.equal(r.ok,true,'the names all match, so the code runs');
+  assert.deepEqual(row('front_left').moved,{hub:'control',port:1,label:'Control Hub motor port 1'});assert.equal(row('front_left').retype,'RevRoboticsUltraplanetaryHDHexMotor');
+  assert.equal(row('shooter').moved,undefined,'where Setup has it');assert.equal(row('shooter').retype,undefined,'a goBILDA motor is the type Configure Robot has');
+  assert.deepEqual(row('pinpoint').moved,{hub:'control',bus:2,label:'Control Hub I2C bus 2'});
+  assert.equal(RobotConfig.explain(row('front_left')),`"front_left" is a motor on Control Hub, port 0. Setup has it on Control Hub motor port 1: plug it in there, or change Setup to match the robot. It is configured as goBILDA Yellow Jacket; Setup's motor is REV UltraPlanetary HD Hex, which sets the SDK's encoder resolution and default PIDF.`);
+  assert.equal(RobotConfig.explain(row('pinpoint')),'"pinpoint" is a goBILDA Pinpoint on Control Hub, I2C bus 1. Setup has it on Control Hub I2C bus 2: plug it in there, or change Setup to match the robot.');
+});
+
+test('a configuration with no robot to scan: the Control Hub, an Expansion Hub on RS485 and a Servo Hub, read back as written',()=>{
+  const wiring={hubs:{expansion:{address:4},servoHub:{address:5}},devices:{'shooters.0.hood':{model:'axon-max',hub:'servoHub',port:2},'shooters.0.turretMotor':{model:'rev-core-hex',hub:'expansion',port:3}},
+    sensors:[{id:'hoodAngle',model:'axon-feedback',for:'shooters.0.hood'},{id:'liftHome',model:'rev-touch',for:'kin.liftMotor'},{id:'slot',model:'rev-color-v3',for:'intakes.0.motor',hub:'expansion',bus:2},{id:'turretTb',model:'rev-through-bore',for:'shooters.0.turretMotor'}]};
+  const project={robot:C.robot({drivetrain:'mecanum',wiring}),sensors:{localization:'fused'},mechanisms:Mech.sanitize({enabled:true,shooters:[{type:'turret',hood:'hood'}]}),
+    kinematics:{joints:[{id:'arm',name:'Arm'}],actuators:[{id:'liftMotor',name:'Lift',joint:'arm',kind:'dcmotor',model:'gobilda-5203-435',device:'lift'},{id:'claw',name:'Claw',joint:'arm',kind:'servo',model:'gobilda-speed',servo:{pwm:[500,2500]}}]}};
+  const rows=Hardware.placed(Hardware.rows(project),project.robot.wiring),{xml,problems}=RobotConfig.configurationFor(rows,project.robot.wiring);
+  assert.deepEqual(problems,['No motor port is free for "lift" (Lift). Add an Expansion Hub, or run a roller on a continuous servo.'],'eight motors fill both hubs');
+  assert.equal(xml,`<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<Robot type="FirstInspires-FTC">
+    <LynxUsbDevice name="Control Hub Portal" serialNumber="(embedded)" parentModuleAddress="173">
+        <LynxModule name="Expansion Hub 4" port="4">
+            <goBILDA5202SeriesMotor name="intake" port="0" />
+            <goBILDA5202SeriesMotor name="shooter" port="1" />
+            <goBILDA5202SeriesMotor name="indexer" port="2" />
+            <RevRoboticsCoreHexMotor name="turret" port="3" />
+            <RevColorSensorV3 name="intakePiece" port="0" bus="2" />
+        </LynxModule>
+        <LynxModule name="Control Hub" port="173">
+            <goBILDA5202SeriesMotor name="front_left" port="0" />
+            <goBILDA5202SeriesMotor name="front_right" port="1" />
+            <goBILDA5202SeriesMotor name="back_left" port="2" />
+            <goBILDA5202SeriesMotor name="back_right" port="3" />
+            <ServoFullRange name="claw" port="0" />
+            <AnalogInput name="hoodPosition" port="0" />
+            <RevTouchSensor name="liftHome" port="1" />
+            <ControlHubImuBHI260AP name="imu" port="0" bus="0" />
+            <goBILDAPinpoint name="pinpoint" port="0" bus="1" />
+        </LynxModule>
+        <ServoHub name="Servo Hub 5" port="5">
+            <Servo name="hood" port="2" />
+        </ServoHub>
+    </LynxUsbDevice>
+</Robot>
+`);
+  // Read back: every device on the hub and port Setup or the plan gave it, and Deck's own check passes on it. The lift
+  // has no motor port left (8 motors), so it is the one row missing, and Deck's plan says so first.
+  const c=RobotConfig.parse(xml),placedRows=rows.filter(r=>r.hub&&!r.via&&r.kind!=='motorEncoder');
+  for(const r of placedRows){const d=c.devices.find(x=>x.name===r.name);assert.ok(d,r.name);const hub={control:'Control Hub',expansion:'Expansion Hub 4',servoHub:'Servo Hub 5'}[r.hub];assert.equal(d.hub,hub,r.name);assert.equal(r.bus!==undefined?d.bus:d.port,r.bus??r.port,r.name);}
+  assert.equal(rows.find(r=>r.key==='sensor.turretTb').via,'turret','the Through Bore is read through the turret motor’s own port');
+  const check=RobotConfig.check(Hardware.needs(rows),c);assert.deepEqual(check.rows.filter(r=>r.status!=='ok').map(r=>r.name),['lift']);assert.ok(check.rows.every(r=>!r.moved));
+  assert.match(Hardware.plan(Hardware.rows(project),project.robot.wiring).problems[0].text,/No motor port is free for Lift/);
+  // A Control Hub alone, with an older IMU.
+  assert.match(RobotConfig.configurationFor([{name:'imu',device:'imu',label:'IMU'},{name:'arm',device:'motor',label:'Arm',hub:'control',port:2}],{},{imu:'BNO055'}).xml,
+    /<LynxModule name="Control Hub" port="173">\n            <goBILDA5202SeriesMotor name="arm" port="2" \/>\n            <LynxEmbeddedIMU name="imu" port="0" bus="0" \/>\n        <\/LynxModule>\n    <\/LynxUsbDevice>/);
 });
 
 test('Send to robot reads the active configuration over Robocol, as a Driver Station does',async t=>{

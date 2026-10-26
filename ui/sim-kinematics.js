@@ -407,9 +407,37 @@
       this.still=Math.abs(this.v)<.002*m.free?this.still+dt:0;
     }
   }
+  // ---------------------------------------------------------------- what a hub's ports read of a part
+  // A part's value is degrees or inches from where the CAD has it (zero). An encoder counts value · countsPerUnit (else
+  // its cpr a turn); a switch is closed within band of at (a home switch at the CAD pose: at 0, band 0.5); an analog
+  // port reads volts: zeroVolts at zero plus voltsPerUnit per unit, within 0–3.3 V (an Axon's feedback wire or a
+  // potentiometer; by default the middle of its range at zero and 3.3 V a turn, or 0.1 V an inch); a speed sensor its
+  // speed; anything else the value itself.
+  const VOLTS=3.3;
+  const volts=(value,{zeroVolts,voltsPerUnit,unit='deg'}={})=>finite(value)?clamp((finite(zeroVolts)?zeroVolts:VOLTS/2)+(finite(voltsPerUnit)?voltsPerUnit:unit==='in'?.1:VOLTS/360)*value,0,VOLTS):null;
+  function reading(kind,value,o={}){if(!finite(value))return null;
+    if(kind==='encoder')return Math.round(value*(finite(o.countsPerUnit)?o.countsPerUnit:(finite(o.cpr)?o.cpr:537.7)/(o.unit==='in'?1:360)));
+    if(kind==='limit'||kind==='touch'||kind==='digital')return Math.abs(value-(finite(o.at)?o.at:0))<=(finite(o.band)?o.band:.5);
+    if(kind==='analog'||kind==='potentiometer')return volts(value,o);
+    return value;}
   // Seconds a trapezoid takes to move d from rest to rest.
   function moveSeconds(d,speed,accel=0){d=Math.abs(d);if(!d)return 0;if(!(speed>0))return Infinity;if(!(accel>0))return d/speed;return d>=speed*speed/accel?d/speed+speed/accel:2*Math.sqrt(d/accel);}
   // ---------------------------------------------------------------- driving joints from a game and from actions
+  // What a route action's name means for this robot, read the same way by the simulator and the exported code: an
+  // action's steps ({kind:'steps', action, steps}), or a part sent to a value ({kind:'move', actuator or joint, value}):
+  // a part's name and one of its named positions ("Lift up", state: its name), or "Lift to 30°" / "Slide to 4 in" in
+  // its own units (degrees or inches) within its end stops. A part is an actuator (named as itself or its joint) or a
+  // joint moved by route actions with no actuator of its own. null when the name means neither.
+  function resolveAction(model,name){const key=String(name).trim().toLowerCase(),action=model.actions.find(a=>a.name.toLowerCase()===key);
+    if(action)return {kind:'steps',action,steps:action.steps};
+    const range=(lo,hi)=>[finite(lo)?lo:-Infinity,finite(hi)?hi:Infinity];
+    const named=[...model.joints.filter(j=>j.drive?.signal==='action'&&dofOf(j).length===1&&!model.actuators.some(a=>a.joint===j.id)).map(j=>{const lim=j.type==='revolute'||j.type==='prismatic';return {ref:{joint:j.id},names:[j.name],states:j.states||{},range:lim?range(j.lower,j.upper):range()};}),
+      ...model.actuators.map(a=>{const j=model.joints.find(x=>x.id===a.joint);return {ref:{actuator:a.id},names:[a.name,j?.name].filter(Boolean),states:statesOf(model,a),range:limitsOf(j)[a.index]||range()};})];
+    for(const {ref,names,states,range:[lo,hi]} of named)for(const n of names){const own=n.toLowerCase();if(!key.startsWith(own+' '))continue;
+      const rest=key.slice(own.length+1).trim(),to=/^to\s+(-?\d+(?:\.\d+)?)\s*(?:°|deg|degrees|in|inches)?$/.exec(rest);
+      if(to)return {kind:'move',...ref,value:clamp(Number(to[1]),lo,hi)};
+      const state=Object.keys(states).find(k=>k.toLowerCase()===rest);if(state!==undefined)return {kind:'move',...ref,value:states[state],state};}
+    return null;}
   // The engine runs one Driver per simulation. Each tick it reads the game's signals and steps the actuators, and
   // values() gives every driven joint's value (what the 3D view draws and recordings keep).
   //   signals: {turrets:[deg], flywheel:0..1, kick:[0..1|null per intake], lift:[0..1 per intake], intake, spin, aim, feed, rpm}
@@ -427,27 +455,24 @@
       // Hoods move between their positions at their speed; a joint run by route actions moves to its named positions.
       for(const j of model.joints){const lim=j.type==='revolute'||j.type==='prismatic';
         if(j.drive?.signal==='hood')this.axes.set('hood:'+j.id,new Axis(j.states?.rest??0,{speed:j.speed||180}));
+        // A feeder that swings or slides (a servo kicker or pusher) goes to its feed position while feeding and back to
+        // rest; a feeder wheel spins.
+        if(j.drive?.signal==='feeder'&&lim&&finite(j.states?.feed))this.axes.set('feeder:'+j.id,new Axis(j.states.rest??0,{speed:j.speed||(j.type==='prismatic'?30:720)}));
         if(j.drive?.signal==='action'&&dofOf(j).length===1&&!model.actuators.some(a=>a.joint===j.id))this.axes.set('joint:'+j.id,new Axis(valuesOf(j,j.home||0)[0],{speed:j.speed||90,lower:lim&&finite(j.lower)?j.lower:-Infinity,upper:lim&&finite(j.upper)?j.upper:Infinity}));}
       this.moves=[];
     }
     // Starts an action by name; its steps run as the ticks go by. A name that is a joint's name and one of its named
     // positions ("Lift up") moves that joint there. Returns false when the name means neither.
-    start(name){const key=String(name).trim().toLowerCase(),action=this.model.actions.find(a=>a.name.toLowerCase()===key);
-      if(action){const r=this.run(action);this.running.push(r);this.stepAction(r);return true;}
-      const named=[...this.model.joints.map(j=>({axis:this.axes.get('joint:'+j.id),names:[j.name],states:j.states||{}})),
-        ...this.model.actuators.map(a=>({axis:this.axes.get(a.id),names:[a.name,this.model.joints.find(x=>x.id===a.joint)?.name].filter(Boolean),states:statesOf(this.model,a)}))];
-      // "Lift to 30°" or "Slide to 4 in" moves it to that value in its own units (degrees or inches), within its end stops.
-      for(const {axis,names,states} of named){if(!axis)continue;for(const name of names){const own=name.toLowerCase();if(!key.startsWith(own+' '))continue;
-        const rest=key.slice(own.length+1).trim(),to=/^to\s+(-?\d+(?:\.\d+)?)\s*(?:°|deg|degrees|in|inches)?$/.exec(rest);
-        if(to){axis.to(clamp(Number(to[1]),axis.lower,axis.upper));this.moves.push({key,axis});return true;}
-        const state=Object.keys(states).find(k=>k.toLowerCase()===rest);if(state===undefined)continue;axis.to(states[state]);this.moves.push({key,axis});return true;}}
-      return false;}
+    start(name){const r=resolveAction(this.model,name);if(!r)return false;
+      if(r.kind==='steps'){const run=this.run(r.action);this.running.push(run);this.stepAction(run);return true;}
+      const axis=this.axes.get(r.actuator??'joint:'+r.joint);if(!axis)return false;axis.to(r.value);this.moves.push({key:String(name).trim().toLowerCase(),axis});return true;}
     busy(name){const key=String(name).trim().toLowerCase();return this.running.some(r=>r.action.name.toLowerCase()===key)||this.moves.some(m=>m.key===key&&!m.axis.done);}
     tick(dt,s={}){
       this.time+=dt;const m=this.model;
       // Hoods head for their shooting position while the shooter spins up, aims or feeds, and back to rest after. A hood
       // whose CAD launch angle is known tilts by the difference to the game's launch angle (s.hood), within its limits.
       for(const j of m.joints)if(j.drive?.signal==='hood')this.axes.get('hood:'+j.id).to((s.spin||s.aim||s.feed)?(finite(j.launch)&&finite(s.hood)?clamp(s.hood-j.launch,j.lower??-180,j.upper??180):j.states?.shoot??0):j.states?.rest??0);
+      for(const j of m.joints)this.axes.get('feeder:'+j.id)?.to(s.feed?j.states.feed:j.states.rest??0);
       for(const [,axis] of this.axes)axis.step(dt);this.moves=this.moves.filter(m=>!m.axis.done);
       for(const j of m.joints){const axis=this.axes.get('joint:'+j.id);if(axis)this.q[j.id]=axis.q;}
       for(const a of m.actuators){const axis=this.axes.get(a.id),j=m.joints.find(x=>x.id===a.joint),v=valuesOf(j,this.q[j.id]);v[a.index]=axis.q;this.q[j.id]=v.length===1?v[0]:v;}
@@ -459,7 +484,7 @@
         else if(d.signal==='hood')this.q[j.id]=this.axes.get('hood:'+j.id).q;
         else if(d.signal==='flywheel')this.q[j.id]=wrap360(this.q[j.id]+rate((s.flywheel||0)*(j.rpm||s.rpm||3000))*dt);
         else if(d.signal==='roller')this.q[j.id]=wrap360(this.q[j.id]+rate(s.intake?(j.rpm||300):0)*dt);
-        else if(d.signal==='feeder')this.q[j.id]=wrap360(this.q[j.id]+rate(s.feed?(j.rpm||200):0)*dt);}
+        else if(d.signal==='feeder')this.q[j.id]=this.axes.get('feeder:'+j.id)?.q??wrap360(this.q[j.id]+rate(s.feed?(j.rpm||200):0)*dt);}
       // Steps end, and the steps after them start, once this tick's motion is done: a step that follows another starts
       // the moment it ends, and its command moves the next tick.
       for(const r of this.running)this.stepAction(r);this.running=this.running.filter(r=>r.steps.some(x=>x.end===null));
@@ -504,6 +529,20 @@
       if(s.kind==='encoder')return Math.round(value*(a?a.ratio:1)/((a?actuatorUnit(a,j):dofOf(j)[s.index||0])==='deg'?360:1)*s.cpr);
       if(s.kind==='limit')return Math.abs(value-s.at)<=s.band;
       return value;}
+    // Every sensor of the model as a hub port reads it: an encoder's counts, a limit switch closed (pressed) or not, an
+    // angle or distance sensor's value and the volts it would put on an analog port, a speed sensor's speed.
+    readings(){const out={};for(const s of this.model.sensors||[]){const r=this.read(s.id);
+      out[s.id]=s.kind==='encoder'?{kind:s.kind,counts:r}:s.kind==='limit'?{kind:s.kind,pressed:r}:s.kind==='potentiometer'?{kind:s.kind,value:r,volts:r===null?null:volts(r,{unit:this.unitOf(s)})}:{kind:s.kind,value:r};}
+      return out;}
+    // Where a part is and how fast it moves, in its own units: an actuator ({actuator}) or a joint's value ({joint, index}).
+    measure(src){const a=src?.actuator?this.model.actuators.find(x=>x.id===src.actuator):null,axis=a&&this.axes.get(a.id);
+      if(axis)return {value:axis.q,velocity:axis.v,unit:this.unitOf({actuator:a.id})};
+      if(!src?.joint)return null;const i=src.index||0,value=this.jointValue(src.joint,i);if(!finite(value))return null;
+      const own=['joint:','hood:','feeder:'].map(k=>this.axes.get(k+src.joint)).find(Boolean)||this.axes.get(this.model.actuators.find(x=>x.joint===src.joint&&(x.index||0)===i)?.id);
+      return {value,velocity:own?own.v:0,unit:this.unitOf({joint:src.joint,index:i})};}
+    // What a hub sensor on a part reads now (src as measure takes it; o its kind and numbers, as reading() takes them).
+    sense(src,o={}){const m=this.measure(src);if(!m)return null;return o.kind==='velocity'?m.velocity:reading(o.kind,m.value,{unit:m.unit,...o});}
+    unitOf(src){const a=src.actuator?this.model.actuators.find(x=>x.id===src.actuator):null,j=this.model.joints.find(x=>x.id===(a?a.joint:src.joint));return dofOf(j)[a?a.index||0:src.index||0]||'deg';}
     // Whether a wait's condition holds: the reading at or above `above`, at or below `below`, a switch closed or open.
     met(w){if(!('above' in w||'below' in w||'is' in w))return false;
       const r=w.sensor?this.read(w.sensor):w.actuator?this.axes.get(w.actuator)?.q:w.joint?this.jointValue(w.joint,w.index||0):null;if(r===null||r===undefined)return false;const x=+r;
@@ -631,7 +670,7 @@
     if(n===removed){delete j.drive;j.note=(j.note?j.note+' ':'')+'Its mechanism was removed.';}else if(n>removed)d.of=kind+':'+(n-1);}return sanitize(out);}
   // What the engine needs: the joints with a drive, actuators and actions, without part lists.
   function forEngine(model){const m=sanitize(model);return {...m,joints:m.joints.map(({parts,alternatives,note,...j})=>j)};}
-  return {TYPES,ACTUATORS,MODES,COUPLINGS,SIGNALS,PROVENANCE,RESPONSES,STAGES,SENSORS,SHOW_SPIN,sanitize,EMPTY,mover,partIndex,order,resolve,worlds,motion,frame,dofOf,valuesOf,limitsOf,couple,applyCouplings,solveLoops,pose,reach,Axis,moveSeconds,Driver,timeline,sampleTimeline,reindex,forEngine,
+  return {TYPES,ACTUATORS,MODES,COUPLINGS,SIGNALS,PROVENANCE,RESPONSES,STAGES,SENSORS,SHOW_SPIN,sanitize,EMPTY,mover,partIndex,order,resolve,worlds,motion,frame,dofOf,valuesOf,limitsOf,couple,applyCouplings,solveLoops,pose,reach,Axis,moveSeconds,Driver,resolveAction,reading,volts,VOLTS,timeline,sampleTimeline,reindex,forEngine,
     stagesRatio,actuatorUnit,motorAtJoint,rigging,planetary,
     math:{sub,add,scale,dot,cross,len,unit,perpendicular,I4,mul,apply,applyDir,trans,rot,about,invert}};
 });

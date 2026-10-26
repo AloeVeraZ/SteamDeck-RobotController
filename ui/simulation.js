@@ -119,7 +119,9 @@ public class MyAuto implements DeckAutonomous {
       .map(p=>JSON.parse(JSON.stringify({name:String(p.name||'').slice(0,80),role:pick(p.role,['chassis','intake','shooter','indexer'])||'other',pieces:pick(p.pieces,['pollen','nectar','both']),type:pick(p.type,['turret','fixed']),kind:pick(p.kind,['sweeper','siderollers','ramp']),key:typeof p.key==='string'?p.key.slice(0,400):undefined,chosen:p.chosen===true||undefined,box:p.box.slice()}))):[];
     return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:['in','mm','cm','m'].includes(raw.units)?raw.units:'in',front,top:front[1]===top[1]?(front[1]==='z'?'+x':'+z'):top,source:raw.source==='step'?'step':'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
   }
-  let project;try{project=sanitize(JSON.parse(localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY)));}catch{project=defaults();}
+  // A first run opens the Test setup: a BIOBUZZ red robot built from FTC parts, on a Control Hub, with a long autonomous.
+  const storedProject=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY);
+  let project;try{project=sanitize(storedProject?JSON.parse(storedProject):window.DeckTestRobot?.setup()??null);}catch{project=defaults();}
   let runData=null,liveFrame=null,reportKey='',lastReport=null,estimateTimer=0,estimateSeq=0;const estimates=new Map();
   // Run & review's side views (Results, Export, Diagnostics) and the Results parts shown before and after a run.
   let runViews=null,resultsReady=null,replayBox=null,reportShown=-1;

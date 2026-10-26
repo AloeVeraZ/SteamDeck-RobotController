@@ -17,6 +17,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       tag: ${{ steps.meta.outputs.tag }}
       branch: ${{ steps.meta.outputs.branch }}
+      targets: ${{ steps.meta.outputs.targets }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,12 +59,16 @@ jobs:
           [[ "$GITHUB_REF_TYPE" != tag || "$GITHUB_REF_NAME" == "$tag" ]] || { echo "tag $GITHUB_REF_NAME does not match package.json ($tag)"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          # Main builds every platform; testing builds package.json's testingReleaseTargets.
+          targets=$(node tools/release-targets.cjs targets "$branch")
+          echo "Building: $targets"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
   desktop:
     needs: validate
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [steamdeck, windows, macos-arm64]
+        target: ${{ fromJSON(needs.validate.outputs.targets) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -96,30 +101,48 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
           merge-multiple: true
           path: dist
-      - name: Publish complete release
+      # Every built platform must have its update download and checksum, and nothing else may be
+      # there. A release for only some platforms leaves out the App package, which fits every
+      # platform: older updaters would install it on the devices this release was not built for.
+      - name: Publish the built platforms
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
           BRANCH: ${{ needs.validate.outputs.branch }}
+          TARGETS: ${{ needs.validate.outputs.targets }}
         run: |
-          args=()
+          node tools/release-targets.cjs prepare dist "$TARGETS" "$VERSION" "$TAG" > "$RUNNER_TEMP/release.json"
+          args=(--title "$(jq -r .title "$RUNNER_TEMP/release.json")")
+          notes=$(jq -r .notes "$RUNNER_TEMP/release.json")
+          # gh puts --notes before the generated notes; the in-app changelog shows both.
+          if [[ -n "$notes" ]]; then args+=(--notes "$notes"); fi
           if [[ "$BRANCH" == testing ]]; then args+=(--prerelease); fi
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "Deck Driver Station $TAG" --generate-notes "${args[@]}"
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --generate-notes "${args[@]}"
       # The in-app updater reads this fixed download first, so update checks do not spend
       # GitHub's 60-per-hour API allowance. Sizes and digests come from the release itself.
+      # The new release comes first; up to five earlier ones of the channel follow, so a device a
+      # partial release skips can still find the newest release with its download.
       - name: Update the channel manifest
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.validate.outputs.tag }}
           BRANCH: ${{ needs.validate.outputs.branch }}
         run: |
-          if [[ "$BRANCH" == testing ]]; then channel=testing; else channel=main; fi
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" | jq --arg channel "$channel" '{schema:1,channel:$channel,releases:[{tag_name,prerelease,draft,body,assets:[.assets[]|{name,size,digest,state,browser_download_url}]}]}' > channel.json
+          if [[ "$BRANCH" == testing ]]; then channel=testing; pattern='^testing-v[0-9]+[.][0-9]+[.][0-9]+$'; else channel=main; pattern='^v[0-9]+[.][0-9]+[.][0-9]+$'; fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/newest.json"
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" > "$RUNNER_TEMP/recent.json" || echo '[]' > "$RUNNER_TEMP/recent.json"
+          jq -s --arg channel "$channel" --arg tag "$TAG" --arg pattern "$pattern" '
+            def slim: {tag_name,prerelease,draft,body:((.body//"")[:8000]),assets:[.assets[]|{name,size,digest,state,browser_download_url}]};
+            {schema:1,channel:$channel,releases:([.[0]|slim]+[(.[1]|if type=="array" then .[] else empty end)|select(.tag_name!=$tag and (.draft|not) and (.tag_name|test($pattern)))|slim][:5])}' "$RUNNER_TEMP/newest.json" "$RUNNER_TEMP/recent.json" > channel.json
           jq -e --arg tag "$TAG" '.releases[0].tag_name==$tag and (.releases[0].assets|length)>0 and all(.releases[0].assets[];.digest!=null and .size>0)' channel.json
           if ! gh release view "$channel-channel" >/dev/null 2>&1; then
             gh release create "$channel-channel" --prerelease --latest=false --target "$GITHUB_SHA" --title "Deck Driver Station $channel channel (updater manifest)" --notes "Used by the in-app updater. Install from the versioned releases."

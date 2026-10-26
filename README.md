@@ -16,6 +16,7 @@ Steam Deck/Linux and Apple Silicon use the **same command**. Windows uses its bu
 PowerShell shell. No administrator account is required. On Steam Deck, run from Desktop Mode;
 add the installed app through Steam → Games → Add a Non-Steam Game for Gaming Mode.
 After installing, **⋮ → Updates** lets you opt into experimental **Testing** or return to **Main**.
+A testing release can be built for some devices only (currently Windows); the others stay on their version.
 Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/latest).
 
 ---

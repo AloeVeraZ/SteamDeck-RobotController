@@ -38,6 +38,9 @@ final class SimMotor implements DcMotorEx {
         return Double.isNaN(velocityTarget) ? power * sign() : velocityTarget * sign() / Math.max(1e-9, fullTicksPerSecond);
     }
 
+    /** Velocity control's target in raw encoder ticks a second, or NaN when the motor runs on power. */
+    double targetVelocity() { return enabled && !Double.isNaN(velocityTarget) ? velocityTarget * sign() : Double.NaN; }
+
     /** RUN_TO_POSITION target in raw encoder ticks, or NaN when the motor is not positioning. */
     double targetTicks() { return mode == RunMode.RUN_TO_POSITION && enabled && power != 0 ? target * sign() + resetTicks : Double.NaN; }
 

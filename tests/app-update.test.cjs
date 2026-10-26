@@ -17,9 +17,10 @@ test('a different, missing or malformed base falls back to the full package',()=
     const result=selectRelease([release([full,small,other])],{...options,base:b});assert.equal(result.kind,'full',String(b));assert.equal(result.asset.name,full.name);
   }
 });
-test('an App package alone works only for its own base',()=>{
-  assert.equal(selectRelease([release([small])],options).kind,'app');
-  assert.throws(()=>selectRelease([release([small])],{...options,base:'eeeeeeeeeeee'}),/no .* download/);
+test('an App package counts only beside this platform\'s full package and only for its own base',()=>{
+  // The App package fits every platform, so a release built for other devices must not reach this one through it.
+  for(const b of [base,'eeeeeeeeeeee']){const result=selectRelease([release([small])],{...options,base:b});assert.equal(result.status,'unavailable');assert.equal(result.asset,undefined);assert.match(result.message,/no download for Windows yet/);}
+  assert.equal(selectRelease([release([full,small])],options).kind,'app');
 });
 
 const platform=process.platform,tar=platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32','tar.exe'):'tar';

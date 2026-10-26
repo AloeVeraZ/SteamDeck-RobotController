@@ -82,9 +82,10 @@
         ...(deploys(kind)?{down:num(raw.down,kind==='ramp'?.3:.4,0,3),up:num(raw.up,kind==='ramp'?.3:.4,0,3),servo:name(raw.servo,`${kind}${n?n+1:''}`),downPos:num(raw.downPos,0,0,1),upPos:num(raw.upPos,1,0,1)}:{})});}
     // Shooters. Older saves have one `shooter` with a type (or 'none').
     const shooterList=Array.isArray(r.shooters)?r.shooters:s.type==='none'?[]:[{type:s.type,pieces:'pollen',mount:s.mount,facing:'front',motor:s.motor,indexer:x.name,indexerKind:x.kind,turretMotor:t.motor}];
-    let shooters=shooterList.filter(v=>v&&typeof v==='object').slice(0,MAX_SHOOTERS).map((v,n)=>{const indexerKind=pick(v.indexerKind,INDEXERS,'motor'),second=name(v.motor2,'');
+    // hood: the servo that tilts the hood, by its configuration name (none: the hood is fixed).
+    let shooters=shooterList.filter(v=>v&&typeof v==='object').slice(0,MAX_SHOOTERS).map((v,n)=>{const indexerKind=pick(v.indexerKind,INDEXERS,'motor'),second=name(v.motor2,''),hood=name(v.hood,'');
       return {type:v.type==='fixed'?'fixed':'turret',pieces:pick(v.pieces,PIECES,'pollen'),mount:pick(v.mount,MOUNTS,'center'),facing:pick(v.facing,FACING,'front'),
-      motor:name(v.motor,n?'shooter2':'shooter'),indexer:name(v.indexer,n?'indexer2':'indexer'),indexerKind,turretMotor:name(v.turretMotor,n?'turret2':'turret'),
+      motor:name(v.motor,n?'shooter2':'shooter'),indexer:name(v.indexer,n?'indexer2':'indexer'),indexerKind,turretMotor:name(v.turretMotor,n?'turret2':'turret'),...(hood?{hood}:{}),
       // The flywheel's motors (a second one for two-motor flywheels) and which way each turns; the feeder's direction, or
       // a servo feeder's positions; the turret's direction.
       ...flag('reversed',v.reversed),...(second?{motor2:second,...flag('reversed2',v.reversed2)}:{}),
@@ -353,15 +354,19 @@
   // "Turret", "Indexer"...). The name says what each one is.
   const ROLE_WORDS=[['intake',/intake|roller|sweeper|ramp|collector|pick ?up|kicker|scoop|deploy|flap/i],['shooter',/shoot|launch|flywheel|turret|cannon|outtake/i],
     ['indexer',/index|feed|transfer|hopper|storage|magazine|conveyor|elevator/i],['chassis',/chassis|drive ?train|drive ?base|frame|base ?plate|^base$|^drive$/i]];
-  // What a turret carries: the flywheel, hood or shooter assemblies inside it (names without instance numbers).
-  const SHOOTER_INSIDE=/fly ?wheel|shoot|launch|cannon|\bhood\b/i;
+  // What an assembly carries, by the names inside it (the outermost of each, without instance numbers; a "Flywheel shaft"
+  // or "Ramp plate" is hardware, not a mechanism): a turret its flywheel, hood and shooter; an intake its ramp or kicker
+  // and its rollers. Rollers with a kicker or ramp inside one intake are a deployable ramp (a kicker alone has none).
+  const CARRIED={shooter:[/fly ?wheel/i,/\bhood\b/i,/shoot|launch|cannon/i],intake:[/ramp|deploy|flap|kicker|scoop/i,/roller|\bwheels?\b|gecko|compliant|sweeper|brush/i]};
+  const PART_WORDS=/\b(shaft|axle|motor|servo|plate|spacer|bearing|bushing|collar|pulley|belt|gear|bolt|screw|nut|washer|standoff|bracket|mount|encoder|sensor|cable|hub)s?\b/i;
   const bareName=n=>String(n||'').replace(/\s*<\d+>$/,'').trim();
   function partRole(name,inner=[]){
     const find=text=>ROLE_WORDS.find(([,re])=>re.test(text))?.[0]||null,text=String(name||''),all=[text,...inner].join(' ');
     const nectar=/nectar/i.test(all),pollen=/pollen/i.test(all),role=find(text)||find(inner.join(' '))||(nectar||pollen?'shooter':'other');
-    const carries=role==='shooter'?[...new Set(inner.filter(n=>SHOOTER_INSIDE.test(n)).map(bareName))].slice(0,4):[];
+    const carries=[...new Set((CARRIED[role]||[]).map(re=>inner.find(n=>re.test(n)&&!PART_WORDS.test(n))).filter(Boolean).map(bareName))];
+    const rollers=role==='intake'&&(/roller|sweeper/i.test(text)||inner.some(n=>CARRIED.intake[1].test(n)));
     return {role,pieces:nectar&&pollen?'both':nectar?'nectar':pollen?'pollen':null,type:role==='shooter'?(/turret/i.test(all)?'turret':'fixed'):null,
-      kind:role==='intake'?(/kicker|scoop/i.test(all)?'kicker':/side ?roller/i.test(all)?'siderollers':/ramp|deploy|flap/i.test(all)?'ramp':'sweeper'):null,...(carries.length?{carries}:{})};
+      kind:role==='intake'?(/kicker|scoop/i.test(text)?'kicker':/side ?roller/i.test(all)?'siderollers':/ramp|deploy|flap/i.test(all)?'ramp':/kicker|scoop/i.test(all)?(rollers?'ramp':'kicker'):'sweeper'):null,...(carries.length?{carries}:{})};
   }
   // The drivetrain from the part names anywhere in the assembly ("104mm Mecanum Wheel", "Swerve module"...).
   const DRIVE_WORDS=[['swerve',/swerve/i],['mecanum',/mecanum/i],['kiwi',/kiwi/i],['hdrive',/\bh-?drive/i],['xdrive',/\bx-?drive|omni/i],['tracks',/\btracks\b|tread/i],['tank6',/drop ?cent(er|re)|west ?coast|\bwcd\b|6 ?wd/i],['tank',/traction|\btank\b/i]];
@@ -397,11 +402,14 @@
         if(deploying){ramps.set(same,[...(ramps.get(same)||[]),p.name]);if(same.kind==='sweeper'&&MOVES_WORDS.test(p.name)){same.kind='ramp';same.why=`“${p.name}” is named as a ramp that moves, on the same edge as the rollers`;}}
         continue;}
       const intake={kind:p.kind||'sweeper',sides:[edge],reach:round(Math.max(0,out[edge])),width:round(span),height:round(clamp(b.z1-b.z0,1,24)),motor:intakes.length?`intake${intakes.length+1}`:'intake',from:p.name,parts:[p.name]};
+      // One assembly holding the ramp (or kicker) and the rollers says so by the names inside it.
+      const inside=p.carries||[],rampIn=inside.find(n=>CARRIED.intake[0].test(n)),rollIn=inside.find(n=>n!==rampIn&&CARRIED.intake[1].test(n));
+      if(rampIn&&deploying)intake.holds=`it holds “${rampIn}”${rollIn?` beside its rollers “${rollIn}”`:''}`;
       if(deploying)ramps.set(intake,[p.name]);intakes.push(intake);}
     for(const i of intakes){const r=(ramps.get(i)||[]).filter(n=>n!==i.from),own=i.parts.filter(n=>!r.includes(n)),what=i.kind==='ramp'?'deployable ramp':i.kind==='kicker'?'kicker':null;
-      const why=i.why?` · a ${what} because ${i.why}`:r.length?` · whether the ${i.kind==='kicker'?'kicker':'ramp'} swings down is checked on its hinge (Moving parts)`:what?` · a ${what} by its name`:'';
+      const why=i.why?` · a ${what} because ${i.why}`:r.length?` · whether the ${i.kind==='kicker'?'kicker':'ramp'} swings down is checked on its hinge (Moving parts)`:what?` · a ${what} ${i.holds?`because ${i.holds}`:'by its name'}`:'';
       found.push(`Intake ${quoted(own)}${r.length?` + ${i.kind==='kicker'?'kicker':'ramp'} ${quoted(r)}`:''}: ${i.sides[0]}, ${i.reach} in out, ${i.width} in wide${why}`);
-      delete i.why;}
+      delete i.why;delete i.holds;}
     // Shooters. A flywheel assembly (named shooter, launcher... or for its piece) is one shooter; assemblies that
     // overlap on the robot's footprint (a flywheel and its hood) are the same one, unless they take different pieces or
     // are copies of one assembly (two turrets' shooters sit close but are two). An assembly named only "turret" turns the
@@ -417,8 +425,11 @@
     for(const p of shooterParts.filter(p=>!turretOnly(p))){const near=groups.find(s=>same(s,p));
       if(near){near.box=union(near.box,p.box);near.parts.push(p.name);near.flywheels.push(p.name);if(p.type==='turret')near.type='turret';near.pieces=near.pieces||p.pieces;continue;}
       groups.push({box:{...p.box},parts:[p.name],flywheels:[p.name],turrets:[],carries:[],type:p.type||'fixed',pieces:p.pieces});}
-    // Turrets are matched to the flywheel shooters only (two turrets never make one shooter).
-    const flywheelGroups=groups.slice(),turretParts=shooterParts.filter(turretOnly);
+    // Turrets are matched to the flywheel shooters only (two turrets never make one shooter). A "Turret" assembly the import
+    // split into the shooters inside it turns those shooters (its turntables stay in what is left of it).
+    const flywheelGroups=groups.slice(),turretParts=shooterParts.filter(turretOnly),inside=(p,name)=>{const q=parts.find(x=>x.name===name);return typeof q?.key==='string'&&q.key.startsWith(p.key+'/');};
+    const holders=parts.filter(p=>holds(p)&&p.role==='shooter'&&turretOnly(p)&&flywheelGroups.some(s=>s.flywheels.some(n=>inside(p,n))));
+    for(const p of holders)for(const s of flywheelGroups.filter(s=>s.flywheels.some(n=>inside(p,n)))){s.type='turret';s.parts.push(p.name);s.turrets.push(p.name);}
     for(const p of turretParts){let over=flywheelGroups.filter(s=>shared(s.box,p.box)>.25*area(s.box)||same(s,{...p,pieces:null}));
       // One of two copies over several flywheels: the nearest one whose turret is not yet set.
       if(over.length>1&&turretParts.some(q=>q!==p&&copies(q.name,p.name))){const free=over.filter(s=>!s.turrets.some(n=>copies(n,p.name))),pool=free.length?free:over;over=[pool.sort((a,b)=>apart(a.box,p.box)-apart(b.box,p.box))[0]];}
@@ -433,7 +444,7 @@
       if(Math.max(dx,dy)<.5)return ['First','Second'];return dy>=dx?[a.y>b.y?'Left':'Right',a.y>b.y?'Right':'Left']:[a.x>b.x?'Front':'Back',a.x>b.x?'Back':'Front'];})();
     const twins=kept.length===2&&kept[0].turrets.length&&kept[1].turrets.length&&kept[0].turrets.some(n=>kept[1].turrets.some(m=>copies(n,m)));
     kept.forEach((g,n)=>{const c=centerOf(g.box),mount=locate(c,L,W).mount,pieces=g.pieces||'pollen',kind=g.type==='turret'?'turret':'fixed shooter';
-      const label=sides[n]?`${sides[n]} ${kind}`:kind[0].toUpperCase()+kind.slice(1),holder=holderOf(g.parts[0]);
+      const label=sides[n]?`${sides[n]} ${kind}`:kind[0].toUpperCase()+kind.slice(1),holder=g.parts.includes(holderOf(g.parts[0]))?null:holderOf(g.parts[0]);
       shooters.push({type:g.type,pieces,mount,facing:'front',at:{x:c.x,y:c.y,z:g.box.z1},from:g.parts[0],parts:g.parts.slice(0,8)});
       // Why: which assembly it is, what it carries, and why it is its own (a copy of the other, or its own turntable).
       const sharedTurret=g.turrets.length&&kept.some(o=>o!==g&&o.turrets.some(t=>g.turrets.includes(t)));
@@ -457,7 +468,9 @@
   // (an intake on a free edge, two shooters at most); the rest are listed in `extra`. Returns {mechanisms, matched, extra}.
   function adoptCad(raw,out){
     const r=sanitize(raw),cad=out||{intakes:[],shooters:[]},m={...r,intakes:r.enabled?r.intakes.map(i=>({...i})):[],shooters:r.enabled?r.shooters.map(s=>({...s})):[]},matched=[],extra=[];
-    const names=c=>quoted((c.parts?.length?c.parts:[c.from]).map(bareName));
+    // Names without instance numbers, unless two would read the same ("Turret <1>" and "Turret <2>").
+    const listed=c=>c.parts?.length?c.parts:[c.from],all=[...cad.intakes,...cad.shooters].flatMap(listed),shown=n=>all.some(o=>o!==n&&bareName(o)===bareName(n))?n:bareName(n);
+    const names=c=>quoted(listed(c).map(shown));
     // Intakes: the team's, each given the CAD's intake of its kind (else the next one); then the CAD's others on free edges.
     const intakes=[...cad.intakes],taken=new Set(),placed=new Set(),hadIntakes=m.intakes.length>0,hadShooters=m.shooters.length>0;
     m.intakes=m.intakes.map((i,n)=>{let k=intakes.findIndex(c=>c.kind===i.kind);if(k<0&&intakes.length)k=0;if(k<0)return i;const c=intakes.splice(k,1)[0];c.sides.forEach(e=>taken.add(e));

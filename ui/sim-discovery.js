@@ -38,7 +38,8 @@
     const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let v=0;v<n;v++)for(let c=0;c<3;c++){const x=positions[3*v+c];if(x<lo[c])lo[c]=x;if(x>hi[c])hi[c]=x;}ctx.lo=lo;ctx.hi=hi;
     return ctx;
   }
-  const nameOf=(ctx,k)=>ctx.parts.name(k),pathOf=(ctx,k)=>ctx.parts.key(k);
+  // A part's name as the team gave it, without its instance number ("Flywheel <1>" is a "Flywheel").
+  const nameOf=(ctx,k)=>String(ctx.parts.name(k)).replace(/\s*<\d+>$/,''),pathOf=(ctx,k)=>ctx.parts.key(k);
   // ---------------------------------------------------------------- one part's shape
   // Area, centre, principal axes and box; and, when its surface turns about an axis, that axis (a "revolve" feature:
   // axis, centre on it, radius, length along it, roundness 0-1).
@@ -215,7 +216,9 @@
     const wheelAxles=(round,flat,groups)=>{for(const k of round){if(groups.some(g=>g.has(k))||!/shaft|axle/i.test(nameOf(ctx,k)))continue;const g=coaxGroup(k,round,Math.max(.06*inch,rev(k).radius*.08));if(wheelsOn(g,flat).length)groups.push(g);}};
     // Without the game's mechanisms (another field, or none set up), intakes and shooters come from the part names, and
     // what they would drive is moved by route actions instead (named positions).
-    const fromNames=!mechanisms?.enabled,m=!fromNames?mechanisms:{intakes:metaParts.filter(p=>p.role==='intake').slice(0,4).map((p,i)=>({kind:p.kind==='kicker'?'kicker':'ramp',sides:[sideOf(p)],parts:[p.name]})),
+    // Intake assemblies on one side (rollers, and the ramp or kicker beside them) are one intake.
+    const fromNames=!mechanisms?.enabled,m=!fromNames?mechanisms:{intakes:(()=>{const by=new Map();for(const p of metaParts.filter(p=>p.role==='intake')){const side=sideOf(p),i=by.get(side);
+        if(!i)by.set(side,{kind:p.kind==='kicker'?'kicker':'ramp',sides:[side],parts:[p.name]});else{if(i.parts.length<8)i.parts.push(p.name);if(p.kind!=='kicker')i.kind='ramp';}}return [...by.values()].slice(0,4);})(),
       // An "Outtake" on another field is usually a lift, arm and claw (found by their own names below), not a shooter.
       // Turrets with no flywheel assembly of their own are found by their names below (each one its own turret).
       shooters:(()=>{const turrets=metaParts.filter(p=>p.role==='shooter'&&p.type==='turret'&&/turret/i.test(p.name)&&!/shoot|launch|flywheel|pollen|nectar/i.test(p.name));
@@ -231,6 +234,8 @@
     // and its turntable is looked for among every part under it.
     const turretOnly=name=>/turret/i.test(name)&&!/shoot|launch|flywheel|cannon|outtake|pollen|nectar/i.test(name);
     const clean=s=>String(s||'').replace(/\s*<\d+>$/,'').trim().toLowerCase(),bare=s=>String(s||'').replace(/\s*<\d+>$/,'').trim();
+    // A CAD name as the page shows it: without its instance number, unless another part would read the same ("Turret <1>").
+    const shown=name=>metaAll.some(p=>p.name!==name&&clean(p.name)===clean(name))?String(name):bare(name);
     const mid=scale(add(ctx.lo,ctx.hi),.5),half=d=>Math.abs(dot(sub(ctx.hi,ctx.lo),unit3(d)))/2||1;
     const placeOf=c=>[dot(sub(c,mid),unit3(F))/half(F),dot(sub(c,mid),unit3(L))/half(L)];
     const MOUNT=(root.DeckMechanisms||(typeof require==='function'?require('./sim-mechanisms.js'):null))?.MOUNT_AT||{},spotOf=s=>MOUNT[s.mount]||[0,0];
@@ -268,8 +273,11 @@
     // ---- shooters
     const shared=new Map();plans.forEach(p=>(p.names||[]).forEach(n=>shared.set(n,(shared.get(n)||0)+1)));
     m.shooters.forEach((s,n)=>{
-      const plan=plans[n],own=new Set(plan.own||[]),turretPool=new Set(plan.pool||[]);for(const name of plan.names||[]){const set=leavesOf([name]);for(const k of set)(turretOnly(name)||shared.get(name)>1?turretPool:own).add(k);}
-      const label=`Shooter ${n+1}`,lone=s.type==='turret'&&!s.sharesTurret&&!fromNames;
+      // A turret assembly that is all the shooter is in the CAD ("Turret <1>" holding its flywheel and hood) carries its own
+      // shooter: its flywheel and hood are looked for in it too.
+      const plan=plans[n],own=new Set(plan.own||[]),turretPool=new Set(plan.pool||[]),names=plan.names||[],carried=names.length>0&&names.every(x=>turretOnly(x)&&!(shared.get(x)>1));
+      for(const name of names){const set=leavesOf([name]);for(const k of set)(!carried&&(turretOnly(name)||shared.get(name)>1)?turretPool:own).add(k);}
+      const label=`Shooter ${n+1}`,lone=s.type==='turret'&&!s.sharesTurret&&!fromNames,asm=names.length?names.map(x=>`“${shown(x)}”`).join(' + '):'';
       if(!own.size&&!turretPool.size){report.push(`${label}: no CAD parts were found for it${lone?'; its turret is listed under Moving parts with no parts yet':''}.`);
         if(lone){const [fx,fy]=spotOf(s),c=add(add(mid,scale(unit3(F),fx*half(F)*.6)),scale(unit3(L),fy*half(L)*.6));
           unlinked({id:`turret${n+1}`,name:`Turret · ${label.toLowerCase()}`,type:'continuous',origin:add(c,scale(up,dot(ctx.hi,up)-dot(c,up))),axis:up,zero:0,drive:{signal:'turret',of:'shooter:'+n}},`${label}’s turret`);}
@@ -315,8 +323,10 @@
         const rank=k=>{const r=rev(k),d=ownCenter?lineDistance(ownCenter,r.center,unit3(r.axis))*inch:0;return r.radius*inch*.6+(WORDS.turntable.test(nameOf(ctx,k))?1.5:0)+(turretPool.has(k)?.5:0)-d*1.2+r.roundness;};
         pool.sort((a,b)=>rank(b)-rank(a));const pick=pool[0];
         if(pick!==undefined){const r=rev(pick),axis=dot(r.axis,up)>=0?r.axis:scale(r.axis,-1);
-          const set=new Set(own);for(const k of turretPool){const f=feat(k);if(!f)continue;const c=boxCenter(f);if(lineDistance(c,r.center,axis)<=r.radius*.85&&Math.max(dot(f.hi,up),dot(f.lo,up))>=dot(r.center,up)-r.length)set.add(k);}
-          set.add(pick);turret={set,origin:r.center,axis,why:`it turns on “${nameOf(ctx,pick)}” (${(2*r.radius*inch).toFixed(1)} in across)`,confidence:WORDS.turntable.test(nameOf(ctx,pick))?.85:.6};}
+          // What sits wholly under the turntable (the plate it is bolted to) stays with the robot.
+          const above=f=>Math.max(dot(f.hi,up),dot(f.lo,up))>=dot(r.center,up)-r.length,set=new Set([...own].filter(k=>!feat(k)||above(feat(k))));
+          for(const k of turretPool){const f=feat(k);if(!f)continue;const c=boxCenter(f);if(lineDistance(c,r.center,axis)<=r.radius*.85&&above(f))set.add(k);}
+          set.add(pick);turret={set,ring:nameOf(ctx,pick),origin:r.center,axis,why:`it turns on “${nameOf(ctx,pick)}” (${(2*r.radius*inch).toFixed(1)} in across)`,confidence:WORDS.turntable.test(nameOf(ctx,pick))?.85:.6};}
         else if(own.size){const f=boxOf([...own].map(feat).filter(Boolean)),c=boxCenter(f);turret={set:new Set([...own]),origin:c,axis:up,why:'no round turntable part was found; it turns about the middle of the shooter',confidence:.3};}
       }
       // Which way it fires in the CAD: across the flywheel, from the hood over the wheel, at right angles to the axle.
@@ -325,18 +335,21 @@
         if(across){zero=Math.atan2(dot(across,unit3(L)),dot(across,unit3(F)))*180/Math.PI;aimWhy='it fires over the flywheel, away from the hood';}}
       const tid=`turret${n+1}`;
       if(turret){add_({id:tid,name:`Turret · ${label.toLowerCase()}`,type:'continuous',parts:refs(turret.set),origin:turret.origin,axis:turret.axis,zero:+zero.toFixed(1),drive:{signal:'turret',of:'shooter:'+n},source:'inferred',confidence:turret.confidence,radius:rev([...turret.set].find(k=>rev(k)&&coaxial(rev(k),{axis:turret.axis,center:turret.origin},.1*inch)))?.radius,
-        note:`Turns about this axis because ${turret.why}. Faces ${Math.round(zero)}° in the CAD because ${aimWhy}.`});for(const k of turret.set)claimed.add(k);}
+        note:`${asm?`${asm} turns`:'Turns'} about this axis because ${turret.why}. Faces ${Math.round(zero)}° in the CAD because ${aimWhy}.`});for(const k of turret.set)claimed.add(k);}
       else if(lone)unlinked({id:tid,name:`Turret · ${label.toLowerCase()}`,type:'continuous',origin:own.size?boxCenter(boxOf([...own].map(feat).filter(Boolean))):mid,axis:up,zero:+zero.toFixed(1),drive:{signal:'turret',of:'shooter:'+n}},`${label}’s turntable`);
       // The flywheel spins so the side facing the hood (or the robot's middle) moves up, carrying the piece.
       const spin=fly&&(()=>{const toward=hood?sub(centroidOf([...hood.set].map(feat).filter(Boolean)),fly.r.center):scale(up,-1),side=unit(sub(toward,scale(fly.r.axis,dot(toward,fly.r.axis))));return dot(cross(fly.r.axis,side),up)>=0?fly.r.axis:scale(fly.r.axis,-1);})();
       if(fly){add_({id:`flywheel${n+1}`,name:`Flywheel · ${label.toLowerCase()}`,type:'continuous',parent:turret?tid:null,parts:refs(fly.group),origin:fly.r.center,axis:spin,radius:fly.r.radius,drive:{signal:'flywheel',of:'shooter:'+n},source:'inferred',confidence:WORDS.flywheel.test(nameOf(ctx,fly.key))?.85:.6,
-          note:`“${nameOf(ctx,fly.key)}” is the largest round part with a level axle in this shooter. It is drawn turning slower than it really spins.`});for(const k of fly.group)claimed.add(k);}
+          note:`“${nameOf(ctx,fly.key)}” is the largest round part with a level axle in ${asm||'this shooter'}. It is drawn turning slower than it really spins.`});for(const k of fly.group)claimed.add(k);}
       // Where the shot leaves in the CAD: the end of the hood the spin carries the piece to, along the hood's curve there.
       // Tilting the hood about the axle turns that angle as much, so it tilts to the launch angle the game shoots at;
       // its axis is set so a positive tilt raises the shot.
       const launch=fly&&hood&&hood.confidence>=.8?launchOf(hoodSeed,fly.r.center,spin):null;
       if(hood)add_({id:`hood${n+1}`,name:`Hood · ${label.toLowerCase()}`,type:'revolute',parent:turret?tid:null,parts:refs(hood.set),origin:hood.pivot.origin,axis:launch?launch.axis:hood.pivot.axis,states:{rest:0,shoot:0},...(launch?{launch:+launch.deg.toFixed(1)}:{}),speed:120,drive:{signal:'hood',of:'shooter:'+n},source:'inferred',confidence:hood.confidence,
-        note:`Pivots here because ${hood.why}. ${launch?`In your CAD a shot leaves at ${launch.deg.toFixed(0)}° above level, so it tilts to the launch angle while the shooter spins up and aims.`:'Set how far it tilts to shoot.'}`});
+        note:`“${nameOf(ctx,hoodSeed[0])}”${asm?` in ${asm}`:''} pivots here because ${hood.why}. ${launch?`In your CAD a shot leaves at ${launch.deg.toFixed(0)}° above level, so it tilts to the launch angle while the shooter spins up and aims.`:'Set how far it tilts to shoot.'}`});
+      // What this shooter is in the CAD, in a line the page shows after Find again.
+      if(asm&&(turret||fly||hood)){const bits=[...(turret?[turret.ring?`a turret on “${turret.ring}”`:'a turret with no turntable found']:[]),fly?`flywheel “${nameOf(ctx,fly.key)}”`:'no flywheel found in it',...(hood?[`hood “${nameOf(ctx,hoodSeed[0])}”`]:[])];
+        report.push(`${label} is ${asm} in your CAD: ${bits.join(', ')}.`);}
     });
     function launchOf(seed,c,a){
       const u=perpendicular(a),w=cross(a,u),ang=[];for(const k of seed){const v=ctx.vertsOf(k),step=Math.max(1,Math.floor(v.length/800));for(let i=0;i<v.length;i+=step){const d=sub(ctx.P(v[i]),c);ang.push(Math.atan2(dot(d,w),dot(d,u)));}}
@@ -412,7 +425,7 @@
         if(!deploys){kinds.push({intake:n,kind,joint:did,why:`${swung||'its plate'} swing${swung.includes(' and ')?'':'s'} down on ${deploy.why.replace(/^it hinges on /,'')}${kind==='ramp'?' in front of its rollers':''}`});
           report.push(`${label}: ${swung||'a plate'} swing${swung.includes(' and ')?'':'s'} down on a hinge in your CAD, so it is a ${kind==='ramp'?'deployable ramp':'kicker'}.`);}}
       // Rollers are taken only from parts named for the intake (guessing from its side would find the drive wheels).
-      if(!guessed)groups.forEach((g,i)=>{if([...g].some(k=>claimed.has(k)&&!deploy?.moving.has(k)))return;const seed=[...g].sort((a,b)=>rev(b).radius-rev(a).radius)[0],r=rev(seed);
+      const rolled=[];if(!guessed)groups.forEach((g,i)=>{if([...g].some(k=>claimed.has(k)&&!deploy?.moving.has(k)))return;const seed=[...g].sort((a,b)=>rev(b).radius-rev(a).radius)[0],r=rev(seed);
         // A roller on a swing arm (not on the ramp): the arm is its own moving part and the roller turns on it.
         const onRamp=deploy&&[...g].some(k=>deploy.moving.has(k)),arm=onRamp?null:rollerArm(g,own),aid=arm&&uniqueId(`arm${n+1}`);
         if(arm){const sl=arm.slot?`the ${arm.slot.kind} in “${nameOf(ctx,arm.slot.k)}”`:'the frame';
@@ -424,7 +437,10 @@
         // Rollers turn so their underside sweeps pieces in, toward the robot.
         const bottom=scale(up,-1),inward=scale(out,-1),axis=dot(cross(r.axis,bottom),inward)>=0?r.axis:scale(r.axis,-1);
         add_({id:`roller${n+1}${groups.length>1?String.fromCharCode(97+i):''}`,name:`Roller${groups.length>1?' '+(i+1):''} · ${label.toLowerCase()}`,type:'continuous',parent:onRamp?did:arm?aid:null,parts:refs(g),origin:r.center,axis,radius:Math.max(r.radius,...wheels.map(k=>reachFrom(k,r.center,unit(r.axis)))),drive:{signal:'roller',of:'intake:'+n},source:'inferred',confidence:.75,
-          note:`${turning} round parts on one axle with “${nameOf(ctx,seed)}”${wheels.length?`, and ${wheels.length} star or flex wheel${wheels.length>1?'s':''} (“${nameOf(ctx,wheels[0])}”) centred on it`:''}.`});for(const k of g)claimed.add(k);});
+          note:`${turning} round parts on one axle with “${nameOf(ctx,seed)}”${wheels.length?`, and ${wheels.length} star or flex wheel${wheels.length>1?'s':''} (“${nameOf(ctx,wheels[0])}”) centred on it`:''}.`});for(const k of g)claimed.add(k);rolled.push(nameOf(ctx,seed));});
+      // What this intake is in the CAD, in a line the page shows after Find again.
+      const inCad=(intakeNames[n]||[]).map(x=>`“${shown(x)}”`).join(' + ');
+      if(inCad&&!guessed&&(deploy||rolled.length))report.push(`${label} is ${inCad} in your CAD: ${[...(rolled.length?[`rollers “${[...new Set(rolled)].join('”, “')}”`]:[]),...(deploy?[`a ${named.toLowerCase()} that swings down on ${deploy.why.replace(/^it hinges on /,'')}`]:[])].join(', ')}.`);
     });
     // ---- a roller on a swing arm
     // Plates that hold the roller's axle snugly and turn on another axle (the drive axle, often) inside frame plates whose
