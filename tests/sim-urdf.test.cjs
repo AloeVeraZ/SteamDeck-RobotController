@@ -49,3 +49,13 @@ test('the app reads a URDF from a ROS package: package:// meshes found in the fo
   assert.equal(r.kind,'urdf');assert.deepEqual(r.files.map(f=>[f.ref,f.format,f.bytes.length]),[['package://arm_gripper/meshes/forearm.stl','stl',134]]);
   assert.deepEqual(r.missing,['package://arm_gripper/meshes/camera.dae (dae meshes are not read)']);
 });
+test('transmissions and ros2_control joints in a URDF become actuators: the reduction is the ratio, the interface the mode',()=>{
+  const robot=xml.replace('</robot>',`<transmission name="t_shoulder"><type>transmission_interface/SimpleTransmission</type><joint name="shoulder"><hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface></joint><actuator name="shoulder_motor"><mechanicalReduction>50</mechanicalReduction></actuator></transmission>
+    <transmission name="t_diff"><type>transmission_interface/DifferentialTransmission</type><joint name="a"/><joint name="b"/><actuator name="m1"/><actuator name="m2"/></transmission>
+    <ros2_control name="arm" type="system"><hardware><plugin>mock_components/GenericSystem</plugin></hardware><joint name="turn"><command_interface name="velocity"/><state_interface name="position"/></joint></ros2_control></robot>`);
+  const u=U.parse(robot),k=K.sanitize({...U.toKinematics(u),model:null});
+  const s=k.actuators.find(a=>a.id==='shoulder_motor');assert.ok(s,'the transmission’s actuator');assert.equal(s.joint,'shoulder');assert.equal(s.ratio,50);assert.equal(s.mode,'position');
+  const y=k.actuators.find(a=>a.joint==="turn");assert.equal(y.mode,'velocity','ros2_control’s command interface');assert.equal(y.ratio,1);
+  assert.ok(u.notes.some(n=>/t_diff.*one-to-one/.test(n)),'a differential transmission is reported, not guessed');
+  assert.ok(!k.actuators.some(a=>a.joint==='finger_right'),'a mimic joint gets no actuator of its own');
+});

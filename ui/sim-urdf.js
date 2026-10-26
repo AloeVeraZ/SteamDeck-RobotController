@@ -12,21 +12,21 @@
   const IN_PER_M=39.3700787,DEG=180/Math.PI;
   // ---------------------------------------------------------------- a small XML reader (URDF is plain elements and attributes)
   function parseXml(text){
-    const rootNode={name:'#root',attrs:{},children:[]},stack=[rootNode];let i=0;const s=String(text);
+    const rootNode={name:'#root',attrs:{},children:[],text:''},stack=[rootNode];let i=0;const s=String(text);
     while(i<s.length){
-      const lt=s.indexOf('<',i);if(lt<0)break;
+      const lt=s.indexOf('<',i);if(lt<0)break;if(lt>i)stack.at(-1).text+=s.slice(i,lt);
       if(s.startsWith('<!--',lt)){const end=s.indexOf('-->',lt+4);i=end<0?s.length:end+3;continue;}
       if(s.startsWith('<?',lt)||s.startsWith('<!',lt)){const end=s.indexOf('>',lt);i=end<0?s.length:end+1;continue;}
       const gt=s.indexOf('>',lt);if(gt<0)break;const body=s.slice(lt+1,gt).trim();i=gt+1;
       if(body[0]==='/'){if(stack.length>1)stack.pop();continue;}
       const self=body.endsWith('/'),inner=self?body.slice(0,-1).trim():body,m=/^([^\s/>]+)/.exec(inner);if(!m)continue;
-      const node={name:m[1],attrs:{},children:[]};const re=/([\w:.-]+)\s*=\s*("([^"]*)"|'([^']*)')/g;let a;
+      const node={name:m[1],attrs:{},children:[],text:''};const re=/([\w:.-]+)\s*=\s*("([^"]*)"|'([^']*)')/g;let a;
       while((a=re.exec(inner.slice(m[1].length))))node.attrs[a[1]]=(a[3]??a[4]).replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
       stack.at(-1).children.push(node);if(!self)stack.push(node);
     }
     return rootNode;
   }
-  const kids=(n,name)=>(n?.children||[]).filter(c=>c.name===name),kid=(n,name)=>kids(n,name)[0]||null;
+  const kids=(n,name)=>(n?.children||[]).filter(c=>c.name===name),kid=(n,name)=>kids(n,name)[0]||null,txt=n=>(n?.text||'').trim();
   const nums=(v,d)=>{const x=String(v??'').trim().split(/\s+/).map(Number);return x.length===d.length&&x.every(Number.isFinite)?x:d;};
   const origin=n=>({xyz:nums(kid(n,'origin')?.attrs.xyz,[0,0,0]),rpy:nums(kid(n,'origin')?.attrs.rpy,[0,0,0])});
   function geometry(n){
@@ -51,7 +51,14 @@
     const names=new Set(links.map(l=>l.name)),children=new Set(joints.map(j=>j.child)),rootLink=links.find(l=>!children.has(l.name))?.name;
     if(!rootLink)throw Error('That URDF has no root link (every link is some joint’s child).');
     for(const j of joints)if(!names.has(j.parent)||!names.has(j.child))throw Error(`Joint “${j.name}” joins a link the URDF does not have.`);
-    return {name:String(robot.attrs.name||'robot'),links,joints,root:rootLink};
+    const drives=[],notes=[];
+    for(const t of kids(robot,'transmission')){const js=kids(t,'joint'),as=kids(t,'actuator'),type=txt(kid(t,'type'))||String(t.attrs.type||'');
+      if(js.length!==1||as.length!==1){notes.push(`Transmission “${t.attrs.name||''}” (${type||'no type'}) joins ${js.length} joints and ${as.length} actuators; only one-to-one transmissions are read.`);continue;}
+      const red=Number(txt(kid(as[0],'mechanicalReduction'))),iface=txt(kid(js[0],'hardwareInterface'))||txt(kid(as[0],'hardwareInterface'));
+      drives.push({joint:String(js[0].attrs.name||''),name:String(as[0].attrs.name||js[0].attrs.name||''),reduction:Number.isFinite(red)&&red?red:1,mode:/Velocity/i.test(iface)?'velocity':/Effort/i.test(iface)?'effort':'position'});}
+    for(const rc of kids(robot,'ros2_control'))for(const j of kids(rc,'joint')){const name=String(j.attrs.name||''),cmd=kids(j,'command_interface').map(c=>String(c.attrs.name||''));if(!cmd.length||drives.some(d=>d.joint===name))continue;
+      drives.push({joint:name,name:name+'_motor',reduction:1,mode:cmd.includes('position')?'position':cmd.includes('velocity')?'velocity':'effort'});}
+    return {name:String(robot.attrs.name||'robot'),links,joints,root:rootLink,drives,notes};
   }
   // ---------------------------------------------------------------- frames at zero
   // URDF rpy: fixed-axis roll about x, then pitch about y, then yaw about z: R = Rz(yaw)·Ry(pitch)·Rx(roll).
@@ -80,7 +87,11 @@
       // Mimic: q = multiplier·q_other + offset in SI units; converted to this joint's units from the other's.
       return {kind:'mimic',from:ids.get(j.mimic.joint),to:ids.get(j.name),ratio:j.mimic.multiplier*(lin?IN_PER_M:DEG)/(fromLin?IN_PER_M:DEG),offset:j.mimic.offset*(lin?IN_PER_M:DEG)};});
     for(const c of couplings){const j=joints.find(x=>x.id===c.to);if(j)delete j.drive;}
-    return {unit:IN_PER_M,joints,couplings};
+    // Transmissions and ros2_control joints: actuators on the joints they name, the reduction as their ratio.
+    const aid=new Set(),actuators=(u.drives||[]).filter(d=>ids.has(d.joint)&&!couplings.some(c=>c.to===ids.get(d.joint))).map(d=>{let id=String(d.name).replace(/[^\w-]+/g,'_').slice(0,28);if(!/^[A-Za-z]/.test(id))id='a_'+id;
+      while(aid.has(id)||[...ids.values()].includes(id))id=('act_'+id).slice(0,30);aid.add(id);const j=u.joints.find(x=>x.name===d.joint),lin=j.type==='prismatic';
+      return {id,name:d.name,kind:'dcmotor',joint:ids.get(d.joint),mode:d.mode,ratio:d.reduction,speed:j.limit?.velocity>0?+(j.limit.velocity*(lin?IN_PER_M:DEG)).toFixed(3):lin?6:90};});
+    return {unit:IN_PER_M,joints,couplings,actuators};
   }
   // ---------------------------------------------------------------- the body
   // A Three.js group: robot → root link → child links (nested as the joints nest them), each link holding its visual
