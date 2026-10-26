@@ -59,7 +59,8 @@
   const SAME={rear:'back',flywheel:'shooter',launcher:'shooter',outtake:'shooter',collector:'intake',roller:'intake',feeder:'indexer',transfer:'indexer',pusher:'indexer',kicker:'indexer',gate:'indexer',turntable:'turret',odo:'pinpoint',otos:'otos',imu:'imu'};
   const FILLER=new Set(['motor','drive','wheel','servo','m','the','dc','cr','ex','device']);
   function tokens(name){
-    const words=String(name||'').replace(/([a-z0-9])([A-Z])/g,'$1 $2').toLowerCase().split(/[^a-z0-9]+|(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])/).filter(Boolean);
+    // Words run together all in one case ("frontleft", "backrightmotor") come apart at the direction words teams use.
+    const words=String(name||'').replace(/([a-z0-9])([A-Z])/g,'$1 $2').toLowerCase().replace(/(front|back|rear|left|right|top|bottom|upper|lower)(?=[a-z])/g,'$1 ').split(/[^a-z0-9]+|(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])/).filter(Boolean);
     return [...new Set(words.flatMap(w=>ABBREVIATIONS[w]||[SAME[w]||w]).filter(w=>!FILLER.has(w)))].sort();
   }
   const likeness=(a,b)=>{if(a===b)return 3;if(a.toLowerCase()===b.toLowerCase())return 2;const x=tokens(a),y=tokens(b);return x.length&&x.length===y.length&&x.every((w,i)=>w===y[i])?1:0;};
@@ -298,6 +299,24 @@
   // CMD_DISCOVER_LYNX_MODULES (LynxModuleMetaList: {serialNumber, modules: [{moduleAddress, isParent, imuType}]}).
   const lynxSerials=scan=>{const v=JSON.parse(scan);return (Array.isArray(v?.map)?v.map:[]).filter(e=>e?.value==='LYNX_USB_DEVICE'&&typeof e.key==='string').map(e=>e.key);};
   function lynxModules(list){const v=JSON.parse(list);return {serial:String(v?.serialNumber??''),modules:(Array.isArray(v?.modules)?v.modules:[]).filter(m=>Number.isInteger(m?.moduleAddress)).map(m=>({address:m.moduleAddress,parent:!!m.isParent,imu:typeof m.imuType==='string'?m.imuType:'UNKNOWN'}))};}
-  return {parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
+  // ---- a configured device in Java, as Blocks lists it: its SDK type, the import and the hardwareMap.get line ----------
+  const JAVA={motor:['DcMotorEx','com.qualcomm.robotcore.hardware.DcMotorEx'],servo:['Servo','com.qualcomm.robotcore.hardware.Servo'],crservo:['CRServo','com.qualcomm.robotcore.hardware.CRServo'],
+    imu:['IMU','com.qualcomm.robotcore.hardware.IMU'],pinpoint:['GoBildaPinpointDriver','com.qualcomm.hardware.gobilda.GoBildaPinpointDriver'],otos:['SparkFunOTOS','com.qualcomm.hardware.sparkfun.SparkFunOTOS'],
+    webcam:['WebcamName','org.firstinspires.ftc.robotcore.external.hardware.camera.WebcamName'],analog:['AnalogInput','com.qualcomm.robotcore.hardware.AnalogInput'],
+    touch:['TouchSensor','com.qualcomm.robotcore.hardware.TouchSensor'],digital:['DigitalChannel','com.qualcomm.robotcore.hardware.DigitalChannel'],
+    color:['NormalizedColorSensor','com.qualcomm.robotcore.hardware.NormalizedColorSensor'],distance:['DistanceSensor','com.qualcomm.robotcore.hardware.DistanceSensor'],
+    octoquad:['OctoQuad','com.qualcomm.hardware.digitalchickenlabs.OctoQuad'],huskylens:['HuskyLens','com.qualcomm.hardware.dfrobot.HuskyLens'],
+    limelight:['Limelight3A','com.qualcomm.hardware.limelightvision.Limelight3A'],other:['HardwareDevice','com.qualcomm.robotcore.hardware.HardwareDevice']};
+  const KEYWORDS=new Set(['abstract','boolean','break','byte','case','catch','char','class','const','continue','default','do','double','else','enum','extends','final','finally','float','for','goto','if','implements','import','instanceof','int','interface','long','native','new','package','private','protected','public','return','short','static','super','switch','synchronized','this','throw','throws','transient','try','void','volatile','while','true','false','null','var','record']);
+  // A Java variable from a configuration name: "front_left" frontLeft, "Intake Motor" intakeMotor, "2nd arm" arm2nd.
+  function variableOf(name){const w=String(name||'').replace(/([a-z0-9])([A-Z])/g,'$1 $2').split(/[^A-Za-z0-9]+/).filter(Boolean);let v=w.map((x,i)=>i?x[0].toUpperCase()+x.slice(1).toLowerCase():x.toLowerCase()).join('');
+    if(!v)v='device';if(/^[0-9]/.test(v))v='device'+v[0].toUpperCase()+v.slice(1);return KEYWORDS.has(v)?v+'Device':v;}
+  // {type, import, variable, get, declare}: get is the expression, declare a full line. A Blinkin is its own driver.
+  function javaFor(device){const k=device?.tag==='RevBlinkinLedDriver'?['RevBlinkinLedDriver','com.qualcomm.hardware.rev.RevBlinkinLedDriver']:device?.tag==='Led'?JAVA.digital:JAVA[device?.kind]||JAVA.other;
+    const variable=variableOf(device?.name),get=`hardwareMap.get(${k[0]}.class, ${JSON.stringify(String(device?.name||''))})`;return {type:k[0],import:k[1],variable,get,declare:`${k[0]} ${variable} = ${get};`};}
+  // Every device of a configuration as Java: the imports, the fields and the init lines, variables kept apart.
+  function javaOf(devices){const used=new Set(),list=(devices||[]).map(d=>{const j=javaFor(d);let v=j.variable,n=2;while(used.has(v))v=j.variable+n++;used.add(v);return {...j,variable:v,declare:`${j.type} ${v} = ${j.get};`,device:d};});
+    return {list,imports:[...new Set(list.map(j=>j.import))].sort().map(i=>`import ${i};`),fields:list.map(j=>`private ${j.type} ${j.variable};`),init:list.map(j=>`${j.variable} = ${j.get};`)};}
+  return {javaFor,javaOf,variableOf,parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
     addDevices,newConfiguration,configurationFor,modulesOf,modulesFromScan,configurationName,validName,lynxSerials,lynxModules,deviceXml};
 });

@@ -192,4 +192,35 @@ async function send(host,files,{keep=[],backupDir,onProgress=()=>{},client=new O
   const result=await client.build({onProgress});
   return {...result,written,kept,backups};
 }
-module.exports={readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};
+// ---- a Control Hub on this computer's USB cable (ADB) -------------------------------------------------------------
+// The Robot Controller keeps each configuration as /sdcard/FIRST/<name>.xml. Over USB Deck lists and reads them with ADB
+// (the copy the REV Hardware Client installs, Android's platform-tools, or one on PATH). The Robot Controller's own web
+// server (port 8080), forwarded over the same cable, says which one is active (/js/rcInfo.json activeConfigName) and
+// lists the hardware Blocks offers from it (/hardware: allHardwareIdentifiers, "<name>As<Type>").
+const {execFile}=require('node:child_process');
+function adbPath(){const fsx=require('node:fs'),cands=[process.env.ADB,process.platform==='win32'?path.join(process.env['ProgramFiles(x86)']||'C:\\Program Files (x86)','REV Robotics','REV Hardware Client','android-tools','adb.exe'):null,
+    process.env.LOCALAPPDATA?path.join(process.env.LOCALAPPDATA,'Android','Sdk','platform-tools','adb.exe'):null,process.env.ANDROID_HOME?path.join(process.env.ANDROID_HOME,'platform-tools',process.platform==='win32'?'adb.exe':'adb'):null].filter(Boolean);
+  return cands.find(f=>fsx.existsSync(f))||'adb';}
+const adb=(args,{timeout=10000,run=execFile}={})=>new Promise((resolve,reject)=>run(adbPath(),args,{timeout,maxBuffer:8*1024*1024,windowsHide:true,encoding:'utf8'},(e,out,err)=>e?reject(Object.assign(Error(e.code==='ENOENT'?'ADB was not found. Install the REV Hardware Client (it brings ADB) or Android platform-tools.':(String(err||e.message).trim()||e.message)),{code:e.code})):resolve(String(out))));
+// GET a path of the robot's web server forwarded to this computer's port (it hangs up on a kept-alive request).
+const getLocal=(port,p,timeout=5000)=>new Promise((resolve,reject)=>{const req=http.get({host:'127.0.0.1',port,path:p,timeout,headers:{'User-Agent':'Deck Driver Station','Accept':'*/*','Connection':'close'}},res=>{let body='';res.setEncoding('utf8');res.on('data',c=>body+=c);res.on('end',()=>res.statusCode===200?resolve(body):reject(Error(`HTTP ${res.statusCode}`)));});req.on('timeout',()=>req.destroy(Error('timed out')));req.on('error',reject);});
+// Blocks' hardware names: "frontleftAsDcMotor" is the device "frontleft" as a DcMotor (hub modules left out).
+function blocksHardware(js){const m=/allHardwareIdentifiers\s*=\s*\[([^\]]*)\]/.exec(String(js||''));if(!m)return [];
+  return [...m[1].matchAll(/'((?:\\.|[^'\\])*)'/g)].map(x=>x[1].replace(/\\(.)/g,'$1')).map(id=>{const i=id.lastIndexOf('As');return i>0?{identifier:id,name:id.slice(0,i),type:id.slice(i+2)}:null;}).filter(x=>x&&!/^(REVModule|ServoController|VoltageSensor|MotorController|LynxModule)$/.test(x.type));}
+async function readUsb({run}={}){
+  const listed=(await adb(['devices'],{run})).split(/\r?\n/).slice(1).map(l=>l.trim().split(/\s+/)).filter(x=>x[0]);
+  if(!listed.length)throw Error('No Control Hub on USB. Plug its USB-C port into this computer with a data cable (some cables only charge).');
+  const ready=listed.find(x=>x[1]==='device');if(!ready)throw Error(listed[0][1]==='unauthorized'?'The Control Hub is on USB but has not allowed this computer yet: look for the prompt in the REV Hardware Client.':`The Control Hub on USB is ${listed[0][1]}.`);
+  const serial=ready[0],sh=cmd=>adb(['-s',serial,'shell',cmd],{run});
+  // Names with their times, newest first: ls -l --full-time is not on every Android, so plain ls -l and a sort by name too.
+  const files=(await sh('ls -1t /sdcard/FIRST/ 2>/dev/null')).split(/\r?\n/).map(s=>s.trim()).filter(s=>/\.xml$/i.test(s)&&!/^\./.test(s));
+  if(!files.length)return {source:'usb',serial,configurations:[],active:null,devices:[],hubs:[],files:{}};
+  const out={};for(const f of files.slice(0,20)){try{const xml=await sh(`cat '/sdcard/FIRST/${f.replace(/'/g,'')}'`);if(/<Robot\b/.test(xml))out[f.replace(/\.xml$/i,'')]=xml;}catch{}}
+  const names=Object.keys(out);if(!names.length)return {source:'usb',serial,configurations:[],active:null,devices:[],hubs:[],files:{}};
+  // The active configuration and Blocks' list, from the robot's web server over the cable; the newest file otherwise.
+  let active=null,blocks=[];const port=18000+Math.floor(Math.random()*2000);
+  try{await adb(['-s',serial,'forward',`tcp:${port}`,'tcp:8080'],{run});const info=JSON.parse(await getLocal(port,'/js/rcInfo.json'));if(typeof info.activeConfigName==='string')active=info.activeConfigName;
+    try{blocks=blocksHardware(await getLocal(port,'/hardware',10000));}catch{}}catch{}finally{adb(['-s',serial,'forward','--remove',`tcp:${port}`],{run}).catch(()=>{});}
+  const name=active&&out[active]?active:names[0],parsed=RobotConfig.parse(out[name]);
+  return {source:'usb',serial,configurations:names,active:{name,...(active&&out[active]?{}:{guessed:true})},xml:out[name],...parsed,blocks,files:out};}
+module.exports={readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};

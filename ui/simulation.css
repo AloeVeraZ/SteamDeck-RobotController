@@ -484,3 +484,4 @@
 .sim-wiring-dialog h3{margin:18px 0 6px}.sim-wire-hub>label:not(.check){display:inline-block;margin:0 0 0 28px;font-size:12px}.sim-wire-hub .hint{margin:4px 0 0 28px}
 .sim-wire-block{margin:8px 0}.sim-wire-block:empty{display:none}
 .sim-wire-grid{margin:10px 0}.sim-wire-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 12px}.sim-wire-slot label{display:block;font-size:12px;margin:0 0 2px}
+.sim-robot-read{margin:8px 0 14px}.sim-robot-table code{font:12px var(--mono);white-space:nowrap}.sim-robot-table td:last-child{white-space:nowrap}
