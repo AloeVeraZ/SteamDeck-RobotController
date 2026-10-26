@@ -76,7 +76,7 @@
         <p class="hint">${esc(t.blurb)} ${where}</p>
         ${cad?`<div class="sim-joint-buttons"><button type="button" class="secondary" data-m="show">Show on model</button><button type="button" class="secondary" data-m="choose">${j.parts?.length?'Change its parts':'Choose its parts'}</button></div>`:''}
         <div class="start-xy"><div><label>Name<input data-m-f="name" maxlength="40" autocomplete="off" value="${esc(j.name)}"></label></div><div><label>Mechanism<select data-m-f="kind">${T.grouped().map(g=>`<optgroup label="${esc(g.name)}">${g.types.map(x=>opt(x.id,x.name,x.id===j.kind)).join('')}</optgroup>`).join('')}</select></label></div></div>
-        ${positions(j,a)}${actuator(j,a)}</section>`;}
+        ${positions(j,a)}${actuator(j,a)}<div class="sim-wire-block" data-wire-for="kin:${esc(j.id)}"></div></section>`;}
     // + Add mechanism: every type, grouped, with a search over names, what each does and the words CADs use for it.
     function pickerHtml(){
       const T=TY(),game=api.game(),words=t=>(t.name+' '+t.blurb+' '+String(t.words||'').replace(/\\[a-z]/gi,' ').replace(/[^a-z0-9]+/gi,' ')).toLowerCase();
@@ -93,7 +93,7 @@
       if(!typing&&key!==lastKey){lastKey=key;const open=new Set([...host.querySelectorAll('details[open]')].map(d=>d.closest('[data-mech]')?.dataset.mech));
         host.innerHTML=listed().map(([j,d])=>card(j,d)).join('');for(const d of host.querySelectorAll('details'))d.open=open.has(d.closest('[data-mech]')?.dataset.mech);}
       picker.hidden=!picking;if(picking&&!picker.firstChild)picker.innerHTML=pickerHtml();
-      api.counted?.(listed().length);
+      api.counted?.(listed().length);api.decorate?.(host);
     }
     function setPicking(on){picking=on;picker.innerHTML='';render();api.adding?.(on);if(on)picker.querySelector('[data-types-search]')?.focus();}
     // Changes go through a copy of the model, committed at once.

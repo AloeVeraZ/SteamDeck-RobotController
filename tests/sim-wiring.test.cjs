@@ -28,3 +28,12 @@ test('hubs, models and sensors change through the wiring helpers',()=>{
   assert.deepEqual(w.sensors[0],{id:'hoodAngle',model:'axon-feedback',for:'shooters.0.hood',use:'position',hub:'control',port:1});
   assert.equal(W.removeSensor(W.setModel(W.setHub(w,'servoHub',false),'shooters.0.hood',''),'hoodAngle'),null,'nothing left set');
 });
+
+test('what lights up on the model: a device row its joints (and what rides on them), a game part its joints and assemblies',()=>{
+  const p=testSetup(),S=T.KEY.shooter,I=T.KEY.intake;p.model={parts:[{name:'Ramp intake',key:I},{name:'Turret shooter (pollen + nectar)',key:S}]};
+  assert.deepEqual(W.focusRefs(p,'shooters.0.hood'),[S+'/Hood']);
+  assert.deepEqual(new Set(W.focusRefs(p,'shooters.0.turretMotor')),new Set([S,S+'/Flywheel',S+'/Hood',S+'/Kicker']),'the turret carries the flywheel, hood and kicker');
+  assert.deepEqual(W.focusRefs(p,'intakes.0.servo'),[I+'/Ramp']);
+  const intake=W.focusRefs(p,'intake:0');assert.ok(intake.includes(I+'/Ramp')&&intake.includes(I+'/Rollers/Lower roller')&&intake.includes(I),'its joints and its named assembly');
+  assert.deepEqual(W.focusRefs(p,'kin:wheelFL'),[T.KEY.chassis+'/Mecanum wheel FL']);assert.deepEqual(W.focusRefs(p,null),[]);
+});

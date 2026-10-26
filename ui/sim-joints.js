@@ -337,7 +337,7 @@
       for(const dot of host.querySelectorAll("[data-color]"))dot.style.background=dot.dataset.color;
       highlight();gizmos();
     }
-    function highlight(){const p=preview();if(!p)return;const j=joints().find(x=>x.id===open);p.highlight(j?leavesOf(j):null,j?colorOf(j):undefined);}
+    function highlight(){const p=preview();if(!p)return;const j=joints().find(x=>x.id===open);if(!j&&api.glow)return api.glow();p.highlight(j?leavesOf(j):null,j?colorOf(j):undefined);}
     // Pivot marks on the preview, posed with the joints' current preview values.
     function gizmos(){
       const p=preview(),body=p?.body?.(),kmod=body?.userData?.kin?.model;if(!p||!kmod){p?.gizmos([]);return;}
@@ -519,7 +519,7 @@
       api.commit(next);lastKey='';render();return id2;}
     host.addEventListener('input',e=>{const el=e.target;if(!el.matches('[data-try]'))return;const id=el.closest('[data-id]')?.dataset.id;if(!id)return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:el.valueAsNumber};showPose();});
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&mode){mode=null;status('');api.refreshPicker();render();}});
-    return {render,picker,discover,add,isMechanism,found:()=>lastFound,
+    return {render,picker,discover,add,isMechanism,found:()=>lastFound,opened:()=>open,
       // Shows a part at a value on the preview (a named position, from the Mechanisms list).
       pose(id,value){if(!finite(value))return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:value};showPose();const r=host.querySelector(`[data-id="${CSS.escape(id)}"] [data-try]`);if(r)r.value=value;},
       // Opens a part here (from the Mechanisms list), choosing its parts on the model when asked.

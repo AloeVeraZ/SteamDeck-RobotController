@@ -1663,11 +1663,11 @@ public class MyAuto implements DeckAutonomous {
   // The drivetrain comes from the CAD's wheel names when it has them (Configure from CAD, import); otherwise the team picks it.
   function driveFromCad(){const found=project.model?.drivetrain,name=found&&C.drives[found]?.name;
     return !project.model?'':found?(found===project.robot.drivetrain?`From your CAD: ${name} (from its wheel names).`:`Your CAD’s wheels look like ${name}; you chose ${C.drives[project.robot.drivetrain].name}.`):'Your CAD does not name its wheels, so choose the drivetrain.';}
-  function applyWiring(next){project.robot=C.robot({...project.robot,wiring:next},project.controller);
+  function applyWiring(next){const focus=document.activeElement?.id;project.robot=C.robot({...project.robot,wiring:next},project.controller);
     // Four drive motors of one model set the wheel speed (the model's free speed).
     const D=window.DeckHardware,models=['frontLeft','frontRight','backLeft','backRight','left','right'].map(k=>next?.devices?.['robot.'+k]?.model).filter(Boolean),rpm=D.MODELS[models[0]]?.rpm;
     if(models.length>=2&&new Set(models).size===1&&finite(rpm)&&rpm!==project.robot.driveRpm){project.robot.driveRpm=rpm;$('#sim-rpm').value=rpm;}
-    save();robotPanel();mechanismsPanel();reload();}
+    save();robotPanel();mechanismsPanel();reload();if(focus&&document.activeElement?.id!==focus)document.getElementById(focus)?.focus();}
   function wiringPanel(){
     const W=window.DeckWiring,ftc=project.controller==='ftc',st=W.state(project),robotRows=st.rows.filter(r=>W.stepOf(r.key)==='robot'),dialog=$('#sim-wiring-dialog');
     $('#sim-drive-cad').textContent=driveFromCad();$('#sim-wiring-entry').hidden=!ftc;$('#sim-config-summary').hidden=!ftc;
@@ -2092,7 +2092,7 @@ public class MyAuto implements DeckAutonomous {
     ...(MECH.deploys(i.kind)?[[i.kind,'servo',i.servo,`down at ${i.downPos}, up at ${i.upPos}`]]:[])];
   const shooterDevices=(s,n,m)=>[['flywheel','DC motor',s.motor],...(s.motor2?[['second flywheel','DC motor',s.motor2]]:[]),
     ['feeder',{motor:'DC motor',crservo:'continuous servo',pusher:'servo',gate:'servo'}[s.indexerKind],s.indexer,MECH.servoFeeder(s.indexerKind)?`${s.indexerKind==='gate'?'open':'push'} at ${s.feedPos}, rest at ${s.restPos}`:''],
-    ...(s.type==='turret'&&!(n===1&&m.shooters[1]?.sharesTurret)?[['turret',m.turret.kind==='servo'?'servo':'DC motor with encoder',s.turretMotor]]:[])];
+    ...(s.type==='turret'&&!(n===1&&m.shooters[1]?.sharesTurret)?[['turret',m.turret.kind==='servo'?'servo':'DC motor with encoder',s.turretMotor]]:[]),...(s.hood?[['hood','servo',s.hood]]:[])];
   function intakeCard(intake,n,used){
     const swing=SWINGS[intake.kind];
     return `<section class="sim-mech-part" data-part="intake:${n}"><div class="sim-mech-head"><h4>Intake ${n+1}</h4><button type="button" class="icon-button" data-mech-remove="intake:${n}" aria-label="Remove intake ${n+1}" title="Remove">×</button></div>
@@ -2100,7 +2100,7 @@ public class MyAuto implements DeckAutonomous {
       <span class="sim-mech-label">Size</span><div class="sim-grid3"><div><label for="mech-intake-reach-${n}">Sticks out past the frame · in</label><input id="mech-intake-reach-${n}" data-field="reach" type="number" min="0" max="18" step="any" data-slider-max="8" data-slider-step="0.25" value="${intake.reach}"></div><div><label for="mech-intake-width-${n}">Mouth width · in</label><input id="mech-intake-width-${n}" data-field="width" type="number" min="1" max="48" step="any" data-slider-max="${Math.max(project.robot.width,project.robot.length)}" data-slider-step="0.25" value="${+(intake.width??(intake.sides.some(e=>e==='front'||e==='back')?project.robot.width:project.robot.length)).toFixed(2)}"></div><div><label for="mech-intake-height-${n}">Opening height · in</label><input id="mech-intake-height-${n}" data-field="height" type="number" min="1" max="24" step="any" data-slider-max="12" data-slider-step="0.25" value="${intake.height}"></div></div>
       <span class="sim-mech-label">Picks up from</span><div class="sim-chips">${MECH.EDGES.map(e=>chip('side',e,title(e),intake.sides.includes(e),used.has(e)&&!intake.sides.includes(e))).join('')}</div>${placeButton('intake:'+n)}
       ${swing?`<span class="sim-mech-label">${swing.label}</span><div class="start-xy"><div><label for="mech-deploy-down-${n}">${swing.down}</label><input id="mech-deploy-down-${n}" data-field="down" type="number" min="0" max="3" step="any" data-slider-max="1.5" data-slider-step="0.05" value="${intake.down}"></div><div><label for="mech-deploy-up-${n}">${swing.up}</label><input id="mech-deploy-up-${n}" data-field="up" type="number" min="0" max="3" step="any" data-slider-max="1.5" data-slider-step="0.05" value="${intake.up}"></div></div>`:''}
-      ${deviceLine(intakeDevices(intake))}<details class="sim-mech-code"><summary>Actuators · motors and servos</summary>${intake.kind!=='kicker'?`<div class="start-xy"><div><label for="mech-intake-device-${n}">${swing?'Rollers run on a':'Roller runs on a'}</label><select id="mech-intake-device-${n}" data-field="device">${options(MECH.ROLLERS,intake.device||'motor')}</select></div><div><label for="mech-intake-power-${n}">${swing?'Roller power':'Intake power'} · 0–1</label><input id="mech-intake-power-${n}" data-field="power" type="number" min="0.05" max="1" step="any" value="${intake.power}"></div></div>
+      ${deviceLine(intakeDevices(intake))}<div class="sim-wire-block" data-wire-for="intake:${n}"></div><details class="sim-mech-code"><summary>Actuators · motors and servos</summary>${intake.kind!=='kicker'?`<div class="start-xy"><div><label for="mech-intake-device-${n}">${swing?'Rollers run on a':'Roller runs on a'}</label><select id="mech-intake-device-${n}" data-field="device">${options(MECH.ROLLERS,intake.device||'motor')}</select></div><div><label for="mech-intake-power-${n}">${swing?'Roller power':'Intake power'} · 0–1</label><input id="mech-intake-power-${n}" data-field="power" type="number" min="0.05" max="1" step="any" value="${intake.power}"></div></div>
         <div class="start-xy"><div><label for="mech-intake-motor-${n}">${swing?'Roller name':'Intake roller name'}</label><input id="mech-intake-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${intake.motor}"></div>${reverseBox(`mech-intake-rev-${n}`,'reversed',intake.reversed)}</div>
         <div class="start-xy"><div><label for="mech-intake-motor2-${n}">Second roller name (optional)</label><input id="mech-intake-motor2-${n}" data-field="motor2" maxlength="40" autocomplete="off" spellcheck="false" placeholder="None" value="${intake.motor2||''}"></div>${intake.motor2?reverseBox(`mech-intake-rev2-${n}`,'reversed2',intake.reversed2):''}</div>`:''}${swing?`<div class="start-xy"><div><label for="mech-deploy-servo-${n}">${swing.servo}</label><input id="mech-deploy-servo-${n}" data-field="servo" maxlength="40" autocomplete="off" value="${intake.servo}"></div></div><div class="start-xy"><div><label for="mech-deploy-downpos-${n}">Servo position down · 0–1</label><input id="mech-deploy-downpos-${n}" data-field="downPos" type="number" min="0" max="1" step="any" value="${intake.downPos}"></div><div><label for="mech-deploy-uppos-${n}">Servo position up · 0–1</label><input id="mech-deploy-uppos-${n}" data-field="upPos" type="number" min="0" max="1" step="any" value="${intake.upPos}"></div></div>`:''}${configNote}</details></section>`;
   }
@@ -2121,11 +2121,12 @@ public class MyAuto implements DeckAutonomous {
       ${choiceCards('type',{turret:'Turret',fixed:'Fixed shooter'},SHOOTER_SHORT,s.type)}${pieces}${turretChoice}
       ${riding?'':`<span class="sim-mech-label">Position on the robot</span>${mountGrid(s.mount,blocked)}${placeButton('shooter:'+n)}`}
       ${s.type==='fixed'?`<span class="sim-mech-label">Fires toward</span><div class="sim-chips">${Object.keys(MECH.FACING).map(f=>chip('facing',f,title(f),s.facing===f)).join('')}</div>`:''}
-      ${deviceLine(shooterDevices(s,n,m))}<details class="sim-mech-code"><summary>Actuators · motors and servos</summary><div class="start-xy"><div><label for="mech-shooter-motor-${n}">Flywheel motor name</label><input id="mech-shooter-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.motor}"></div>${reverseBox(`mech-shooter-rev-${n}`,'reversed',s.reversed)}</div>
+      ${deviceLine(shooterDevices(s,n,m))}<div class="sim-wire-block" data-wire-for="shooter:${n}"></div><details class="sim-mech-code"><summary>Actuators · motors and servos</summary><div class="start-xy"><div><label for="mech-shooter-motor-${n}">Flywheel motor name</label><input id="mech-shooter-motor-${n}" data-field="motor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.motor}"></div>${reverseBox(`mech-shooter-rev-${n}`,'reversed',s.reversed)}</div>
       <div class="start-xy"><div><label for="mech-shooter-motor2-${n}">Second flywheel motor (optional)</label><input id="mech-shooter-motor2-${n}" data-field="motor2" maxlength="40" autocomplete="off" spellcheck="false" placeholder="None" value="${s.motor2||''}"></div>${s.motor2?reverseBox(`mech-shooter-rev2-${n}`,'reversed2',s.reversed2):''}</div>
       <div class="start-xy"><div><label for="mech-indexer-kind-${n}">Feeder is a</label><select id="mech-indexer-kind-${n}" data-field="indexerKind">${options(MECH.INDEXERS,s.indexerKind)}</select></div><div><label for="mech-indexer-name-${n}">Feeder name</label><input id="mech-indexer-name-${n}" data-field="indexer" maxlength="40" autocomplete="off" spellcheck="false" value="${s.indexer}"></div></div>
       ${MECH.servoFeeder(s.indexerKind)?`<div class="start-xy"><div><label for="mech-feed-pos-${n}">${s.indexerKind==='gate'?'Open':'Push'} position · 0–1</label><input id="mech-feed-pos-${n}" data-field="feedPos" type="number" min="0" max="1" step="any" value="${s.feedPos}"></div><div><label for="mech-rest-pos-${n}">${s.indexerKind==='gate'?'Closed':'Rest'} position · 0–1</label><input id="mech-rest-pos-${n}" data-field="restPos" type="number" min="0" max="1" step="any" value="${s.restPos}"></div></div>`:reverseBox(`mech-indexer-rev-${n}`,'indexerReversed',s.indexerReversed)}
       <p class="hint">${MECH.INDEXER_NOTES[s.indexerKind]}</p>
+      <div class="start-xy"><div><label for="mech-hood-${n}">Hood servo name (empty: a fixed hood)</label><input id="mech-hood-${n}" data-field="hood" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Fixed hood" value="${escHtml(s.hood||'')}"></div></div>
       ${s.type==='turret'&&!riding?`<div class="start-xy"><div><label for="mech-turret-motor-${n}">Turret ${m.turret.kind==='servo'?'servo':'motor'} name${shared?' (both shooters)':''}</label><input id="mech-turret-motor-${n}" data-field="turretMotor" maxlength="40" autocomplete="off" spellcheck="false" value="${s.turretMotor}"></div>${reverseBox(`mech-turret-rev-${n}`,'turretReversed',s.turretReversed)}</div>`:''}${configNote}</details></section>`;
   }
   function mechanismsPanel(){
@@ -2149,14 +2150,14 @@ public class MyAuto implements DeckAutonomous {
     $('#sim-action-list').replaceChildren(...MECH.actions(m).map(v=>new Option(v,v)));
     queueMicrotask(stageMarks);mechList?.render();$('#mech-empty').hidden=intakes.length+shooters.length+(mechList?.listed().length||0)>0;$('#mech-from-cad').disabled=!project.model;mechCount(intakes,shooters);
     $('#mech-from-cad').title=project.model?'Finds each mechanism in your CAD by its name':'Import your robot’s CAD in step 2 first';
-    mechModel();
+    wireBlocks();mechModel();observeMechCards();
   }
   // The motors and servos the mechanisms use, against FTC's limit (BIOBUZZ R503: 8 motors and 8 servos, the drivetrain's
   // motors included; a linear servo counts as a servo).
   function mechCount(intakes,shooters){
     let motors=0,servos=0;const add=kind=>{if(kind==='motor'||kind==='dcmotor')motors++;else if(['servo','crservo','linear','pusher','gate'].includes(kind))servos++;};
     for(const i of intakes){if(i.kind!=='kicker'){add(i.device==='crservo'?'crservo':'motor');if(i.motor2)add(i.device==='crservo'?'crservo':'motor');}if(MECH.deploys(i.kind))add('servo');}
-    shooters.forEach((s,n)=>{add('motor');if(s.motor2)add('motor');add(s.indexerKind);if(s.type==='turret'&&!(n===1&&shooters[1]?.sharesTurret))add(project.mechanisms.turret.kind==='servo'?'servo':'motor');});
+    shooters.forEach((s,n)=>{add('motor');if(s.motor2)add('motor');add(s.indexerKind);if(s.hood)add('servo');if(s.type==='turret'&&!(n===1&&shooters[1]?.sharesTurret))add(project.mechanisms.turret.kind==='servo'?'servo':'motor');});
     for(const a of project.kinematics.actuators)add(a.kind);
     // The drivetrain's own motors (a swerve module's steering is counted by the team: a servo or a motor each).
     const d=project.robot.drivetrain,drive={tank2:2,kiwi:3}[d]??4,steer=/swerve/i.test(d)?' plus its steering':'',all=motors+drive;
@@ -2186,8 +2187,37 @@ public class MyAuto implements DeckAutonomous {
       setMech(m=>{const part=m[kind==='intake'?'intakes':'shooters'][+n];if(!part)return;
         if(kind==='intake'){if(m.intakes.some((o,k)=>k!==+n&&o.sides.includes(loc.edge)))return status('#mech-model-help',`Another intake already covers the ${loc.edge}.`);part.sides=[loc.edge];part.at=point;status('#mech-model-help',`Intake ${+n+1}: ${loc.edge} of the robot.`);}
         else{part.mount=loc.mount;part.at=point;status('#mech-model-help',`Shooter ${+n+1}: ${MECH.MOUNTS[loc.mount].toLowerCase()} of the robot.`);}});}:joints.picker());
-    joints.render();
+    joints.render();mechGlow();
   }
+  // ---- each mechanism's hardware (ui/sim-wiring.js) and what it is on the model ---------------------------------------
+  // Every motor and servo on a mechanism, with its model, hub port and sensors and a line on what it does and how it is
+  // read. The CAD is every part's zero: encoders count from it, a servo's center holds it, named positions are from it.
+  function wireBlocks(){
+    const W=window.DeckWiring,ftc=project.controller==='ftc',st=ftc?W.state(project):null,focus=document.activeElement?.id;
+    for(const box of $$('[data-wire-for]')){box.hidden=!ftc;if(!ftc){box.innerHTML='';box.dataset.html='';continue;}
+      const [kind,id]=box.dataset.wireFor.split(':'),rows=st.rows.filter(r=>r.role!=='sensor'&&(kind==='kin'?/^kin\./.test(r.key)&&r.joints?.includes(id):r.key.startsWith(`${kind}s.${id}.`)));
+      const html=rows.length?`<span class="sim-mech-label">Hardware · model, port and sensors</span>${rows.map(r=>W.deviceHtml(r,st,{sensors:true,model:kind!=='kin'})).join('')}`:'';
+      if(box.dataset.html!==html){box.innerHTML=html;box.dataset.html=html;}}
+    if(focus&&document.activeElement?.id!==focus)document.getElementById(focus)?.focus();}
+  // What is being edited (a device or sensor row, a game part intake:N / shooter:N, or kin:<joint id>) glows on the
+  // preview: on a click, focus or open in its card, or when its card scrolls to the middle of the page.
+  let mechFocus=null,glowFrame=0;
+  function mechGlow(){
+    if(!mechPreview||joints.opened?.())return;const g=model?.geometry,ok=g&&!g.isObject3D&&g.userData?.parts&&project.kinematics.model===project.model?.id;let set=null;
+    if(mechFocus&&ok){model.partIdx??=window.DeckKinematics.partIndex(g.userData.parts);set=model.partIdx.expand(window.DeckWiring.focusRefs(project,mechFocus));}
+    mechPreview.highlight(set?.size?set:null,0xffb224);}
+  function focusMech(target){if(!target||target===mechFocus)return;mechFocus=target;cancelAnimationFrame(glowFrame);glowFrame=requestAnimationFrame(mechGlow);}
+  const focusOf=el=>el?.closest?.('[data-wire-row]')?.dataset.wireRow||el?.closest?.('[data-part]')?.dataset.part||(el?.closest?.('[data-mech]')?`kin:${el.closest('[data-mech]').dataset.mech}`:null);
+  let mechCards=null;
+  function observeMechCards(){
+    if(typeof IntersectionObserver!=='function')return;mechCards?.disconnect();
+    mechCards=new IntersectionObserver(list=>{if(setupStep!=='mechanisms'||document.activeElement?.closest?.('.sim-mech-main [data-part],.sim-mech-main [data-mech]'))return;
+      const top=list.filter(e=>e.isIntersecting).sort((a,b)=>a.boundingClientRect.top-b.boundingClientRect.top)[0];if(top)focusMech(focusOf(top.target));},{rootMargin:'-30% 0px -50% 0px'});
+    for(const card of $$('.sim-mech-main [data-part],.sim-mech-main [data-mech]'))mechCards.observe(card);}
+  for(const host of ['#mech-intakes','#mech-shooters','#mech-parts']){const box=$(host);
+    window.DeckWiring.bind(box,{project:()=>project,apply:applyWiring});
+    for(const type of ['focusin','pointerdown'])box.addEventListener(type,e=>focusMech(focusOf(e.target)));
+    box.addEventListener('toggle',e=>{if(e.target.open)focusMech(focusOf(e.target));},true);}
   // Configure from CAD: each mechanism added is looked for in the CAD by the names most like it. The game's intakes and
   // shooters take the CAD's named intake and shooter assemblies (their side, size, spot and parts; what the team chose
   // stays); then every moving mechanism added without parts is looked for (DeckMechanismTypes.likeness) and its pivot,
@@ -2248,7 +2278,7 @@ public class MyAuto implements DeckAutonomous {
     l.alliance=next;$('#sim-alliance-note').textContent=route?`Moved the starting pose${l.pins.length?`, ${l.pins.length} path${l.pins.length>1?'s':''}`:''}${l.zones.length?' and obstacles':''} to the ${next} side. Press ${next==='red'?'Blue':'Red'} to move them back.`:`Shots aim at the ${next} hive.`;
     changed('zones');layoutPanel();mechanismsPanel();reload();};
   // Moving parts: the CAD's joints, found and checked on the preview (sim-joints.js).
-  const joints=window.DeckJointsPanel.create({host:$('#mech-joints'),api:{
+  const joints=window.DeckJointsPanel.create({host:$('#mech-joints'),api:{glow:()=>mechGlow(),
     kinematics:()=>project.kinematics,mechanisms:()=>L().field==='biobuzz'?project.mechanisms:window.DeckMechanisms.sanitize({}),model:()=>model,meta:()=>project.model,preview:()=>mechPreview,
     commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechanismsPanel();view3d?.setModel(fieldRig());reload();},
     setIntake(n,patch){setMech(m=>{if(m.intakes[n])Object.assign(m.intakes[n],patch);});},setShooting(patch){setMech(m=>{Object.assign(m.shooter,patch);});},footprint:()=>chassisFootprint(),
@@ -2257,14 +2287,14 @@ public class MyAuto implements DeckAutonomous {
   mechList=window.DeckMechanismList.create({host:$('#mech-parts'),picker:$('#mech-picker'),api:{
     kinematics:()=>project.kinematics,commit(next){project.kinematics=window.DeckKinematics.sanitize(next);save();mechanismsPanel();view3d?.setModel(fieldRig());reload();},
     joints:()=>joints,isMechanism:j=>joints.isMechanism(j),game:()=>L().field==='biobuzz',cad:()=>!!project.model&&!!model?.geometry,addGame,rows:()=>M()?.rows?.(project.model||{}),
-    status:text=>status('#mech-list-status',text),adding:on=>$('#mech-add').setAttribute('aria-expanded',String(on))}});
+    status:text=>status('#mech-list-status',text),adding:on=>$('#mech-add').setAttribute('aria-expanded',String(on)),decorate:()=>{wireBlocks();observeMechCards();}}});
   $('#mech-add').onclick=()=>mechList.open();
   mechanismsPanel();presetPanel();
   // Setup runs in order like Path planning: 1 Field, 2 Robot, 3 Robot controller (and its sensing), 4 Mechanisms.
   // Mechanisms on every field: what the robot has, each with what drives it. Picking up and shooting pieces (the game's
   // intakes and shooters, their timing and preloads) belong to BIOBUZZ; elsewhere every mechanism moves by route actions.
   function setupSteps(){const game=L().field==='biobuzz',page=document.querySelector('[data-setup-page=mechanisms]');$('#sim-setup-step-mechanisms').textContent='4 · Mechanisms';
-    page.querySelector('h2+.hint').textContent=game?'Everything on your robot that moves. Intakes and shooters pick up and shoot BIOBUZZ pieces (routes run them with Intake, Spin up, Aim and Shoot); every other mechanism moves to its named positions when a route action names it (for example “Lift up”).':'Everything on your robot that moves. A route action named after a mechanism and one of its positions (for example “Lift up”) moves it.';
+    page.querySelector('h2+.hint').textContent=game?'Everything on your robot that moves. Intakes and shooters pick up and shoot BIOBUZZ pieces (routes run them with Intake, Spin up, Aim and Shoot); every other mechanism moves to its named positions when a route action names it (for example “Lift up”). Your CAD is every part’s zero: start the robot posed as in the CAD, and encoders and positions count from there.':'Everything on your robot that moves. A route action named after a mechanism and one of its positions (for example “Lift up”) moves it. Your CAD is every part’s zero: start the robot posed as in the CAD, and encoders and positions count from there.';
     page.dataset.game=String(game);for(const id of ['#mech-timing','#mech-preloads'])if(!game)$(id).hidden=true;
     const next=document.querySelector('[data-setup-page=robot] .sim-setup-nav .primary');if(next)next.textContent='Next: robot controller →';}
   function setupStepPanel(){setupSteps();for(const p of $$('[data-setup-page]'))p.hidden=p.dataset.setupPage!==setupStep;queueMicrotask(()=>{presetPanel();setupStep==='mechanisms'?mechanismsPanel():mechModel();if(setupStep==='mechanisms')joints.shown();});for(const b of $$('[data-setup-step]')){const on=b.dataset.setupStep===setupStep;b.setAttribute('aria-selected',String(on));b.setAttribute('aria-pressed',String(on));b.tabIndex=on?0:-1;}}

@@ -44,12 +44,12 @@
   const problemLines=list=>list.map(x=>`<p class="sim-wire-problem ${x.level}">${esc(x.text)}</p>`).join('');
   // ---- one device -----------------------------------------------------------------------------------------------------
   // A device's row: its name, model, port, a sentence on what it is and does, and its problems (red: blocks the next steps).
-  function deviceHtml(row,st,{sensors=false}={}){
+  function deviceHtml(row,st,{sensors=false,model=true}={}){
     const D=H(),list=problemsOf(st,row.key),level=list.some(x=>x.level==='red')?'red':list.length?'amber':'';
     const role=D.ROLES[row.role],why=role?.explain?`<p class="hint sim-wire-why">${esc(role.explain)}</p>`:'';
     const pod=row.role==='pod'?'<p class="hint">Plug the pod into the encoder input of a motor port: the code reads it through the name of the motor on that port.</p>':'';
     return `<div class="sim-wire-row${level?' '+level:''}" data-wire-row="${esc(row.key)}"><div class="sim-wire-head"><b>${esc(row.label)}</b><code title="Its name in the robot configuration">${esc(row.name)}</code></div>
-      <div class="start-xy">${modelSelect(row)}${portSelect(row,st)}</div><p class="sim-wire-explain">${esc(D.explain(row,st.wiring))}</p>${pod}${sensors?sensorsHtml(row,st):''}${problemLines(list)}${sensors?'':why}</div>`;}
+      <div class="start-xy">${model?modelSelect(row):''}${portSelect(row,st)}</div><p class="sim-wire-explain">${esc(D.explain(row,st.wiring))}</p>${pod}${sensors?sensorsHtml(row,st):''}${problemLines(list)}${sensors?'':why}</div>`;}
   // Sensors on one device: each with its model, what it is used for and its port, and an Add choice of the sensors the
   // export can use on that device.
   function sensorsHtml(row,st){
@@ -74,9 +74,22 @@
     const hubs=['control',...(w.hubs.expansion?['expansion']:[]),...(w.hubs.servoHub?['servoHub']:[])],rows=st.rows.filter(r=>r.hub&&!r.conflict);
     const sections=hubs.map(hub=>{const on=rows.filter(r=>r.hub===hub).sort((a,b)=>ORDER.indexOf(a.family)-ORDER.indexOf(b.family)||(a.port??a.bus)-(b.port??b.bus));
       const lines=on.map(r=>{const md=D.MODELS[r.model]||D.SENSOR_MODELS[r.model],place=r.family==='i2c'?`I2C ${r.bus}`:`${{motor:'Motor',encoder:'Encoder',servo:'Servo',analog:'Analog',digital:'Digital'}[r.family]||'Port'} ${r.port}`;
-        return `<tr data-wire-row="${esc(r.key)}"${problemsOf(st,r.key).some(x=>x.level==='red')?' class="red"':''}><td>${place}</td><td><code>${esc(r.via?r.via:r.name)}</code></td><td>${esc(r.label)}${r.via?' (read through this motor)':''}</td><td>${esc(md?.short||(r.role==='imu'?'Built-in IMU':''))}</td><td>${r.planned?'<span class="hint">Deck picked</span>':''}</td></tr>`;});
+        return `<tr data-config-row="${esc(r.key)}"${problemsOf(st,r.key).some(x=>x.level==='red')?' class="red"':''}><td>${place}</td><td><code>${esc(r.via?r.via:r.name)}</code></td><td>${esc(r.label)}${r.via?' (read through this motor)':''}</td><td>${esc(md?.short||(r.role==='imu'?'Built-in IMU':''))}</td><td>${r.planned?'<span class="hint">Deck picked</span>':''}</td></tr>`;});
       return `<h4 class="sim-setup-group">${esc(D.hubName(hub,w))}</h4>${lines.length?`<table class="sim-wire-table"><thead><tr><th>Port</th><th>Name</th><th>What</th><th>Model</th><th></th></tr></thead><tbody>${lines.join('')}</tbody></table>`:'<p class="hint">Nothing plugged in.</p>'}`;}).join('');
     return sections+problemLines(st.problems);}
+  // ---- what to light up on the model ------------------------------------------------------------------------------------
+  // The CAD parts (refs for DeckKinematics.partIndex().expand) of what is being edited: a device or sensor row (the joints it
+  // moves, with the parts riding on them), a game part (intake:N, shooter:N: its joints and its named assemblies) or a
+  // moving part (kin:<joint id>).
+  function focusRefs(project,target){
+    const p=project||{},joints=p.kinematics?.joints||[],named=p.model?.parts||[],m=p.mechanisms||{},out=new Set();if(typeof target!=='string'||!target)return [];
+    const joint=id=>{const ids=[id];for(let i=0;i<ids.length;i++)for(const j of joints)if(j.parent===ids[i]&&!ids.includes(j.id))ids.push(j.id);for(const x of ids)for(const r of joints.find(j=>j.id===x)?.parts||[])out.add(r);};
+    const names=list=>{for(const n of list||[]){const part=named.find(q=>q.name===n);if(part?.key)out.add(part.key);}};
+    const game=(kind,n)=>{const of=`${kind}:${n}`;for(const j of joints)if(j.drive?.of===of||kind==='shooter'&&j.drive?.of==='any')joint(j.id);names(m[kind+'s']?.[n]?.parts);
+      if(kind==='shooter'&&n===1&&m.shooters?.[1]?.sharesTurret)for(const j of joints)if(j.drive?.of==='shooter:0'&&j.drive.signal==='turret')joint(j.id);};
+    let k;if((k=/^kin:(.+)$/.exec(target)))joint(k[1]);else if((k=/^(intake|shooter):([0-9])$/.exec(target)))game(k[1],+k[2]);
+    else{const row=state(p).rows.find(r=>r.key===target);if(row?.joints?.length)for(const id of row.joints)joint(id);else{const g=/^(intakes|shooters)[.]([0-9])[.]/.exec(row?.for||target);if(g)game(g[1].slice(0,-1),+g[2]);}}
+    return [...out];}
   // ---- changes --------------------------------------------------------------------------------------------------------
   // Each returns the new wiring for project.robot.wiring (null when nothing is set).
   const parsePort=(v,family)=>{if(!v)return null;const [hub,n]=v.split(':');return family==='i2c'?{hub,bus:+n}:{hub,port:+n};};
@@ -103,5 +116,5 @@
       else return;apply(next);});
     host.addEventListener('click',e=>{const b=e.target.closest('[data-wire-sensor-remove]');if(b)apply(removeSensor(project().robot.wiring,b.dataset.wireSensorRemove));});
     if(focus)host.addEventListener('focusin',e=>{const r=e.target.closest('[data-wire-row]');if(r)focus(r.dataset.wireRow);});}
-  return {state,stepOf,red,problemsOf,modelChoices,portChoices,deviceHtml,sensorsHtml,hubsHtml,summaryHtml,setModel,setPort,setHub,setSensor,setSensorPort,removeSensor,bind,esc};
+  return {state,stepOf,focusRefs,red,problemsOf,modelChoices,portChoices,deviceHtml,sensorsHtml,hubsHtml,summaryHtml,setModel,setPort,setHub,setSensor,setSensorPort,removeSensor,bind,esc};
 });
