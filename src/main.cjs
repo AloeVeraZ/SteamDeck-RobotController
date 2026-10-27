@@ -208,7 +208,8 @@ async function openRobot(input){
     update({page:'drive',loading:true,url:target.url,title:target.name||'Opening robot',robot:active,error:''});
     // FTC Robot Controllers answer Robocol discovery on UDP 20884 and get the Driver Station; everything else is a website.
     // The Settings "FTC robot" box forces the Driver Station; unticked ("auto") detects again.
-    let kind=input.kind==='ftc'?'ftc':input.kind==='auto'?undefined:saved?.url===target.url?saved.kind:undefined;
+    // The USB address is not a real host name: it is always the Driver Station over the cable, never a website.
+    let kind=usb||input.kind==='ftc'?'ftc':input.kind==='auto'?undefined:saved?.url===target.url?saved.kind:undefined;
     if(!kind){kind=(await probeFtc(new URL(target.url).hostname)).ftc?'ftc':'web';}
     if(epoch!==connectionEpoch||suspended)return {opened:false};
     if(kind==='ftc')return await openFtc(target,ssid,epoch);

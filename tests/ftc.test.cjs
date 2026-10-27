@@ -21,6 +21,15 @@ test('wire layouts match the Robocol formats used by FTC SDK 11',()=>{
   assert.deepEqual([t.robotState,t.strings,t.numbers],[1,[['\0ƀ','Heading : 90']],[['speed',0.5]]]);
 });
 
+// FTC SDK 12.0's SoftwareVersionWarningSource reads only the first discovery: the Driver Station is obsolete when its
+// build month is before August of the current season, or its FTC season (starting in September) is before the robot's.
+test('the first discovery passes an SDK 12.0 Robot Controller\'s obsolete-app check',()=>{
+  const sent=[];const ds=new R.DriverStation({send:b=>sent.push(b)});ds.start();ds.stop();
+  const p=R.decode(sent[0]),season=(y,m)=>m>=9?y:y-1,obsolete=(y,m,nowY,nowM)=>y*12+m<(nowM>=10?nowY:nowY-1)*12+8;
+  assert.deepEqual([p.version,p.major,p.minor,p.year,p.month],[124,12,0,2026,9]);
+  assert.equal(obsolete(p.year,p.month,2026,10),false);assert.equal(season(p.year,p.month),season(2026,9));
+});
+
 test('station connects, lists op modes, and runs INIT, START, and STOP through the robot',async t=>{
   const {ds,sim,stop}=pair();t.after(stop);ds.start();
   await until(()=>ds.state.connection==='connected'&&ds.state.opModes.length===4&&ds.state.activeConfig);
