@@ -347,6 +347,8 @@ handle('robot-link',async(action,data)=>{
     return true;}
   if(action==='read')return robotLink.readRobot(data?.host,{scan:data?.scan===true});
   if(action==='read-usb')return robotLink.readUsb();
+  // The robot's own dashboard (Program & Manage, OnBot Java, Blocks) through the USB cable, in a window of its own.
+  if(action==='usb-dashboard'){const {port,serial}=await robotLink.usbForward();const view=new BrowserWindow({width:1200,height:820,title:`Robot Controller ${serial} (USB)`,autoHideMenuBar:true,webPreferences:{contextIsolation:true,sandbox:true}});await view.loadURL(`http://127.0.0.1:${port}/`);return {port,serial};}
   if(action==='read-all')return robotLink.readConfigurations(data?.host);
   if(action==='activate')return robotLink.activateConfiguration(data?.host,data?.name);
   if(action==='configure')return robotLink.writeConfiguration(data?.host,{name:data?.name,xml:data?.xml});

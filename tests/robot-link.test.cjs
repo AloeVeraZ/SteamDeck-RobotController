@@ -285,6 +285,8 @@ test('Send to robot uploads the export with OnBot Java, builds it, keeps a copy 
 test('the OnBot Java form encoding and build log parsing',async()=>{
   const text='a+b = 100% & "quoted" \'single\' (x)*! é\r\nline';assert.equal(new URLSearchParams('data='+formEncode(text)).get('data'),text,'every character survives the robot\'s form decoding');
   assert.doesNotMatch(formEncode("!'()*"),/[!'()*]/);
+  // OnBot Java's own log, as a real Control Hub wrote it.
+  assert.deepEqual(buildErrors('org/firstinspires/ftc/teamcode/mySecondJavaOpModeFritz.java(49:9): ERROR: cannot find symbol\n  symbol:   variable imu'),[{file:'mySecondJavaOpModeFritz.java',line:49,message:'cannot find symbol'}]);
   assert.deepEqual(buildErrors('Foo.java:3:5: error: ; expected\nnote: something\nsrc/org/Bar.java:10: error: incompatible types'),[{file:'Foo.java',line:3,message:'; expected'},{file:'Bar.java',line:10,message:'incompatible types'}]);
   // Nothing listening: the message says where it looked and what to check.
   await assert.rejects(new OnBotJava('127.0.0.2',{port:9,timeout:2000}).available(),/Could not reach the robot's OnBot Java at http:\/\/127\.0\.0\.2:9.*Join the robot's Wi-Fi/);

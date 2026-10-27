@@ -144,7 +144,8 @@ const formEncode=s=>encodeURIComponent(s).replace(/[!'()*]/g,c=>'%'+c.charCodeAt
 function request(host,method,route,body,{timeout=15000,port=8080}={}){
   return new Promise((resolve,reject)=>{
     const data=body===undefined?null:Buffer.from(body,'utf8');
-    const req=http.request({host,port,method,path:route,headers:{...(data?{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8','Content-Length':data.length}:{})}},res=>{
+    // One request a connection: the robot's server (and an ADB forward to it) hangs up on a kept-alive one.
+    const req=http.request({host,port,method,path:route,headers:{Connection:'close',...(data?{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8','Content-Length':data.length}:{})}},res=>{
       const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve({status:res.statusCode,text:Buffer.concat(chunks).toString('utf8')}));});
     req.setTimeout(timeout,()=>req.destroy(Object.assign(Error('timed out'),{code:'ETIMEDOUT'})));
     req.on('error',e=>reject(Object.assign(Error(`Could not reach the robot's OnBot Java at http://${host}:${port} (${e.code||e.message}). Join the robot's Wi-Fi, and check the Robot Controller app is running.`),{code:e.code})));
@@ -181,12 +182,14 @@ class OnBotJava{
 }
 // Compiler errors from a build log: file, line and message for each.
 function buildErrors(log){
-  const out=[];for(const m of String(log).matchAll(/([\w./\\-]+\.java):(\d+)(?::\d+)?:\s*error:\s*([^\r\n]*)/gi))out.push({file:path.basename(m[1]),line:Number(m[2]),message:m[3].trim()});
+  // javac writes "File.java:49: error: ..."; OnBot Java writes "File.java(49:9): ERROR: ...".
+  const out=[];for(const m of String(log).matchAll(/([\w./\\-]+\.java)(?::(\d+)(?::\d+)?:|\((\d+):\d+\):)\s*error:\s*([^\r\n]*)/gi))out.push({file:path.basename(m[1]),line:Number(m[2]??m[3]),message:m[4].trim()});
   return out.slice(0,20);
 }
 // Uploads the export's files and builds them. A file the robot already has with other contents is kept on this computer
 // first (backupDir); files listed in keep are written only when the robot does not have them yet.
-async function send(host,files,{keep=[],backupDir,onProgress=()=>{},client=new OnBotJava(host)}={}){
+async function send(host,files,{keep=[],backupDir,onProgress=()=>{},client}={}){
+  if(!client)client=host==='usb'?new OnBotJava('127.0.0.1',{port:(await usbForward()).port}):new OnBotJava(host);
   const entries=Object.entries(files||{});if(!entries.length)throw Error('Nothing to send.');
   const backups=[],written=[],kept=[];
   // Just after a new configuration the robot restarts, and its web server may refuse a connection for a moment.
@@ -235,4 +238,14 @@ async function readUsb({run}={}){
     try{blocks=blocksHardware(await getLocal(port,'/hardware',10000));}catch{}}catch{}finally{adb(['-s',serial,'forward','--remove',`tcp:${port}`],{run}).catch(()=>{});}
   const name=active&&out[active]?active:names[0],parsed=RobotConfig.parse(out[name]);
   return {source:'usb',serial,configurations:names,active:{name,...(active&&out[active]?{}:{guessed:true})},xml:out[name],...parsed,blocks,files:out};}
-module.exports={readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};
+// The robot's web server (8080: OnBot Java, Blocks, Program & Manage) and its WebSocket (8081, the port after it) on
+// two ports of this computer through the USB cable, kept while the hub stays plugged in: Send to robot uploads and
+// builds over it, and the robot's own dashboard opens on it, with this computer on any Wi-Fi.
+let usbPorts=null;
+async function usbForward({run}={}){
+  const listed=(await adb(['devices'],{run})).split(/\r?\n/).slice(1).map(l=>l.trim().split(/\s+/)).filter(x=>x[0]),ready=listed.find(x=>x[1]==='device');
+  if(!ready)throw Error(listed.length?(listed[0][1]==='unauthorized'?'The Control Hub is on USB but has not allowed this computer yet: look for the prompt in the REV Hardware Client.':`The Control Hub on USB is ${listed[0][1]}.`):'No Control Hub on USB. Plug its USB-C port into this computer with a data cable (some cables only charge).');
+  const serial=ready[0];if(usbPorts?.serial===serial){try{const r=await request('127.0.0.1','GET','/java/build/status',undefined,{port:usbPorts.port,timeout:4000});if(r.status===200)return usbPorts;}catch{}}
+  const port=18000+2*Math.floor(Math.random()*900);await adb(['-s',serial,'forward',`tcp:${port}`,'tcp:8080'],{run});await adb(['-s',serial,'forward',`tcp:${port+1}`,'tcp:8081'],{run});
+  usbPorts={serial,port};return usbPorts;}
+module.exports={usbForward,readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};
