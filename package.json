@@ -1,13 +1,14 @@
 {
   "name": "deck-driver-station",
   "productName": "Deck Driver Station",
-  "version": "2.4.24",
+  "version": "2.4.25",
   "repository": {
     "type": "git",
     "url": "https://github.com/AloeVeraZ/SteamDeck-RobotController.git"
   },
   "updateChannel": "main",
   "testingReleaseTargets": ["windows"],
+  "mainReleaseTargets": ["windows"],
   "private": true,
   "license": "MIT",
   "description": "Open existing robot websites with saved Wi-Fi networks and addresses",

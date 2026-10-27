@@ -59,7 +59,7 @@ jobs:
           [[ "$GITHUB_REF_TYPE" != tag || "$GITHUB_REF_NAME" == "$tag" ]] || { echo "tag $GITHUB_REF_NAME does not match package.json ($tag)"; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          # Main builds every platform; testing builds package.json's testingReleaseTargets.
+          # Each branch builds package.json's mainReleaseTargets / testingReleaseTargets (all when missing).
           targets=$(node tools/release-targets.cjs targets "$branch")
           echo "Building: $targets"
           echo "targets=$targets" >> "$GITHUB_OUTPUT"

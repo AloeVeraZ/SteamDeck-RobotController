@@ -130,3 +130,17 @@ AGENT_BACKLOG.md is in priority order.
   - launch with `--deck-sim-open=<copy of examples/lunala-red-auto-cycles.json> --deck-sim-tab=setup`;
   - wait for `#sim-mesh-size` to say "fitted", click `[data-setup-step=mechanisms]`, then `#mech-add`, a `#mech-picker [data-v=…]` tile and `#mech-from-cad`;
   - read `#mech-list-status`.
+
+## Set up from the Control Hub (27 October)
+
+- **One button, hub plugged in by USB.** "Set up from the Control Hub" is in Setup → Mechanisms, and also in Robot controller → The robot's configuration.
+  - It reads the active configuration over USB (`robot-link read-usb`).
+  - `ui/sim-hub-setup.js` (`DeckHubSetup.plan`/`apply`) matches every Setup row to a configured device by name and kind, then takes the device's name, hub and port.
+- **What it matches:** drive motors, steering, the IMU, Pinpoint and OTOS, mechanism devices (intakes, shooters, kinematics actuators) and their sensors.
+  - A drive motor matches on direction words only (frontLeft, LF, left_front_drive); any other word in the name rules it out.
+  - Other devices match on shared name words, and a left device never matches a right one.
+  - A robot sensor Setup lacks is added to the device its name is about.
+- **What else it sets:** a Pinpoint or OTOS on the robot sets the localization. The Expansion Hub (or Servo Hub) mirrors the robot. A motor type that names exactly one model sets that model.
+- **No hub plugged in:** the status line says to plug it in with a USB-C data cable.
+- **Preset robots** set up the chassis only. In Mechanisms, "Edit the chassis motors" shows only the drive motors: their names, models and ports, plus the hub button. The preset's mechanisms stay locked.
+- **Tests:** `tests/sim-hub-setup.test.cjs`. The app probe stubs `ipcMain`'s `robot-link` with a configuration XML; no hub was plugged in.
