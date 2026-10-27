@@ -161,7 +161,7 @@ public class MyAuto implements DeckAutonomous {
     <nav class="sim-navigation" aria-label="Autonomous setup"><div class="sim-tabs" role="tablist">${Object.entries({setup:'Setup',plan:'Path planning',run:'Run & review'}).map(([k,t],i)=>`<button type="button" role="tab" data-tab="${k}" id="sim-tab-${k}" aria-controls="sim-panel-${k}"><span>${i+1}</span>${t}</button>`).join('')}<button type="button" role="tab" data-tab="video" id="sim-tab-video" aria-controls="sim-panel-video" title="Edit the recorded run into a video" hidden><span aria-hidden="true">●</span>Video editor</button></div></nav>
     <div class="sim-setup-bar"><span class="sim-setup-label" id="sim-setup-label">Saved setup</span><div class="sim-setup-picker"><button id="sim-setup" type="button" class="sim-setup-current" aria-haspopup="listbox" aria-expanded="false" aria-controls="sim-setup-list" aria-labelledby="sim-setup-label sim-setup"><span class="sim-setup-text"><strong></strong><small></small></span><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
       <div id="sim-setup-list" class="sim-setup-list" role="listbox" aria-labelledby="sim-setup-label" hidden></div></div>
-      <div class="sim-setup-actions" role="group" aria-label="Manage setups"><button id="sim-setup-new" type="button" title="Start a new setup with default settings">${ICON.add}New</button><button id="sim-setup-rename" type="button" title="Rename this setup">${ICON.rename}Rename</button><button id="sim-setup-delete" type="button" class="danger" title="Delete this setup">${ICON.trash}Delete</button></div>
+      <div class="sim-setup-actions" role="group" aria-label="Manage setups"><button id="sim-setup-new" type="button" title="Start a new setup with default settings. Right-click a setup to clone, rename or delete it.">${ICON.add}New</button></div>
       <div class="sim-setup-actions" role="group" aria-label="Setup file"><button id="sim-open" type="button" title="Open a setup saved as a file">${ICON.open}Open file…</button><button id="sim-save" type="button" title="Save this setup to a file">${ICON.save}Save file…</button></div><span class="hint" id="sim-saved" role="status">Saves automatically on this computer</span>
       <div id="sim-setup-menu" class="sim-setup-menu" role="menu" aria-label="Setup actions" hidden><button type="button" role="menuitem" data-setup-act="open">Open</button><button type="button" role="menuitem" data-setup-act="clone">Clone</button><button type="button" role="menuitem" data-setup-act="rename">Rename</button><button type="button" role="menuitem" data-setup-act="delete" class="danger">Delete</button></div></div>
     <div class="simulation-layout"><section class="field-area" aria-label="Simulation field">
@@ -2080,7 +2080,7 @@ public class MyAuto implements DeckAutonomous {
   }
   function setupPanel(){
     const current=$('#sim-setup'),facts=setupFacts(project);current.querySelector('strong').textContent=project.setupName;current.querySelector('small').textContent=facts.slice(0,4).map(f=>f[1]).join(' · ');current.title=facts.map(f=>f.join(': ')).join('\n');
-    $('#sim-setup-delete').disabled=project.setups.length<2;if(!$('#sim-setup-list').hidden)setupList();activeSetupPanel();
+    if(!$('#sim-setup-list').hidden)setupList();activeSetupPanel();
   }
   function setupList(){
     const list=$('#sim-setup-list'),tip=document.createElement('p');
@@ -2129,13 +2129,11 @@ public class MyAuto implements DeckAutonomous {
   }
   $('#sim-setup-new').onclick=()=>{save();if(project.setups.length>=20)return status('#start-status','Use at most 20 saved setups.');const next=defaults(),bank=project.setups;next.setupName=`Setup ${bank.length+1}`;next.setups=bank;project=next;save();setupPanel();model=null;selectTab('setup');void switchLayout(project.active).then(refreshAll);};
   function renameSetup(){const input=document.createElement('input'),sel=$('#sim-setup');input.value=project.setupName;input.maxLength=40;input.setAttribute('aria-label','Setup name');sel.hidden=true;sel.after(input);input.focus();input.select();let done=false;const finish=keep=>{if(done)return;done=true;if(keep&&input.value.trim())project.setupName=input.value.trim();input.remove();sel.hidden=false;save();setupPanel();};input.onblur=()=>finish(true);input.onkeydown=e=>{if(e.key==='Enter')finish(true);if(e.key==='Escape')finish(false);};}
-  $('#sim-setup-rename').onclick=renameSetup;
   // Deleting cannot be undone, so it always asks first, naming the setup; "No" is focused so Enter keeps it.
   const confirmDeleteSetup=id=>new Promise(resolve=>{
     const entry=project.setups.find(s=>s.id===id);if(!entry||project.setups.length<2)return resolve(false);const d=$('#sim-setup-delete-confirm');
     $('#sim-setup-delete-title').textContent=`Delete “${id===project.setupId?project.setupName:entry.name}”?`;d.returnValue='';
     d.addEventListener('close',()=>{const yes=d.returnValue==='yes';if(yes)deleteSetup(id);resolve(yes);},{once:true});d.showModal();$('#sim-setup-delete-no').focus();});
-  $('#sim-setup-delete').onclick=()=>void confirmDeleteSetup(project.setupId);
   // Path planning and Run & review hide the setup bar, so the panel names the setup being edited; click it to go back to Setup.
   function activeSetupPanel(){const b=$('#sim-active-setup');if(!b)return;b.querySelector('strong').textContent=project.setupName;b.title=`${setupFacts(project).map(f=>f.join(': ')).join('\n')}\n\nClick to open Setup.`;b.hidden=tab==='setup';}
   // Autosave: handlers save as they change things, and any edit, click or drag in the simulator saves again
