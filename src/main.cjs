@@ -1,7 +1,7 @@
 'use strict';
 const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor,powerSaveBlocker,utilityProcess,dialog}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
-const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
+const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,UsbFtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {shortcut}=require('./shortcuts.cjs');let build={};try{build=JSON.parse(fs.readFileSync(path.join(__dirname,'../build.json'),'utf8'));}catch{}const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
@@ -180,18 +180,22 @@ ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.we
 async function refreshNetwork(){
   const next=await network.status(),previous=currentNetwork;currentNetwork=next;
   if(previous&&(next.ssid!==previous.ssid||next.device!==previous.device))finding?.abort();
-  const expected=active?.ssid||state.robot?.ssid||previous?.ssid;
+  // A robot on the USB cable does not care which Wi-Fi this computer is on.
+  const expected=isUsb(active?.url||state.robot?.url)?null:active?.ssid||state.robot?.ssid||previous?.ssid;
   if((robotView||opening&&state.url)&&expected&&next.ssid!==expected&&!network.busy&&!suspended){await interruptRobot(next.ssid?'Wi-Fi changed. Your robot address is saved. Choose Try again to reconnect to its network.':'Wi-Fi disconnected. Your robot address is saved. Reconnect Wi-Fi, then choose Try again.');}
   emit('network',next);return next;
 }
+// A Control Hub on the USB cable is saved at this address: Drive's Driver Station reaches it through ADB and the Deck USB
+// link (src/onbot/DeckUsbLink.java), whatever Wi-Fi this computer is on.
+const USB_HOST='usb.control-hub',isUsb=url=>{try{return new URL(url).hostname===USB_HOST;}catch{return false;}};
 async function openRobot(input){
   const navigation=pageEpoch;finding?.abort();
   if(opening)throw Error('A robot connection is already opening.');opening=true;
   try{
     if(interruption)await interruption;
     if(suspended)throw Error('Wait for this device to wake before reconnecting.');
-    const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)};
-    const wifi=await refreshNetwork(),ssid=cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:input.ssid||wifi.ssid);
+    const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)},usb=isUsb(target.url);if(usb)target.kind='ftc';
+    const wifi=await refreshNetwork(),ssid=usb?'':cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:input.ssid||wifi.ssid);
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
     // The automatic FTC check holds UDP 20884 for up to 1.5 s; let it finish first.
     for(let i=0;auto.busy&&i<40;i++)await delay(50);
@@ -243,7 +247,7 @@ function lockDown(contents,allowed){
   contents.on('will-navigate',(e,url)=>{if(!allowed(url))e.preventDefault();});contents.setWindowOpenHandler(({url})=>{if(allowed(url))void contents.loadURL(url);return {action:'deny'};});
 }
 async function openFtc(target,ssid,epoch){
-  const host=new URL(target.url).hostname,socket=new FtcSocket(host);
+  const host=new URL(target.url).hostname,socket=host===USB_HOST?new UsbFtcSocket(()=>robotLink.usbForward().then(f=>({port:f.link}))):new FtcSocket(host);
   try{await socket.open();}catch(e){if(epoch===connectionEpoch)update({page:'drive',loading:false,url:target.url,title:target.name||host,error:e.message});return {opened:false};}
   if(epoch!==connectionEpoch||suspended){await socket.close();return {opened:false};}
   const robot=library.upsert({...target,ssid,kind:'ftc'},{opened:true});
@@ -260,7 +264,8 @@ async function openFtc(target,ssid,epoch){
 // Program & Manage: the Robot Controller's own web interface (port 8080) over the existing website bridge.
 async function openManager(){
   if(!(bridge instanceof FtcSocket))throw Error('Program & Manage is available for FTC robots.');await closeManager();
-  const proxy=new RobotProxy(`http://${bridge.host.includes(':')?`[${bridge.host}]`:bridge.host}:8080/`),localUrl=await proxy.start();
+  const usbPort=bridge instanceof UsbFtcSocket?(await robotLink.usbForward()).port:null;
+  const proxy=new RobotProxy(usbPort?`http://127.0.0.1:${usbPort}/`:`http://${bridge.host.includes(':')?`[${bridge.host}]`:bridge.host}:8080/`),localUrl=await proxy.start();
   const view=new WebContentsView({webPreferences:{partition:`persist:robot-manage-${createHash('sha256').update(bridge.host).digest('hex')}`,additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   touchSession(view.webContents.session);
   managerView=view;managerProxy=proxy;win.contentView.addChildView(view);lockDown(view.webContents,url=>{try{return new URL(url).origin===proxy.origin;}catch{return false;}});

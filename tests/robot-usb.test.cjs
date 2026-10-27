@@ -53,3 +53,18 @@ test('over USB: ADB lists and reads /sdcard/FIRST, the robot\'s web server names
   await assert.rejects(L.readUsb({run:(f,a,o,done)=>done(null,'List of devices attached\n\n','')}),/No Control Hub on USB/);
   await assert.rejects(L.readUsb({run:(f,a,o,done)=>done(null,'List of devices attached\nX\tunauthorized\n','')}),/has not allowed this computer/);
 });
+
+test('the Driver Station over the USB cable: Robocol packets framed over TCP reach the Robot Controller and its answers come back',async t=>{
+  const dgram=require('node:dgram'),net=require('node:net'),{startUdpRobot,CONFIG_XML}=require('../tools/ftc-sim.cjs'),{UsbFtcSocket}=require('../src/ftc.cjs');
+  let robot;try{robot=await startUdpRobot({address:'127.0.0.8'});}catch(e){t.skip('loopback unavailable: '+e.message);return;}t.after(()=>robot.close());
+  // Stand-in for src/onbot/DeckUsbLink.java on the hub: each TCP frame [2-byte length][packet] goes out as one datagram.
+  const link=net.createServer(s=>{const udp=dgram.createSocket('udp4');udp.bind(20884,'127.0.0.9');let buf=Buffer.alloc(0);
+    udp.on('message',m=>{const h=Buffer.alloc(2);h.writeUInt16BE(m.length);s.write(Buffer.concat([h,m]));});
+    s.on('data',c=>{buf=Buffer.concat([buf,c]);while(buf.length>=2){const n=buf.readUInt16BE(0);if(buf.length<2+n)break;udp.send(buf.subarray(2,2+n),20884,'127.0.0.8');buf=buf.subarray(2+n);}});
+    s.on('close',()=>udp.close());});
+  await new Promise(r=>link.listen(0,'127.0.0.1',r));t.after(()=>link.close());
+  const socket=await new UsbFtcSocket(async()=>({port:link.address().port})).open();
+  try{const r=await L.readRobot('usb',{socket});assert.equal(r.active.name,'competition');assert.equal(r.xml,CONFIG_XML,'the whole configuration came through the link');}
+  finally{await socket.close();}
+  assert.ok(socket instanceof require('../src/ftc.cjs').FtcSocket,'Drive treats it as a Driver Station link');
+});
