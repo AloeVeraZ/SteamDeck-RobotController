@@ -1,6 +1,6 @@
 'use strict';
-// Which platforms a release builds: main always all three, testing only package.json's
-// testingReleaseTargets; a partial release never ships the App package (older updaters on the
+// Which platforms a release builds: package.json's testingReleaseTargets / mainReleaseTargets
+// (all three without the key); a partial release never ships the App package (older updaters on the
 // skipped platforms would install it), and the publish workflow is wired to this logic.
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{execFileSync}=require('node:child_process');
 const root=path.join(__dirname,'..'),script=path.join(root,'tools/release-targets.cjs');
@@ -9,21 +9,23 @@ const meta=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8'));
 const workflow=fs.readFileSync(path.join(root,'.github/workflows/release.yml'),'utf8').replace(/\r\n/g,'\n');// Windows checkouts may use CRLF
 const files=(v,...platforms)=>platforms.flatMap(p=>({steamdeck:[`DeckDriverStation-${v}-SteamDeck.tar.gz`,`DeckDriverStation-${v}-SteamDeck.run`,'DeckDriverStation-SteamDeck.run',`DeckDriverStation-${v}-App-c6eacf3db1ea.tar.gz`],windows:[`DeckDriverStation-${v}-Windows.zip`,`DeckDriverStation-${v}-Windows-Setup.exe`,'DeckDriverStation-Windows-Setup.exe'],'macos-arm64':[`DeckDriverStation-${v}-macOS-arm64.zip`,'DeckDriverStation-macOS-arm64.zip']})[p]).flatMap(f=>[f,f+'.sha256']);
 
-test('main always builds every platform; testing builds testingReleaseTargets, or everything without it',()=>{
+test('each branch builds its own ReleaseTargets, or everything without it',()=>{
   assert.deepEqual(ALL,['steamdeck','windows','macos-arm64']);
-  for(const m of [meta,{},{testingReleaseTargets:['windows']}])assert.deepEqual(targets('main',m),ALL);
+  for(const m of [{},{testingReleaseTargets:['windows']}])assert.deepEqual(targets('main',m),ALL);
+  assert.deepEqual(targets('main',{mainReleaseTargets:['windows']}),['windows']);
+  assert.throws(()=>targets('main',{mainReleaseTargets:[]}),/mainReleaseTargets must list/);
   assert.deepEqual(targets('testing',{testingReleaseTargets:['windows']}),['windows']);
   assert.deepEqual(targets('testing',{testingReleaseTargets:['macos-arm64','steamdeck']}),['steamdeck','macos-arm64']);
   assert.deepEqual(targets('testing',{}),ALL);
   for(const bad of [[],['windows','windows'],['linux'],'windows',null,[1]])assert.throws(()=>targets('testing',{testingReleaseTargets:bad}),/testingReleaseTargets must list/,JSON.stringify(bad));
   assert.throws(()=>targets('feature',meta),/testing or main/);
 });
-test('package.json\'s testing targets are valid, and the command the workflow runs prints them',()=>{
+test('package.json\'s release targets are valid, and the command the workflow runs prints them',()=>{
   assert.match(meta.version,/^\d+\.\d+\.\d+$/);assert.ok(['testing','main'].includes(meta.updateChannel));
-  if(meta.testingReleaseTargets!==undefined)assert.deepEqual(targets('testing',meta),ALL.filter(t=>meta.testingReleaseTargets.includes(t)));
+  for(const b of ['testing','main'])if(meta[b+'ReleaseTargets']!==undefined)assert.deepEqual(targets(b,meta),ALL.filter(t=>meta[b+'ReleaseTargets'].includes(t)));
   // The CLI the workflow calls prints the same list as one line of JSON.
   assert.equal(execFileSync(process.execPath,[script,'targets','testing'],{encoding:'utf8'}),JSON.stringify(targets('testing',meta))+'\n');
-  assert.equal(execFileSync(process.execPath,[script,'targets','main'],{encoding:'utf8'}),JSON.stringify(ALL)+'\n');
+  assert.equal(execFileSync(process.execPath,[script,'targets','main'],{encoding:'utf8'}),JSON.stringify(targets('main',meta))+'\n');
 });
 test('a Windows-only build publishes only the Windows files, and a partial build drops the App package',()=>{
   const win=plan(files('2.4.23','windows'),['windows'],'2.4.23');assert.deepEqual(win.problems,[]);assert.deepEqual(win.drop,[]);assert.equal(win.keep.length,6);assert.ok(win.keep.every(f=>/Windows/.test(f)));
@@ -36,7 +38,7 @@ test('a Windows-only build publishes only the Windows files, and a partial build
 });
 test('partial releases say which devices they are for',()=>{
   assert.deepEqual(describe('v2.4.23',ALL),{title:'Deck Driver Station v2.4.23',notes:''});
-  assert.deepEqual(describe('testing-v2.4.23',['windows']),{title:'Deck Driver Station testing-v2.4.23 (Windows x64 only)',notes:'This testing build is for Windows x64 only. Steam Deck/Linux and Apple Silicon stay on their current version until a later release includes them.'});
+  assert.deepEqual(describe('testing-v2.4.23',['windows']),{title:'Deck Driver Station testing-v2.4.23 (Windows x64 only)',notes:'This build is for Windows x64 only. Steam Deck/Linux and Apple Silicon stay on their current version until a later release includes them.'});
 });
 test('prepare checks dist, removes a partial build\'s App package and prints the title and notes',t=>{
   const dist=fs.mkdtempSync(path.join(os.tmpdir(),'deck-release-'));t.after(()=>fs.rmSync(dist,{recursive:true,force:true}));

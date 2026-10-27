@@ -84,10 +84,10 @@ After the user authorizes publication:
 2. Bump the `package.json` version. Testing packages keep `updateChannel: "testing"`.
 3. Run the **Publish app update (manual)** workflow on testing. It tests, builds the
    platforms for that branch, and publishes their assets plus checksums (as a prerelease
-   on testing) only after every build succeeds. Main always builds Steam Deck, Windows and
-   Apple Silicon. Testing builds only the platforms in `package.json`
-   `testingReleaseTargets` (`steamdeck`, `windows`, `macos-arm64`; every platform when the
-   key is missing), currently `["windows"]`. A partial release is titled, for example,
+   on testing) only after every build succeeds. Testing builds only the platforms in
+   `package.json` `testingReleaseTargets` and main those in `mainReleaseTargets`
+   (`steamdeck`, `windows`, `macos-arm64`; every platform when the key is missing), both
+   currently `["windows"]`. A partial release is titled, for example,
    *Deck Driver Station testing-v2.4.23 (Windows x64 only)*, its notes say which devices it
    is for, and it has no App package. Before publishing, `tools/release-targets.cjs` checks
    that each built platform has its download and checksum and that no other platform's files
