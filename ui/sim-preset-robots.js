@@ -262,7 +262,8 @@
   // A preset as drawn: its prepared vendor CAD's variant when `asset` (the build has it), else the generated robot.
   const robotOf=(id,asset=false)=>{const r=ROBOTS[id];return asset&&r.variant?{...r,...r.variant}:r;};
   // The preset whose CAD a stored model is (it keeps the robot's name), or null; asset: whether it is the vendor CAD.
-  const ofModel=m=>Object.keys(ROBOTS).find(id=>[ROBOTS[id].name,ROBOTS[id].variant?.name].includes(m?.name))||null;
+  // No model (or a nameless one) is no preset: a robot without a variant has variant?.name undefined too.
+  const ofModel=m=>m?.name?Object.keys(ROBOTS).find(id=>[ROBOTS[id].name,ROBOTS[id].variant?.name].includes(m.name))||null:null;
   const assetModel=m=>!!m&&Object.values(ROBOTS).some(r=>r.variant?.name===m.name);
   // Model metadata the app stores with it (meta() adds the id and the parts found in it).
   const model=(id,asset)=>({name:robotOf(id,asset).name,units:'in',front:'+x',top:'+z',source:'step',bodyChassis:true,entered:['mass','wheel','rpm']});
