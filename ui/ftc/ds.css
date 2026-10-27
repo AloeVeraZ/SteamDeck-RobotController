@@ -209,8 +209,10 @@ dialog pre { margin: 0; max-height: 50vh; overflow: auto; white-space: pre-wrap;
 .inspect-list dt { color: var(--muted); } .inspect-list dd { margin: 0; overflow-wrap: anywhere; }
 .inspect-list dd.good { color: #85e5bd; } .inspect-list dd.bad { color: var(--danger); } .inspect-list i { font-style: normal; }
 /* Device pictures: the product photo sits on white, a drawing on the card's well. */
-.dev-fig { flex-shrink: 0; display: grid; place-items: center; border-radius: 6px; background: #eef1f5; overflow: hidden; }
-.dev-fig svg, .dev-fig img { width: 100%; height: 100%; display: block; object-fit: contain; }
+/* The picture fills the box itself, so a tall or wide photo is letterboxed, never cropped. */
+.dev-fig { position: relative; display: block; flex-shrink: 0; border-radius: 6px; background: #eef1f5; overflow: hidden; }
+.dev-fig svg, .dev-fig img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
+.dev-fig.photo img { inset: 4%; width: 92%; height: 92%; }
 .dev-fig.photo { background: #fff; } .dev-fig.empty { background: var(--well); border: 1px dashed var(--line-strong); }
 .dev-fig.small { width: 56px; height: 42px; } .dev-fig.big { width: 100%; aspect-ratio: 4 / 3; max-height: 260px; border-radius: 10px; }
 .dev-pick { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 4px 10px 4px 4px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--well); text-align: left; }

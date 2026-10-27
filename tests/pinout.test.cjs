@@ -13,6 +13,11 @@ test('every device type Configure Robot offers has a picture, a maker and a desc
   for(const tag of Object.keys(A.PHOTOS))assert.ok(tag.startsWith('#')||A.DEVICES[tag],`${tag} photo is for a known device`);
   for(const [tag,[page]] of Object.entries(A.PHOTOS))assert.match(page,/^https:\/\//,`${tag} listing is https`);
   assert.equal(A.photoOf('goBILDA5202SeriesMotor').site,'gobilda.com');assert.equal(A.photoOf('Motor'),null);
+  // Every type a port takes shows a product photo; only the generic Unspecified Motor keeps its drawing.
+  for(const tag of tags)assert.ok(tag==='Motor'||A.PHOTOS[tag],`${tag} has a product photo`);
+  for(const [tag,p] of Object.entries(A.PHOTOS)){const o=p[2]||{};if(o.image)assert.match(o.image,/^https:\/\//,`${tag} photo is https`);
+    for(const m of o.mask||[])assert.ok(m.length===4&&m.every(v=>v>=0&&v<=1)&&m[0]+m[2]<=1.0001&&m[1]+m[3]<=1.0001,`${tag} mask stays inside the photo`);}
+  assert.equal(A.photoOf('OpticalDistanceSensor').site,'modernroboticsinc.com (archived)');
 });
 
 test('goBILDA and UltraPlanetary gearing: output speed and encoder counts',()=>{
@@ -84,6 +89,20 @@ test('a product photo is the listing’s og:image, fetched once and kept',async 
   assert.equal(await photos.photo('https://evil.example/x'),null);assert.equal(await photos.photo('Motor'),null,'only listed devices');
   assert.equal(await photos.photo('RevRobotics40HDHexMotor'),null,'a page that is not a photo is refused');assert.ok(!fs.existsSync(path.join(dir,'RevRobotics40HDHexMotor.html')));
   const n=asked.length;assert.equal(await photos.photo('RevRobotics40HDHexMotor'),null);assert.equal(asked.length,n,'a failure waits before trying again');
+});
+
+test('a photo Deck names is fetched directly, and replaces one saved from an older choice',async t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'deck-photos-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const tag='NeveRest40Gearmotor',{page,image}=A.photoOf(tag),old=Buffer.from('ffd8ffe0','hex'),png=Buffer.from('89504e470d0a1a0a','hex');
+  fs.writeFileSync(path.join(dir,`${tag}.jpg`),old);fs.writeFileSync(path.join(dir,'sources.json'),JSON.stringify({[tag]:{page,image:'https://cdn.example/close-up.jpg'}}));
+  let online=false;const asked=[],fake=async url=>{asked.push(url);if(!online)throw Error('offline');return url.startsWith('https://cdn.shopify.com/')?new Response(png,{headers:{'content-type':'image/png'}}):new Response('',{status:404});};
+  const photos=new DevicePhotos(dir,{fetch:fake});assert.ok(photos.stale(tag));
+  assert.equal(await photos.photo(tag),'data:image/jpeg;base64,'+old.toString('base64'),'the old photo while offline');
+  online=true;photos.failed.clear();assert.equal(await photos.photo(tag),'data:image/png;base64,'+png.toString('base64'));
+  assert.deepEqual(asked.slice(-1),[image],'the named photo, not the listing page');assert.ok(!fs.existsSync(path.join(dir,`${tag}.jpg`)),'the old photo is gone');assert.ok(!photos.stale(tag));
+  // Another type with the same photo copies it.
+  const n=asked.length;assert.ok(await photos.photo('NeveRest20Gearmotor'));
+  assert.equal(await photos.photo('NeveRest3.7v1Gearmotor'),await photos.photo('NeveRest20Gearmotor'));assert.equal(asked.length,n+1,'one fetch for two types');
 });
 
 test('wiring notes kept on the computer are checked like the ones in a file',()=>{

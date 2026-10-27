@@ -135,34 +135,56 @@
     Webcam:{name:'Webcam',maker:'Any maker',family:'usb',what:'A UVC webcam (Logitech C270, Arducam…) on a Control Hub USB port.',art:webcam},
     EthernetDevice:{name:'Limelight 3A',maker:'Limelight',family:'usb',what:'Limelight 3A vision camera: USB to the Control Hub, which reaches it as an Ethernet device.',art:limelight}
   };
-  // Product photos: each device's listing on its maker's store, as [page, what the photo shows]. The app reads the
-  // listing's main product image (its og:image) when it is online and keeps it on this computer for the times it is on
-  // the robot's Wi-Fi; the photos stay the makers' own and are never bundled with Deck. A generic type shows a common
-  // part of that kind. Devices with no listing (discontinued parts) keep their drawing.
+  // Product photos: each device's listing on its maker's store, as [page, what the photo shows, {image, mask}]. The app
+  // reads the listing's main product image (its og:image), or the gallery photo named by image where the main one is a
+  // close-up, a crop or a group shot, when it is online and keeps it on this computer for the times it is on the robot's
+  // Wi-Fi; the photos stay the makers' own and are never bundled with Deck. mask lists [x, y, w, h] boxes (fractions of
+  // the photo) painted white to hide a store's stamp ("FTC Legal", "Patented") beside the part. A discontinued part
+  // shows its maker's archived listing. A generic type shows a common part of that kind; only Unspecified Motor
+  // and Other device keep a drawing.
   const REV=n=>`https://www.revrobotics.com/rev-${n}/`,AM=p=>`https://www.andymark.com/products/${p}`,GB=p=>`https://www.gobilda.com/${p}/`;
+  const GBI=p=>`https://cdn11.bigcommerce.com/s-x56mtydx1w/images/stencil/1280w/products/${p}.jpg`,AMI=p=>`https://cdn.shopify.com/s/files/1/0644/2303/5052/files/${p}.jpg?width=1000`;
+  const MR=(page,image,what)=>[`https://web.archive.org/web/2018/http://www.modernroboticsinc.com/${page}`,`Modern Robotics ${what} (discontinued)`,{image:`https://web.archive.org/web/2018id_/http://www.modernroboticsinc.com/content/images/thumbs/${image}.png`}];
+  const STAMP=[.6,0,.4,.18],POWERPOLE=[.28,.8,.225,.18];
   const PHOTOS={
-    goBILDA5202SeriesMotor:[GB('5203-series-yellow-jacket-planetary-gear-motor-13-7-1-ratio-24mm-length-8mm-rex-shaft-435-rpm-3-3-5v-encoder'),'goBILDA 5203 Yellow Jacket'],
+    goBILDA5202SeriesMotor:[GB('5203-series-yellow-jacket-planetary-gear-motor-13-7-1-ratio-24mm-length-8mm-rex-shaft-435-rpm-3-3-5v-encoder'),'goBILDA 5203 Yellow Jacket',
+      {image:GBI('1490/14801/5203-2402-0014__42460.1746574613'),mask:[STAMP,[.6,.9,.4,.1]]}],
+    goBILDA5201SeriesMotor:[GB('5201-series-53-1-ratio-105-rpm-spur-gear-motor-w-encoder'),'goBILDA 5201-0002-0053 (discontinued)',{image:GBI('836/4621/5201-0002-0053-FTC-Legal__41351__17713.1701992249'),mask:[STAMP]}],
+    Matrix12vMotor:[GB('modern-robotics-matrix-12vdc-motor-with-17-tooth-gear'),'MATRIX 12 VDC motor (goBILDA 5000-0002-0117)',{image:GBI('1424/7052/5000-0002-0117_FTC-Legal__08504__01887.1701993048'),mask:[STAMP]}],
+    StudicaMaverick:['https://www.studica.com/maverick-12v-dc-gear-motor-with-encoder','Studica 75001 Maverick',
+      // Studica's store turns away apps, so its photo comes from the Internet Archive's copy.
+      {image:'https://web.archive.org/web/20251105160445id_/https://www.studica.com/images/thumbs/0004207_maverick-12v-dc-gear-motor-611-wencoder.jpeg'}],
     RevRoboticsUltraplanetaryHDHexMotor:[REV('41-1600'),'REV-41-1600'],RevRobotics20HDHexMotor:[REV('41-1301'),'REV-41-1301'],RevRobotics40HDHexMotor:[REV('41-1301'),'REV-41-1301'],
     RevRoboticsHDHexMotor:[REV('41-1301'),'REV-41-1301'],RevRoboticsCoreHexMotor:[REV('41-1300'),'REV-41-1300'],
-    NeveRest20Gearmotor:[AM('neverest-orbital-20-gearmotor'),'AndyMark am-3637'],NeveRest40Gearmotor:[AM('neverest-classic-40-gearmotor'),'AndyMark am-2964a'],
-    NeveRest60Gearmotor:[AM('neverest-classic-60-gearmotor'),'AndyMark am-3103'],'NeveRest3.7v1Gearmotor':[AM('neverest-orbital-3-7-gearmotor'),'AndyMark NeveRest Orbital'],
+    NeveRest20Gearmotor:[AM('neverest-orbital-gearmotors'),'AndyMark NeveRest Orbital',{image:AMI('am-4608a_1c63043e-3c5b-430b-8bb9-19750f5624d0')}],
+    'NeveRest3.7v1Gearmotor':[AM('neverest-orbital-gearmotors'),'AndyMark NeveRest Orbital',{image:AMI('am-4608a_1c63043e-3c5b-430b-8bb9-19750f5624d0')}],
+    NeveRest40Gearmotor:[AM('neverest-classic-40-gearmotor'),'AndyMark am-2964a',{image:AMI('am-2964a_4d14bdab-4c42-4409-886d-a606795c7e00'),mask:[POWERPOLE]}],
+    NeveRest60Gearmotor:[AM('neverest-classic-60-gearmotor'),'AndyMark am-3103',{image:AMI('am-3103_e2e377ae-526e-4c38-a406-fdd4db8fa146'),mask:[POWERPOLE]}],
     TetrixMotor:['https://www.pitsco.com/TETRIX-MAX-TorqueNADO-Motor-with-Encoder','Pitsco 44260'],
     Servo:[GB('2000-series-dual-mode-servo-25-2'),'Shown: goBILDA 2000-0025-0002 Torque servo'],ServoFullRange:[GB('2000-series-dual-mode-servo-25-2'),'Shown: goBILDA 2000-0025-0002 (500–2500 µs)'],
     ContinuousRotationServo:[GB('2000-series-dual-mode-servo-25-3-speed'),'Shown: goBILDA 2000-0025-0003 in continuous mode'],
     RevBlinkinLedDriver:[REV('11-1105'),'REV-11-1105'],RevSPARKMini:[REV('31-1230'),'REV-31-1230'],
     DigitalDevice:[REV('31-1462'),'Shown: REV Magnetic Limit Switch'],RevTouchSensor:[REV('31-1425'),'REV-31-1425'],Led:[REV('31-2010'),'Shown: REV Digital LED Indicator'],
-    AnalogInput:[REV('31-1155'),'Shown: REV Potentiometer'],
+    AnalogInput:[REV('31-1155'),'Shown: REV Potentiometer'],OpticalDistanceSensor:MR('optical-distance-sensor-2','0000399_optical-distance-sensor_226','45-2006 Optical Distance Sensor'),
+    ModernRoboticsAnalogTouchSensor:MR('touch-sensor-2','0000398_touch-sensor_226','45-2007 Touch Sensor'),ModernRoboticsI2cColorSensor:MR('color-sensor','0000397_color-sensor_500','45-2018 Color Sensor'),
+    ModernRoboticsI2cRangeSensor:MR('range-sensor','0000400_range-sensor_500','45-2008 Range Sensor'),
     ControlHubImuBHI260AP:[REV('31-1595'),'Inside the REV Control Hub'],LynxEmbeddedIMU:[REV('31-1153'),'Inside the REV hub'],RevExternalImu:[REV('31-3332'),'REV-31-3332'],
     AdafruitBNO055IMU:[AM('absolute-orientation-imu-fusion-breakout'),'Adafruit BNO055 breakout'],AndyMarkIMU:[AM('imu-andymark-standard-sensors-2'),'AndyMark am-5638'],KauaiLabsNavxMicro:[AM('navx2-micro-navigation-sensor'),'AndyMark am-3554a'],
-    goBILDAPinpoint:[GB('pinpoint-odometry-computer-imu-sensor-fusion-for-2-wheel-odometry'),'goBILDA 3110-0002-0001'],SparkFunOTOS:['https://www.sparkfun.com/sparkfun-optical-tracking-odometry-sensor-paa5160e1-qwiic.html','SparkFun SEN-24904'],
-    OctoQuadFTC:['https://www.tindie.com/products/digitalchickenlabs/octoquad-ftc-ed-mk2-8x-encoderpwm-imu/','OctoQuad FTC Edition MK2'],HuskyLens:['https://www.dfrobot.com/product-1922.html','DFRobot SEN0305'],
+    goBILDAPinpoint:[GB('pinpoint-odometry-computer-imu-sensor-fusion-for-2-wheel-odometry'),'goBILDA 3110-0002-0001',{image:GBI('2262/13386/unnamed__75902__17614.1726607396'),mask:[[.6,.83,.4,.17]]}],SparkFunOTOS:['https://www.sparkfun.com/sparkfun-optical-tracking-odometry-sensor-paa5160e1-qwiic.html','SparkFun SEN-24904'],
+    OctoQuadFTC:['https://www.tindie.com/products/digitalchickenlabs/octoquad-ftc-ed-mk2-8x-encoderpwm-imu/','OctoQuad FTC Edition MK2',
+      {image:'https://img.tindie.com/images/resize/bFPvBQRWnsoWWMAng1wdRAjEBNw=/p/fit-in/1032x688/filters:fill(fff)/i/730853/products/2025-03-08T23:58:39.498Z-MK2_CaseClosed.jpg?1741449693'}],HuskyLens:['https://www.dfrobot.com/product-1922.html','DFRobot SEN0305'],
     RevColorSensorV3:[REV('31-1557'),'REV-31-1557'],LynxColorSensor:[REV('31-1537'),'REV-31-1537'],REV_VL53L0X_RANGE_SENSOR:[REV('31-1505'),'REV-31-1505'],
     AndyMarkTOF:[AM('lidar-distance-sensor-andymark-standard-sensors'),'AndyMark am-5684'],AndyMarkColor:[AM('color-and-proximity-sensor-andymark-standard-sensors'),'AndyMark color & proximity'],
     AdafruitColorSensor:['https://www.adafruit.com/product/1334','Adafruit 1334'],MaxSonarI2CXL:['https://maxbotix.com/products/mb1242','MaxBotix MB1242'],
-    QWIIC_LED_STICK:['https://www.sparkfun.com/sparkfun-qwiic-led-stick-apa102c.html','SparkFun COM-18354'],EthernetDevice:['https://limelightvision.io/products/limelight-3a','Limelight 3A'],
+    QWIIC_LED_STICK:['https://www.sparkfun.com/sparkfun-qwiic-led-stick-apa102c.html','SparkFun COM-18354'],Webcam:['https://www.logitech.com/en-us/products/webcams/c270-hd-webcam.960-000694.html','Shown: Logitech C270',
+      {image:'https://resource.logitech.com/w_800,c_limit,q_auto,f_png,dpr_1.0/d_transparent.gif/content/dam/products/logitech/webcams/c270-hd-webcam/gallery/c270-hd-webcam-1-0224.png'}],
+    EthernetDevice:[AM('limelight-3a'),'Limelight 3A (AndyMark am-3833)',{image:AMI('am-3833_3A')}],
     // The hubs themselves, for the pinout's panel headings.
     '#ControlHub':[REV('31-1595'),'REV-31-1595 Control Hub'],'#ExpansionHub':[REV('31-1153'),'REV-31-1153 Expansion Hub'],'#ServoHub':[REV('11-1855'),'REV-11-1855 Servo Hub']};
-  const photoOf=tag=>{const p=PHOTOS[tag];if(!p)return null;let site='';try{site=new URL(p[0]).hostname.replace(/^www\./,'');}catch{}return {page:p[0],caption:p[1],site};};
+  // An archived listing names the maker's own site.
+  const siteOf=page=>{try{const u=new URL(page),old=u.hostname==='web.archive.org'&&/\/web\/[^/]+\/(https?:\/\/[^/]+)/.exec(u.pathname)?.[1];
+    return old?new URL(old).hostname.replace(/^www\./,'')+' (archived)':u.hostname.replace(/^www\./,'');}catch{return '';}};
+  const photoOf=tag=>{const p=PHOTOS[tag];if(!p)return null;return {page:p[0],caption:p[1],site:siteOf(p[0]),image:p[2]?.image||null,mask:p[2]?.mask||[]};};
   const OTHER={name:'Other device',maker:'',family:'other',what:'A device type Deck has no picture for.',art:unknown};
   const info=tag=>DEVICES[tag]||{...OTHER,name:tag||OTHER.name};
   // The drawing as a standalone SVG, or (nested) placed in a pinout at x, y, w, h: the product photo when photos has
