@@ -516,13 +516,14 @@
   // ---- preset robots ----------------------------------------------------------------------------
   // Ready-made robots: chassis and mechanisms, set together and not changed (Custom robot is for that). Three starter
   // robots: a mecanum kit bot that drives on odometry and pushes pieces, the NYC FIRST A301 swerve as the fastest push
-  // bot, and a tank with one fixed shooter that takes pollen and nectar and cycles quickest. Their CAD, joints, wiring,
+  // bot, and REV's DUO FTC Starter Bot: a two-motor six-wheel tank whose one fixed launcher fires pollen and nectar out
+  // of its back (drive: the card's drivetrain words, where the drivetrain's own name says less). Their CAD, joints, wiring,
   // sensors and demo routes are in ui/sim-preset-robots.js.
   const PRESETS={
     startermecanum:{name:'Starter Mecanum',blurb:'Kit bot: drives on odometry, pushes pieces',robot:{drivetrain:'mecanum',length:17.56,width:17.79,massLb:22,driveRpm:800}},
     a301swerve:{name:'A301 Swerve',blurb:'NYC FIRST A301 push bot: the fastest',robot:{drivetrain:'swerve',length:17,width:17,massLb:28,driveRpm:1150}},
-    startertank:{name:'Starter Tank',blurb:'One fixed shooter for pollen and nectar: the quickest shots',robot:{drivetrain:'tank6',length:15,width:16,massLb:21,driveRpm:435},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:2}],shooters:[{type:'fixed',pieces:'both',mount:'center',facing:'front'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.5},indexer:{seconds:.15},shooter:{spinUp:.4}}}};
+    startertank:{name:'Starter Tank',blurb:'REV DUO FTC Starter Bot: flap intake, flywheel launcher firing out the back, pollen pusher',drive:'Tank · 6 wheels, 2 motors',robot:{drivetrain:'tank2',length:16.66,width:16.54,massLb:22,driveRpm:317},
+      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:1.5}],shooters:[{type:'fixed',pieces:'both',mount:'center',facing:'back',indexerKind:'crservo'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.5},indexer:{seconds:.15},shooter:{spinUp:.4}}}};
   // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing); a push bot's are off.
   const presetMechanisms=(id,base={})=>{if(!PRESETS[id])return null;const p=PRESETS[id].mechanisms;if(!p)return sanitize({...base,enabled:false});
     return sanitize({...base,...p,enabled:true,capacity:p.capacity||{pollen:4,nectar:0},preload:{pollen:4},transfer:p.transfer||base.transfer,indexer:{...base.indexer,...p.indexer},shooter:{...base.shooter,...p.shooter},target:null});};

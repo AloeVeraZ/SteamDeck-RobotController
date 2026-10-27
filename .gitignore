@@ -12,3 +12,4 @@ ui/assets/robots/*.glb
 # never committed or packaged (see THIRD-PARTY-NOTICES.md).
 ui/assets/fields/*.glb.gz
 ui/assets/robots/*.glb.gz
+ui/assets/robots/*.deck.gz

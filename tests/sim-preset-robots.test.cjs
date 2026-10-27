@@ -7,6 +7,9 @@ const PR=require('../ui/sim-preset-robots.js'),T=require('../ui/sim-test-robot.j
 const C=require('../ui/sim-config.js'),W=require('../ui/sim-wiring.js'),DS=require('../tools/deck-sim.cjs');
 const near=(a,b,tol,msg)=>[].concat(a).forEach((v,i)=>assert.ok(Math.abs(v-[].concat(b)[i])<=tol,`${msg||''} ${JSON.stringify(a)} ≠ ${JSON.stringify(b)}`));
 const IDS=['startermecanum','a301swerve','startertank'];
+// REV's Starter Bot CAD, prepared locally (tools/simulation/prepare-revduo.cjs); builds without it skip its checks.
+const revFile=path.join(__dirname,'../ui/assets/robots/revduo.deck.gz'),noRev=fs.existsSync(revFile)?false:'prepare REV’s Starter Bot CAD (tools/simulation/prepare-revduo.cjs)';
+const engineOf=d=>C.drives[d].engine;
 
 test('there is a generated robot for every preset, and the Test robot is unchanged by sharing its builders',()=>{
   assert.deepEqual(Object.keys(PR.ROBOTS),Object.keys(Mech.PRESETS));assert.deepEqual(IDS,Object.keys(PR.ROBOTS));
@@ -20,7 +23,7 @@ for(const id of IDS)test(`${id}: its preset's length and width on the floor, out
     for(let i=0;i<x.position.length;i++){const a=i%3;lo[a]=Math.min(lo[a],x.position[i]);hi[a]=Math.max(hi[a],x.position[i]);}triangles+=x.index.length/3;}
   near([hi[0]-lo[0],hi[1]-lo[1]],[p.robot.length,p.robot.width],.03,'length x width');assert.ok(Math.abs(lo[2])<.03,`on the floor (${lo[2]})`);assert.ok(hi[2]<=r.heightIn,`${hi[2]} in tall`);
   assert.ok(triangles<=60000,`${triangles} triangles`);
-  const res=PR.result(id,SM),groups=res.groups.map(g=>[g.name,Mech.partRole(g.name,g.inner).role]);assert.equal(Mech.drivetrainFromNames(res.names),p.robot.drivetrain);
+  const res=PR.result(id,SM),groups=res.groups.map(g=>[g.name,Mech.partRole(g.name,g.inner).role]);assert.equal(engineOf(Mech.drivetrainFromNames(res.names)),engineOf(p.robot.drivetrain));
   const chassis=res.groups.find(g=>g.name==='Chassis');near([chassis.box[3]-chassis.box[0],chassis.box[4]-chassis.box[1]],[p.robot.length,p.robot.width],.03,'chassis box');
   assert.deepEqual(groups,id==='startertank'?[['Chassis','chassis'],['Sweeper intake','intake'],['Fixed shooter (pollen + nectar)','shooter'],['Electronics','other']]:[['Chassis','chassis'],['Electronics','other']]);
   if(id==='startertank'){const s=res.groups.find(g=>g.name.startsWith('Fixed shooter')),i=res.groups.find(g=>g.name==='Sweeper intake');
@@ -49,9 +52,29 @@ for(const id of IDS)test(`${id}: applied to a setup it is a locked FTC robot wit
 });
 
 test('a fixed shooter aimed at the other cell faces that cell, not the start cell',()=>{
-  const m=Mech.sanitize(Mech.presetMechanisms('startertank')),start={x:59.25,y:58.56};
-  const [a,b]=Mech.prepare([{x:24,y:30,action:'Shoot'},{x:28,y:104,action:'Shoot',cell:'other'}],m,start);
-  assert.deepEqual([a.target,b.target],[start,{x:59.25,y:85.44}]);
+  const back=Mech.sanitize(Mech.presetMechanisms('startertank')),front=Mech.sanitize({...back,shooters:[{...back.shooters[0],facing:'front'}]}),start={x:59.25,y:58.56},other={x:59.25,y:85.44};
+  const pins=[{x:24,y:30,action:'Shoot'},{x:28,y:104,action:'Shoot',cell:'other'}],[a,b]=Mech.prepare(pins,front,start);
+  assert.deepEqual([a.target,b.target],[start,other]);
+  // The Starter Bot's launcher fires out of its back: Shoot pins turn its back to the cell.
+  const bearing=(p,q)=>Math.atan2(q.y-p.y,q.x-p.x)*180/Math.PI,[c,d]=Mech.prepare(pins,back,start);
+  near([c.turn,d.turn],[bearing(pins[0],start)-180,bearing(pins[1],other)+180],.01,'back to the cell');
+});
+
+test("REV's Starter Bot: its prepared CAD has an assembly for each moving part, its joints move them, wired with no problems",{skip:noRev},()=>{
+  const v=SM.decodeImport(require('node:zlib').gunzipSync(fs.readFileSync(revFile))),P=K.partIndex(v.tree),s=PR.apply('startertank',T.setup(),C,{asset:true}),kin=s.kinematics;
+  assert.equal(v.name,PR.REV.name);assert.ok(v.triangles<=400000,`${v.triangles} triangles`);assert.ok(PR.assetModel({name:v.name})&&PR.ofModel({name:v.name})==='startertank');
+  const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(let i=0;i<v.positions.length;i++){const a=i%3;lo[a]=Math.min(lo[a],v.positions[i]);hi[a]=Math.max(hi[a],v.positions[i]);}
+  assert.ok(Math.abs(lo[2])<.03,'on the floor');const chassis=v.groups.find(g=>g.name==='Drivetrain');near([chassis.box[3]-chassis.box[0],chassis.box[4]-chassis.box[1]],[16.66,16.54],.03,'chassis box');
+  assert.deepEqual(v.groups.map(g=>[g.name,Mech.partRole(g.name,g.inner).role]).filter(([,r])=>r!=='other'),[['Drivetrain','chassis'],['Launcher','shooter'],['Feeder','indexer'],['Intake','intake']]);
+  assert.deepEqual(kin.joints.map(j=>j.id).sort(),['feeder','feederGear','flywheel','pusher','rollerLower','rollerUpper','wheelBL','wheelBR','wheelFL','wheelFR','wheelML','wheelMR']);
+  for(const j of kin.joints){const parts=P.expand(j.parts);assert.ok(parts.size>0,`${j.id} names parts of the model`);
+    // Each turns about its own axle: the parts it moves sit round its origin (the pusher's arm reaches out from its pivot).
+    if(j.type==='continuous'){let far=0;for(const k of parts)for(let i=0;i<v.part.length;i++)if(v.part[i]===k){const d=Math.hypot(v.positions[3*i]-j.origin[0],v.positions[3*i+2]-j.origin[2]);far=Math.max(far,d);}assert.ok(far<2.6,`${j.id} parts within ${far.toFixed(2)} in of its axle`);}}
+  for(const j of kin.joints.filter(j=>j.drive?.signal==='wheel'))near(j.origin[2],j.radius,1e-3,j.id);
+  assert.deepEqual(kin.actuators.map(a=>[a.id,a.joint,a.states]),[['pusher','pusher',{stowed:110,out:0}]]);
+  // The route actions that swing the pusher's arm out and stow it.
+  const act=name=>K.resolveAction(K.forEngine(kin),name);assert.deepEqual([act('Pollen pusher out')?.kind,act('Pollen pusher out')?.value,act('Pollen pusher stowed')?.value],['move',0,110]);
+  const st=W.state(s);assert.deepEqual(st.problems,[]);assert.ok(st.rows.every(r=>r.wired),'every device on its port');assert.deepEqual(st.rows.filter(r=>/^robot\.(left|right)$/.test(r.key)).map(r=>r.model),['rev-ultra-20','rev-ultra-20']);
 });
 
 for(const id of IDS)test(`${id}: its demo route runs headlessly inside the 30 s period, touching no zone and ending at its last pin`,async t=>{
@@ -65,6 +88,6 @@ for(const id of IDS)test(`${id}: its demo route runs headlessly inside the 30 s 
     assert.equal(e.result.violations.length,0,'no zone touches');assert.ok(Math.hypot(e.result.truth.x-end.x,e.result.truth.y-end.y)<1.5,'ends within 1.5 in of the last pin (as the app checks)');assert.ok(e.result.time<30,`${e.result.time} s`);
     // It ends partly in the red loading zone (x below 12.9 in, y 95.9 to 118.6 in): PARK.
     const f=C.footprint(s.robot);assert.ok(e.result.truth.x-Math.max(f.front,f.half)<12.9&&e.result.truth.y>95.9&&e.result.truth.y<118.6,'parked');
-    if(id==='startertank'){assert.ok(st.pickedUp>=3,`picked ${st.pickedUp}`);assert.ok(st.landed>=7&&st.tips>=1,`${st.landed} of ${st.shots} landed`);for(const k of ['flywheel','indexer','roller'])assert.ok(moved[k]>0,`${k} turns`);}
+    if(id==='startertank'){assert.ok(st.pickedUp>=2,`picked ${st.pickedUp}`);assert.ok(st.landed>=6&&st.tips>=1,`${st.landed} of ${st.shots} landed`);for(const k of ['flywheel','indexer','roller'])assert.ok(moved[k]>0,`${k} turns`);}
   }finally{e.dispose();}
 });

@@ -95,18 +95,24 @@ async function readPieces(planned,runtimeDir,params,threads,progress){
   return results.flat();
 }
 const cacheFile=(dir,key)=>dir&&path.join(dir,`${key}.bin`);
-function readCache(file){
-  try{const buf=fs.readFileSync(file),head=buf.readUInt32LE(0),meta=JSON.parse(buf.subarray(4,4+head).toString('utf8'));let at=4+head;
-    const take=(Type,count)=>{const out=new Type(count);Buffer.from(out.buffer).set(buf.subarray(at,at+out.byteLength));at+=out.byteLength;return out;};
-    const positions=take(Float32Array,meta.vertices*3),normals=take(Float32Array,meta.vertices*3),colors=take(Uint8Array,meta.vertices*3),index=take(Uint32Array,meta.triangles*3),part=take(Float32Array,meta.vertices);
-    return {...meta.info,positions,normals,colors,index,part};}catch{return null;}
+// An import as bytes (the cache's layout; a prepared bundled robot, ui/assets/robots/*.deck.gz, is one gzipped): a JSON
+// header, then the merged arrays.
+function decodeImport(buf){
+  const head=buf.readUInt32LE(0),meta=JSON.parse(buf.subarray(4,4+head).toString('utf8'));let at=4+head;
+  const take=(Type,count)=>{const out=new Type(count);Buffer.from(out.buffer).set(buf.subarray(at,at+out.byteLength));at+=out.byteLength;return out;};
+  const positions=take(Float32Array,meta.vertices*3),normals=take(Float32Array,meta.vertices*3),colors=take(Uint8Array,meta.vertices*3),index=take(Uint32Array,meta.triangles*3),part=take(Float32Array,meta.vertices);
+  return {...meta.info,positions,normals,colors,index,part};
 }
+function encodeImport(value){
+  const {positions,normals,colors,index,part,...info}=value,meta=Buffer.from(JSON.stringify({vertices:positions.length/3,triangles:index.length/3,info}),'utf8'),head=Buffer.alloc(4);head.writeUInt32LE(meta.length);
+  return Buffer.concat([head,meta,...[positions,normals,colors,index,part].map(a=>Buffer.from(a.buffer,a.byteOffset,a.byteLength))]);
+}
+function readCache(file){try{return decodeImport(fs.readFileSync(file));}catch{return null;}}
 function writeCache(file,value){
-  try{const {positions,normals,colors,index,part,...info}=value,meta=Buffer.from(JSON.stringify({vertices:positions.length/3,triangles:index.length/3,info}),'utf8'),head=Buffer.alloc(4);head.writeUInt32LE(meta.length);
-    fs.mkdirSync(path.dirname(file),{recursive:true});
+  try{fs.mkdirSync(path.dirname(file),{recursive:true});
     // Keep the newest few imports.
     const dir=path.dirname(file),old=fs.readdirSync(dir).filter(f=>f.endsWith('.bin')).map(f=>({f,t:fs.statSync(path.join(dir,f)).mtimeMs})).sort((a,b)=>b.t-a.t).slice(5);for(const {f} of old)fs.rmSync(path.join(dir,f),{force:true});
-    const tmp=file+'.tmp';fs.writeFileSync(tmp,Buffer.concat([head,meta,...[positions,normals,colors,index,part].map(a=>Buffer.from(a.buffer,a.byteOffset,a.byteLength))]));fs.renameSync(tmp,file);}catch{}
+    const tmp=file+'.tmp';fs.writeFileSync(tmp,encodeImport(value));fs.renameSync(tmp,file);}catch{}
 }
 // Every part is read exactly. `exactBytes` (tests) turns solids beyond that much geometry into hulls instead.
 async function convertStep(file,runtimeDir,{cacheDir=null,progress=null,threads=null,pieces=null,exactBytes=Infinity}={}){
@@ -130,4 +136,4 @@ async function convertStep(file,runtimeDir,{cacheDir=null,progress=null,threads=
   if(cacheDir)writeCache(cacheFile(cacheDir,key),value);
   return value;
 }
-module.exports={convertStep,merge,groups,tree,names,deflectionFor,STEP_LIMIT};
+module.exports={convertStep,merge,groups,tree,names,deflectionFor,decodeImport,encodeImport,STEP_LIMIT};

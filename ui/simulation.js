@@ -197,7 +197,7 @@ public class MyAuto implements DeckAutonomous {
         <div id="sim-model-drop" class="sim-drop"><p>Drop your robot's STEP file here (or URDF, SDFormat, MuJoCo, USD, GLB, STL, OBJ). Size, drivetrain, intakes and shooters fill in from it.</p><button id="sim-model-open" class="secondary" type="button">Import CAD…</button><p id="sim-model-import-status" class="sim-import-status" role="status"></p></div>
         <div class="sim-robot-file"><button type="button" class="secondary" id="sim-robot-load">Load robot from file…</button><p class="hint">A robot file you saved here before (size, motors, CAD, sensors and mechanisms). It is not a CAD file.</p></div></div>
         <h3 class="sim-setup-sub">Or start from</h3>${segmented('robot-source',{preset:'Preset robot',custom:'Custom robot'},'Start from')}
-        <div id="sim-presets" class="sim-choice-cards sim-presets">${Object.entries(MECH.PRESETS).map(([id,p])=>`<button type="button" class="sim-choice" data-preset="${id}" aria-pressed="false"><strong>${p.name}</strong><span>${p.blurb}<br>${C.drives[p.robot.drivetrain].name} · ${p.robot.length} × ${p.robot.width} in · ${p.robot.driveRpm} RPM<br>${MECH.summary(MECH.presetMechanisms(id)).replace(/, starts with \d+$/,'')}</span></button>`).join('')}</div>
+        <div id="sim-presets" class="sim-choice-cards sim-presets">${Object.entries(MECH.PRESETS).map(([id,p])=>`<button type="button" class="sim-choice" data-preset="${id}" aria-pressed="false"><strong>${p.name}</strong><span>${p.blurb}<br>${p.drive||C.drives[p.robot.drivetrain].name} · ${p.robot.length} × ${p.robot.width} in · ${p.robot.driveRpm} RPM<br>${MECH.summary(MECH.presetMechanisms(id)).replace(/, starts with \d+$/,'')}</span></button>`).join('')}</div>
         <p id="sim-preset-note" class="hint"></p>
         <div id="sim-preset-lock" class="sim-mech-preset" hidden><p id="sim-preset-lock-text"></p><div class="sim-preset-actions"><button type="button" class="secondary" data-preset-customize>Customize this robot</button><button type="button" class="primary" data-preset-plan>Go to path planning →</button></div></div>
         <div id="sim-robot-custom">
@@ -1588,7 +1588,7 @@ public class MyAuto implements DeckAutonomous {
   let presetSeq=0;
   async function usePreset(id){const P=PR(),p=MECH.PRESETS[id];if(!p||!P?.has(id))return;const seq=++presetSeq;
     if(native&&(frame?.playing||frame?.practice))void call('stop');
-    Object.assign(project,P.apply(id,project,C));project.model=null;model=null;project.setupDone=false;
+    Object.assign(project,P.apply(id,project,C,{asset:presetAsset(id)}));project.model=null;model=null;project.setupDone=false;
     const demo=cleanLayout({...P.layout(id),id:presetLayoutId(id)}),at=project.layouts.findIndex(l=>l.id===demo.id);
     if(at>=0)project.layouts[at]=demo;else if(project.layouts.length<20)project.layouts.push(demo);
     // Placing the model makes its CAD (placeModel: a preset robot with no model yet).
@@ -1862,22 +1862,26 @@ public class MyAuto implements DeckAutonomous {
   }
   async function testRobot(){const T=window.DeckTestRobot;return storeGenerated(await api.simFile('test-robot'),T.MODEL,()=>T.kinematics());}
   // A preset robot's CAD: kept only while the setup still has that preset (chosen, or customized from it).
-  async function presetRobot(id){const P=PR();return storeGenerated(await api.simFile('preset-robot',id),P.model(id),()=>P.kinematics(id),()=>project.robotPreset===id&&!project.model||P.ofModel(project.model)===id);}
+  async function presetRobot(id){const P=PR(),asset=presetAsset(id);return storeGenerated(await api.simFile('preset-robot',{id,asset}),P.model(id,asset),()=>P.kinematics(id,asset),()=>project.robotPreset===id&&!project.model||P.ofModel(project.model)===id);}
   const presetLoading=new Map();
   let testRobotLoading=null;
   // The stored one-body model, placed in the robot frame for 2D and 3D.
   // A preset whose vendor CAD is in this build (the goBILDA Strafer, NYC FIRST's A301 Swechanum) shows it, with its
   // curated wheel and module animation, in place of its generated model.
   const presetCad=()=>{const cad=PR()?.ROBOTS[project.robotPreset]?.cad;return cad&&builtins.has(cad)?cad:null;};
+  // A preset whose prepared vendor CAD (REV's DUO Starter Bot) is in this build uses it, with its own joints and wiring.
+  const presetAsset=id=>{const a=PR()?.ROBOTS[id]?.asset;return !!a&&builtins.has(a);};
   async function placeModel(){
     const cad=presetCad();if(cad&&(project.model||project.robot.appearance!==cad)){project.model=null;project.robot.appearance=cad;project.kinematics=window.DeckKinematics.sanitize({});save();robotPanel();mechanismsPanel();}
+    // A locked preset drawn from the other source (the vendor CAD came or went with the build) is set up again from it.
+    if(project.robotPreset&&PR()?.ofModel(project.model)===project.robotPreset&&PR().assetModel(project.model)!==presetAsset(project.robotPreset)){Object.assign(project,PR().apply(project.robotPreset,project,C,{asset:presetAsset(project.robotPreset)}));project.model=null;model=null;save();}
     if(native&&typeof api.simFile==='function'&&(!project.model&&project.robot.appearance==='custom'&&testRobotParts()||project.model?.name===window.DeckTestRobot?.NAME&&placeModel.missing===project.model.id)){
       testRobotLoading??=testRobot().catch(e=>status('#start-status',`Could not build the Test robot: ${e.message}`)).finally(()=>{testRobotLoading=null;placeModel.retried=placeModel.missing;placeModel.missing=null;});await testRobotLoading;}
     // A preset robot's CAD is made when it has none yet (just chosen, or a setup saved before presets had CAD; that one gets
     // the rest of its preset too) and again when its stored file is gone (a cleared models folder, another computer).
     const preset=project.robotPreset&&!project.model?(cad?null:project.robotPreset):PR()?.ofModel(project.model);
     if(native&&typeof api.simFile==='function'&&PR()?.has(preset)&&(!project.model||placeModel.missing===project.model.id)){
-      if(!project.model&&!project.kinematics.joints.some(j=>(j.parts||[]).some(p=>String(p).startsWith(PR().ROBOTS[preset].name+'/'))))Object.assign(project,PR().apply(preset,project,C));
+      if(!project.model&&!project.kinematics.joints.some(j=>(j.parts||[]).some(p=>String(p).startsWith(PR().robotOf(preset,presetAsset(preset)).name+'/'))))Object.assign(project,PR().apply(preset,project,C,{asset:presetAsset(preset)}));
       if(!presetLoading.has(preset))presetLoading.set(preset,presetRobot(preset).catch(e=>status('#start-status',`Could not build the ${MECH.PRESETS[preset].name}: ${e.message}`)).finally(()=>{presetLoading.delete(preset);placeModel.retried=placeModel.missing;placeModel.missing=null;}));
       await presetLoading.get(preset);}
     const seq=placeModel.seq=(placeModel.seq||0)+1;

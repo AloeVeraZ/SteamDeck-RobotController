@@ -54,7 +54,7 @@ def app_files():
 RESTRICTED=('ui/vendor/models/','sim-runtime/java/')
 CAD_NOTICES={'ui/assets/fields/NOTICES.md','ui/assets/robots/NOTICES.md','ui/vendor/licenses/FIELD-CAD-NOTICES.md','ui/vendor/licenses/ROBOT-CAD-NOTICES.md'}
 def restricted(relative):
-    return relative.startswith(RESTRICTED) or relative in CAD_NOTICES or re.fullmatch(r'ui/assets/(fields|robots)/[^/]+\.glb(\.gz)?',relative) is not None
+    return relative.startswith(RESTRICTED) or relative in CAD_NOTICES or re.fullmatch(r'ui/assets/(fields|robots)/[^/]+\.(glb(\.gz)?|deck\.gz)',relative) is not None
 def java_runtime(target):
     """The reduced Java runtime for one platform, made by tools/simulation/fetch.cjs."""
     folder=CACHE/'simulation-runtime'/('java-'+target)
