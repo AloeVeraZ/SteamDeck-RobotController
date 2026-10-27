@@ -513,28 +513,17 @@
     return sanitize(m);
   }
   // ---- preset robots ----------------------------------------------------------------------------
-  // Ready-made robots: chassis and mechanisms, set together and not changed (Custom robot is for that). DSIM's
-  // BIOBUZZ presets, plus three of ours. DSIM's "dumper" is a fixed shooter that takes pollen and nectar; its
-  // "double turret" is a pollen turret and a nectar turret; the Pollinator's Box Tube is not simulated.
+  // Ready-made robots: chassis and mechanisms, set together and not changed (Custom robot is for that). Three starter
+  // robots: a mecanum kit bot that drives on odometry and pushes pieces, the NYC FIRST A301 swerve as the fastest push
+  // bot, and a tank with one fixed shooter that takes pollen and nectar and cycles quickest. sensors: where the robot
+  // gets its position (a localization choice), used when the controller offers it.
   const PRESETS={
-    sprinter:{name:'Pollen Sprinter',blurb:'Fast and simple: pollen only',robot:{drivetrain:'mecanum',length:15,width:15,massLb:21,driveRpm:550},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:2}],shooters:[{type:'turret',pieces:'pollen',mount:'center'}],capacity:{pollen:4,nectar:0},transfer:{seconds:.6},indexer:{seconds:.2},shooter:{spinUp:.5}}},
-    twinturret:{name:'Twin Turret',blurb:'Pollen and nectar, a little slower: two turrets',robot:{drivetrain:'mecanum',length:17,width:17,massLb:29,driveRpm:400},
-      mechanisms:{intakes:[{kind:'siderollers',sides:['front'],reach:2}],shooters:[{type:'turret',pieces:'pollen',mount:'left'},{type:'turret',pieces:'nectar',mount:'right'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.9},indexer:{seconds:.3},shooter:{spinUp:.7}}},
-    swervedual:{name:'Swerve Dual',blurb:'Swerve, dual intakes and dual shooters',robot:{drivetrain:'swerve',length:17,width:17,massLb:30,driveRpm:480},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:2},{kind:'siderollers',sides:['right'],reach:0}],shooters:[{type:'turret',pieces:'pollen',mount:'left'},{type:'turret',pieces:'both',mount:'right'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.8},indexer:{seconds:.25},shooter:{spinUp:.6}}},
-    starterbot:{name:'StarterBot',blurb:'DSIM kit robot: fixed shooter at the front',robot:{drivetrain:'tank6',length:15,width:16,massLb:20,driveRpm:286},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front']}],shooters:[{type:'fixed',pieces:'both',mount:'front',facing:'front'}],capacity:{pollen:4,nectar:4}}},
-    pollinator:{name:'Pollinator',blurb:'DSIM: single turret, center (Box Tube not simulated)',robot:{drivetrain:'mecanum',length:15,width:17,massLb:24.5,driveRpm:435},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front']}],shooters:[{type:'turret',pieces:'pollen',mount:'center'}]}},
-    forager:{name:'Forager',blurb:'DSIM: fixed shooter at the front, sweeps both ends',robot:{drivetrain:'butterfly',length:15,width:17,massLb:30.5,driveRpm:420},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front','back']}],shooters:[{type:'fixed',pieces:'both',mount:'front',facing:'front'}],capacity:{pollen:4,nectar:4}}},
-    skimmer:{name:'Skimmer',blurb:'DSIM: double turret, right + left',robot:{drivetrain:'xdrive',length:15,width:16,massLb:27.5,driveRpm:520},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front']}],shooters:[{type:'turret',pieces:'pollen',mount:'right'},{type:'turret',pieces:'nectar',mount:'left'}],capacity:{pollen:4,nectar:4}}},
-    sniper:{name:'Sniper',blurb:'DSIM: single turret, center, collects driving either way',robot:{drivetrain:'swerve',length:15,width:17,massLb:26.5,driveRpm:480},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front','back']}],shooters:[{type:'turret',pieces:'pollen',mount:'center'}]}}};
-  // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing).
-  const presetMechanisms=(id,base={})=>{const p=PRESETS[id]?.mechanisms;if(!p)return null;
+    startermecanum:{name:'Starter Mecanum',blurb:'Kit bot: drives on odometry, pushes pieces',robot:{drivetrain:'mecanum',length:17.56,width:17.79,massLb:22,driveRpm:800},sensors:{localization:'odometry'}},
+    a301swerve:{name:'A301 Swerve',blurb:'NYC FIRST A301 push bot: the fastest',robot:{drivetrain:'swerve',length:17,width:17,massLb:28,driveRpm:1150}},
+    startertank:{name:'Starter Tank',blurb:'One fixed shooter for pollen and nectar: the quickest shots',robot:{drivetrain:'tank6',length:15,width:16,massLb:21,driveRpm:435},
+      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:2}],shooters:[{type:'fixed',pieces:'both',mount:'center',facing:'front'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.5},indexer:{seconds:.15},shooter:{spinUp:.4}}}};
+  // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing); a push bot's are off.
+  const presetMechanisms=(id,base={})=>{if(!PRESETS[id])return null;const p=PRESETS[id].mechanisms;if(!p)return sanitize({...base,enabled:false});
     return sanitize({...base,...p,enabled:true,capacity:p.capacity||{pollen:4,nectar:0},preload:{pollen:4},transfer:p.transfer||base.transfer,indexer:{...base.indexer,...p.indexer},shooter:{...base.shooter,...p.shooter},target:null});};
   return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,copies,copyBase,fromCad,adoptCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
     sanitize,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,turretAction,hasRamp,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};

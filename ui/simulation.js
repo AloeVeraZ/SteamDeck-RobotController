@@ -1577,10 +1577,11 @@ public class MyAuto implements DeckAutonomous {
   }
   function usePreset(id){const p=MECH.PRESETS[id];if(!p)return;project.robotPreset=id;project.model=null;
     project.robot=C.robot({...project.robot,...p.robot,appearance:chassisFor(p.robot.drivetrain)},project.controller);project.mechanisms=MECH.presetMechanisms(id);
+    if(p.sensors?.localization&&C.sensorChoices(project.controller).includes(p.sensors.localization))project.sensors.localization=p.sensors.localization;
     save();robotPanel();mechanismsPanel();presetPanel();changed('robot');void placeModel();reload();}
   for(const b of $$('[data-preset]'))b.onclick=()=>usePreset(b.dataset.preset);
   // A custom robot is your own: your CAD (or a plain outline until you add it), never a bundled reference model.
-  for(const b of $$('[data-robot-source]'))b.onclick=()=>{if(b.dataset.robotSource==='preset'){usePreset(project.robotPreset||'sprinter');return;}project.robotPreset=null;project.robot.appearance=project.model?'custom':'plain';$('#sim-appearance').value=project.robot.appearance;save();presetPanel();mechanismsPanel();robotPanel();void placeModel();reload();};
+  for(const b of $$('[data-robot-source]'))b.onclick=()=>{if(b.dataset.robotSource==='preset'){usePreset(project.robotPreset||'startermecanum');return;}project.robotPreset=null;project.robot.appearance=project.model?'custom':'plain';$('#sim-appearance').value=project.robot.appearance;save();presetPanel();mechanismsPanel();robotPanel();void placeModel();reload();};
   // Robot files: the robot (settings, CAD, sensors, mechanisms) saved apart from setups and loaded into any of them.
   $('#sim-robot-save').onclick=async()=>{
     try{save();const data={deckRobot:1,controller:project.controller,robot:project.robot,sensors:project.sensors,imuSource:project.imuSource,timing:project.timing,mechanisms:project.mechanisms,kinematics:project.kinematics,model:project.model};
