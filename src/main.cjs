@@ -280,6 +280,8 @@ ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!
   return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:bridge instanceof UsbFtcSocket?'USB cable':active?.ssid||currentNetwork?.ssid||'',controllerCount:active?.controllerCount||1,...device,steamDeck:device.controllerFamily==='steamdeck',...(select?{select}:{})};});
 ipcMain.handle('ftc-controller-capture',(e,slot)=>{if(e.sender!==robotView?.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC driver station is open.');return captureController(slot);});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
+// The Driver Station's Settings > Pair with Robot Controller: Deck's Settings, with the robot kept connected.
+ipcMain.handle('ftc-settings',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');await setPage('settings');return true;});
 handle('manager-close',closeManager);
 // An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and
 // its Driver Station as soon as the Robot Controller answers. Retries every poll (the hub's Wi-Fi starts before

@@ -159,3 +159,57 @@ dialog pre { margin: 0; max-height: 50vh; overflow: auto; white-space: pre-wrap;
   .opbar { min-height: 56px; } .stage { min-height: 150px; } .side { gap: 10px; }
 }
 @media (min-width: 1800px) { .grid { padding: 24px; gap: 24px; } .left .tile { height: 128px; } .lines, .status p { font-size: 16px; } .stage { gap: 48px; } .go { width: 192px; } }
+/* Settings, Configure Robot and Self Inspect: full-screen pages over the station, as on a Driver Hub. */
+.ds-page { position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; background: var(--bg); }
+.page-head { flex-shrink: 0; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--well); border-bottom: 1px solid var(--line); }
+.page-back { font-size: 28px; line-height: 1; min-width: 44px; min-height: 44px; border-radius: 5px; }
+.page-back:hover { background: var(--raised); }
+.page-head h2 { margin: 0; flex: 1; min-width: 0; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.page-status { margin: 0; padding: 10px 16px; font-size: 13px; background: var(--raised); border-bottom: 1px solid var(--line); }
+.page-status.error { background: var(--danger-bg); color: var(--danger); } .page-status.warning { background: var(--warning-bg); color: var(--warning); }
+.page-body { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; max-width: 920px; width: 100%; margin: 0 auto; box-sizing: border-box; user-select: text; -webkit-user-select: text; }
+.cfg-btn { min-height: 44px; padding: 10px 18px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--raised); font-weight: 600; }
+.cfg-btn:hover:not(:disabled) { background: #2c3643; } .cfg-btn.danger { color: var(--danger); }
+.ds-page button:disabled, #page-ask button:disabled { opacity: .45; cursor: default; }
+.cfg-active { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-active span { color: var(--muted); } .cfg-active b { font-size: 16px; }
+.cfg-list { display: flex; flex-direction: column; gap: 8px; }
+.cfg-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-row.active { border-color: #35594b; background: var(--connected-bg); }
+.cfg-name { flex: 1; min-width: 160px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; } .cfg-name b { font-size: 15px; overflow-wrap: anywhere; }
+.cfg-name small { font-size: 11px; font-weight: 600; color: #85e5bd; text-transform: uppercase; letter-spacing: .5px; } .cfg-name small.muted { color: var(--muted); }
+.cfg-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.cfg-empty, .cfg-none { color: var(--muted); margin: 0; } .cfg-empty { padding: 24px 4px; }
+.cfg-trail { margin: 0 0 4px; color: var(--muted); font-size: 12px; }
+.cfg-heading { margin: 8px 0 0; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.cfg-entry { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; min-height: 56px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-entry:hover { background: var(--raised); }
+.cfg-entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; } .cfg-entry b { font-size: 15px; font-weight: 600; }
+.cfg-entry small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cfg-chevron { font-style: normal; font-size: 24px; color: var(--muted); }
+.cfg-ports { display: flex; flex-direction: column; gap: 8px; }
+.cfg-port { display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-port.used { border-color: var(--line-strong); }
+.cfg-port-no { font-weight: 600; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cfg-type, .cfg-device-name, #page-ask input, .set-row select { min-height: 40px; min-width: 0; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--well); color: var(--text); font: inherit; }
+.cfg-device-name.bad { border-color: var(--danger); outline: 1px solid var(--danger); }
+.cfg-add { align-self: flex-start; margin-top: 4px; }
+#page-ask input { width: 100%; box-sizing: border-box; margin-top: 12px; }
+#page-ask p { margin: 0; line-height: 1.5; } .page-ask-error { color: var(--danger); min-height: 1.5em; margin-top: 6px !important; }
+#page-ask .dialog-actions { gap: 8px; }
+.set-list { display: flex; flex-direction: column; gap: 8px; }
+.set-group { margin: 12px 0 0; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.set-row { display: flex; align-items: center; gap: 16px; padding: 12px 16px; min-height: 48px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.set-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .set-text b { font-size: 14px; font-weight: 600; } .set-text small { color: var(--muted); font-size: 12px; }
+.inspect { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.inspect .cfg-section { padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.inspect h3 { margin: 0 0 8px; font-size: 15px; }
+.inspect-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.inspect-list dt { color: var(--muted); } .inspect-list dd { margin: 0; overflow-wrap: anywhere; }
+.inspect-list dd.good { color: #85e5bd; } .inspect-list dd.bad { color: var(--danger); } .inspect-list i { font-style: normal; }
+@media (max-width: 720px) {
+  .page-body { padding: 12px; } .inspect { grid-template-columns: 1fr; }
+  .cfg-port { grid-template-columns: 56px minmax(0, 1fr); } .cfg-port > :nth-child(n+3) { grid-column: 1 / -1; }
+  .set-row { flex-wrap: wrap; }
+}

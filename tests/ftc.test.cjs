@@ -79,3 +79,16 @@ test('a robot is found at the fixed FTC addresses without typing an IP',async t=
   let robot;try{robot=await startUdpRobot({address:'127.0.0.2'});}catch(e){t.skip('127.0.0.2 loopback is unavailable: '+e.message);return;}t.after(()=>robot.close());
   assert.equal(await findFtc(['127.0.0.3','127.0.0.2']),'127.0.0.2');assert.equal(await findFtc(['127.0.0.3'],{timeout:300}),null);
 });
+
+test('Configure Robot and Self Inspect from the Driver Station: delete a configuration, read the inspection report',async t=>{
+  const {ds,sim,stop}=pair({configurations:[{name:'competition',xml:'<Robot type="FirstInspires-FTC" />'},{name:'practice',xml:'<Robot type="FirstInspires-FTC" />'}]});t.after(stop);ds.start();
+  const answers=[];ds.on('command',c=>answers.push(c));
+  await until(()=>ds.state.connection==='connected'&&ds.state.activeConfig?.name==='competition');
+  ds.command('CMD_DELETE_CONFIGURATION',JSON.stringify({name:'practice',resourceId:0,location:'LOCAL_STORAGE',isDirty:false}));
+  await until(()=>sim.configurations.length===1);assert.equal(ds.state.activeConfig.name,'competition');
+  // Deleting the active one leaves the robot with none.
+  ds.command('CMD_DELETE_CONFIGURATION',JSON.stringify({name:'competition',resourceId:0,location:'LOCAL_STORAGE',isDirty:false}));
+  await until(()=>ds.state.activeConfig?.name==='No Config Set');assert.equal(sim.configurations.length,0);
+  ds.command('CMD_REQUEST_INSPECTION_REPORT');await until(()=>answers.some(c=>c.name==='CMD_REQUEST_INSPECTION_REPORT_RESP'));
+  const report=JSON.parse(answers.find(c=>c.name==='CMD_REQUEST_INSPECTION_REPORT_RESP').extra);assert.equal(report.deviceName,'9999-C-RC');assert.equal(report.bluetoothOn,false);
+});
