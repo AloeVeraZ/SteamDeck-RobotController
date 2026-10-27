@@ -1,6 +1,6 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{createHash}=require('node:crypto');
-const {Updater,repository,selectRelease,assetName,installRoot,prepareInstall,launchInstall}=require('../src/updater.cjs');
+const {Updater,repository,selectRelease,assetName,installRoot,prepareInstall,launchInstall,keepLocalCad}=require('../src/updater.cjs');
 const options={version:'2.1.0',channel:'testing',platform:'win32',arch:'x64'};
 const makeRelease=(v='2.2.0',extra={})=>({tag_name:`testing-v${v}`,prerelease:true,draft:false,assets:[{name:assetName(v,'win32','x64'),state:'uploaded',browser_download_url:`https://github.com/owner/robots/releases/download/testing-v${v}/DeckDriverStation-${v}-Windows.zip`}],...extra});
 test('testing updates cannot select stable releases or downgrade',()=>{const stable=makeRelease('9.0.0',{tag_name:'v9.0.0',prerelease:false});assert.equal(selectRelease([stable],options).status,'unpublished');assert.equal(selectRelease([makeRelease('2.0.0')],options).status,'current');assert.equal(selectRelease([makeRelease('2.3.0'),makeRelease('2.2.0')],options).latest,'2.3.0');assert.equal(selectRelease([makeRelease('2.1.0',{draft:true})],options).status,'unpublished');const none=selectRelease([makeRelease('2.2.0',{assets:[]})],options);assert.equal(none.status,'unavailable');assert.equal(none.asset,undefined);assert.match(none.message,/^Testing 2\.2\.0 has no download for Windows yet\. Nothing was downloaded; you’re still on 2\.1\.0\.$/);});
@@ -70,4 +70,12 @@ test('an App package reaches only devices its release was built for',()=>{
 test('update check returns the no-download message as a normal result, and keeps no release to download',async t=>{
  const u=fixture(t,url=>new Response(url.endsWith('/testing-channel/channel.json')?JSON.stringify({schema:1,channel:'testing',releases:[built('2.4.23',['Windows.zip'])]}):'missing',{status:url.endsWith('channel.json')?200:404}));
  Object.assign(u,{version:'2.4.22',platform:'linux',arch:'x64'});const r=await u.check();assert.equal(r.status,'unavailable');assert.equal(r.asset,undefined);assert.match(r.message,/no download for Steam Deck \/ Linux yet/);await assert.rejects(u.download(),/Check for updates first/);
+});
+test('an update keeps locally installed field and robot CAD that release packages leave out',t=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'deck-cad-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const put=(file,text)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);},old=path.join(root,'install','app'),next=path.join(root,'stage','app');
+  put(path.join(old,'ui/vendor/models/biobuzz/field.glb'),'field');put(path.join(old,'ui/assets/robots/strafer.glb.gz'),'robot');put(path.join(old,'ui/assets/fields/decode.glb.gz'),'decode');put(path.join(old,'ui/app.js'),'old code');put(path.join(old,'ui/assets/robots/catalog.json'),'old catalog');
+  put(path.join(next,'ui/app.js'),'new code');put(path.join(next,'ui/assets/robots/catalog.json'),'new catalog');put(path.join(next,'ui/assets/fields/decode.glb.gz'),'new decode');
+  assert.equal(keepLocalCad(path.join(root,'stage'),path.join(root,'install'),'win32'),2);
+  assert.equal(fs.readFileSync(path.join(next,'ui/vendor/models/biobuzz/field.glb'),'utf8'),'field');assert.equal(fs.readFileSync(path.join(next,'ui/assets/robots/strafer.glb.gz'),'utf8'),'robot');
+  assert.equal(fs.readFileSync(path.join(next,'ui/assets/fields/decode.glb.gz'),'utf8'),'new decode');assert.equal(fs.readFileSync(path.join(next,'ui/app.js'),'utf8'),'new code');assert.equal(fs.readFileSync(path.join(next,'ui/assets/robots/catalog.json'),'utf8'),'new catalog');
 });
