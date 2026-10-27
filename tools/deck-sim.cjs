@@ -41,7 +41,7 @@ async function load(setup,l=layoutOf(setup)){
   if(!Engine){const warn=console.warn;console.warn=(...a)=>{if(!/deprecated parameters for the initialization/.test(String(a[0])))warn(...a);};}
   Engine??=require('../src/sim-engine.cjs').SimEngine;
   const e=new Engine({workDir:fs.mkdtempSync(path.join(os.tmpdir(),'deck-sim-')),now:()=>0,emit:m=>{if(m?.type==='run'&&m.state==='error')e.lastError=m.error;}});
-  const info=await e.load({mechanisms:setup.mechanisms,alliance:l.alliance,field:l.field,width:l.width,height:l.height,elements:l.elements!==false,start:l.start||{x:24,y:24,heading:0},zones:l.zones||[],robot:setup.robot,controller:setup.controller,sensors:setup.sensors,timing:{...setup.timing,power:power(setup)},tuning:setup.tuning});
+  const info=await e.load({mechanisms:setup.mechanisms,alliance:l.alliance,field:l.field,width:l.width,height:l.height,elements:l.elements!==false,start:l.start||{x:24,y:24,heading:0},zones:l.zones||[],robot:setup.robot,controller:setup.controller,sensors:setup.sensors,timing:{...setup.timing,power:power(setup)},tuning:setup.tuning,kinematics:setup.kinematics});
   return {e,info,l};
 }
 function request(setup,l,info,pins=l.pins){
@@ -175,7 +175,7 @@ const javaNames=setup=>({className:setup.export?.className||'PlannedRoute',packa
 // The Control Hub code the app exports: one OnBot Java file, or the TeamCode file set.
 function teamCode(setup,l,route,info,onbot){
   const lay=layoutFor(l),names=javaNames(setup);
-  return F[onbot?'onBotJava':'files']({route,layout:lay,mechanisms:info.mechanisms,target:info.target,tuning:info.tuning,robot:info.robot,localization:setup.sensors?.localization,setupName:setup.setupName,...names,routeJava:X.java(route,lay,{...names,polygon:P.polygon})});
+  return F[onbot?'onBotJava':'files']({route,layout:lay,mechanisms:info.mechanisms,kinematics:require('../ui/sim-kinematics.js').sanitize(setup.kinematics),target:info.target,tuning:info.tuning,robot:info.robot,localization:setup.sensors?.localization,setupName:setup.setupName,...names,routeJava:X.java(route,lay,{...names,polygon:P.polygon})});
 }
 // The Pedro export plus a pedro/Constants.java that builds the Follower from DeckStarterConstants, as a team would.
 function pedroForSim(setup,l,route,info){
@@ -189,7 +189,7 @@ function exported(setup,l,route,info,format){
   // OnBot Java: the autonomous and its check TeleOp (which tests each device on the robot first).
   if(format==='onbot'){const out=team(true);return {files:{[out.name]:out.source,[out.check.name]:out.check.source},note:`Upload both files to OnBot Java. Run ${out.check.name.replace(/\.java$/,'')} (TeleOp) first to test each device.`};}
   if(format==='teamcode'){const out=team(false);return {files:out.files,note:`OpMode ${out.opMode}. Mechanism code goes in RobotActions.java.`};}
-  if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardwareIfSupported(info.robot,setup.sensors?.localization),tuning:info.tuning});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
+  if(format==='pedro'){const out=Pedro.files({route,layout:lay,mechanisms:info.mechanisms,kinematics:require('../ui/sim-kinematics.js').sanitize(setup.kinematics),localization:setup.sensors?.localization,target:info.target,robot:info.robot,setupName:setup.setupName,defaultPower:power(setup),...names,exporter:X,ftc:F,hardware:F.hardwareIfSupported(info.robot,setup.sensors?.localization),tuning:info.tuning});return {files:out.files,note:`OpMode ${out.opMode} for Pedro Pathing ${Pedro.PEDRO_VERSION} (needs the Quickstart's pedro/Constants.java). Mechanism code goes in RobotActions.java.`};}
   if(format==='java')return {files:{[`${names.className}.java`]:routeJava()}};
   if(format==='pp')return {files:{[`${l.name.replace(/[^\w-]+/g,'_')}.pp`]:X.pp(route,lay,{polygon:P.polygon,bounds:info.bounds,pins:l.pins})}};
   if(format==='timed')return {files:{'timed-route.json':JSON.stringify({format:'deck-timed-drive-v1',controller:setup.controller,units:'inches',feedback:'IMU heading only; no X/Y feedback',start:l.start,field:l.field,...Timed.compile(route,timing)},null,2)}};

@@ -10,8 +10,10 @@ address on it: a Control Hub is `192.168.43.1`, and a Robot Controller phone usi
 Direct is `192.168.49.1`.
 
 1. In Settings, join the robot's Wi-Fi.
-2. Tick **FTC robot**. The address may be left blank; it defaults to `192.168.43.1`.
-3. Press **Open robot**. Drive shows the Driver Station; the banner turns green:
+2. Under **Robot type**, choose **FTC · Control Hub**. The address is `192.168.43.1`; for a
+   Robot Controller phone press **Use a different address** and enter `192.168.49.1`.
+3. Press **Open on Wi-Fi**, or plug the Control Hub's USB-C into this computer and press
+   **Open on USB**. Drive shows the Driver Station; the banner turns green:
    **Robot Connected**.
 
 ## After that: just join its Wi-Fi
@@ -23,7 +25,7 @@ robot answers. Closing the robot stops the automatic connection until the networ
 
 ## How the app tells robots apart
 
-The **FTC robot** box decides it directly. When it is left unticked and an address is opened
+The **Robot type** choice decides it directly. When **Other robot** is chosen and an address is opened
 for the first time, the app sends an FTC
 *peer discovery* message to UDP port 20884. A Robot Controller always answers it, so:
 

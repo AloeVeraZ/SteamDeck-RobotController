@@ -178,6 +178,7 @@ ${pods.length?`            double[] pod=new double[pods.length];for(int i=0;i<po
 import deck.pathing.DeckFollower;
 import deck.pathing.DeckFollower.Pose;
 import deck.pathing.DeckFollower.Path;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -202,6 +203,8 @@ public class ${options.opModeName} extends LinearOpMode {
         follower.setPose(${R}.START);
         actions = new RobotActions();
         actions.init(hardwareMap, telemetry);
+        // Each hub reads all its inputs in one go per loop (bulk caching), so sensors and encoders cost no extra time.
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         Path[] legs = ${R}.legs();
         telemetry.addData("Route", legs.length + " legs");
         telemetry.update();
@@ -336,6 +339,7 @@ public class ${options.opModeName} extends LinearOpMode {
     }
 
     private void report(int leg, int legs, String phase) {
+        actions.update();
         Pose p = follower.pose();
         telemetry.addData("Leg", (leg + 1) + " of " + legs);
         telemetry.addData("Phase", phase);
@@ -397,21 +401,27 @@ public abstract class RouteActions {
     protected Telemetry telemetry;
 ${mech?`    /** The intake, indexer and shooter set up in the simulator (Mechanisms.java). */
     protected final Mechanisms mech = new Mechanisms();
+`:''}${options.parts?.list?.length?`    /** The robot's own moving parts set up in the simulator (Parts.java): "Lift up" and the like. */
+    protected final Parts parts = new Parts();
 `:''}
     /** Called once during init, before START. Look up your mechanism hardware here. */
     public void init(HardwareMap hardwareMap, Telemetry telemetry) {
         this.hardwareMap = hardwareMap;
         this.telemetry = telemetry;
-${mech?'        mech.init(hardwareMap);\n':''}    }
+${mech?'        mech.init(hardwareMap);\n':''}${options.parts?.list?.length?'        parts.init(hardwareMap);\n':''}    }
 ${list.map(a=>`
     /** "${comment(a.name)}": ${a.uses.map(u=>Ex.where(u)).join('; ')}. Return true when finished. */
     public boolean ${a.slot}(Step step) {
-        ${mechanismAction(a.name,mech)||`return notWritten(${javaString(a.name)});`}
+        ${mechanismAction(a.name,mech,options.parts)||`return notWritten(${javaString(a.name)});`}
     }
 `).join('')}
+    /** Called every loop by the autonomous: moving parts finish their moves on their own. */
+    public void update() {
+${options.parts?.list?.length?'        parts.update();\n':''}    }
+
     /** Called when the autonomous ends or is stopped: stop every mechanism. */
     public void stop() {
-${mech?'        mech.stop();\n':''}    }
+${mech?'        mech.stop();\n':''}${options.parts?.list?.length?'        parts.stop();\n':''}    }
 
     /** Runs the action with this simulator name. Names this file does not know count as finished. */
     public final boolean run(String name, Step step) {
@@ -493,7 +503,7 @@ ${seqs.map((q,k)=>`    private final Steps steps${k + 1} = new Steps(${q.togethe
 }
 `;}
   // The team's own file: created once with a method for each action, never overwritten afterwards.
-  function robotActions(options,list){const Ex=options.exporter,mech=options.mechanisms?.enabled?options.mechanisms:null;list=list.filter(a=>!mechanismAction(a.name,mech));return `package ${options.packageName};
+  function robotActions(options,list){const Ex=options.exporter,mech=options.mechanisms?.enabled?options.mechanisms:null;list=list.filter(a=>!mechanismAction(a.name,mech,options.parts));return `package ${options.packageName};
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import org.firstinspires.ftc.robotcore.external.Telemetry;
@@ -542,24 +552,24 @@ ${list.map(a=>`
 `;}
   // ---------------------------------------------------------------- mechanisms
   // The simulator's built-in actions as they run on the robot. "Shoot" feeds once per storage slot.
-  function mechanismAction(name,mech){
+  function mechanismAction(name,mech,parts){
     // Wait takes its set time (the route ends it) and nothing else.
     if(/^\s*wait\s*$/i.test(String(name||'')))return 'return step.last || step.duration <= 0;';
-    if(!mech)return '';const a=(globalThis.DeckMechanisms||require('./sim-mechanisms.js')).action(name),shooter=mech.shooter.type!=='none';
+    if(!mech)return partAction(name,parts);const a=(globalThis.DeckMechanisms||require('./sim-mechanisms.js')).action(name),shooter=mech.shooter.type!=='none';
     if(a.kind==='intake'&&mech.intake.enabled)return 'boolean done = step.last || (!step.moving && step.duration <= 0);\n        mech.intake(!done);\n        return done;';
     if(a.kind==='spin'&&shooter)return 'mech.spin(true);\n        return true;';
     if(a.kind==='aim'&&shooter)return 'mech.aim(step.pose, step.cell);\n        return step.moving ? step.last : mech.aimed();';
     if(a.kind==='shoot'&&shooter)return `return mech.shoot(${a.count}, step);`;
     // A ramp stays where it is sent: at a pin the route waits until it has had its time to get there.
-    if(a.kind==='ramp'&&mech.intakes.some(i=>i.kind==='ramp'))return `mech.ramp(${a.down});\n        return step.moving || step.elapsed >= Mechanisms.RAMP_${a.down?'DOWN':'UP'}_SECONDS;`;
+    if(a.kind==='ramp'&&mech.intakes.some(i=>i.kind==='ramp'))return `mech.ramp(${a.down});\n        return step.moving || mech.rampsAt(${a.down}, step.elapsed);`;
     if(a.kind==='turret'&&mech.shooters.some(s=>s.type==='turret'))return `${a.turret===null?`mech.turnTurrets(${javaNumber(a.degrees)})`:`mech.turnTurret(${a.turret}, ${javaNumber(a.degrees)})`};\n        return step.moving || mech.aimed();`;
-    return '';
+    return partAction(name,parts);
   }
   const javaNumber=v=>{const t=String(+Number(v).toFixed(3));return t.includes('.')?t:t+'.0';};
   // Every mechanism device the export drives, with the Java field and constant it gets. Mechanisms.java, the
   // mechanism check, the robot configuration check and the virtual Control Hub are all built from this one list.
   // device: what it is in the robot configuration (motor, crservo or servo).
-  function mechanismDevices(m,robot={}){
+  function mechanismDevices(m,robot={},kin=null){
     const Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),out=[];
     m.intakes.forEach((i,k)=>{const no=k+1,base={part:'intake',index:k};
       if(i.kind!=='kicker'){const device=i.device==='crservo'?'crservo':'motor';
@@ -573,25 +583,218 @@ ${list.map(a=>`
       const kind=s.indexerKind;
       out.push({...base,role:'feeder',field:`feeder${no}`,constant:`FEEDER_${no}`,name:s.indexer,device:kind==='motor'||kind==='crservo'?kind:'servo',feeder:kind,reversed:!!s.indexerReversed,feed:s.feedPos,rest:s.restPos,label:`Shooter ${no} feeder`,setting:{list:'shooters',index:k,field:'indexer'}});
       if(s.type==='turret'&&!s.sharesTurret)out.push({...base,role:'turret',field:`turret${no}`,constant:`TURRET_${no}`,name:s.turretMotor,device:m.turret.kind==='servo'?'servo':'motor',reversed:!!s.turretReversed,offset:Mech.mountOffset(s.mount,robot),label:`Shooter ${no} turret`,setting:{list:'shooters',index:k,field:'turretMotor'}});
+      if(s.hood)out.push({...base,role:'hood',field:`hood${no}`,constant:`HOOD_${no}`,name:s.hood,device:'servo',...hoodPositions(m,k,robot,kin),label:`Shooter ${no} hood`,setting:{list:'shooters',index:k,field:'hood'}});
     });
     return out;
   }
+  // A hood servo's positions: REST holds the hood where the CAD has it (the servo's center), SHOOT tilts it from there to
+  // the shooting angle (the hood angle set in Mechanisms less the launch angle the CAD shows), within the joint's limits.
+  function hoodPositions(m,k,robot,kin){
+    const A=Act(),j=(kin?.joints||[]).find(x=>x.drive?.signal==='hood'&&x.drive.of==='shooter:'+k),model=robot?.wiring?.devices?.[`shooters.${k}.hood`]?.model,a={kind:'servo',...(model?{model}:{}),servo:{}};
+    const lo=Number.isFinite(j?.lower)?j.lower:-Infinity,hi=Number.isFinite(j?.upper)?j.upper:Infinity,rest=j?.states?.rest??0,tilt=Number.isFinite(j?.launch)?Math.max(lo,Math.min(hi,m.shooter.hood-j.launch)):j?.states?.shoot??rest;
+    return {shoot:+A.position(a,tilt).toFixed(4),rest:+A.position(a,rest).toFixed(4)};}
   // The virtual Control Hub's mechanism ports for these settings. mount is the physical truth from the settings (-1: the
   // device is mounted to turn the other way), so robot code has to set the same direction for a piece to go in.
   function mechanismHardware(m){
     const d=mechanismDevices(m),Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),out={},mount=x=>x.reversed?-1:1;
     const rollers=d.filter(x=>x.role==='roller');if(rollers.length)out.intakes=rollers.map(x=>({name:x.name,kind:x.device,mount:mount(x),part:x.index}));
     for(const role of ['kicker','ramp']){const list=d.filter(x=>x.role===role);if(list.length)out[role+'s']=list.map(x=>({name:x.name,down:x.down,up:x.up}));}
-    if(m.shooters.length)out.shooters=m.shooters.map((s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k),f=mine.find(x=>x.role==='feeder'),t=mine.find(x=>x.role==='turret');
-      return {flywheels:mine.filter(x=>x.role==='flywheel').map(x=>({name:x.name,mount:mount(x)})),ticksPerSecond:m.shooter.rpm*m.shooter.ticksPerRev/60,
+    if(m.shooters.length)out.shooters=m.shooters.map((s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k),f=mine.find(x=>x.role==='feeder'),t=mine.find(x=>x.role==='turret'),hd=mine.find(x=>x.role==='hood');
+      return {...(hd?{hood:{name:hd.name}}:{}),flywheels:mine.filter(x=>x.role==='flywheel').map(x=>({name:x.name,mount:mount(x)})),ticksPerSecond:m.shooter.rpm*m.shooter.ticksPerRev/60,
         indexer:{name:f.name,kind:f.feeder,mount:mount(f),...(Mech.servoFeeder(f.feeder)?{feed:f.feed,rest:f.rest}:{})},
         ...(t?{turret:t.device==='servo'?{name:t.name,kind:'servo',center:m.turret.servoCenter,degrees:m.turret.servoDegrees,mount:mount(t)}:{name:t.name,kind:'motor',ticksPerDegree:m.turret.ticksPerDegree,mount:mount(t)}}:{})};});
     return out;
   }
+  // ---------------------------------------------------------------- wiring, sensors and the robot's own moving parts
+  const Hw=()=>globalThis.DeckHardware||(typeof require==='function'?require('./sim-hardware.js'):null);
+  const Kin=()=>globalThis.DeckKinematics||require('./sim-kinematics.js'),Act=()=>globalThis.DeckActuators||require('./sim-actuators.js');
+  // Every device and sensor as Setup wires it (DeckHardware rows, with the ports Deck planned for the rest).
+  function wiredRows(robot,localization,mechanisms,kinematics){const H=Hw();if(!H)return [];
+    try{return H.placed(H.rows({robot,mechanisms,kinematics,sensors:{localization}},robotNeeds(robot,localization,mechanisms)),robot?.wiring);}catch{return [];}}
+  // A wired sensor as the code and the virtual hub read it: its configuration name (one on an encoder input is read
+  // through the motor on that port), what it gives (analog volts, a switch, encoder counts, a distance or colour) and its
+  // calibration. An analog sensor not calibrated yet reads its model's span, mid-span where the CAD has the part.
+  const SENSOR_TYPES={axonFeedback:'analog',potentiometer:'analog',analogAbs:'analog',touch:'touch',magnetic:'digital',limit:'digital',color:'color',distance:'distance',throughBore:'encoder'};
+  function sensorSpecs(rows,robot){const H=Hw(),stored=new Map((robot?.wiring?.sensors||[]).map(s=>[s.id,s]));if(!H)return [];
+    return rows.filter(r=>r.role==='sensor'&&SENSOR_TYPES[r.kind]).map(r=>{const s=stored.get(r.id)||{},md=H.SENSOR_MODELS[r.model]||{},type=r.kind==='magnetic'&&md.xmlType==='RevTouchSensor'?'touch':SENSOR_TYPES[r.kind],span=md.voltage>0?md.voltage:3.3;
+      return {id:r.id,name:r.via||r.name,type,kind:r.kind,use:r.use,for:r.for,...(Number.isInteger(r.port)?{port:r.port}:{}),inverted:!!s.inverted,
+        ...(type==='analog'?{zeroVolts:Number.isFinite(s.zeroVolts)?s.zeroVolts:span/2,voltsPerUnit:Number.isFinite(s.voltsPerUnit)?s.voltsPerUnit:span/(md.degrees||360)}:{}),
+        ...(type==='encoder'?{countsPerUnit:Number.isFinite(s.countsPerUnit)?s.countsPerUnit:(md.cpr||8192)/360,cpr:md.cpr||8192}:{})};});}
+  // The sensor that tells where a device is (an Axon's feedback wire, a potentiometer, an analog encoder), or null.
+  const positionSensor=(specs,key)=>(specs||[]).find(s=>s.for===key&&s.use==='position'&&s.type==='analog')||null;
+  // The virtual Control Hub's sensors (src/sim-engine.cjs hub.sensors), with the names and calibration the export reads.
+  function sensorHardware(robot,kin,mechanisms,localization='encoders'){
+    const joints=kin?.joints||[],actuators=new Set((kin?.actuators||[]).map(a=>a.id)),specs=sensorSpecs(wiredRows(robot,localization,mechanisms,kin),robot);
+    const joint=(signal,of)=>{const j=joints.find(x=>x.drive?.signal===signal&&(x.drive.of===of||signal==='feeder'&&x.drive.of==='any'));return j?{joint:j.id}:null;};
+    return specs.map(s=>{const [list,index,field]=String(s.for).split('.'),n=+index||0;
+      const source=list==='kin'?(actuators.has(index)?{actuator:index}:{joint:index}):s.use==='piece'&&(list==='intakes'||list==='shooters')?{piece:list==='intakes'?'intake':'shooter',index:n}
+        :list==='shooters'&&field==='turretMotor'?{turret:n}:list==='shooters'&&field==='hood'?joint('hood','shooter:'+n):list==='intakes'&&field==='servo'?joint('deploy','intake:'+n):list==='shooters'&&field==='indexer'?joint('feeder','shooter:'+n):null;
+      if(!source)return null;const {id:_i,kind:_k,use:_u,for:_f,...hub}=s;return {...hub,source};}).filter(Boolean);}
+  // The robot's own moving parts that route actions move ("Lift up", "Claw to 30°"): each FTC motor or servo on a part
+  // that route actions drive (game parts run with their intake or shooter), with what the code needs to move it.
+  const PART_KINDS={servo:'servo',linear:'servo',crservo:'crservo',dcmotor:'motor'};
+  function partDevices(kin){
+    if(!kin?.actuators?.length)return [];const K=Kin(),A=Act(),out=[],used=new Set();
+    for(const a of kin.actuators){if(!PART_KINDS[a.kind])continue;const j=(kin.joints||[]).find(x=>x.id===a.joint);if(!j||j.drive&&j.drive.signal!=='action')continue;
+      let method=A.camel(a.name);while(used.has(method))method+='2';used.add(method);const Name=method[0].toUpperCase()+method.slice(1);
+      const [lo,hi]=K.limitsOf(j)[a.index||0]||[-Infinity,Infinity],home=Number.isFinite(a.home)?a.home:Number.isFinite(j.home)?j.home:0;
+      const p={id:a.id,joint:j.id,role:'part',label:a.name,method,Name,constant:'PART_'+method.replace(/([a-z0-9])([A-Z])/g,'$1_$2').toUpperCase(),name:a.device||A.camel(a.name),device:PART_KINDS[a.kind],kind:a.kind,
+        model:a.model||null,reversed:!!a.reversed,unit:K.dofOf(j)[a.index||0]==='in'?'in':'degrees',states:a.states||j.states||{},home,min:Number.isFinite(lo)?lo:null,max:Number.isFinite(hi)?hi:null,
+        speed:a.speed||90,accel:a.accel||0,power:Number.isFinite(a.power)?Math.min(1,a.power):1,setting:{kin:a.id},...(a.device2?{name2:a.device2,reversed2:!!a.reversed2}:{})};
+      if(a.kind==='servo'||a.kind==='linear'){const v=A.servo(a);Object.assign(p,{center:v.center,servoMin:v.min,servoMax:v.max,perUnit:1/A.valueAt(a,v.center+1),pwm:v.pwm});}
+      if(a.kind==='dcmotor')p.countsPerUnit=A.countsPer(a);
+      out.push(p);}
+    return out;}
+  // The virtual hub's parts (src/sim-engine.cjs hub.kinematics), as the engine lists them, except that a part read through
+  // a Through Bore on its own motor port counts that encoder, as the export does.
+  function kinematicsHardware(kin,robot){const A=Act(),specs=sensorSpecs(wiredRows(robot,'encoders',null,kin),robot);
+    return (kin?.actuators||[]).filter(a=>PART_KINDS[a.kind]).map(a=>{const type=PART_KINDS[a.kind],v=A.servo(a),name=a.device||A.camel(a.name),port=robot?.wiring?.devices?.['kin.'+a.id]?.port;
+      const bore=type==='motor'&&specs.find(s=>s.for==='kin.'+a.id&&s.type==='encoder'&&s.name===name&&s.use==='position');
+      return {id:a.id,name,type,reversed:!!a.reversed,countsPerUnit:bore?bore.countsPerUnit:A.countsPer(a),...(type==='servo'?{servo:{center:v.center,perUnit:A.perUnit(a),sign:a.reversed?-1:1,ratio:Number.isFinite(a.ratio)&&a.ratio?a.ratio:1,pwm:v.pwm}}:{}),...(Number.isInteger(port)?{port}:{})};});}
+  // A route action that moves one of them: "<part> <named position>" or "<part> to N", as the simulator reads it.
+  function partAction(name,parts){
+    if(!parts?.list?.length||!parts.kinematics)return '';let r=null;try{r=Kin().resolveAction(parts.kinematics,name);}catch{}
+    const p=r?.kind==='move'&&r.actuator?parts.list.find(x=>x.id===r.actuator):null;if(!p)return '';
+    return `if (step.first) parts.${p.method}(${javaNumber(r.value)});\n        return step.moving || parts.${p.method}Done();`;}
+  // Parts.java: each moving part on its motor or servo. The CAD is every part's zero: a motor's encoder is reset where the
+  // robot starts (posed as in the CAD), and a servo's center holds the part where the CAD has it. A part with a position
+  // sensor is there once the sensor says so (or after its time plus SENSOR_TIMEOUT_SECONDS); one without is there after
+  // the time the simulator gives the move, or (a motor) once RUN_TO_POSITION is done.
+  function partsSource(options,parts,specs){
+    const q=s=>`"${comment(s)}"`,C=[],fields=[],init=[],methods=[],updates=[],stops=[];
+    for(const p of parts){const c=p.constant,f=p.method,sensor=positionSensor(specs,'kin.'+p.id),home=(specs||[]).find(s=>s.for==='kin.'+p.id&&s.use==='home'&&['touch','digital'].includes(s.type)),
+      // A Through Bore (or other quadrature encoder) on the part's own motor port: RUN_TO_POSITION counts it, not the motor.
+      bore=p.device==='motor'&&(specs||[]).find(s=>s.for==='kin.'+p.id&&s.type==='encoder'&&s.name===p.name&&s.use==='position'),states=Object.entries(p.states).map(([k,v])=>`${k} ${+Number(v).toFixed(3)}`).join(', ');
+      C.push(`    // ---- ${comment(p.label)}: a ${p.kind==='dcmotor'?'motor':p.kind==='crservo'?'continuous servo':p.kind==='linear'?'linear servo':'servo'} ${q(p.name)}${p.model?` (${comment(p.model)})`:''}, in ${p.unit} from where the CAD has it${states?`; named positions ${comment(states)}`:''}.`,
+        `    public static final String ${c} = ${javaString(p.name)};`,`    public static final double ${c}_HOME = ${n(p.home)}, ${c}_SPEED = ${n(p.speed)}, ${c}_ACCEL = ${n(p.accel)}${p.min!==null?`, ${c}_MIN = ${n(p.min)}`:''}${p.max!==null?`, ${c}_MAX = ${n(p.max)}`:''};`);
+      if(p.device==='servo')C.push(`    /** The servo position that holds it where the CAD has it, and the change in position per ${p.unit==='in'?'inch':'degree'}${p.reversed?' (it turns the other way)':''}. */`,`    public static final double ${c}_CENTER = ${n(p.center)}, ${c}_POSITION_PER_UNIT = ${p.perUnit.toPrecision(6)}, ${c}_SERVO_MIN = ${n(p.servoMin)}, ${c}_SERVO_MAX = ${n(p.servoMax)};`);
+      else if(p.device==='motor')C.push(bore?`    /** ${comment(bore.name)}'s encoder port reads a ${bore.cpr}-count encoder on the part itself: counts per ${p.unit==='in'?'inch':'degree'} of the part, and its power for RUN_TO_POSITION. */`:`    /** Encoder counts per ${p.unit==='in'?'inch':'degree'} of the part, and its power for RUN_TO_POSITION. */`,`    public static final double ${c}_COUNTS_PER_UNIT = ${(bore?bore.countsPerUnit:p.countsPerUnit).toPrecision(6)}, ${c}_POWER = ${n(p.power)};`,`    public static final boolean ${c}_REVERSED = ${p.reversed};`);
+      else C.push(`    /** Its power while it moves, and which way positive power turns it. */`,`    public static final double ${c}_POWER = ${n(p.power)};`,`    public static final boolean ${c}_REVERSED = ${p.reversed};`);
+      if(p.name2)C.push(`    /** A second ${p.device==='motor'?'motor':'servo'} on the same part, driven with the first${p.reversed2?' (mounted mirrored)':''}. */`,`    public static final String ${c}_2 = ${javaString(p.name2)};`);
+      if(home)C.push(`    /** ${comment(home.name)} closes where the CAD has the part: sent there, it re-zeroes the encoder on the switch. */`,`    public static final String ${c}_HOME_SWITCH = ${javaString(home.name)};`);
+      if(sensor)C.push(`    /** ${comment(sensor.name)} tells where it is: volts where the CAD has it, and volts per ${p.unit==='in'?'inch':'degree'} (the guided check measures both). */`,`    public static final String ${c}_SENSOR = ${javaString(sensor.name)};`,`    public static final double ${c}_ZERO_VOLTS = ${n(sensor.zeroVolts)}, ${c}_VOLTS_PER_UNIT = ${sensor.voltsPerUnit.toPrecision(6)};`);
+      C.push('');
+      const type=p.device==='servo'?'Servo':p.device==='crservo'?'CRServo':'DcMotorEx';fields.push(`    private ${type} ${f};${p.name2?`\n    private ${type} ${f}2;`:''}${sensor?`\n    private AnalogInput ${f}Sensor;`:''}${home?`\n    private ${home.type==='touch'?'TouchSensor':'DigitalChannel'} ${f}Home;`:''}`,`    private double ${f}Target = ${c}_HOME, ${f}From = ${c}_HOME, ${f}Start = -1;`);
+      if(p.device==='servo')init.push(`        ${f} = map.get(Servo.class, ${c});`,...(p.pwm&&(p.pwm[0]!==600||p.pwm[1]!==2400)?[`        if (${f} instanceof ServoImplEx) ((ServoImplEx) ${f}).setPwmRange(new PwmControl.PwmRange(${p.pwm[0]}, ${p.pwm[1]}));`]:[]),`        ${f}.setPosition(${f}Position(${c}_HOME));`);
+      else if(p.device==='motor')init.push(`        ${f} = map.get(DcMotorEx.class, ${c});`,`        ${f}.setDirection(${c}_REVERSED ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD);`,`        ${f}.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);`,`        // Zero is where the robot starts, posed as in the CAD.`,`        ${f}.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);`,`        ${f}.setTargetPosition((int) Math.round(${c}_HOME * ${c}_COUNTS_PER_UNIT));`,`        ${f}.setMode(DcMotor.RunMode.RUN_TO_POSITION);`);
+      else init.push(`        ${f} = map.get(CRServo.class, ${c});`,`        ${f}.setDirection(${c}_REVERSED ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD);`);
+      if(sensor)init.push(`        ${f}Sensor = map.get(AnalogInput.class, ${c}_SENSOR);`);
+      if(home)init.push(home.type==='touch'?`        ${f}Home = map.get(TouchSensor.class, ${c}_HOME_SWITCH);`:`        ${f}Home = map.get(DigitalChannel.class, ${c}_HOME_SWITCH);\n        ${f}Home.setMode(DigitalChannel.Mode.INPUT);`);
+      // The second one is looked up by tryGet: a robot without it still runs.
+      if(p.name2)init.push(`        ${f}2 = map.tryGet(${type}.class, ${c}_2);`,...(p.device==='motor'?[`        if (${f}2 != null) {`,`            ${f}2.setDirection(${c}_REVERSED != ${p.reversed2} ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD);`,`            ${f}2.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);`,`            ${f}2.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);`,`            ${f}2.setTargetPosition((int) Math.round(${c}_HOME * ${c}_COUNTS_PER_UNIT));`,`            ${f}2.setMode(DcMotor.RunMode.RUN_TO_POSITION);`,`        }`]:p.device==='crservo'?[`        if (${f}2 != null) ${f}2.setDirection(${c}_REVERSED != ${p.reversed2} ? DcMotorSimple.Direction.REVERSE : DcMotorSimple.Direction.FORWARD);`]:[`        if (${f}2 != null) ${f}2.setPosition(${f}Position2(${c}_HOME));`]));
+      const clampValue=p.min!==null||p.max!==null?`        value = Math.max(${p.min!==null?`${c}_MIN`:'-Double.MAX_VALUE'}, Math.min(${p.max!==null?`${c}_MAX`:'Double.MAX_VALUE'}, value));\n`:'';
+      const at=sensor?`Math.abs(${f}Measured() - ${f}Target) <= TOLERANCE_${p.unit==='in'?'INCHES':'DEGREES'}`:null,time=`moveSeconds(Math.abs(${f}Target - ${f}From), ${c}_SPEED${p.device==='crservo'?` * ${c}_POWER`:''}, ${c}_ACCEL)`;
+      const done=p.device==='motor'?`!${f}.isBusy() || t >= ${time} * 2 + SENSOR_TIMEOUT_SECONDS`:at?`${at} || t >= ${time} + SENSOR_TIMEOUT_SECONDS`:`t >= ${time}`;
+      methods.push(`
+    /** ${comment(p.label)} to a value: ${p.unit} from where the CAD has it. Route actions: "${comment(p.label)} <named position>" or "${comment(p.label)} to N". */
+    public void ${f}(double value) {
+${clampValue}        ${f}From = ${f}Target;
+        ${f}Target = value;
+        ${f}Start = clock.seconds();
+${p.device==='servo'?`        ${f}.setPosition(${f}Position(value));${p.name2?`\n        if (${f}2 != null) ${f}2.setPosition(${f}Position2(value));`:''}`:p.device==='motor'?`        ${f}.setTargetPosition((int) Math.round(value * ${c}_COUNTS_PER_UNIT));\n        ${f}.setMode(DcMotor.RunMode.RUN_TO_POSITION);\n        ${f}.setPower(${c}_POWER);${p.name2?`\n        if (${f}2 != null) {\n            ${f}2.setTargetPosition((int) Math.round(value * ${c}_COUNTS_PER_UNIT));\n            ${f}2.setMode(DcMotor.RunMode.RUN_TO_POSITION);\n            ${f}2.setPower(${c}_POWER);\n        }`:''}`:`        ${f}.setPower(Math.signum(value - ${f}From) * ${c}_POWER);${p.name2?`\n        if (${f}2 != null) ${f}2.setPower(Math.signum(value - ${f}From) * ${c}_POWER);`:''}`}
+    }
+
+    /** True once ${comment(p.label)} has got there${at?' (its sensor says so)':p.device==='motor'?' (RUN_TO_POSITION is done)':''}. */
+    public boolean ${f}Done() {
+        if (${f}Start < 0) return true;
+        double t = clock.seconds() - ${f}Start;
+        boolean done = ${done};${p.device==='crservo'?`
+        if (done) { ${f}.setPower(0);${p.name2?` if (${f}2 != null) ${f}2.setPower(0);`:''} }`:''}
+        return done;
+    }
+${p.device==='servo'?`
+    private static double ${f}Position(double value) {
+        return Math.max(${c}_SERVO_MIN, Math.min(${c}_SERVO_MAX, ${c}_CENTER + value * ${c}_POSITION_PER_UNIT));
+    }
+${p.name2?`
+    /** The second servo's position: the same, or mirrored about the center when it is mounted mirrored. */
+    private static double ${f}Position2(double value) {
+        return ${p.reversed2?`Math.max(0, Math.min(1, 2 * ${c}_CENTER - ${f}Position(value)))`:`${f}Position(value)`};
+    }
+`:''}`:''}${home?`
+    /** True while ${comment(home.name)} is closed (REV switches pull the line low). */
+    public boolean ${f}AtHome() {
+        return ${home.type==='touch'?`${f}Home.isPressed()`:`${home.inverted?'':'!'}${f}Home.getState()`};
+    }
+`:''}${sensor?`
+    /** Where ${comment(p.label)} is by its sensor, ${p.unit} from where the CAD has it. */
+    public double ${f}Measured() {
+        return (${f}Sensor.getVoltage() - ${c}_ZERO_VOLTS) / ${c}_VOLTS_PER_UNIT;
+    }
+`:''}`);
+      if(p.device==='crservo')updates.push(`        ${f}Done();`);
+      // Sent home with its switch closed: the encoder counts from here again (relative encoders drift between runs).
+      if(p.device==='motor'&&home)updates.push(`        if (${f}AtHome() && Math.abs(${f}Target - ${c}_HOME) < 1e-6 && ${f}.getCurrentPosition() != (int) Math.round(${c}_HOME * ${c}_COUNTS_PER_UNIT)) {`,`            ${f}.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);`,`            ${f}.setTargetPosition((int) Math.round(${c}_HOME * ${c}_COUNTS_PER_UNIT));`,`            ${f}.setMode(DcMotor.RunMode.RUN_TO_POSITION);`,...(p.name2?[`            if (${f}2 != null) {`,`                ${f}2.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);`,`                ${f}2.setTargetPosition((int) Math.round(${c}_HOME * ${c}_COUNTS_PER_UNIT));`,`                ${f}2.setMode(DcMotor.RunMode.RUN_TO_POSITION);`,`            }`]:[]),`        }`);
+      stops.push(p.device==='servo'?null:`        ${f}.setPower(0);${p.name2?`\n        if (${f}2 != null) ${f}2.setPower(0);`:''}`);}
+    const sensed=parts.some(p=>positionSensor(specs,'kin.'+p.id));
+    return `package ${options.packageName};
+
+import com.qualcomm.robotcore.hardware.AnalogInput;
+import com.qualcomm.robotcore.hardware.CRServo;
+import com.qualcomm.robotcore.hardware.DcMotor;
+import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.DigitalChannel;
+import com.qualcomm.robotcore.hardware.HardwareMap;
+import com.qualcomm.robotcore.hardware.PwmControl;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.ServoImplEx;
+import com.qualcomm.robotcore.hardware.TouchSensor;
+import com.qualcomm.robotcore.util.ElapsedTime;
+
+/**
+ * The robot's own moving parts of "${comment(options.layoutName||'route')}", generated by Deck Driver Station from Setup → Mechanisms.
+ * Export rewrites this file. Route actions such as "Lift up" call these methods; they never wait, so the robot keeps
+ * following its path (or holding its pin) while a part moves. The CAD is every part's zero: start the robot posed as
+ * in the CAD, with each motor's encoder counting from there.
+ */
+public class Parts {
+${C.join('\n').replace(/\n+$/,'')}
+
+    /** How close a part with a position sensor counts as there, and how much longer than its move it may take. */
+    public static final double TOLERANCE_DEGREES = 2.0, TOLERANCE_INCHES = 0.1, SENSOR_TIMEOUT_SECONDS = ${sensed?'0.5':'0.5'};
+
+${fields.join('\n')}
+    private final ElapsedTime clock = new ElapsedTime();
+
+    public void init(HardwareMap map) {
+${init.join('\n')}
+    }
+${methods.join('')}
+    /** Called every loop: a continuous servo stops once it is there. */
+    public void update() {
+${updates.join('\n')}
+    }
+
+    public void stop() {
+${stops.filter(Boolean).join('\n')}
+    }
+
+    /** Seconds a move of d takes at speed (units a second), speeding up and slowing down at accel (0: at once). */
+    private static double moveSeconds(double d, double speed, double accel) {
+        if (d <= 0) return 0;
+        if (speed <= 0) return Double.MAX_VALUE;
+        if (accel <= 0) return d / speed;
+        return d >= speed * speed / accel ? d / speed + speed / accel : 2 * Math.sqrt(d / accel);
+    }
+}
+`.replace(/\n\n\n+/g,'\n\n');}
+  // An old RobotActions.java (the team's own file, never overwritten) still holding Deck's empty "return true" method for
+  // an action Deck now runs itself would override it and nothing would move. Those untouched methods are taken out; any
+  // method the team wrote stays. Returns {text, removed: slot names}.
+  function retireStubs(text,slots){
+    let out=String(text||'').replace(/\r\n/g,'\n');const removed=[];
+    for(const slot of slots||[]){if(!/^\w+$/.test(slot))continue;
+      const stub=new RegExp(`\\n[ \\t]*/\\*\\*[^\\n]*\\*/[ \\t]*\\n[ \\t]*@Override[ \\t]*\\n[ \\t]*public boolean ${slot}\\(Step step\\) \\{[ \\t]*\\n(?:[ \\t]*//[^\\n]*\\n)*[ \\t]*return true;[ \\t]*\\n[ \\t]*\\}[ \\t]*\\n`);
+      if(stub.test(out)){out=out.replace(stub,'\n');removed.push(slot);}}
+    return {text:removed.length?out:String(text||''),removed};}
   function mechanismsSource(options,m,target,robot={}){
-    const Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),d=mechanismDevices(m,robot),of=role=>d.filter(x=>x.role===role),velocity=m.shooter.control!=='power';
+    const Mech=globalThis.DeckMechanisms||require('./sim-mechanisms.js'),d=mechanismDevices(m,robot,options.kinematics),specs=options.sensorSpecs||[],of=role=>d.filter(x=>x.role===role),velocity=m.shooter.control!=='power';
     const rollers=of('roller'),swings=d.filter(x=>x.role==='kicker'||x.role==='ramp'),flywheels=of('flywheel'),feeders=of('feeder'),turrets=of('turret');
-    const motorTurrets=turrets.filter(x=>x.device==='motor'),servoTurrets=turrets.filter(x=>x.device==='servo'),pushers=feeders.filter(x=>x.feeder==='pusher');
+    const motorTurrets=turrets.filter(x=>x.device==='motor'),servoTurrets=turrets.filter(x=>x.device==='servo'),pushers=feeders.filter(x=>x.feeder==='pusher'),hoods=of('hood');
+    // A ramp with a position sensor (an Axon's feedback wire, a potentiometer) is down or up once the sensor says so.
+    const deployJoint=k=>(options.kinematics?.joints||[]).find(j=>j.drive?.signal==='deploy'&&j.drive.of==='intake:'+k);
+    const sensed=swings.filter(x=>x.role==='ramp').map(x=>{const s=positionSensor(specs,`intakes.${x.index}.servo`),j=deployJoint(x.index);return s&&j?{x,s,down:j.states?.lowered??j.upper??90,up:j.states?.raised??0}:null;}).filter(Boolean);
     const q=s=>`"${comment(s)}"`,turns=x=>x.reversed?' (turns the other way)':'',where=mount=>Mech.MOUNTS[mount].toLowerCase(),list=values=>`{${values.join(', ')}}`;
     const FEEDERS={motor:'motor',crservo:'continuous servo',pusher:'servo pusher',gate:'servo gate'};
     const intakeText=(i,k)=>{const mine=d.filter(x=>x.part==='intake'&&x.index===k);
@@ -606,13 +809,17 @@ ${list.map(a=>`
         else C.push(x.role==='kicker'?`    /** ${x.label}: its position down (scooping) while an Intake action runs, and up otherwise. */`:`    /** ${x.label}: its position down (Ramp down: it reaches into flowers) and up (Ramp up). It stays where it was sent. */`,`    public static final String ${x.constant} = ${javaString(x.name)};`,`    public static final double ${x.constant}_DOWN = ${n(x.down)}, ${x.constant}_UP = ${n(x.up)};`);}
       C.push('');});
     const ramps=m.intakes.filter(i=>i.kind==='ramp');
-    if(ramps.length)C.push('    /** Seconds a ramp takes to fold down and back up: Ramp down and Ramp up at a pin wait this long. */',`    public static final double RAMP_DOWN_SECONDS = ${n(Math.max(...ramps.map(i=>i.down)))}, RAMP_UP_SECONDS = ${n(Math.max(...ramps.map(i=>i.up)))};`,'');
+    if(ramps.length)C.push(`    /** Seconds a ramp takes to fold down and back up: Ramp down and Ramp up at a pin wait this long${sensed.length?' (a ramp with a sensor waits for it instead, at most SENSOR_TIMEOUT_SECONDS longer)':''}. */`,`    public static final double RAMP_DOWN_SECONDS = ${n(Math.max(...ramps.map(i=>i.down)))}, RAMP_UP_SECONDS = ${n(Math.max(...ramps.map(i=>i.up)))};`,'');
+    for(const {x,s,down,up} of sensed)C.push(`    /** ${comment(s.name)} tells where intake ${x.index+1}'s ramp is: volts where the CAD has it, volts per degree, and the ramp's angle down and up. */`,`    public static final String ${x.constant}_SENSOR = ${javaString(s.name)};`,`    public static final double ${x.constant}_ZERO_VOLTS = ${n(s.zeroVolts)}, ${x.constant}_VOLTS_PER_DEGREE = ${s.voltsPerUnit.toPrecision(6)}, ${x.constant}_DOWN_DEGREES = ${n(down)}, ${x.constant}_UP_DEGREES = ${n(up)};`);
+    if(sensed.length)C.push('    /** A part with a sensor is there within SWING_TOLERANCE_DEGREES; one that never gets there carries on SENSOR_TIMEOUT_SECONDS after its time. */','    public static final double SWING_TOLERANCE_DEGREES = 3.0, SENSOR_TIMEOUT_SECONDS = 0.5;','');
     m.shooters.forEach((s,k)=>{const mine=d.filter(x=>x.part==='shooter'&&x.index===k);C.push(`    // ---- Shooter ${k+1}: ${Mech.PIECES[s.pieces].toLowerCase()}.`);
       const fw=mine.filter(x=>x.role==='flywheel');C.push(`    /** Flywheel motor${fw.length>1?'s (both spin the flywheel; set each one\'s direction so they push the same way)':''}. */`,`    public static final String ${fw.map(x=>`${x.constant} = ${javaString(x.name)}`).join(', ')};`,`    public static final boolean ${fw.map(x=>`${x.constant}_REVERSED = ${x.reversed}`).join(', ')};`);
       const f=mine.find(x=>x.role==='feeder');
       if(Mech.servoFeeder(f.feeder))C.push(`    /** Feeder: a ${FEEDERS[f.feeder]}. ${f.feeder==='pusher'?'FEED pushes a piece into the flywheel; REST lets the next one drop in.':'FEED is open (pieces pass); REST is closed.'} */`,`    public static final String ${f.constant} = ${javaString(f.name)};`,`    public static final double ${f.constant}_FEED = ${n(f.feed)}, ${f.constant}_REST = ${n(f.rest)};`);
       else C.push(`    /** Feeder: a ${FEEDERS[f.feeder]} that runs at FEEDER_POWER while shooting. */`,`    public static final String ${f.constant} = ${javaString(f.name)};`,`    public static final boolean ${f.constant}_REVERSED = ${f.reversed};`);
       const t=mine.find(x=>x.role==='turret');
+      const hd=mine.find(x=>x.role==='hood');
+      if(hd)C.push(`    /** Hood servo: SHOOT tilts it to the shooting angle for Spin up and Shoot; REST holds it where the CAD has it. */`,`    public static final String ${hd.constant} = ${javaString(hd.name)};`,`    public static final double ${hd.constant}_SHOOT = ${n(hd.shoot)}, ${hd.constant}_REST = ${n(hd.rest)};`);
       if(t)C.push(`    /** Turret: a ${t.device==='servo'?'servo':'motor with an encoder'}. It aims from where it turns on the robot, inches forward and left of the center. */`,`    public static final String ${t.constant} = ${javaString(t.name)};`,`    public static final boolean ${t.constant}_REVERSED = ${t.reversed};`,`    public static final double ${t.constant}_X = ${n(t.offset[0])}, ${t.constant}_Y = ${n(t.offset[1])};`);
       C.push('');});
     if(m.shooters.length){
@@ -635,18 +842,20 @@ ${list.map(a=>`
     }
     // Device fields and setup.
     const type=x=>x.device==='servo'?'Servo':x.role==='flywheel'||x.role==='turret'?'DcMotorEx':'DcMotorSimple';
-    const fields=d.map(x=>`    private ${type(x)} ${x.field};`);
+    const fields=[...d.map(x=>`    private ${type(x)} ${x.field};`),...sensed.map(({x})=>`    private AnalogInput ${x.field}Sensor;`)];
     const init=[];
     for(const x of d){
       if(x.role==='roller')init.push(`        ${x.field} = map.get(DcMotorSimple.class, ${x.constant});`,`        ${x.field}.setDirection(direction(${x.constant}_REVERSED));`,`        if (${x.field} instanceof DcMotor) ((DcMotor) ${x.field}).setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);`);
       else if(x.role==='kicker'||x.role==='ramp')init.push(`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(${x.constant}_UP);`);
       else if(x.role==='flywheel')init.push(`        ${x.field} = flywheel(map, ${x.constant}, ${x.constant}_REVERSED);`);
       else if(x.role==='feeder')init.push(...(Mech.servoFeeder(x.feeder)?[`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(${x.constant}_REST);`]:[`        ${x.field} = map.get(DcMotorSimple.class, ${x.constant});`,`        ${x.field}.setDirection(direction(${x.constant}_REVERSED));`]));
+      else if(x.role==='hood')init.push(`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(${x.constant}_REST);`);
       else if(x.role==='turret')init.push(...(x.device==='servo'?[`        ${x.field} = map.get(Servo.class, ${x.constant});`,`        ${x.field}.setPosition(TURRET_SERVO_CENTER);`]:[`        ${x.field} = turretMotor(map, ${x.constant}, ${x.constant}_REVERSED);`]));
     }
+    for(const {x} of sensed)init.push(`        ${x.field}Sensor = map.get(AnalogInput.class, ${x.constant}_SENSOR);`);
     const rampSwings=swings.filter(x=>x.role==='ramp'),rampLines=rampSwings.map(x=>`        ${x.field}.setPosition(down ? ${x.constant}_DOWN : ${x.constant}_UP);`);
     const intakeLines=[...rollers.map(x=>`        ${x.field}.setPower(on ? ${x.constant}_POWER : 0);`),...swings.filter(x=>x.role==='kicker').map(x=>`        ${x.field}.setPosition(on ? ${x.constant}_DOWN : ${x.constant}_UP);`)];
-    const spinLines=!flywheels.length?[]:velocity?['        double speed = on ? FLYWHEEL_TICKS_PER_SECOND : 0;',...flywheels.map(x=>`        ${x.field}.setVelocity(speed);`)]:['        double power = on ? FLYWHEEL_POWER : 0;',...flywheels.map(x=>`        ${x.field}.setPower(power);`)];
+    const spinLines=[...!flywheels.length?[]:velocity?['        double speed = on ? FLYWHEEL_TICKS_PER_SECOND : 0;',...flywheels.map(x=>`        ${x.field}.setVelocity(speed);`)]:['        double power = on ? FLYWHEEL_POWER : 0;',...flywheels.map(x=>`        ${x.field}.setPower(power);`)],...hoods.map(x=>`        ${x.field}.setPosition(on ? ${x.constant}_SHOOT : ${x.constant}_REST);`)];
     const feedLines=feeders.map(x=>x.feeder==='pusher'?`        ${x.field}.setPosition(push ? ${x.constant}_FEED : ${x.constant}_REST);`:x.feeder==='gate'?`        ${x.field}.setPosition(feeding ? ${x.constant}_FEED : ${x.constant}_REST);`:`        ${x.field}.setPower(feeding ? FEEDER_POWER : 0);`);
     const turnLines=turrets.map(x=>`        turn${x.field[0].toUpperCase()+x.field.slice(1)}(degrees);`),aimLines=turrets.map(x=>`        turn${x.field[0].toUpperCase()+x.field.slice(1)}(bearing(pose, ${x.constant}_X, ${x.constant}_Y, x, y));`);
     const turnMethods=turrets.map(x=>{const name='turn'+x.field[0].toUpperCase()+x.field.slice(1);
@@ -671,7 +880,7 @@ ${list.map(a=>`
     const shooter=m.shooters.length>0;
     return `package ${options.packageName};
 
-import com.qualcomm.robotcore.hardware.DcMotor;
+${sensed.length?'import com.qualcomm.robotcore.hardware.AnalogInput;\n':''}import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -750,7 +959,21 @@ ${rampLines.length?`
     public void ramp(boolean down) {
 ${rampLines.join('\n')}
     }
-`:''}
+
+    /** True once every ramp has got down (or up): ${[sensed.length?'a ramp with a sensor once it reads within SWING_TOLERANCE_DEGREES (or RAMP_..._SECONDS + SENSOR_TIMEOUT_SECONDS have passed)':'',sensed.length<rampSwings.length?'a ramp without one once it has had RAMP_DOWN_SECONDS or RAMP_UP_SECONDS':''].filter(Boolean).join(', ')}. */
+    public boolean rampsAt(boolean down, double elapsed) {
+        double timed = down ? RAMP_DOWN_SECONDS : RAMP_UP_SECONDS;${sensed.length?`
+        if (elapsed >= timed + SENSOR_TIMEOUT_SECONDS) return true;
+        boolean at = ${sensed.map(({x})=>`Math.abs(degrees(${x.field}Sensor, ${x.constant}_ZERO_VOLTS, ${x.constant}_VOLTS_PER_DEGREE) - (down ? ${x.constant}_DOWN_DEGREES : ${x.constant}_UP_DEGREES)) <= SWING_TOLERANCE_DEGREES`).join('\n            && ')};
+        return at${sensed.length<rampSwings.length?' && elapsed >= timed':''};`:`
+        return elapsed >= timed;`}
+    }
+${sensed.length?`
+    /** Degrees from where the CAD has a part, from its analog sensor. */
+    private static double degrees(AnalogInput sensor, double zeroVolts, double voltsPerDegree) {
+        return (sensor.getVoltage() - zeroVolts) / voltsPerDegree;
+    }
+`:''}`:''}
     /** Flywheels on (toward their speed) or off. */
     public void spin(boolean on) {
         if (on && !spinning) spinStart = clock.seconds();
@@ -1494,8 +1717,9 @@ ${flywheels.length&&velocity?`
   }
   // Every TeamCode file for the Control Hub, keyed by path under TeamCode/src/main/java. RobotActions
   // is listed in keep: it is written only when it does not exist yet.
-  function files({route,layout,tuning,robot,localization,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',routeJava,mechanisms=null,target=null,exporter=globalThis.DeckSimExport||require('./sim-export.js')}){
-    const h=hardware(robot,localization),dir=packageName.replace(/\./g,'/'),opModeName=className+'Auto',mech=mechanisms?.enabled?mechanisms:null,options={packageName,className,opModeName,layoutName:layout.name,setupName,exporter,mechanisms:mech,sequences:exporter.sequences?.(route)||[]},list=exporter.actions(route);
+  function files({route,layout,tuning,robot,localization,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',routeJava,mechanisms=null,kinematics=null,target=null,exporter=globalThis.DeckSimExport||require('./sim-export.js')}){
+    const h=hardware(robot,localization),dir=packageName.replace(/\./g,'/'),opModeName=className+'Auto',mech=mechanisms?.enabled?mechanisms:null,list=exporter.actions(route),{parts,sensorSpecs}=exportParts({robot,localization,mechanisms,kinematics});
+    const options={packageName,className,opModeName,layoutName:layout.name,setupName,exporter,mechanisms:mech,kinematics,parts,sensorSpecs,sequences:exporter.sequences?.(route)||[]};
     if(mech)h.mechanisms=mechanismHardware(mech);
     // Older callers export geometry before passing the measured robot tuning. Resolve inherited
     // power here as well, so generated code and the virtual follower use the same default.
@@ -1503,10 +1727,13 @@ ${flywheels.length&&velocity?`
     routeJava=routeJava.replace(/public static final double\[\] MOTOR_POWER = \{[^}]*\}/,`public static final double[] MOTOR_POWER = {${powers}}`);
     const core=(globalThis.DeckFollowerSource||(typeof require==='function'?require('./sim-follower-source.js'):''));if(!core)throw Error('The bundled Deck controller source is missing.');
     const out={[`${dir}/${className}.java`]:routeJava,[`${dir}/${opModeName}.java`]:opMode(options),[`${dir}/RouteActions.java`]:routeActions(options,list),[`${dir}/RobotActions.java`]:robotActions(options,list),[`${dir}/drive/Constants.java`]:constants(h,tuning,options),[`${dir}/drive/RobotDrive.java`]:robotDrive(h,options),['deck/pathing/DeckFollower.java']:core};
-    if(mech)out[`${dir}/Mechanisms.java`]=mechanismsSource(options,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
+    if(mech)out[`${dir}/Mechanisms.java`]=mechanismsSource(options,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width,wiring:robot?.wiring});
+    if(parts.list.length)out[`${dir}/Parts.java`]=partsSource(options,parts.list,sensorSpecs);
     // The check TeleOp tests the drive motors and every mechanism device on the robot before the autonomous runs.
     const checkName=className+'Check',check=`${dir}/${checkName}.java`;out[check]=checkOpMode({...options,checkName},h,mech);
-    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${opModeName}`,check:{path:check,opMode:`${packageName}.${checkName}`},hardware:h,actions:list};
+    // Deck runs these actions itself: an old RobotActions.java's untouched empty methods for them are taken out (retireStubs).
+    const retire={[`${dir}/RobotActions.java`]:list.filter(a=>mechanismAction(a.name,mech,parts)).map(a=>a.slot)};
+    return {files:out,keep:[`${dir}/RobotActions.java`],retire,opMode:`${packageName}.${opModeName}`,check:{path:check,opMode:`${packageName}.${checkName}`},hardware:h,actions:list};
   }
   // One SDK-only .java file for OnBot Java: controller, route, wiring and action slots
   // are nested in its OpMode. No external library upload or Android Studio project is needed.
@@ -1529,6 +1756,12 @@ ${flywheels.length&&velocity?`
     const check={name:checkName+'.java',source:checkOpMode({packageName,layoutName:options.layout.name,setupName:options.setupName,checkName},out.hardware,mech,name+'.Mechanisms'),opMode:out.check.opMode};
     return {name:name+'.java',source,opMode:out.opMode,check,files:{[dir+'/'+name+'.java']:source,[dir+'/'+check.name]:check.source},hardware:out.hardware};
   }
+  // The robot's own moving parts and the sensors the code reads, for one export.
+  function exportParts({robot,localization,mechanisms,kinematics}){const list=partDevices(kinematics),rows=wiredRows(robot,localization,mechanisms?.enabled?mechanisms:null,kinematics);
+    return {parts:{list,kinematics:kinematics||null},sensorSpecs:sensorSpecs(rows,robot),rows};}
+  // The robot's configuration as Setup wires it (hubs, every device and sensor on its port), written without a scan.
+  function robotConfiguration({robot,localization,mechanisms,kinematics}){const R=globalThis.DeckRobotConfig||require('./ftc/robot-config.js'),H=Hw();
+    return R.configurationFor(wiredRows(robot,localization,mechanisms?.enabled?mechanisms:null,kinematics).filter(r=>r.kind!=='motorEncoder'),H.wiringOf(robot),{});}
   // What a Control Hub export proves and what the team still has to do (shown with the export).
   function checklist({mechanisms=null,actions=[]}={}){
     return [
@@ -1540,5 +1773,5 @@ ${flywheels.length&&velocity?`
       {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low power first. Simulation and compilation do not prove the robot will follow the path.'}
     ];
   }
-  return {checklist,hardware,hardwareIfSupported,deviceSlots,robotNeeds,files,onBotJava,mechanismDevices,mechanismHardware,mechanismAction,routeActions,robotActions,mechanismsSource,checkOpMode,checkResults,applyCheck,SUPPORTED,MOTORS,TANK,ticksPerRev};
+  return {checklist,hardware,hardwareIfSupported,deviceSlots,robotNeeds,files,onBotJava,mechanismDevices,mechanismHardware,mechanismAction,sensorHardware,kinematicsHardware,sensorSpecs,wiredRows,partDevices,partAction,partsSource,exportParts,robotConfiguration,retireStubs,hoodPositions,routeActions,robotActions,mechanismsSource,checkOpMode,checkResults,applyCheck,SUPPORTED,MOTORS,TANK,ticksPerRev};
 });

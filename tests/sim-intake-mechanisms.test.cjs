@@ -52,7 +52,11 @@ test('Configure from CAD: a second intake assembly on the same edge is part of t
   const parts=[{name:'Chassis',role:'chassis',box:{x0:-8,x1:8,y0:-8,y1:8,z0:0,z1:4}},{name:'intake v4',role:'intake',kind:'sweeper',box:{x0:6,x1:14,y0:-7,y1:7,z0:2,z1:9}},{name:'FRONT RAMP',role:'intake',kind:'ramp',box:{x0:7,x1:8,y0:-5,y1:5,z0:.4,z1:1}}];
   const out=Mech.fromCad(parts,{length:16,width:16});
   assert.equal(out.intakes.length,1);assert.deepEqual(out.intakes[0].parts,['intake v4','FRONT RAMP']);assert.equal(out.intakes[0].kind,'sweeper','the first assembly says what it is; its shapes decide the rest');
-  assert.ok(out.found.includes('Intake “intake v4” + “FRONT RAMP”: front, 6 in out, 14 in wide'),out.found.join(' | '));
+  assert.ok(out.found.includes('Intake “intake v4” + ramp “FRONT RAMP”: front, 6 in out, 14 in wide · whether the ramp swings down is checked on its hinge (Moving parts)'),out.found.join(' | '));
+  // A ramp named as one that moves makes the rollers' intake a deployable ramp, and says why.
+  const deploy=Mech.fromCad([...parts.slice(0,2),{...parts[2],name:'Ramp deploy'}],{length:16,width:16});
+  assert.equal(deploy.intakes.length,1);assert.equal(deploy.intakes[0].kind,'ramp');
+  assert.ok(deploy.found.includes('Intake “intake v4” + ramp “Ramp deploy”: front, 6 in out, 14 in wide · a deployable ramp because “Ramp deploy” is named as a ramp that moves, on the same edge as the rollers'),deploy.found.join(' | '));
 });
 test('star or flex wheels turn with the axle they are centred on, even named only “Blue Version”; a square block on it stays',()=>{
   const r=S.starFeeder(),ctx=D.prepare(r.arrays),L=r.leaves,{joints}=D.discover(ctx,{rows:ROWS,unit:1,meta:r.meta,mechanisms:Mech.sanitize(r.mechanisms)});

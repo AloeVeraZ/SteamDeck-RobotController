@@ -21,6 +21,15 @@ test('wire layouts match the Robocol formats used by FTC SDK 11',()=>{
   assert.deepEqual([t.robotState,t.strings,t.numbers],[1,[['\0ƀ','Heading : 90']],[['speed',0.5]]]);
 });
 
+// FTC SDK 12.0's SoftwareVersionWarningSource reads only the first discovery: the Driver Station is obsolete when its
+// build month is before August of the current season, or its FTC season (starting in September) is before the robot's.
+test('the first discovery passes an SDK 12.0 Robot Controller\'s obsolete-app check',()=>{
+  const sent=[];const ds=new R.DriverStation({send:b=>sent.push(b)});ds.start();ds.stop();
+  const p=R.decode(sent[0]),season=(y,m)=>m>=9?y:y-1,obsolete=(y,m,nowY,nowM)=>y*12+m<(nowM>=10?nowY:nowY-1)*12+8;
+  assert.deepEqual([p.version,p.major,p.minor,p.year,p.month],[124,12,0,2026,9]);
+  assert.equal(obsolete(p.year,p.month,2026,10),false);assert.equal(season(p.year,p.month),season(2026,9));
+});
+
 test('station connects, lists op modes, and runs INIT, START, and STOP through the robot',async t=>{
   const {ds,sim,stop}=pair();t.after(stop);ds.start();
   await until(()=>ds.state.connection==='connected'&&ds.state.opModes.length===4&&ds.state.activeConfig);
@@ -78,4 +87,17 @@ test('a robot is found at the fixed FTC addresses without typing an IP',async t=
   const {findFtc,FTC_ADDRESSES}=require('../src/ftc.cjs');assert.deepEqual(FTC_ADDRESSES,['192.168.43.1','192.168.49.1']);
   let robot;try{robot=await startUdpRobot({address:'127.0.0.2'});}catch(e){t.skip('127.0.0.2 loopback is unavailable: '+e.message);return;}t.after(()=>robot.close());
   assert.equal(await findFtc(['127.0.0.3','127.0.0.2']),'127.0.0.2');assert.equal(await findFtc(['127.0.0.3'],{timeout:300}),null);
+});
+
+test('Configure Robot and Self Inspect from the Driver Station: delete a configuration, read the inspection report',async t=>{
+  const {ds,sim,stop}=pair({configurations:[{name:'competition',xml:'<Robot type="FirstInspires-FTC" />'},{name:'practice',xml:'<Robot type="FirstInspires-FTC" />'}]});t.after(stop);ds.start();
+  const answers=[];ds.on('command',c=>answers.push(c));
+  await until(()=>ds.state.connection==='connected'&&ds.state.activeConfig?.name==='competition');
+  ds.command('CMD_DELETE_CONFIGURATION',JSON.stringify({name:'practice',resourceId:0,location:'LOCAL_STORAGE',isDirty:false}));
+  await until(()=>sim.configurations.length===1);assert.equal(ds.state.activeConfig.name,'competition');
+  // Deleting the active one leaves the robot with none.
+  ds.command('CMD_DELETE_CONFIGURATION',JSON.stringify({name:'competition',resourceId:0,location:'LOCAL_STORAGE',isDirty:false}));
+  await until(()=>ds.state.activeConfig?.name==='No Config Set');assert.equal(sim.configurations.length,0);
+  ds.command('CMD_REQUEST_INSPECTION_REPORT');await until(()=>answers.some(c=>c.name==='CMD_REQUEST_INSPECTION_REPORT_RESP'));
+  const report=JSON.parse(answers.find(c=>c.name==='CMD_REQUEST_INSPECTION_REPORT_RESP').extra);assert.equal(report.deviceName,'9999-C-RC');assert.equal(report.bluetoothOn,false);
 });

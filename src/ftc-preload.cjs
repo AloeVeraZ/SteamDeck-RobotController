@@ -8,5 +8,11 @@ contextBridge.exposeInMainWorld('ftcHost',{
   send:bytes=>ipcRenderer.send('ftc-send',bytes),
   onPacket:fn=>listen('ftc-packet',bytes=>fn(new Uint8Array(bytes))),
   onActive:fn=>listen('ftc-active',active=>fn(!!active)),
-  programAndManage:()=>ipcRenderer.invoke('ftc-manage')
+  programAndManage:()=>ipcRenderer.invoke('ftc-manage'),
+  openSettings:()=>ipcRenderer.invoke('ftc-settings'),
+  devicePhoto:tag=>ipcRenderer.invoke('ftc-device-photo',tag),
+  devicePhotos:()=>ipcRenderer.invoke('ftc-device-photos'),
+  saveFile:file=>ipcRenderer.invoke('ftc-save-file',file),
+  wiringNotes:request=>ipcRenderer.invoke('ftc-wiring-notes',request),
+  rcHubs:()=>ipcRenderer.invoke('ftc-rc-hubs')
 });

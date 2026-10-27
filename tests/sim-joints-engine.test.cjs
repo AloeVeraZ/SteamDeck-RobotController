@@ -54,3 +54,26 @@ test('a route action naming a part and a position moves that part during the run
     assert.equal(top,12,'the lift went up to 12 in at the pin');
   }finally{e.dispose();}
 });
+test('a route action name resolves the same way for the simulator and the exporter: an action, or a part to a value',()=>{
+  const model=K.sanitize({joints:[{id:'lift',name:'Lift',type:'prismatic',axis:[0,0,1],lower:0,upper:20,states:{down:0,up:12},drive:{signal:'action'}},{id:'arm',name:'Arm',type:'revolute',axis:[0,1,0],lower:-10,upper:180,states:{stow:0,up:90}}],
+    actuators:[{id:'armServo',name:'Arm servo',joint:'arm',kind:'servo',speed:90}],actions:[{name:'Score',steps:[{actuator:'armServo',command:{state:'up'}}]}]});
+  const r=K.resolveAction(model,' score ');assert.equal(r.kind,'steps');assert.equal(r.action.name,'Score');assert.equal(r.steps,model.actions[0].steps);
+  assert.deepEqual(K.resolveAction(model,'Lift up'),{kind:'move',joint:'lift',value:12,state:'up'});
+  assert.deepEqual(K.resolveAction(model,'Lift to 30 in'),{kind:'move',joint:'lift',value:20},'held at its end stop');
+  assert.deepEqual(K.resolveAction(model,'Arm up'),{kind:'move',actuator:'armServo',value:90,state:'up'},'an actuator by its joint\'s name');
+  assert.deepEqual(K.resolveAction(model,'Arm servo to -45°'),{kind:'move',actuator:'armServo',value:-10});
+  assert.equal(K.resolveAction(model,'Lift sideways'),null);assert.equal(K.resolveAction(model,'Intake'),null);
+  // Driver.start moves exactly what the resolver names, and busy() follows it.
+  const d=new K.Driver(model);assert.equal(d.start('Lift up'),true);assert.equal(d.busy('lift up'),true);assert.equal(d.start('Intake'),false);
+  for(let i=0;i<240;i++)d.tick(1/60);assert.equal(d.values().lift,12);assert.equal(d.busy('lift up'),false);
+  assert.equal(d.start('Score'),true);for(let i=0;i<120;i++)d.tick(1/60);assert.equal(d.values().arm,90);
+  assert.equal(K.moveSeconds(90,90),1,'moveSeconds is exported for the exporter\'s timed fallback');
+});
+test('a servo kicker feeder swings to its feed position and back; a feeder wheel keeps spinning',()=>{
+  const model=K.sanitize({joints:[{id:'kick',type:'revolute',axis:[0,1,0],lower:0,upper:60,states:{rest:0,feed:40},speed:400,drive:{signal:'feeder',of:'shooter:0'}},
+    {id:'wheel',type:'continuous',axis:[0,1,0],rpm:200,drive:{signal:'feeder',of:'shooter:0'}}]}),d=new K.Driver(model);
+  let top=0;for(let i=0;i<9;i++){d.tick(1/60,{feed:true});top=Math.max(top,d.values().kick);}
+  assert.equal(d.values().kick,40,'at its feed position after 0.15 s (40° at 400°/s)');assert.ok(top<=40);assert.ok(d.values().wheel>0,'the wheel spins while feeding');
+  for(let i=0;i<9;i++)d.tick(1/60,{feed:false});assert.equal(d.values().kick,0,'back at rest');
+  const still=d.values().wheel;d.tick(1/60,{feed:false});assert.equal(d.values().wheel,still,'the wheel stops when not feeding');
+});

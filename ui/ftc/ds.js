@@ -6,6 +6,10 @@ const $=s=>document.querySelector(s),R=window.Robocol,STOP=R.STOP_OP_MODE,AUTO_S
 const host=window.ftcHost;
 let session=null,info={name:'FTC Robot',host:'',ssid:''},selected=null,timerOn=false,timerEnd=0,countdown=null,inputsOn=true,cameraUrl=null,renderQueued=false,lastTelemetry=-1,lastState={},rumbleToken=0,minVolts=null,dsBattery=null;
 const users={1:null,2:null},padKeys={1:'',2:''},padStamps={1:0,2:0};
+// Driver Station settings (the menu's Settings), kept on this computer.
+const prefs={gamepadType:'auto',showRcBattery:true,sounds:true,autoTimer:true};
+try{Object.assign(prefs,JSON.parse(localStorage.getItem('deck-ds-settings')||'{}'));}catch{}
+function savePrefs(){try{localStorage.setItem('deck-ds-settings',JSON.stringify(prefs));}catch{}queueRender();}
 
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function toast(message,ms=3500){const t=$('#ds-toast');t.textContent=message;t.hidden=false;clearTimeout(toast.timer);toast.timer=setTimeout(()=>{t.hidden=true;},Math.max(1500,ms));}
@@ -32,7 +36,7 @@ function render(){
   if(known)minVolts=minVolts===null?v:Math.min(minVolts,v);
   tile.className='tile volts'+(known?v>=12?'':v>=11?' caution':' danger':' none');
   $('#volts').textContent=known?`${v.toFixed(2)} V`:connected&&s.battery?'No sensor':'';$('#volts-min').textContent=minVolts!==null?`( ${minVolts.toFixed(2)} V )`:'';
-  const rc=s.rcBattery;$('#rc-battery').hidden=!(rc&&Number.isFinite(rc.percent));if(rc)$('#rc-battery').textContent=`RC: ${rc.percent.toFixed(1)}%`;
+  const rc=s.rcBattery;$('#rc-battery').hidden=!(prefs.showRcBattery&&rc&&Number.isFinite(rc.percent));if(rc)$('#rc-battery').textContent=`RC: ${rc.percent.toFixed(1)}%`;
   const m=selected?opMode(selected.name)||selected:null;
   $('#opmode-label').textContent=m?m.name:'Select Op Mode';$('#opmode-hint').hidden=!!m;$('#opmode-name').classList.toggle('chosen',!!m);
   for(const id of ['#auto-list','#teleop-list','#opmode-name'])$(id).disabled=!connected||busy;
@@ -86,7 +90,7 @@ function stopCountdown(){if(countdown!==null){clearInterval(countdown);countdown
 // ---- Practice timer: a match clock independent of op modes (30 s Auto, 8 s transition, 2:00 TeleOp) ----
 let practice=null,audio=null;
 const fmt=sec=>{sec=Math.max(0,Math.ceil(sec));return `${Math.floor(sec/60)}:${String(sec%60).padStart(2,'0')}`;};
-function tone(freq,ms,gain=.22,type='square'){try{audio||=new AudioContext();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.value=freq;g.gain.value=gain;o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+ms/1000);}catch{}}
+function tone(freq,ms,gain=.22,type='square'){if(!prefs.sounds)return;try{audio||=new AudioContext();const o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.value=freq;g.gain.value=gain;o.connect(g).connect(audio.destination);o.start();o.stop(audio.currentTime+ms/1000);}catch{}}
 const cue={beep:()=>tone(880,150),start:()=>tone(1320,700,.25,'sawtooth'),end:()=>tone(196,1000,.3,'sawtooth'),endgame:()=>{tone(660,200);setTimeout(()=>tone(990,380),230);}};
 const PRACTICE_STARTS=[['auto','Autonomous','3 s lead-in, then the full match'],['transition','Auto → TeleOp Transition','8 s to pick up controllers, then TeleOp'],['teleop','TeleOp','2:00 driver-controlled period'],['endgame','Endgame','The last 30 seconds']];
 function startPractice(from){
@@ -122,7 +126,7 @@ function openPicker(flavor){
   const s=session.state,list=s.opModes.filter(m=>m.flavor===flavor),groups=new Map();
   for(const m of [...list].sort((a,b)=>a.name.localeCompare(b.name))){const g=!m.group||m.group==='$$$$$$$'?'':m.group;if(!groups.has(g))groups.set(g,[]);groups.get(g).push(m);}
   const names=[...groups.keys()].sort((a,b)=>a===''?-1:b===''?1:a.localeCompare(b)),items=[];
-  for(const g of names){if(g)items.push(el('h3','',g));for(const m of groups.get(g)){const b=el('button',selected?.name===m.name?'selected':'');b.setAttribute('role','option');b.append(el('span','',m.name));if(m.source==='BLOCKLY'||m.source==='ONBOTJAVA')b.append(el('small','',m.source==='BLOCKLY'?'Blocks':'OnBot Java'));b.onclick=()=>{selected=m;timerOn=m.flavor==='AUTONOMOUS';closePicker();queueRender();};items.push(b);}}
+  for(const g of names){if(g)items.push(el('h3','',g));for(const m of groups.get(g)){const b=el('button',selected?.name===m.name?'selected':'');b.setAttribute('role','option');b.append(el('span','',m.name));if(m.source==='BLOCKLY'||m.source==='ONBOTJAVA')b.append(el('small','',m.source==='BLOCKLY'?'Blocks':'OnBot Java'));b.onclick=()=>{selected=m;timerOn=m.flavor==='AUTONOMOUS'&&prefs.autoTimer;closePicker();queueRender();};items.push(b);}}
   if(!items.length)items.push(el('p','none',`No ${flavor==='AUTONOMOUS'?'autonomous':'TeleOp'} op modes are registered on this robot.`));
   $('#picker-title').textContent=flavor==='AUTONOMOUS'?'Autonomous':'TeleOp';$('#picker-list').replaceChildren(...items);$('#picker').hidden=false;$('#picker-list button')?.focus();
 }
@@ -136,7 +140,7 @@ function stop(){stopCountdown();session.stopOpMode();queueRender();}
 
 // ---- Gamepads: shared driver-station controller slots ---------------------------------
 const dead=v=>{v=Math.max(-1,Math.min(1,Number(v)||0));return Math.abs(v)<0.05?0:v;};
-function gamepadType(id){return /054c|sony|dualshock|dualsense|\bps4\b/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
+function gamepadType(id){if(R.GamepadType[prefs.gamepadType]!==undefined)return R.GamepadType[prefs.gamepadType];return /054c|sony|dualshock|dualsense|\bps4\b/i.test(id)?R.GamepadType.SONY_PS4:/046d|logitech|f310/i.test(id)?R.GamepadType.LOGITECH_F310:R.GamepadType.XBOX_360;}
 function ftcPad(p,rest){
   const base={id:p.index+1,gamepadType:gamepadType(p.id)};if(rest||p.mapping!=='standard')return base;
   const on=i=>!!p.buttons[i]?.pressed,val=i=>Math.max(0,Math.min(1,p.buttons[i]?.value||0));
@@ -172,7 +176,12 @@ function setMenu(open){$('#ds-menu').hidden=!open;$('#ds-more').setAttribute('ar
 function menu(action){setMenu(false);action();}
 $('#ds-more').onclick=()=>setMenu($('#ds-menu').hidden);
 document.addEventListener('pointerdown',e=>{if(!e.target.closest('#ds-menu')&&!e.target.closest('#ds-more'))setMenu(false);});
-$('#menu-restart').onclick=()=>menu(()=>{session.restartRobot();toast('Restarting robot…');});
+// The Driver Hub's menu: Settings, Restart Robot, Configure Robot, Program & Manage, Self Inspect and About.
+function restartRobot(){stopCountdown();session.restartRobot();toast('Restarting Robot');}
+$('#menu-settings').onclick=()=>menu(()=>window.DeckDsPages.settings());
+$('#menu-restart').onclick=()=>menu(restartRobot);
+$('#menu-configure').onclick=()=>menu(()=>window.DeckDsPages.configure());
+$('#menu-inspect').onclick=()=>menu(()=>window.DeckDsPages.inspect());
 $('#menu-manage').onclick=()=>menu(()=>{Promise.resolve(host.programAndManage?.()).catch(e=>toast(e.message));});
 $('#menu-camera').onclick=()=>menu(openCamera);
 $('#menu-about').onclick=()=>menu(()=>{session.requestAbout();const r=session.state.robot;showDialog('About',`Robot: ${info.name}\nAddress: ${info.host}\nRobocol: ${session.identity.version}${r?.sdk?`\nRobot Controller SDK: ${r.sdk}`:''}\n\nWaiting for the Robot Controller’s details…`);});
@@ -188,9 +197,9 @@ $('#practice-play').onclick=()=>practice?stopPractice():choosePractice();
 $('#dialog-ok').onclick=()=>$('#ds-dialog').close();
 for(const slot of [1,2])$('#pad-'+slot).onclick=()=>Promise.resolve(host.controllerCapture?.(slot)).catch(e=>toast(e.message));
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){closePicker();setMenu(false);}
-  // Space stops an initialized or running op mode, like an emergency stop key.
-  if(e.code==='Space'&&session&&session.state.opModeState!=='stopped'&&!$('#ds-dialog').open){e.preventDefault();stop();}
+  if(e.key==='Escape'){if(window.DeckDsPages?.open()&&$('#ds-menu').hidden&&!$('#ds-dialog').open)window.DeckDsPages.back();closePicker();setMenu(false);}
+  // Space stops an initialized or running op mode, like an emergency stop key; not while typing a name.
+  if(e.code==='Space'&&session&&session.state.opModeState!=='stopped'&&!$('#ds-dialog').open&&!e.target.closest?.('input,select,textarea')){e.preventDefault();stop();}
 });
 
 async function boot(){
@@ -203,6 +212,7 @@ async function boot(){
   session=new R.DriverStation({send:bytes=>host.send(bytes)});host.onPacket(bytes=>session.receive(bytes));
   host.onActive?.(on=>{inputsOn=on;pollGamepads();});
   session.on('state',queueRender);
+  window.DeckDsPages.init({session,host,toast,prefs,savePrefs,dsName,restart:restartRobot});
   // The autonomous the simulator's Send to robot just built is selected once the robot lists it, unless one is chosen first.
   let sent=info.select||null;
   session.on('state',s=>{if(!sent)return;if(selected||s.opModeState!=='stopped'){sent=null;return;}const m=opMode(sent);if(m){selected=m;sent=null;toast(`${m.name} is selected: Deck just sent it to the robot.`);queueRender();}});

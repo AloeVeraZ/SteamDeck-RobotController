@@ -4,6 +4,7 @@ import com.pedropathing.algorithm.Foresight;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -46,6 +47,8 @@ public class LunalaRedPedro extends LinearOpMode {
         }
         actions = new RobotActions();
         actions.init(hardwareMap, telemetry);
+        // Each hub reads all its inputs in one go per loop (bulk caching), so sensors and encoders cost no extra time.
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         Path[] legs = LunalaRedPaths.legs();
         follower.setPose(LunalaRedPaths.START);
         while (opModeInInit()) {
@@ -206,6 +209,7 @@ public class LunalaRedPedro extends LinearOpMode {
     }
 
     private void report(int leg, int legs, String phase) {
+        actions.update();
         Pose p = follower.pose();
         telemetry.addData("Leg", (leg + 1) + " of " + legs);
         telemetry.addData("Phase", phase);

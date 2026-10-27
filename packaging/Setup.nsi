@@ -5,12 +5,15 @@ OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\DeckDriverStation"
 RequestExecutionLevel user
 SetCompressor /FINAL zlib
-Icon "${ICON}"
-UninstallIcon "${ICON}"
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey /LANG=1033 "ProductName" "Deck Driver Station Setup"
 VIAddVersionKey /LANG=1033 "FileDescription" "Deck Driver Station Installer"
 VIAddVersionKey /LANG=1033 "FileVersion" "${VERSION}"
+; Modern UI sets Setup's icon itself (its stock disk unless told): the round app mark, and the sidebar with it.
+!define MUI_ICON "${SETUP_ICON}"
+!define MUI_UNICON "${SETUP_ICON}"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${SIDEBAR}"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${SIDEBAR}"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\DeckDriverStation.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Open Deck Driver Station"

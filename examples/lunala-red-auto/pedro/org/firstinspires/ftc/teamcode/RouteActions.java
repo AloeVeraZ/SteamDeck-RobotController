@@ -76,6 +76,10 @@ public abstract class RouteActions {
         return done;
     }
 
+    /** Called every loop by the autonomous: moving parts finish their moves on their own. */
+    public void update() {
+    }
+
     /** Called when the autonomous ends or is stopped: stop every mechanism. */
     public void stop() {
         mech.stop();

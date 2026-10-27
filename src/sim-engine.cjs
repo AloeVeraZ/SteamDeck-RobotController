@@ -13,7 +13,7 @@ const {PracticeClock}=require('./sim-practice.cjs');
 const Timed=require('../ui/sim-timed.js');
 const Ftc=require('../ui/sim-ftc.js');
 const Export=require('../ui/sim-export.js');
-const Mech=require('../ui/sim-mechanisms.js'),Kin=require('../ui/sim-kinematics.js');
+const Mech=require('../ui/sim-mechanisms.js'),Kin=require('../ui/sim-kinematics.js'),Act=require('../ui/sim-actuators.js');
 const MotionModule=require('../ui/sim-motionmodule.js');
 const OFFSET=72,DEG=180/Math.PI,ZERO={forward:0,strafe:0,turn:0};
 // How long the game physics takes to swing its ramp down or up (DSIM's BB_RAMP_DEPLOY_S).
@@ -26,6 +26,49 @@ const FIELDS={empty:'Empty field',decode:'DECODE',biobuzz:'BIOBUZZ'};
 const OBSTACLES={empty:'',decode:'goals and ramps',biobuzz:'hive legs and flower bases'};
 const LOCALIZATION=Object.fromEntries(Object.entries(config.sensors).map(([k,v])=>[k,v.name]));
 const finite=n=>typeof n==='number'&&Number.isFinite(n),clamp=(n,a,b)=>Math.max(a,Math.min(b,n)),wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
+
+// The hardware catalog (sensor models), when this checkout has it.
+let Hardware=null;try{Hardware=require('../ui/sim-hardware.js');}catch{}
+// ---------------------------------------------------------------- the virtual Control Hub's own parts and sensors
+// hub.kinematics: each servo, linear servo, continuous servo and DC motor actuator under its configuration name
+// ({id, name, type servo|crservo|motor, reversed, countsPerUnit, port?, servo:{center, perUnit, sign, ratio, pwm}});
+// hub.sensors: each wired sensor (robot.wiring.sensors) and what it measures ({name, type analog|digital|touch|distance|
+// color|encoder, source:{joint}|{actuator}|{turret:n}|{piece:'intake'|'shooter', index}, port?, inverted, zeroVolts,
+// voltsPerUnit, countsPerUnit, at, band}); hub.modules: the hubs by configuration name. The exporter's own description
+// when it gives one (DeckSimFtc.kinematicsHardware, sensorHardware), else worked out here from the same settings. See
+// tools/simulation/java/deck/sim/hub/VirtualHub.java for how the hub uses them.
+const PART_TYPES={servo:'servo',linear:'servo',crservo:'crservo',dcmotor:'motor'};
+function hubKinematics(kin,robot){
+  if(typeof Ftc.kinematicsHardware==='function')return Ftc.kinematicsHardware(kin,robot)||[];
+  return (kin?.actuators||[]).filter(a=>PART_TYPES[a.kind]).map(a=>{const type=PART_TYPES[a.kind],v=Act.servo(a),port=robot?.wiring?.devices?.['kin.'+a.id]?.port;
+    return {id:a.id,name:a.device||Act.camel(a.name),type,reversed:!!a.reversed,countsPerUnit:Act.countsPer(a),...(type==='servo'?{servo:{center:v.center,perUnit:Act.perUnit(a),sign:a.reversed?-1:1,ratio:finite(a.ratio)&&a.ratio?a.ratio:1,pwm:v.pwm}}:{}),...(Number.isInteger(port)?{port}:{})};});
+}
+// What a wired sensor is on the hub: its catalog model's kind, else what its model id says.
+function hubSensorType(s){const m=Hardware?.SENSORS?.find?.(x=>x.id===s.model),kind=m?.kind||'',id=String(s.model||'');
+  if(kind==='motorEncoder'||kind==='octoquad')return null;
+  if(['analogAbs','axonFeedback','potentiometer'].includes(kind)||m?.family==='analog')return 'analog';
+  if(kind==='touch'||(kind==='magnetic'||kind==='limit')&&m?.xmlType==='RevTouchSensor')return 'touch';
+  if(kind==='magnetic'||kind==='limit'||m?.family==='digital')return 'digital';
+  if(kind==='color'||kind==='distance')return kind;
+  if(kind==='throughBore'||m?.family==='encoder')return 'encoder';
+  if(m)return null;
+  return /touch/i.test(id)?'touch':/limit|magnet|switch/i.test(id)?'digital':/colou?r/i.test(id)?'color':/dist|tof|range|lidar/i.test(id)?'distance':/bore|encoder|quad/i.test(id)?'encoder':/axon|analog|pot|abs/i.test(id)?'analog':null;}
+function hubSensors(robot,kin,mechanisms,localization){
+  if(typeof Ftc.sensorHardware==='function')return Ftc.sensorHardware(robot,kin,mechanisms,localization)||[];
+  const actuators=new Set((kin?.actuators||[]).map(a=>a.id)),joints=new Set((kin?.joints||[]).map(j=>j.id));
+  return (robot?.wiring?.sensors||[]).map(s=>{const type=hubSensorType(s);if(!type)return null;const [list,index,field]=String(s.for||'').split('.'),n=+index,m=Hardware?.SENSORS?.find?.(x=>x.id===s.model);
+    // What it measures: a part of the robot's own design, a shooter's turret or hood, or a game piece at an intake or shooter.
+    const hood=list==='shooters'&&field==='hood'?(kin?.joints||[]).find(j=>j.drive?.signal==='hood'&&j.drive.of==='shooter:'+(n||0)):null;
+    const source=list==='kin'?(actuators.has(index)?{actuator:index}:joints.has(index)?{joint:index}:null):s.use==='piece'&&(list==='intakes'||list==='shooters')?{piece:list==='intakes'?'intake':'shooter',index:n||0}:list==='shooters'&&field==='turretMotor'?{turret:n||0}:hood?{joint:hood.id}:null;
+    const pick=k=>finite(s[k])?{[k]:s[k]}:{},port=Number.isInteger(s.port)?{port:s.port}:{};
+    // An analog sensor not yet calibrated reads its model's span (volts across its degrees), mid-span at the CAD pose.
+    const span=finite(m?.voltage)&&m.voltage>0?m.voltage:Kin.VOLTS;
+    return {name:s.name||s.id,type,source,inverted:!!s.inverted,...port,...(type==='analog'?{zeroVolts:finite(s.zeroVolts)?s.zeroVolts:span/2,...(finite(s.voltsPerUnit)?{voltsPerUnit:s.voltsPerUnit}:finite(m?.degrees)&&m.degrees>0?{voltsPerUnit:span/m.degrees}:{})}:{}),
+      ...pick('countsPerUnit'),...pick('at'),...pick('band'),...(finite(m?.cpr)?{cpr:m.cpr}:{})};}).filter(Boolean);
+}
+function hubModules(robot){const x=robot?.wiring?.hubs?.expansion,address=Number.isInteger(x?.address)?x.address:2;return [{name:'Control Hub',address:173,parent:true},...(x?[{name:'Expansion Hub '+address,address}]:[])];}
+// How a game piece looks to a color sensor (0–1 a channel): nectar red or blue, pollen green; nothing: dark.
+const PIECE_COLOR={red:{r:.55,g:.12,b:.1,a:.6},blue:{r:.1,g:.2,b:.6,a:.6},green:{r:.12,g:.5,b:.15,a:.6},none:{r:.02,g:.02,b:.02,a:.05}};
 
 // Seeded normal noise so a run is reproducible.
 function rng(seed){let s=(seed>>>0)||1;const u=()=>{s^=s<<13;s>>>=0;s^=s>>>17;s^=s<<5;s>>>=0;return (s+.5)/4294967296;};return ()=>Math.sqrt(-2*Math.log(u()))*Math.cos(2*Math.PI*u());}
@@ -118,7 +161,7 @@ class SimEngine{
     const robot=this.world.robots[0],keep=m.enabled&&c.elements?m.preload.pollen:0;let held=0;
     this.world.balls=c.elements?this.world.balls.filter(b=>b.state?.kind!=='held'||held++<keep):[];if(Array.isArray(robot.hopper))robot.hopper=robot.hopper.slice(0,Math.min(keep,held));
     this.spreadStaged();
-    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m,{start:name=>this.kin.start(name),busy:name=>this.kin.busy(name)});this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;this.kin=new Kin.Driver(c.kinematics||Kin.EMPTY());this.jointTick(0);
+    this.mech=new Mech.Model(m,Array.isArray(robot.hopper)?robot.hopper.length:0,{length:c.robot.length,width:c.robot.width});this.mechRunner=new Mech.Runner(m,{start:name=>this.kin.start(name),busy:name=>this.kin.busy(name)});this.mechCmd={intake:false,spin:false,aim:false,feed:false};this.mechOut={intake:false,fire:false};this.mechBusy=false;this.mechLatch={};this.pieceStats=null;this.kin=new Kin.Driver(c.kinematics||Kin.EMPTY());this.partCmds={};this.jointTick(0);
     this.applyBarriers();
     const r=this.world.robots[0],p={x:c.start.x-this.origin.x,y:c.start.y-this.origin.y};
     // The game engine's competition limits do not apply to an offline pushbot. Override after
@@ -347,6 +390,9 @@ class SimEngine{
       const size=Object.values(program.files).reduce((s,v)=>s+(typeof v==='string'?v.length:Infinity),0);if(size>400000)throw Error('TeamCode files are limited to 400 KB.');
       if(!['mecanum','tank'].includes(config.drives[this.config.robot.drivetrain].engine))throw Error('The virtual Control Hub runs mecanum and tank-style drivetrains; choose one of those robots.');
       hub={...Ftc.hardware(this.config.robot,this.config.sensors.localization),files:program.files,opmode:program.opMode};if(this.config.mechanisms.enabled)hub.mechanisms=Ftc.mechanismHardware(this.config.mechanisms);
+      // The robot's own moving parts and its sensors, fed from the simulated joints (see hubKinematics).
+      const parts=hubKinematics(this.config.kinematics,this.config.robot),sensed=hubSensors(this.config.robot,this.config.kinematics,this.config.mechanisms,this.config.sensors.localization);
+      if(parts.length)hub.kinematics=parts;if(sensed.length)hub.sensors=sensed;hub.modules=hubModules(this.config.robot);
     }
     if(kind==='route'&&!program.route?.segments?.length)throw Error('Plan a route first.');
     const timed=kind==='route'&&!config.sensors[this.config.sensors.localization].translation;
@@ -363,7 +409,7 @@ class SimEngine{
     const cp=[path.join(this.runtimeDir,'driver/classes'),path.join(this.runtimeDir,'driver/gson.jar'),...extra].join(path.delimiter);
     const child=kind==='motionmodule'?spawn(program.python,['-I','-u',path.join(__dirname,'../tools/simulation/motionmodule-bridge.py')],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true})
       :spawn(java,['-Xmx256m','-Xss4m','-XX:+UseSerialGC','-XX:TieredStopAtLevel=1','-Dfile.encoding=UTF-8','-cp',cp,'deck.sim.RunBridge'],{cwd:dir,stdio:['pipe','pipe','pipe'],windowsHide:true});
-    const bridge={child,seq,dir,buffer:'',stderr:'',waiters:[],exited:false,started:this.now(),kind,ticks:0};this.child=bridge;
+    const bridge={child,seq,dir,buffer:'',stderr:'',waiters:[],exited:false,started:this.now(),kind,ticks:0,parts:hub?.kinematics||null,sensed:hub?.sensors||null};this.child=bridge;
     child.stdout.setEncoding('utf8');child.stderr.setEncoding('utf8');
     child.stdout.on('data',chunk=>{bridge.buffer+=chunk;if(bridge.buffer.length>1<<20){this.fail('Program output exceeded the protocol limit.',seq);return;}let i;while((i=bridge.buffer.indexOf('\n'))>=0){const line=bridge.buffer.slice(0,i);bridge.buffer=bridge.buffer.slice(i+1);let msg;try{msg=JSON.parse(line);}catch{this.fail('The Deck bridge sent an unreadable reply.',seq);return;}const w=bridge.waiters.shift();if(w)w.resolve(msg);}});
     child.stderr.on('data',chunk=>{if(bridge.stderr.length<20000)bridge.stderr+=chunk;});
@@ -374,6 +420,8 @@ class SimEngine{
     // The leg plan every export shares: where the robot stops, turns at pins and runs action paths.
     const legPlan=route?Export.legs(program.route):null;this.legPaths=legPlan?.map(l=>l.path)??null;this.legSeconds=legPlan?.map(l=>({pin:l.actionSeconds,moving:l.moving?.seconds??null}))??null;this.legCells=legPlan?.map(l=>({pin:l.cell||0,moving:l.moving?.cell||0}))??null;this.legSteps=legPlan?.map(l=>({pin:l.steps,moving:l.moving?.steps??null}))??null;
     if(route){let last=-1;route.legs=Export.legs(program.route).map(l=>{last+=l.segments.length;return {last,power:l.power??this.info.tuning.maxPathSpeed,wait:Math.max(0,l.wait||0),action:String(l.action||'').slice(0,400),actionSeconds:finite(l.actionSeconds)?l.actionSeconds:null,movingSeconds:finite(l.moving?.seconds)?l.moving.seconds:null,path:l.path,moving:String(l.moving?.action||(l.moving?'Action path':'')).slice(0,400),heading:finite(l.heading)?l.heading:program.route.heading,turn:finite(l.turn)?l.turn:null};});}
+    // The parts and sensors as the program starts, so init() reads them and zeroes encoders there.
+    if(hub&&(bridge.parts||bridge.sensed))hub.state={...(bridge.parts?{kin:this.partState(bridge.parts)}:{}),...(bridge.sensed?{sensors:this.hubReadings(bridge.sensed)}:{})};
     const init={type:'init',workDir:dir,program:kind==='source'?{kind,source:program.source}:kind==='opmode'?{kind,hub}:kind==='motionmodule'?{kind,source:program.source,actions:typeof program.actions==='string'?program.actions:'',motionModule:program.motionModule,deps:program.deps||'',...(this.config.mechanisms.enabled?{mechanisms:MotionModule.mechanismHardware(this.config.mechanisms)}:{})}:{kind},start:{x:t.x,y:t.y,heading:t.heading},route,
       drive:{kind:config.drives[this.info.robot.drivetrain].engine,halfLength:this.info.robot.length/2,halfWidth:this.info.robot.width/2},tuning:this.info.tuning};
     this.mode='program';this.playing=false;this.result=null;this.emit({type:'run',state:'starting',kind});this.emitFrame(true);
@@ -409,16 +457,44 @@ class SimEngine{
       else{this.mechCell=this.mechAct&&this.legCells?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']?'other':'start';const next=this.mechRunner.commands(this.mechAct&&{...this.mechAct,path:this.legPaths?.[this.mechAct.leg],seconds:this.legSeconds?.[this.mechAct.leg]?.[this.mechAct.moving?'moving':'pin']},this.mech.state(),this.world.time);this.mechCmd=next.cmd;this.mechBusy=next.busy||jointBusy;}
     }
     const reading=this.tick(this.command),seq=bridge.seq;bridge.ticks++;
-    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState()??(jointBusy?{busy:true}:null),...(bridge.kind==='opmode'&&this.gamepads?{gamepad1:this.gamepads[1]||{},gamepad2:this.gamepads[2]||{}}:{})};
+    const msg={type:'tick',seq:bridge.ticks,t:this.world.time,dt:this.dsim.SIM_DT,odo:reading.odo,imu:reading.imu,mech:this.mechanismState()??(jointBusy?{busy:true}:null),...(bridge.parts?{kin:this.partState(bridge.parts)}:{}),...(bridge.sensed?{sensors:this.hubReadings(bridge.sensed)}:{}),...(bridge.kind==='opmode'&&this.gamepads?{gamepad1:this.gamepads[1]||{},gamepad2:this.gamepads[2]||{}}:{})};
     // The first ticks include JIT warm-up; later ticks must return promptly.
     let reply;try{reply=await this.request(bridge,msg,bridge.ticks<30?5000:750,'One loop() call');}catch(e){this.fail(e.message,seq);return;}
     if(seq!==this.runSeq)return; // stopped while waiting: discard the stale reply
     if(reply.type==='error'){this.fail(this.describe(reply),seq,reply);return;}
     const d=reply.drive||{},n=v=>finite(v)?clamp(v,-1,1):0;this.command={forward:n(d.forward),strafe:n(d.strafe),turn:n(d.turn),float:d.float===true};
-    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;this.mechAct=reply.act||null;this.mechDevices=reply.mech||null;this.hubDevices=reply.devices||null;
+    this.estimate=reply.estimate;this.follower=reply.follower;this.telemetry=reply.telemetry;this.waiting=reply.wait||null;this.mechAct=reply.act||null;this.mechDevices=reply.mech||null;this.hubDevices=reply.devices||null;if(bridge.parts&&reply.kin)this.driveParts(reply.kin);
     if(reply.log?.length)this.emit({type:'log',lines:reply.log.slice(-60)});
     if(reply.done)this.finish(seq);
   }
+  // Where each motor-driven part of the robot's own design is ({id: [value, value a second]}), for its motor's encoder.
+  partState(parts){const out={};for(const p of parts){const axis=p.type==='motor'&&this.kin.axes.get(p.id);if(axis)out[p.id]=[+axis.q.toFixed(6),+axis.v.toFixed(6)];}return out;}
+  // What the code on the virtual hub tells each part: a joint value (a servo's position; a motor's RUN_TO_POSITION target,
+  // at the speed its power allows), a speed or a power. A command a part already has is not sent again, so a move runs
+  // its course.
+  driveParts(cmds){const last=this.partCmds||(this.partCmds={});
+    for(const [id,c] of Object.entries(cmds)){const axis=this.kin.axes.get(id);if(!axis||!c||typeof c!=='object')continue;const key=JSON.stringify(c);if(last[id]===key)continue;last[id]=key;
+      if(finite(c.value))axis.to(c.value,axis.response==='ideal'&&finite(c.power)&&c.power>0&&c.power<1?{speed:axis.speed*c.power}:{});else if(finite(c.velocity))axis.spin(c.velocity);else if(finite(c.power))axis.push(c.power);}}
+  // Each hub sensor's reading now ({name: reading}): an analog port's volts, a switch closed or not, a distance in mm
+  // (null: nothing in range), a color sensor's color (0–1 a channel) and distance, an encoder's [counts, counts a second].
+  hubReadings(list){const out={};for(const s of list)out[s.name]=this.hubReading(s);return out;}
+  hubReading(s){const src=s.source||{},sign=s.inverted?-1:1;
+    if(src.piece){const seen=this.pieceAt(src),near=finite(s.near)?s.near:20;
+      if(s.type==='digital'||s.type==='touch')return !!seen;if(s.type==='analog')return seen?Kin.VOLTS:0;if(s.type==='distance')return seen?near:null;
+      if(s.type==='color')return {mm:seen?near:finite(s.far)?s.far:120,...PIECE_COLOR[seen&&PIECE_COLOR[seen]?seen:seen?'green':'none']};return null;}
+    const m=Number.isInteger(src.turret)?(finite(this.mech?.turrets?.[src.turret])?{value:this.mech.turrets[src.turret],velocity:0,unit:'deg'}:null):this.kin.measure(src);
+    if(s.type==='digital'||s.type==='touch')return m?Kin.reading('limit',m.value,s):false;if(!m)return null;
+    if(s.type==='analog')return Kin.reading('analog',m.value,{unit:m.unit,...s});
+    if(s.type==='encoder'){const per=finite(s.countsPerUnit)?s.countsPerUnit:(finite(s.cpr)?s.cpr:8192)/(m.unit==='in'?1:360);return [sign*Math.round(m.value*per),sign*m.velocity*per];}
+    // A distance sensor along a part's travel: zeroMm where the CAD has it, mmPerUnit further a unit (out of range past 2 m).
+    const mm=(finite(s.zeroMm)?s.zeroMm:50)+(finite(s.mmPerUnit)?s.mmPerUnit:m.unit==='in'?25.4:0)*m.value,seen=mm>=0&&mm<=2000?mm:null;
+    return s.type==='color'?{mm:seen,...PIECE_COLOR.none}:seen;}
+  // The game piece a piece sensor sees (its color), or null: at a shooter, the next piece it shoots while one is held;
+  // at an intake, the last piece in once the robot is full (count: pieces held to see one instead).
+  pieceAt(src){const m=this.config.mechanisms,r=this.world?.robots?.[0];if(!m.enabled||!Array.isArray(r?.hopper))return null;
+    const nectar=c=>c==='red'||c==='blue',takes=src.piece==='shooter'?m.shooters[src.index||0]?.pieces||'pollen':'both',held=r.hopper.filter(c=>takes==='both'||(takes==='nectar')===nectar(c));
+    const need=finite(src.count)?src.count:src.piece==='shooter'?1:Math.max(1,(m.capacity?.pollen||0)+(m.capacity?.nectar||0));
+    return held.length>=need?(src.piece==='shooter'?held[0]:held.at(-1)):null;}
   // Gamepad 1 or 2 for team code on the virtual Control Hub (a TeleOp such as the guided check): FTC gamepad fields
   // (a, b, dpad_up, left_stick_y, ...). null releases every button and stick.
   setGamepad(user,state){if(user!==1&&user!==2)return;this.gamepads={...this.gamepads,[user]:state&&typeof state==='object'?{...state}:{}};}
@@ -487,4 +563,4 @@ class SimEngine{
   emitFrame(force=false){if(!this.world)return;const now=this.now();if(!force&&now-this.lastFrame<FRAME_MS)return;this.lastFrame=now;this.emit(this.frame());}
   dispose(){this.stopProgram('Closed.');this.playing=false;if(this.timer)clearInterval(this.timer);this.timer=null;if(this.world?.game==='biobuzz')this.dsim.disposePhysics3dFor(this.world);this.world=null;}
 }
-module.exports={SimEngine,FIELDS,LOCALIZATION,OFFSET,sensorConfig,robotConfig};
+module.exports={SimEngine,FIELDS,LOCALIZATION,OFFSET,sensorConfig,robotConfig,hubKinematics,hubSensors};

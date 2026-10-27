@@ -1,7 +1,7 @@
 'use strict';
 const {app,BrowserWindow,WebContentsView,ipcMain,screen,Menu,shell,powerMonitor,powerSaveBlocker,utilityProcess,dialog}=require('electron');
 const fs=require('node:fs'),path=require('node:path');const {execFile}=require('node:child_process');const {promisify}=require('node:util');const {createHash,randomUUID}=require('node:crypto');
-const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
+const {Library,normalizeUrl,cleanSsid}=require('./library.cjs');const {Network}=require('./network.cjs');const {RobotProxy}=require('./robot-proxy.cjs');const {FtcSocket,UsbFtcSocket,probeFtc,findFtc}=require('./ftc.cjs');
 const {Updater,prepareInstall,launchInstall}=require('./updater.cjs');const {shortcut}=require('./shortcuts.cjs');let build={};try{build=JSON.parse(fs.readFileSync(path.join(__dirname,'../build.json'),'utf8'));}catch{}const meta=require('../package.json');let updater;
 const {identifyHardware,detectHardware}=require('./hardware.cjs');let device=identifyHardware();
 const {ControllerHub}=require('./controller-hub.cjs');let controllerHub,lastControllerState='',lastInputConfig='';
@@ -21,6 +21,7 @@ let suspended=false,interruption=null,connectionEpoch=0,pageEpoch=0;const recove
 const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
 app.setName('Deck Driver Station');
 // Offline simulator: a utility process started by the Simulation view, never connected to a robot.
+const {DevicePhotos}=require('./device-photos.cjs');let devicePhotos=null;const photos=()=>devicePhotos||=new DevicePhotos(path.join(app.getPath('userData'),'device-photos'));
 const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;const robotLink=require('./robot-link.cjs');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
 // UI checks on GPU-less CI displays: Chromium's software WebGL, which it no longer falls back to on its own.
@@ -180,18 +181,22 @@ ipcMain.handle('robot-fullscreen-exit',async e=>{if(e.sender!==robotExitView?.we
 async function refreshNetwork(){
   const next=await network.status(),previous=currentNetwork;currentNetwork=next;
   if(previous&&(next.ssid!==previous.ssid||next.device!==previous.device))finding?.abort();
-  const expected=active?.ssid||state.robot?.ssid||previous?.ssid;
+  // A robot on the USB cable does not care which Wi-Fi this computer is on.
+  const expected=isUsb(active?.url||state.robot?.url)?null:active?.ssid||state.robot?.ssid||previous?.ssid;
   if((robotView||opening&&state.url)&&expected&&next.ssid!==expected&&!network.busy&&!suspended){await interruptRobot(next.ssid?'Wi-Fi changed. Your robot address is saved. Choose Try again to reconnect to its network.':'Wi-Fi disconnected. Your robot address is saved. Reconnect Wi-Fi, then choose Try again.');}
   emit('network',next);return next;
 }
+// A Control Hub on the USB cable is saved at this address: Drive's Driver Station reaches it through ADB and the Deck USB
+// link (src/onbot/DeckUsbLink.java), whatever Wi-Fi this computer is on.
+const USB_HOST='usb.control-hub',isUsb=url=>{try{return new URL(url).hostname===USB_HOST;}catch{return false;}};
 async function openRobot(input){
   const navigation=pageEpoch;finding?.abort();
   if(opening)throw Error('A robot connection is already opening.');opening=true;
   try{
     if(interruption)await interruption;
     if(suspended)throw Error('Wait for this device to wake before reconnecting.');
-    const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)};
-    const wifi=await refreshNetwork(),ssid=cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:input.ssid||wifi.ssid);
+    const saved=input.id?library.get(input.id):null,target={...saved,...input,url:normalizeUrl(input.url||saved?.url)},usb=isUsb(target.url);if(usb)target.kind='ftc';
+    const wifi=await refreshNetwork(),ssid=usb?'':cleanSsid(input.id&&!input.url?saved?.ssid||wifi.ssid:input.ssid||wifi.ssid);
     if(ssid&&wifi.ssid!==ssid)return {needsWifi:{ssid},request:target};
     // The automatic FTC check holds UDP 20884 for up to 1.5 s; let it finish first.
     for(let i=0;auto.busy&&i<40;i++)await delay(50);
@@ -203,7 +208,8 @@ async function openRobot(input){
     update({page:'drive',loading:true,url:target.url,title:target.name||'Opening robot',robot:active,error:''});
     // FTC Robot Controllers answer Robocol discovery on UDP 20884 and get the Driver Station; everything else is a website.
     // The Settings "FTC robot" box forces the Driver Station; unticked ("auto") detects again.
-    let kind=input.kind==='ftc'?'ftc':input.kind==='auto'?undefined:saved?.url===target.url?saved.kind:undefined;
+    // The USB address is not a real host name: it is always the Driver Station over the cable, never a website.
+    let kind=usb||input.kind==='ftc'?'ftc':input.kind==='auto'?undefined:saved?.url===target.url?saved.kind:undefined;
     if(!kind){kind=(await probeFtc(new URL(target.url).hostname)).ftc?'ftc':'web';}
     if(epoch!==connectionEpoch||suspended)return {opened:false};
     if(kind==='ftc')return await openFtc(target,ssid,epoch);
@@ -243,7 +249,7 @@ function lockDown(contents,allowed){
   contents.on('will-navigate',(e,url)=>{if(!allowed(url))e.preventDefault();});contents.setWindowOpenHandler(({url})=>{if(allowed(url))void contents.loadURL(url);return {action:'deny'};});
 }
 async function openFtc(target,ssid,epoch){
-  const host=new URL(target.url).hostname,socket=new FtcSocket(host);
+  const host=new URL(target.url).hostname,socket=host===USB_HOST?new UsbFtcSocket(()=>robotLink.usbForward().then(f=>({port:f.link}))):new FtcSocket(host);
   try{await socket.open();}catch(e){if(epoch===connectionEpoch)update({page:'drive',loading:false,url:target.url,title:target.name||host,error:e.message});return {opened:false};}
   if(epoch!==connectionEpoch||suspended){await socket.close();return {opened:false};}
   const robot=library.upsert({...target,ssid,kind:'ftc'},{opened:true});
@@ -260,7 +266,8 @@ async function openFtc(target,ssid,epoch){
 // Program & Manage: the Robot Controller's own web interface (port 8080) over the existing website bridge.
 async function openManager(){
   if(!(bridge instanceof FtcSocket))throw Error('Program & Manage is available for FTC robots.');await closeManager();
-  const proxy=new RobotProxy(`http://${bridge.host.includes(':')?`[${bridge.host}]`:bridge.host}:8080/`),localUrl=await proxy.start();
+  const usbPort=bridge instanceof UsbFtcSocket?(await robotLink.usbForward()).port:null;
+  const proxy=new RobotProxy(usbPort?`http://127.0.0.1:${usbPort}/`:`http://${bridge.host.includes(':')?`[${bridge.host}]`:bridge.host}:8080/`),localUrl=await proxy.start();
   const view=new WebContentsView({webPreferences:{partition:`persist:robot-manage-${createHash('sha256').update(bridge.host).digest('hex')}`,additionalArguments:robotArguments(),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});
   touchSession(view.webContents.session);
   managerView=view;managerProxy=proxy;win.contentView.addChildView(view);lockDown(view.webContents,url=>{try{return new URL(url).origin===proxy.origin;}catch{return false;}});
@@ -272,9 +279,26 @@ async function openManager(){
 ipcMain.on('ftc-send',(e,bytes)=>{if(robotView&&e.sender===robotView.webContents&&bridge instanceof FtcSocket&&bytes instanceof Uint8Array)bridge.send(bytes);});
 ipcMain.handle('ftc-info',e=>{if(!robotView||e.sender!==robotView.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC robot is open.');
   const select=sentOpMode?.host===bridge.host&&Date.now()-sentOpMode.at<3600e3?sentOpMode.name:null;if(select)sentOpMode=null;
-  return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:active?.ssid||currentNetwork?.ssid||'',controllerCount:active?.controllerCount||1,...device,steamDeck:device.controllerFamily==='steamdeck',...(select?{select}:{})};});
+  return {name:active?.name||bridge.host,host:bridge.host,address:bridge.address,ssid:bridge instanceof UsbFtcSocket?'USB cable':active?.ssid||currentNetwork?.ssid||'',controllerCount:active?.controllerCount||1,...device,steamDeck:device.controllerFamily==='steamdeck',...(select?{select}:{})};});
 ipcMain.handle('ftc-controller-capture',(e,slot)=>{if(e.sender!==robotView?.webContents||!(bridge instanceof FtcSocket))throw Error('No FTC driver station is open.');return captureController(slot);});
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
+// The Driver Station's Settings > Pair with Robot Controller: Deck's Settings, with the robot kept connected.
+ipcMain.handle('ftc-settings',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');await setPage('settings');return true;});
+// Configure Robot's product photos (read from the makers' listings while online and kept here) and saving a pinout.
+const fromDs=e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');};
+ipcMain.handle('ftc-device-photo',async(e,tag)=>{fromDs(e);return photos().photo(String(tag||''));});
+ipcMain.handle('ftc-device-photos',async e=>{fromDs(e);return photos().prefetch();});
+// The hubs the open robot's web server lists, with each one's IMU (Configure Robot's New: the scan leaves it UNKNOWN).
+ipcMain.handle('ftc-rc-hubs',async e=>{fromDs(e);if(!(bridge instanceof FtcSocket))return [];return robotLink.rcHubs(bridge instanceof UsbFtcSocket?'usb':bridge.host);});
+// Configure Robot's wiring notes (a motor's gearbox, whether its encoder cable is in) by robot and configuration: the robot
+// sends configurations without them. notes: set (an empty object removes); omitted: read.
+ipcMain.handle('ftc-wiring-notes',async(e,{robot,name,notes}={})=>{fromDs(e);const file=path.join(app.getPath('userData'),'wiring-notes.json'),key=`${String(robot||'').slice(0,80)}\n${String(name||'').slice(0,80)}`;
+  let all={};try{all=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}if(!all||typeof all!=='object'||Array.isArray(all))all={};
+  if(notes!==undefined){const json=JSON.stringify(notes??{});if(json.length>20000)throw Error('Too many notes.');if(json==='{}')delete all[key];else all[key]=JSON.parse(json);fs.writeFileSync(file+'.tmp',JSON.stringify(all));fs.renameSync(file+'.tmp',file);}
+  return all[key]||null;});
+ipcMain.handle('ftc-save-file',async(e,{name,data,kind})=>{fromDs(e);const types={png:['PNG image','png'],svg:['SVG drawing','svg']},t=types[kind];if(!t||typeof data!=='string')throw Error('Choose PNG or SVG.');
+  const safe=String(name||'pinout').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)||'pinout',r=await dialog.showSaveDialog(win,{title:'Save pinout',defaultPath:path.join(app.getPath('documents'),`${safe}.${t[1]}`),filters:[{name:t[0],extensions:[t[1]]}]});
+  if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,kind==='png'?Buffer.from(data,'base64'):data);return r.filePath;});
 handle('manager-close',closeManager);
 // An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and
 // its Driver Station as soon as the Robot Controller answers. Retries every poll (the hub's Wi-Fi starts before
@@ -346,6 +370,11 @@ handle('robot-link',async(action,data)=>{
     check.ended.then(why=>emit('robot-link-check',{ended:why}),e=>emit('robot-link-check',{error:e.message})).finally(()=>{if(robotCheck===check)robotCheck=null;});
     return true;}
   if(action==='read')return robotLink.readRobot(data?.host,{scan:data?.scan===true});
+  if(action==='read-usb')return robotLink.readUsb();
+  // The robot's own dashboard (Program & Manage, OnBot Java, Blocks) through the USB cable, in a window of its own.
+  if(action==='usb-dashboard'){const {port,serial}=await robotLink.usbForward();const view=new BrowserWindow({width:1200,height:820,title:`Robot Controller ${serial} (USB)`,autoHideMenuBar:true,webPreferences:{contextIsolation:true,sandbox:true}});await view.loadURL(`http://127.0.0.1:${port}/`);return {port,serial};}
+  if(action==='read-all')return robotLink.readConfigurations(data?.host);
+  if(action==='activate')return robotLink.activateConfiguration(data?.host,data?.name);
   if(action==='configure')return robotLink.writeConfiguration(data?.host,{name:data?.name,xml:data?.xml});
   if(action==='send')return robotLink.send(data?.host,data?.files,{keep:Array.isArray(data?.keep)?data.keep:[],backupDir:path.join(app.getPath('userData'),'robot-backups'),onProgress:(stage,file)=>emit('robot-link-progress',{stage,file})});
   throw Error('Unknown robot action.');
@@ -414,7 +443,19 @@ app.whenReady().then(async()=>{
   if(process.env.DECK_SMOKE_FILE)win.webContents.once('did-finish-load',()=>{fs.writeFileSync(process.env.DECK_SMOKE_FILE,JSON.stringify({version:meta.version,electron:process.versions.electron,base:build.base||'',appPath:app.getAppPath(),pid:process.pid}));setTimeout(()=>app.exit(0),200);});
   keys(win.webContents,{shell:true});Menu.setApplicationMenu(null);win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.on('resize',fitView);win.webContents.on('did-start-loading',()=>{terminalReady=false;});win.loadFile(path.join(__dirname,'../ui/index.html'));terminalSetup(process.argv);
   win.on('blur',releaseKeys);win.on('enter-full-screen',fitView);win.on('leave-full-screen',()=>{if(state.robotFullscreen)void setRobotFullscreen(false);else fitView();});
-  win.on('close',()=>robotKeyboard?.close());win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
+  // Closing while a Simulate setup is still being set up (Setup open, Path planning never opened) asks first; the setup
+  // itself is already saved. Test runs (no window shown) close straight away.
+  let closeAsked=false;
+  win.on('close',e=>{
+    if(!closeAsked&&process.env.DECK_HEADLESS!=='1'&&!win.webContents.isDestroyed()){e.preventDefault();closeAsked=true;
+      const ask=Promise.race([win.webContents.executeJavaScript('window.deckUnfinishedSetup?.()??null',true),new Promise(r=>setTimeout(r,1500,null))]).catch(()=>null);
+      void ask.then(async name=>{if(win.isDestroyed())return;
+        if(typeof name==='string'){const r=await dialog.showMessageBox(win,{type:'question',buttons:['Keep setting up','Close anyway'],defaultId:0,cancelId:0,noLink:true,title:'Setup not finished',
+          message:`You haven’t finished setting up “${name}”.`,detail:'Your changes are saved. Finish the Robot, Robot controller and Mechanisms steps, then go to Path planning to plan its route.'});
+          if(r.response!==1){closeAsked=false;return;}}
+        win.close();});
+      return;}
+    robotKeyboard?.close();});win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });
 let closing=false;app.on('before-quit',e=>{simulation?.stop();robotCheck?.stop();if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());

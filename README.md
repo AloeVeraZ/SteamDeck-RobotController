@@ -16,6 +16,7 @@ Steam Deck/Linux and Apple Silicon use the **same command**. Windows uses its bu
 PowerShell shell. No administrator account is required. On Steam Deck, run from Desktop Mode;
 add the installed app through Steam → Games → Add a Non-Steam Game for Gaming Mode.
 After installing, **⋮ → Updates** lets you opt into experimental **Testing** or return to **Main**.
+A testing release can be built for some devices only (currently Windows); the others stay on their version.
 Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/SteamDeck-RobotController/releases/latest).
 
 ---
@@ -32,7 +33,7 @@ The app works with two kinds of robots, detected automatically when an address i
 - **Robots with their own website** (ESP32, Raspberry Pi, MotionModule…): Drive shows the
   robot's real page. The launcher does not implement motor controls or replace its
   teleop/autonomous interface.
-- **FTC robots** (REV Control Hub or Robot Controller phone): save it once with **FTC robot** ticked;
+- **FTC robots** (REV Control Hub or Robot Controller phone): save it once as **FTC · Control Hub** (Settings → Robot type), then open it on Wi-Fi or the USB cable;
   after that, joining its Wi-Fi opens Drive by itself. It shows a built-in FTC
   Driver Station with op mode selection, INIT/START/STOP, telemetry, and two gamepads,
   speaking the FTC SDK's own network protocol. See [FTC robots](docs/FTC.md).

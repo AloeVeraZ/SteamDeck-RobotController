@@ -54,7 +54,7 @@ def app_files():
 RESTRICTED=('ui/vendor/models/','sim-runtime/java/')
 CAD_NOTICES={'ui/assets/fields/NOTICES.md','ui/assets/robots/NOTICES.md','ui/vendor/licenses/FIELD-CAD-NOTICES.md','ui/vendor/licenses/ROBOT-CAD-NOTICES.md'}
 def restricted(relative):
-    return relative.startswith(RESTRICTED) or relative in CAD_NOTICES or re.fullmatch(r'ui/assets/(fields|robots)/[^/]+\.glb(\.gz)?',relative) is not None
+    return relative.startswith(RESTRICTED) or relative in CAD_NOTICES or re.fullmatch(r'ui/assets/(fields|robots)/[^/]+\.(glb(\.gz)?|deck\.gz)',relative) is not None
 def java_runtime(target):
     """The reduced Java runtime for one platform, made by tools/simulation/fetch.cjs."""
     folder=CACHE/'simulation-runtime'/('java-'+target)
@@ -149,7 +149,7 @@ def windows():
         z.write(ROOT/'docs'/'UPDATES.md',name+'/UPDATES.md')
     finish(file)
     setup=OUT/f'DeckDriverStation-{VERSION}-Windows-Setup.exe'
-    compile_nsis('Setup.nsi',OUTPUT=setup,ICON=ROOT/'ui/icon.ico',VERSION=VERSION,PAYLOAD=payload)
+    compile_nsis('Setup.nsi',OUTPUT=setup,ICON=ROOT/'ui/icon.ico',SETUP_ICON=ROOT/'packaging/installer.ico',SIDEBAR=ROOT/'packaging/installer-sidebar.bmp',VERSION=VERSION,PAYLOAD=payload)
     finish(setup);latest(setup)
 def mac(arch):
     archive=runtime_archive('darwin-'+arch);bundle='Deck Driver Station.app';file=OUT/f'DeckDriverStation-{VERSION}-macOS-{arch}.zip'

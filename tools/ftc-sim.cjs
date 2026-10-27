@@ -31,6 +31,38 @@ const CONFIG_XML=`<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
     </LynxUsbDevice>
 </Robot>
 `;
+// A robot with sensors and a Servo Hub, as the FTC SDK 12.0 saves it (WriteXMLFileHandler: each hub's motors, servos,
+// analog inputs, digital devices and I2C devices, in port order; a Servo Hub after the hubs; a Limelight under <Robot>).
+const SENSOR_CONFIG_XML=`<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<Robot type="FirstInspires-FTC">
+    <LynxUsbDevice name="Control Hub Portal" serialNumber="(embedded)" parentModuleAddress="173">
+        <LynxModule name="Expansion Hub 2" port="2">
+            <goBILDA5202SeriesMotor name="lift" port="0" />
+            <RevRoboticsCoreHexMotor name="turret" port="3" />
+            <Servo name="claw" port="0" />
+            <ServoFullRange name="wrist" port="1" />
+            <ContinuousRotationServo name="roller" port="2" />
+            <AnalogInput name="wristAngle" port="0" />
+            <RevTouchSensor name="liftHome" port="1" />
+            <DigitalDevice name="turretHome" port="2" />
+            <RevColorSensorV3 name="slot" port="0" bus="1" />
+        </LynxModule>
+        <LynxModule name="Control Hub" port="173">
+            <goBILDA5202SeriesMotor name="frontLeft" port="0" />
+            <goBILDA5202SeriesMotor name="frontRight" port="1" />
+            <goBILDA5202SeriesMotor name="backLeft" port="2" />
+            <goBILDA5202SeriesMotor name="backRight" port="3" />
+            <ControlHubImuBHI260AP name="imu" port="0" bus="0" />
+            <goBILDAPinpoint name="pinpoint" port="0" bus="1" />
+            <REV_VL53L0X_RANGE_SENSOR name="extendDistance" port="0" bus="2" />
+        </LynxModule>
+        <ServoHub name="Servo Hub 3" port="3">
+            <Servo name="hood" port="0" />
+        </ServoHub>
+    </LynxUsbDevice>
+    <EthernetDevice name="limelight" serialNumber="EthernetOverUsb:eth0:172.29.0.24" port="0" ipAddress="172.29.0.1" />
+</Robot>
+`;
 const CONFIGURATIONS=[{name:'competition',xml:CONFIG_XML}];
 // A stand-in for the guided check TeleOp (any op mode named "... check (Deck)"), for trying Deck's Guided check without a
 // robot: two steps in the real check's telemetry format, answered with gamepad 1, then Done with its results line.
@@ -110,6 +142,10 @@ class SimController {
     // every ";" and only what comes before the second one is kept.
     else if(name==='CMD_SAVE_CONFIGURATION'){const [file,xml]=extra.split(';');let config=null;try{config=JSON.parse(file);}catch{}if(!config?.name||xml===undefined)return;
       const old=this.configurations.find(c=>c.name===config.name);if(old)old.xml=xml;else this.configurations.push({name:config.name,xml});this.activate(config.name);}
+    // Delete removes FIRST/<name>.xml; deleting the active one leaves the robot with none.
+    else if(name==='CMD_DELETE_CONFIGURATION'){let config=null;try{config=JSON.parse(extra);}catch{}const at=this.configurations.findIndex(c=>c.name===config?.name);if(at<0)return;this.configurations.splice(at,1);if(this.active===config.name)this.activate('No Config Set');}
+    // Self Inspect: the Robot Controller's InspectionState.
+    else if(name==='CMD_REQUEST_INSPECTION_REPORT')this.command('CMD_REQUEST_INSPECTION_REPORT_RESP',JSON.stringify({deviceName:'9999-C-RC',manufacturer:'REV Robotics',model:'Control Hub v1.0',osVersion:'7.1.2',sdkInt:25,controlHubOsVersion:'1.1.6',firmwareVersion:'1.8.2',robotControllerVersion:'11.0',batteryFraction:1,wifiEnabled:true,wifiDirectEnabled:false,bluetoothOn:false,airplaneModeOn:false,isDefaultPassword:false}));
     else if(name==='CMD_ACTIVATE_CONFIGURATION'){let config=null;try{config=JSON.parse(extra);}catch{}if(this.configurations.some(c=>c.name===config?.name))this.activate(config.name);}
     else if(name==='CMD_INIT_OP_MODE')this.setOpMode(extra,extra===R.STOP_OP_MODE?'stopped':'init');
     else if(name==='CMD_RUN_OP_MODE'){if(this.opMode!==extra)this.setOpMode(extra,'init');this.setOpMode(extra,'running');}
@@ -156,7 +192,7 @@ function startOnBotJava({address='127.0.0.2',port=8080,compile=()=>[],buildMs=15
 }
 // A robot whose op mode list includes what OnBot Java last built, announced to a connected station as the SDK does.
 function listBuilt(sim){const base=sim.opModes.filter(m=>m.source!=='ONBOTJAVA');return files=>{sim.opModes=[...base,...opModesIn(files)];if(sim.peer)sim.command('CMD_NOTIFY_OP_MODE_LIST',JSON.stringify(sim.opModes));};}
-module.exports={SimController,CheckScript,startUdpRobot,startOnBotJava,opModesIn,listBuilt,OP_MODES,CONFIG_XML,HUBS};
+module.exports={SimController,CheckScript,startUdpRobot,startOnBotJava,opModesIn,listBuilt,OP_MODES,CONFIG_XML,SENSOR_CONFIG_XML,HUBS};
 if(require.main===module){const address=process.argv.slice(2).find(a=>!a.startsWith('--'))||'127.0.0.2';
   // --empty starts a robot with no configuration; --onbot also serves OnBot Java on port 8080. Together they try the
   // whole of Send to robot without a robot.

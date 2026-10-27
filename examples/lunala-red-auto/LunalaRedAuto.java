@@ -1,6 +1,7 @@
 package org.firstinspires.ftc.teamcode;
 
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.hardware.sparkfun.SparkFunOTOS;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
@@ -40,6 +41,8 @@ public class LunalaRedAuto extends LinearOpMode {
         follower.setPose(LunalaRed.START);
         actions = new RobotActions();
         actions.init(hardwareMap, telemetry);
+        // Each hub reads all its inputs in one go per loop (bulk caching), so sensors and encoders cost no extra time.
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         DeckFollower.Path[] legs = LunalaRed.legs();
         telemetry.addData("Route", legs.length + " legs");
         telemetry.update();
@@ -174,6 +177,7 @@ public class LunalaRedAuto extends LinearOpMode {
     }
 
     private void report(int leg, int legs, String phase) {
+        actions.update();
         DeckFollower.Pose p = follower.pose();
         telemetry.addData("Leg", (leg + 1) + " of " + legs);
         telemetry.addData("Phase", phase);
@@ -318,6 +322,10 @@ public class LunalaRedAuto extends LinearOpMode {
         boolean done = step.last || (!step.moving && step.duration <= 0);
         mech.intake(!done);
         return done;
+    }
+
+    /** Called every loop by the autonomous: moving parts finish their moves on their own. */
+    public void update() {
     }
 
     /** Called when the autonomous ends or is stopped: stop every mechanism. */

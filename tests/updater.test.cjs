@@ -1,9 +1,9 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),{createHash}=require('node:crypto');
-const {Updater,repository,selectRelease,assetName,installRoot,prepareInstall,launchInstall}=require('../src/updater.cjs');
+const {Updater,repository,selectRelease,assetName,installRoot,prepareInstall,launchInstall,keepLocalCad}=require('../src/updater.cjs');
 const options={version:'2.1.0',channel:'testing',platform:'win32',arch:'x64'};
 const makeRelease=(v='2.2.0',extra={})=>({tag_name:`testing-v${v}`,prerelease:true,draft:false,assets:[{name:assetName(v,'win32','x64'),state:'uploaded',browser_download_url:`https://github.com/owner/robots/releases/download/testing-v${v}/DeckDriverStation-${v}-Windows.zip`}],...extra});
-test('testing updates cannot select stable releases or downgrade',()=>{const stable=makeRelease('9.0.0',{tag_name:'v9.0.0',prerelease:false});assert.equal(selectRelease([stable],options).status,'unpublished');assert.equal(selectRelease([makeRelease('2.0.0')],options).status,'current');assert.equal(selectRelease([makeRelease('2.3.0'),makeRelease('2.2.0')],options).latest,'2.3.0');assert.equal(selectRelease([makeRelease('2.1.0',{draft:true})],options).status,'unpublished');assert.throws(()=>selectRelease([makeRelease('2.2.0',{assets:[]})],options),/no .* download/);});
+test('testing updates cannot select stable releases or downgrade',()=>{const stable=makeRelease('9.0.0',{tag_name:'v9.0.0',prerelease:false});assert.equal(selectRelease([stable],options).status,'unpublished');assert.equal(selectRelease([makeRelease('2.0.0')],options).status,'current');assert.equal(selectRelease([makeRelease('2.3.0'),makeRelease('2.2.0')],options).latest,'2.3.0');assert.equal(selectRelease([makeRelease('2.1.0',{draft:true})],options).status,'unpublished');const none=selectRelease([makeRelease('2.2.0',{assets:[]})],options);assert.equal(none.status,'unavailable');assert.equal(none.asset,undefined);assert.match(none.message,/^Testing 2\.2\.0 has no download for Windows yet\. Nothing was downloaded; you’re still on 2\.1\.0\.$/);});
 test('supported platform assets and repository validation',()=>{assert.match(assetName('2.2.0','linux','x64'),/SteamDeck/);assert.match(assetName('2.2.0','darwin','arm64'),/macOS-arm64/);assert.throws(()=>assetName('2.2.0','darwin','x64'));assert.equal(repository('https://github.com/owner/robots.git'),'owner/robots');assert.throws(()=>repository('http://evil/robots'));assert.throws(()=>repository('owner/../robots'));assert.equal(installRoot('/checkout','/runtime/electron','linux'),null);});
 function fixture(t,handler){const directory=fs.mkdtempSync(path.join(os.tmpdir(),'deck-updates-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));return new Updater({directory,repo:'owner/robots',...options,fetcher:async(url,init)=>handler(url,init)});}
 test('release check/download verifies bytes and checksum; only channel is persisted',async t=>{const payload=Buffer.from('a real test download'),hash=createHash('sha256').update(payload).digest('hex');const release=makeRelease();Object.assign(release.assets[0],{digest:'sha256:'+hash,size:payload.length});const updater=fixture(t,url=>new Response(url.includes('api.github.com')?JSON.stringify([release]):payload));assert.equal((await updater.check()).status,'available');const result=await updater.download();assert.equal(result.verified,true);assert.deepEqual(fs.readFileSync(result.file),payload);assert.deepEqual(JSON.parse(fs.readFileSync(updater.file)),{channel:'testing'});});
@@ -36,4 +36,46 @@ test('API checks reuse the saved list on 304 and when the GitHub hourly limit is
  mode='limited';const limited=await u.check();assert.equal(limited.latest,'2.2.0');assert.match(limited.message,/hourly limit .* last check from/);
  const fresh=fixture(t,url=>url.includes('api.github.com')?new Response('{}',{status:429,headers:{'x-ratelimit-reset':String(Math.floor(Date.now()/1000)+600)}}):new Response('missing',{status:404}));
  await assert.rejects(fresh.check(),/hourly limit .* Try again after /);
+});
+
+// Testing releases can be built for some devices only (package.json testingReleaseTargets).
+const built=(v,suffixes,extra={})=>({tag_name:`testing-v${v}`,prerelease:true,draft:false,body:`notes ${v}`,assets:suffixes.map(s=>({name:`DeckDriverStation-${v}-${s}`,state:'uploaded',size:100,browser_download_url:`https://github.com/owner/robots/releases/download/testing-v${v}/DeckDriverStation-${v}-${s}`})),...extra});
+const ALL=['SteamDeck.tar.gz','SteamDeck.run','Windows.zip','Windows-Setup.exe','macOS-arm64.zip','App-0123456789ab.tar.gz'];
+test('a Windows-only testing release updates Windows and tells other devices, without an error, that it is not for them',()=>{
+ const winOnly=built('2.4.23',['Windows.zip','Windows-Setup.exe']),at={version:'2.4.22',channel:'testing',base:'0123456789ab'};
+ const win=selectRelease([winOnly],{...at,platform:'win32',arch:'x64'});assert.equal(win.status,'available');assert.equal(win.kind,'full');assert.equal(win.asset.name,'DeckDriverStation-2.4.23-Windows.zip');assert.equal(win.message,'Version 2.4.23 is available.');
+ for(const [platform,arch,device] of [['linux','x64','Steam Deck / Linux'],['darwin','arm64','Apple Silicon Mac']]){
+  const r=selectRelease([winOnly,built('2.4.22',ALL)],{...at,platform,arch});assert.equal(r.status,'unavailable',platform);assert.equal(r.asset,undefined);assert.equal(r.latest,'2.4.23');
+  assert.equal(r.message,`Testing 2.4.23 has no download for ${device} yet (it was built for Windows only). Nothing was downloaded; you’re still on 2.4.22.`);
+ }
+ // Unsupported hardware is still an error, as before.
+ assert.throws(()=>selectRelease([winOnly],{...at,platform:'darwin',arch:'x64'}),/Updates support/);
+});
+test('a device the newest testing release skips is offered the newest earlier release that has its download',()=>{
+ const releases=[built('2.4.24',['Windows.zip']),built('2.4.23',['Windows.zip','macOS-arm64.zip']),built('2.4.22',ALL),built('2.4.21',ALL)],at={version:'2.4.21',channel:'testing',platform:'linux',arch:'x64',base:'0123456789ab'};
+ const r=selectRelease(releases,at);assert.equal(r.status,'available');assert.equal(r.latest,'2.4.22');assert.equal(r.tag,'testing-v2.4.22');assert.equal(r.kind,'app');assert.equal(r.fullSize,100);assert.equal(r.notes,'notes 2.4.22');
+ assert.equal(r.message,'Version 2.4.22 is available. Testing 2.4.24 has no download for Steam Deck / Linux yet (it was built for Windows only).');
+ assert.equal(selectRelease(releases,{...at,platform:'darwin',arch:'arm64'}).latest,'2.4.23');
+ // Never a downgrade or a reinstall on the same channel.
+ assert.equal(selectRelease(releases,{...at,version:'2.4.22'}).status,'unavailable');assert.equal(selectRelease(releases,{...at,version:'2.4.24'}).status,'current');
+ // Switching channel may install an older release, the newest one built for this device.
+ const sw=selectRelease(releases,{...at,version:'2.5.0',installedChannel:'main'});assert.equal(sw.latest,'2.4.22');assert.match(sw.message,/^Switch to testing by installing version 2\.4\.22\..* Testing 2\.4\.24 has no download for Steam Deck \/ Linux yet/);
+});
+test('an App package reaches only devices its release was built for',()=>{
+ // Older updaters take an App package alone, so partial releases never publish one; newer ones also need the full download beside it.
+ const appOnly=built('2.4.23',['Windows.zip','App-0123456789ab.tar.gz']),at={version:'2.4.22',channel:'testing',base:'0123456789ab'};
+ assert.equal(selectRelease([appOnly],{...at,platform:'win32',arch:'x64'}).kind,'app');
+ for(const [platform,arch] of [['linux','x64'],['darwin','arm64']])assert.equal(selectRelease([appOnly],{...at,platform,arch}).status,'unavailable');
+});
+test('update check returns the no-download message as a normal result, and keeps no release to download',async t=>{
+ const u=fixture(t,url=>new Response(url.endsWith('/testing-channel/channel.json')?JSON.stringify({schema:1,channel:'testing',releases:[built('2.4.23',['Windows.zip'])]}):'missing',{status:url.endsWith('channel.json')?200:404}));
+ Object.assign(u,{version:'2.4.22',platform:'linux',arch:'x64'});const r=await u.check();assert.equal(r.status,'unavailable');assert.equal(r.asset,undefined);assert.match(r.message,/no download for Steam Deck \/ Linux yet/);await assert.rejects(u.download(),/Check for updates first/);
+});
+test('an update keeps locally installed field and robot CAD that release packages leave out',t=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'deck-cad-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const put=(file,text)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,text);},old=path.join(root,'install','app'),next=path.join(root,'stage','app');
+  put(path.join(old,'ui/vendor/models/biobuzz/field.glb'),'field');put(path.join(old,'ui/assets/robots/strafer.glb.gz'),'robot');put(path.join(old,'ui/assets/fields/decode.glb.gz'),'decode');put(path.join(old,'ui/app.js'),'old code');put(path.join(old,'ui/assets/robots/catalog.json'),'old catalog');
+  put(path.join(next,'ui/app.js'),'new code');put(path.join(next,'ui/assets/robots/catalog.json'),'new catalog');put(path.join(next,'ui/assets/fields/decode.glb.gz'),'new decode');
+  assert.equal(keepLocalCad(path.join(root,'stage'),path.join(root,'install'),'win32'),2);
+  assert.equal(fs.readFileSync(path.join(next,'ui/vendor/models/biobuzz/field.glb'),'utf8'),'field');assert.equal(fs.readFileSync(path.join(next,'ui/assets/robots/strafer.glb.gz'),'utf8'),'robot');
+  assert.equal(fs.readFileSync(path.join(next,'ui/assets/fields/decode.glb.gz'),'utf8'),'new decode');assert.equal(fs.readFileSync(path.join(next,'ui/app.js'),'utf8'),'new code');assert.equal(fs.readFileSync(path.join(next,'ui/assets/robots/catalog.json'),'utf8'),'new catalog');
 });

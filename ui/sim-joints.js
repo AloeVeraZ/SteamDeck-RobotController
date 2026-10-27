@@ -99,12 +99,13 @@
       api.commit({...now,model:m.id,unit:unit(),discovered:true,finder:FINDER,joints:[...kept,...fresh],couplings,loops:same?now.loops:[],actuators:same?now.actuators:now.actuators.filter(a=>keptIds.has(a.joint)),actions:same||keptIds.size?now.actions:[]});
       lastFound={matched:[...merged.values()].map(x=>({id:x.id,name:x.name,cad:x.matched})),unmatched};
       const placed=lastFound.matched.map(x=>`${x.name} → “${x.cad}”`),lost=unmatched.length?`Not found by name: ${unmatched.join(', ')} (name its assembly in your CAD like it, or choose its parts on the model).`:'';
-      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole|swing arm|looks like your/i.test(r)),missing=fresh.filter(j=>j.source==='standin');
+      // What each of the game's intakes and shooters is in the CAD ("Shooter 2 is “Turret <2>” in your CAD: a turret on…").
+      const n=kept.length+fresh.length,linked=found.report.filter(r=>/linked to|looked for in the whole|swing arm|looks like your/i.test(r)),missing=fresh.filter(j=>j.source==='standin'),cad=found.report.filter(r=>/^(Shooter|Intake) \d+ is /.test(r));
       const intakes=api.mechanisms().intakes,kinds=(found.intakes||[]).filter(x=>intakes[x.intake]&&!['ramp','kicker'].includes(intakes[x.intake].kind)&&fresh.some(j=>j.id===x.joint)),set=fromCad||!same;
       for(const x of set?kinds:[])api.setIntake(x.intake,{kind:x.kind});
       const told=kinds.map(x=>`Intake ${x.intake+1} ${set?'is now':'looks like'} a ${x.kind==='ramp'?'deployable ramp':'kicker'}: ${x.why}${set?'':'. Open its '+(x.kind==='ramp'?'ramp':'kicker')+' below to set it up that way'}.`);
-      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${placed.length?`Found in your CAD: ${placed.join('; ')}.`:''} ${lost} ${told.join(' ')} ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`:'No moving parts were found. Add your mechanisms with + Add mechanism.');
-      return {moving:n,matched:lastFound.matched,unmatched,told:[...told,...found.report.filter(r=>/swing arm/i.test(r))]};
+      status(n?`${n} moving part${n>1?'s':''} (${Math.round(found.ms)} ms). ${placed.length?`Found in your CAD: ${placed.join('; ')}.`:''} ${lost} ${told.join(' ')} ${cad.join(' ')} ${linked.join(' ')} ${missing.length?`Not in your CAD yet: ${missing.map(j=>j.name).join(', ')}; open each to choose its parts.`:''} Check each one on the model.`.replace(/\s+/g,' '):'No moving parts were found. Add your mechanisms with + Add mechanism.');
+      return {moving:n,matched:lastFound.matched,unmatched,told:[...told,...cad,...found.report.filter(r=>/swing arm/i.test(r))]};
     }
     // A mechanism the team sees in its list: a part of a mechanism type moved by route actions (not a drive wheel, and
     // not one a game signal moves: those belong to the game's intakes and shooters).
@@ -336,7 +337,7 @@
       for(const dot of host.querySelectorAll("[data-color]"))dot.style.background=dot.dataset.color;
       highlight();gizmos();
     }
-    function highlight(){const p=preview();if(!p)return;const j=joints().find(x=>x.id===open);p.highlight(j?leavesOf(j):null,j?colorOf(j):undefined);}
+    function highlight(){const p=preview();if(!p)return;const j=joints().find(x=>x.id===open);if(!j&&api.glow)return api.glow();p.highlight(j?leavesOf(j):null,j?colorOf(j):undefined);}
     // Pivot marks on the preview, posed with the joints' current preview values.
     function gizmos(){
       const p=preview(),body=p?.body?.(),kmod=body?.userData?.kin?.model;if(!p||!kmod){p?.gizmos([]);return;}
@@ -518,7 +519,7 @@
       api.commit(next);lastKey='';render();return id2;}
     host.addEventListener('input',e=>{const el=e.target;if(!el.matches('[data-try]'))return;const id=el.closest('[data-id]')?.dataset.id;if(!id)return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:el.valueAsNumber};showPose();});
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&mode){mode=null;status('');api.refreshPicker();render();}});
-    return {render,picker,discover,add,isMechanism,found:()=>lastFound,
+    return {render,picker,discover,add,isMechanism,found:()=>lastFound,opened:()=>open,
       // Shows a part at a value on the preview (a named position, from the Mechanisms list).
       pose(id,value){if(!finite(value))return;if(demo){cancelAnimationFrame(demo);demo=0;}values={...values,[id]:value};showPose();const r=host.querySelector(`[data-id="${CSS.escape(id)}"] [data-try]`);if(r)r.value=value;},
       // Opens a part here (from the Mechanisms list), choosing its parts on the model when asked.

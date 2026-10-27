@@ -365,13 +365,68 @@ offset turned to match.
   new members (`getEncoderX`, `getEncoderY`, the OTOS scalars and their limits) match the real
   SDK.
 
+## What was built (phase 4): wiring, sensors and every route action on the robot
+
+Setup now holds the robot's wiring (`project.robot.wiring`): the hubs, each device's model and
+port, and the sensors on each mechanism. The export is generated from it.
+
+| Piece | Where |
+| --- | --- |
+| **Robot → Control Hub wiring**: the drivetrain from the CAD's wheel names (or chosen), the Expansion Hub and Servo Hub with their addresses, and each drive motor, odometry pod, Pinpoint, OTOS and IMU with its model and port. A port left to Deck shows the one it planned. Four drive motors of one model set the wheel RPM. | `ui/sim-wiring.js`, `ui/simulation.js` (`wiringPanel`) |
+| **Robot controller → The robot's configuration**: every port in use, hub by hub. | `DeckWiring.summaryHtml` |
+| **Mechanisms → Hardware** on each card: every motor and servo with its model, its port and its sensors (motor encoder, Through Bore, Axon feedback wire, potentiometer, limit or touch switch, colour or distance), each with its port and a line on what it tells. A shooter can have a hood servo. | `DeckWiring.deviceHtml`, `sensorsHtml` |
+| Two devices on one port are kept as set and shown red; red wiring holds the next steps like a red value. | `DeckHardware.sanitizeWiring`, `conflicts`; `ui/simulation.js` (`wiringRed`) |
+| The CAD parts of the row being edited glow on the model (click, focus, open, or scroll its card to the middle). | `DeckWiring.focusRefs`, `ui/simulation.js` (`mechGlow`) |
+| **The robot configuration** from the wiring, written without a scan (Export → Robot configuration (.xml)). | `DeckSimFtc.robotConfiguration`, `DeckRobotConfig.configurationFor` |
+| **Mechanisms.java** sets a hood servo for Spin up and Shoot (its rest position holds the CAD pose). A ramp with a position sensor is down or up once the sensor says so; without one, or if it never gets there, after its time (plus 0.5 s). | `DeckSimFtc.mechanismsSource`, `hoodPositions` |
+| **Parts.java**: every motor or servo on a part route actions move. "Lift up" and "Lift to 30" move it. A servo with a position sensor is there once the sensor says so; without one, after the time the simulator gives the move; a motor once RUN_TO_POSITION is done. The CAD pose is each encoder's zero. | `DeckSimFtc.partDevices`, `partAction`, `partsSource` |
+| **Bulk caching** (`LynxModule.BulkCachingMode.AUTO`) in the autonomous, so sensor reads cost no extra loop time. | `opMode`, Pedro's OpMode |
+| **The RobotActions trap.** RobotActions.java is the team's and is never overwritten, so an old file still had Deck's empty `return true` method for "Lift up", which overrode the new code. Writing TeamCode now takes out such methods when they are untouched (a `.bak` copy is kept); a method the team wrote stays. OnBot Java's single file is regenerated every time, so it never had the trap. | `DeckSimFtc.retireStubs`, `src/sim-bridge.cjs` (`teamcode-save`) |
+| **Send to robot** puts each device on the port Setup gives it, sensors, hood and parts included, and reports a device the robot has on another port or as another motor type. Opening Export with a robot saved in Settings checks its configuration once a session. | `ui/simulation.js` (`robotNeeds`, `crossCheck`) |
+| **The virtual Control Hub** reads the same sensors under the same names and calibration as the export (`DeckSimFtc.sensorHardware`). | `src/sim-engine.cjs` (`hubSensors`) |
+
+The Test setup's ramp is an Axon MAX with its feedback wire on analog port 0, so its default
+export closes the ramp on the sensor.
+
+### How it was checked (phase 4)
+
+- **The same actions in the simulator and on the virtual Control Hub.** `deck-sim test
+  examples/test-setup.json` against `deck-sim test examples/test-setup.json --code onbot`:
+
+  | Run | Time | Picked | Shot | Landed | Points |
+  | --- | --- | --- | --- | --- | --- |
+  | Simulator | 50.35 s | 24 | 28 | 28 | 60 |
+  | Exported OnBot Java | 51.53 s | 24 | 28 | 28 | 60 |
+
+  Before this phase the export took 51.35 s. Each ramp move now ends on the Axon's reading, about
+  one loop after the timed rule would. A sensor timeout would add 0.5 s per move.
+- **Moving parts** (`tests/sim-route-parts.test.cjs`, fixture `tests/fixtures/route-parts.json`):
+  "Arm up" on an Axon with its feedback wire, "Lift up" on a motor, then "Arm down". In the
+  simulator and as exported OnBot Java the arm reaches 90°, the lift 12 in (11.98 in on the hub,
+  rounded to whole encoder counts) and the arm comes back down. In both, the robot leaves the first
+  pin only once the arm is up. The two runs take 6.5 s and 6.7 s.
+- **Compiled against the real FTC SDK 12.0 and Pedro 3.0.2**, every example export and the
+  moving-parts fixture (`tools/simulation/check-ftc-sdk.cjs`).
+- `tests/sim-wiring.test.cjs`: the Test setup's wiring has no problems; a port conflict is red on
+  its own step; the glow resolver.
+
 ## Limits
 
 - No physical robot was available. The protocol details come from FIRST's own SDK classes, and the
   app's client is tested against a simulated Control Hub built from them, not against a real hub.
 - Generated mechanism code is a starting point. It is compiled against the real FTC SDK 12.0 and
   run on the virtual Control Hub, but the first real run should be with the robot on blocks.
-- Shooting is timed. With no piece sensor the code cannot tell a jam from a shot.
+- Shooting is timed. Piece sensors can be wired and the virtual hub reads them, but the code does not
+  count shots with them yet, so it cannot tell a jam from a shot.
+- Closed on a sensor today: a ramp and a moving part with an analog position sensor (an Axon's
+  feedback wire, a potentiometer, an analog encoder), and every motor on its own encoder. A Through
+  Bore is wired and configured but not yet used in place of a turret's motor encoder, a limit switch
+  does not home a part yet, and a servo kicker or pusher still runs on its times.
+- An action of several steps made under Moving parts (`model.actions`) runs in the simulator but is
+  not exported; the route actions that move one part ("Lift up", "Lift to 30") are. MotionModule
+  exports do not move the robot's own parts yet.
+- The guided check does not yet calibrate the new sensors: an analog sensor reads its model's span
+  until its volts at the CAD pose and volts per degree are set.
 - The flywheel's at-speed check trusts the encoder. A flywheel with no encoder cable plugged in reads 0
   in velocity mode, so it shoots after the timeout. Use "Set power (no encoder)" for that robot. The
   guided check says so when its top-speed step reads no speed.

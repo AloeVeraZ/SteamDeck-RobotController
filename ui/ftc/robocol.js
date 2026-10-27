@@ -38,7 +38,10 @@ class Reader {
 function header(type,payload,seq){return new Writer(HEADER+payload).u8(type).u16(payload).u16(seq);}
 
 // PeerDiscovery keeps its historical 13-byte layout: the version and peer type come before the sequence number.
-function encodePeerDiscovery({seq=0,version=VERSION,peerType=PeerType.PEER,month=9,year=2025,major=11,minor=0}={}){
+// The SDK this Driver Station speaks: FTC SDK 12.0, built September 2026. A Robot Controller checks the first discovery
+// it receives once, so an earlier season here shows "The Driver Station app is obsolete" (SoftwareVersionWarningSource).
+const SDK={month:9,year:2026,major:12,minor:0};
+function encodePeerDiscovery({seq=0,version=VERSION,peerType=PeerType.PEER,month=SDK.month,year=SDK.year,major=SDK.major,minor=SDK.minor}={}){
   return new Writer(13).u8(Msg.PEER_DISCOVERY).u16(10).u8(version).u8(peerType).u16(seq).u8(month).u16(year).u8(major).u8(minor).u8(0).bytes;
 }
 function decodePeerDiscovery(bytes){
@@ -104,7 +107,7 @@ class DriverStation {
     if(typeof send!=='function')throw TypeError('A datagram send function is required.');
     this.sendRaw=send;this.clock=clock;this.mono=monotonic;this.listeners={};this.timers=[];this.seq=Math.floor(Math.random()*0xffff);this.stamp=0n;
     this.timeZone=timeZone||(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';}catch{return 'UTC';}})();
-    this.identity={version:VERSION,month:sdk?.month||9,year:sdk?.year||2025,major:sdk?.major??11,minor:sdk?.minor??0};
+    this.identity={version:VERSION,month:sdk?.month||SDK.month,year:sdk?.year||SDK.year,major:sdk?.major??SDK.major,minor:sdk?.minor??SDK.minor};
     this.pending=[];this.seen=[];this.gamepads={1:null,2:null};this.synthetic={1:0,2:0};this.frames=null;this.lastReceive=0;this.lastHeartbeat=0;this.pings=new Map();
     this.state={connection:'idle',ping:null,robotState:'UNKNOWN',opModes:[],activeOpMode:STOP_OP_MODE,opModeState:'stopped',pendingAction:null,activeConfig:null,battery:null,rcBattery:null,
       telemetry:{lines:[],format:'CLASSIC',updated:0},systemError:'',systemWarning:'',robot:null,streamAvailable:false,adaptedVersion:false};
@@ -243,5 +246,5 @@ class DriverStation {
     this.update(patch);
   }
 }
-return {PORT,VERSION,STOP_OP_MODE,Msg,PeerType,GamepadType,BUTTONS,AXES,Tags,encodePeerDiscovery,encodeHeartbeat,encodeGamepad,encodeCommand,encodeTelemetry,encodeKeepAlive,decode,atRest,robotStateName,DriverStation};
+return {PORT,VERSION,SDK,STOP_OP_MODE,Msg,PeerType,GamepadType,BUTTONS,AXES,Tags,encodePeerDiscovery,encodeHeartbeat,encodeGamepad,encodeCommand,encodeTelemetry,encodeKeepAlive,decode,atRest,robotStateName,DriverStation};
 });

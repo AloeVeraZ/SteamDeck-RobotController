@@ -35,8 +35,8 @@
   function meta(raw){
     if(!raw||typeof raw.id!=='string'||!/^[0-9a-f]{32}\.glb$/.test(raw.id))return null;
     const parts=Array.isArray(raw.parts)?raw.parts.slice(0,64).filter(p=>p&&Array.isArray(p.box)&&p.box.length===6&&p.box.every(Number.isFinite)).map(p=>({name:String(p.name||'').slice(0,80),role:['chassis','intake','shooter','indexer'].includes(p.role)?p.role:'other',
-      ...(['pollen','nectar','both'].includes(p.pieces)?{pieces:p.pieces}:{}),...(['turret','fixed'].includes(p.type)?{type:p.type}:{}),...(['sweeper','siderollers','ramp'].includes(p.kind)?{kind:p.kind}:{}),...(typeof p.key==='string'?{key:p.key.slice(0,400)}:{}),...(p.chosen===true?{chosen:true}:{}),box:p.box.slice()})):[];
-    return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:['step','urdf','sdf','mjcf','usd'].includes(raw.source)?raw.source:'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
+      ...(['pollen','nectar','both'].includes(p.pieces)?{pieces:p.pieces}:{}),...(['turret','fixed'].includes(p.type)?{type:p.type}:{}),...(['sweeper','siderollers','ramp','kicker'].includes(p.kind)?{kind:p.kind}:{}),...(Array.isArray(p.carries)&&p.carries.length?{carries:p.carries.filter(c=>typeof c==='string').slice(0,4).map(c=>c.slice(0,80))}:{}),...(typeof p.key==='string'?{key:p.key.slice(0,400)}:{}),...(p.chosen===true?{chosen:true}:{}),box:p.box.slice()})):[];
+    return {id:raw.id,name:String(raw.name||'Robot model').slice(0,120),units:Object.hasOwn(UNITS,raw.units)?raw.units:'in',...orientation(raw),source:['step','urdf','sdf','mjcf','usd'].includes(raw.source)?raw.source:'mesh',...(parts.length?{parts}:{}),...(raw.autoSize===true?{autoSize:true}:{}),...(raw.bodyChassis===true?{bodyChassis:true}:{}),...(typeof raw.drivetrain==='string'&&/^\w{1,20}$/.test(raw.drivetrain)?{drivetrain:raw.drivetrain}:{}),...(Array.isArray(raw.entered)?{entered:raw.entered.filter(k=>['mass','wheel','rpm'].includes(k))}:{})};
   }
   let THREE=null;
   function three(){if(!THREE){THREE=globalThis.DeckThree;if(!THREE)throw Error('3D library not loaded.');}return THREE;}
@@ -239,7 +239,9 @@
       kin.model.joints.push(...list.map(({parts,alternatives,note,...j})=>j));}
     // Game mechanisms the CAD has no parts (or joint) for: a joint the software can turn, drawn only on a bundled chassis.
     if(m){const driven=new Set(kin.model.joints.map(j=>j.drive&&j.drive.signal+':'+(j.drive.of||''))),drawn=!mesh;
-      m.shooters.forEach((s,n)=>{if(s.type!=='turret'||s.sharesTurret||s.parts?.length||driven.has('turret:shooter:'+n))return;standIn(holder,kin,{kind:'turret',n,shooter:s,drawn},footprint,height);});
+      m.shooters.forEach((s,n)=>{if(s.sharesTurret||s.parts?.length)return;
+        if(s.type==='fixed'){if(drawn)fixedShooter(holder,n,s,footprint,height);return;}
+        if(!driven.has('turret:shooter:'+n))standIn(holder,kin,{kind:'turret',n,shooter:s,drawn},footprint,height);});
       m.intakes.forEach((i,n)=>{if(!['ramp','kicker'].includes(i.kind)||i.parts?.length||driven.has('deploy:intake:'+n))return;standIn(holder,kin,{kind:'deploy',n,intake:i,drawn},footprint,height);});}
     holder.userData.kin=kin;linkCache.delete(holder);turretShapes(holder);return holder;
   }
@@ -258,23 +260,53 @@
   }
   // Shows or hides a rig's hitboxes. Clones share their materials, so every view of the same rig follows.
   function hitboxes(holder,on){const seen=new Set();holder?.traverse(o=>{if(o.userData?.deckHitbox&&!seen.has(o.material)){seen.add(o.material);o.material.visible=!!on;}});return seen.size;}
-  // A plain turret (turntable, housing and barrel facing forward) or ramp plate on a joint of its own; on an imported
-  // CAD only the joint (w.drawn false). A drawn turret's shape is kept in kin.turrets (inches from its pivot, turning
-  // with it: z0 to z1 high, x0 to x1 and ±y round the turntable and housing, the barrel out to tip) for the run-video
-  // cameras, which ride on it and keep out of it.
+  // An FTC-style shooter, in inches from its pivot at the chassis top (x forward, the way it fires): a turntable ring
+  // with a hole through its centre that pieces come up through, two side plates, an indexer roller behind that lifts
+  // each piece into a flywheel, and a curved hood over the flywheel that sends it out forward and up. Pieces by colour.
+  const SHOOTER_COLORS={frame:0x5b6472,plate:0x2f343c,roller:0x12a5c9,flywheel:0x2fa84f,hood:0xf29d38};
+  function shooterParts(T,mergeGeometries,top){
+    const parts={frame:[],plate:[],roller:[],flywheel:[],hood:[]},cyl=(r,w,x,z,seg=24)=>{const g=new T.CylinderGeometry(r,r,w,seg);g.translate(x,0,z);return g;};
+    // Turntable ring: a lathed washer (outer 4.2, hole 2.2) on the chassis top; the shooter stands on its front half,
+    // leaving the back of the hole open where pieces come up.
+    const ring=new T.LatheGeometry([[2.2,0],[4.2,0],[4.2,.5],[2.2,.5],[2.2,0]].map(([x,y])=>new T.Vector2(x,y)),40);ring.rotateX(Math.PI/2);ring.translate(0,0,top);parts.frame.push(ring);
+    // Side plates either side of the ball path, and a cross brace at the back.
+    for(const y of [-2.15,2.15]){const p=new T.BoxGeometry(6.2,.25,5);p.translate(1.9,y,top+3);parts.plate.push(p);}
+    const brace=new T.BoxGeometry(.4,4.3,.6);brace.translate(-1,0,top+5.2);parts.frame.push(brace);
+    // Indexer: two rollers stacked behind the hole that carry a piece up to the flywheel.
+    parts.roller.push(cyl(.5,3.8,-.5,top+2.1,16),cyl(.5,3.8,-.5,top+3.6,16));
+    // Flywheel low at the front, the piece passing over it under the hood.
+    parts.flywheel.push(cyl(1.5,3.6,3,top+2.3));const axle=new T.CylinderGeometry(.2,.2,4.6,10);axle.translate(3,0,top+2.3);parts.frame.push(axle);
+    // Hood: a curved shell round the flywheel from behind its top to out front, opening forward and up.
+    const hood=new T.CylinderGeometry(3.6,3.6,3.9,28,1,true,-.55*Math.PI,.82*Math.PI);hood.translate(3,0,top+2.3);parts.hood.push(hood);
+    return Object.entries(parts).map(([k,list])=>({color:SHOOTER_COLORS[k],double:k==='hood',geometry:mergeGeometries(list.map(g=>g.index?g.toNonIndexed():g))}));
+  }
+  // The shooter's meshes in a group, turned to face and set at (ox, oy).
+  function shooterGroup(T,mergeGeometries,top,ox,oy,facing=0){
+    const group=new T.Group();for(const p of shooterParts(T,mergeGeometries,top)){p.geometry.rotateZ(facing);p.geometry.translate(ox,oy,0);
+      const part=new T.Mesh(p.geometry,new T.MeshStandardMaterial({color:p.color,roughness:.55,metalness:.2,side:p.double?T.DoubleSide:T.FrontSide}));part.castShadow=part.receiveShadow=true;group.add(part);}
+    return group;
+  }
+  // A fixed shooter with no CAD parts, drawn on a bundled chassis: the same shooter, bolted on facing its way.
+  function fixedShooter(holder,n,shooter,footprint,height){
+    const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0];
+    const group=shooterGroup(T,mergeGeometries,Math.max(1,height),ox,oy,(M?.FACING?.[shooter.facing]||0)*Math.PI/180);group.name='DeckFixedShooter:'+(n+1);holder.add(group);
+  }
+  // A turret (the FTC-style shooter above on a turntable) or ramp plate on a joint of its own; on an imported CAD only
+  // the joint (w.drawn false). A drawn turret's shape is kept in kin.turrets (inches from its pivot, turning with it:
+  // z0 to z1 high, x0 to x1 and ±y round the turntable and plates, the hood out to tip) for the run-video cameras,
+  // which ride on it and keep out of it.
   function standIn(holder,kin,w,footprint,height){
-    const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let geometry,joint;
+    const {THREE:T,mergeGeometries}=three(),f=footprint||{front:9,rear:9,half:9},id=`standin-${w.kind}${w.n+1}`;let group,joint;
     if(w.kind==='turret'){const M=globalThis.DeckMechanisms,[ox,oy]=M?M.mountOffset(w.shooter.mount,{length:f.front+f.rear,width:2*f.half}):[0,0],top=Math.max(1,height);
-      const base=new T.CylinderGeometry(3.4,3.4,1.4,24);base.rotateX(Math.PI/2);base.translate(ox,oy,top+.7);const body=new T.BoxGeometry(6,4.6,3.2);body.translate(ox+.4,oy,top+3);
-      const barrel=new T.CylinderGeometry(1.1,1.1,5,16);barrel.rotateZ(-Math.PI/2);barrel.translate(ox+5.4,oy,top+3.4);geometry=mergeGeometries([base,body,barrel].map(g=>g.toNonIndexed()));
       joint={id,name:`Turret · shooter ${w.n+1}`,type:'continuous',origin:[ox,oy,0],axis:[0,0,1],zero:0,drive:{signal:'turret',of:'shooter:'+w.n},source:'standin'};
-      if(w.drawn)kin.turrets.push({n:w.n,pivot:[ox,oy],z0:top,z1:top+4.6,x0:-3.4,x1:3.4,y:3.4,tip:7.9});}
+      group=w.drawn?shooterGroup(T,mergeGeometries,top,ox,oy):new T.Group();
+      if(w.drawn)kin.turrets.push({n:w.n,pivot:[ox,oy],z0:top,z1:top+5.9,x0:-4.2,x1:5,y:4.2,tip:6.6});}
     else{const side=(w.intake.sides||['front'])[0],[dx,dy]=SIDE_DIR[side]||SIDE_DIR.front,e=dx>0?f.front:dx<0?f.rear:f.half,width=Math.min(14,(dx?2*f.half:f.front+f.rear)-2);
-      geometry=new T.BoxGeometry(dx?.7:width,dx?width:.7,6.5);geometry.translate(dx*(e+.35),dy*(e+.35),3.6);geometry=geometry.toNonIndexed();
+      const geometry=new T.BoxGeometry(dx?.7:width,dx?width:.7,6.5);geometry.translate(dx*(e+.35),dy*(e+.35),3.6);
       // Hinged along its inner bottom edge, it folds out and down.
-      joint={id,name:`${w.intake.kind==='kicker'?'Kicker':'Ramp'} · intake ${w.n+1}`,type:'revolute',origin:[dx*e,dy*e,.35],axis:[-dy,dx,0],states:{raised:0,lowered:80},drive:{signal:'deploy',of:'intake:'+w.n},source:'standin'};}
-    const group=new T.Group();group.name='DeckLink:'+id;group.matrixAutoUpdate=false;group.userData.deckLink=id;
-    if(w.drawn){const part=new T.Mesh(geometry,new T.MeshStandardMaterial({color:w.kind==='turret'?0x5b6472:0x8a6d3b,roughness:.55,metalness:.2}));part.castShadow=part.receiveShadow=true;group.add(part);}else geometry.dispose();
+      joint={id,name:`${w.intake.kind==='kicker'?'Kicker':'Ramp'} · intake ${w.n+1}`,type:'revolute',origin:[dx*e,dy*e,.35],axis:[-dy,dx,0],states:{raised:0,lowered:80},drive:{signal:'deploy',of:'intake:'+w.n},source:'standin'};
+      group=new T.Group();if(w.drawn){const part=new T.Mesh(geometry.toNonIndexed(),new T.MeshStandardMaterial({color:0x8a6d3b,roughness:.55,metalness:.2}));part.castShadow=part.receiveShadow=true;group.add(part);}geometry.dispose();}
+    group.name='DeckLink:'+id;group.matrixAutoUpdate=false;group.userData.deckLink=id;
     holder.add(group);kin.model.joints.push(joint);kin.standIns.push(id);
   }
   // Settings that do not change which parts move (pivots, positions, speeds, a turret's heading, couplings, loops,
@@ -312,12 +344,21 @@
     });
     if(!rigged)return;const kin=rigged.userData.kin,values={...gameValues(kin.model,frame.mechanisms),...(frame.joints||{})};
     // CAD drive wheels turn with the chassis speed where they touch the floor (robot frame, through the placement).
-    const wheels=kin.model.joints.filter(j=>j.drive?.signal==='wheel');
+    const wheels=kin.model.joints.filter(j=>j.drive?.signal==='wheel'),steers=kin.model.joints.filter(j=>j.drive?.signal==='steer');
+    // Swerve modules point their wheels the way the floor moves under them, turning the short way at the joint's speed:
+    // a module more than 90° off flips and rolls its wheel backwards; a module standing still keeps its angle.
+    const aims=rigged.userData.steerAims||(rigged.userData.steerAims={});
+    if(steers.length&&kin.P){const K=Kin(),x=K.math.applyDir(kin.P,[1,0,0]),offset=Math.atan2(x[1],x[0])*180/Math.PI;
+      for(const j of steers){const c=K.math.apply(kin.P,j.origin),v=[f-omega*c[1],left+omega*c[0]],sign=K.math.applyDir(kin.P,j.axis)[2]<0?-1:1,aim=aims[j.id]||(aims[j.id]={deg:0,flip:false,speed:0});
+        aim.speed=Math.hypot(v[0],v[1]);if(aim.speed>.5){let to=sign*(Math.atan2(v[1],v[0])*180/Math.PI-offset);const off=((to-aim.deg)%360+540)%360-180;aim.flip=Math.abs(off)>90;to=aim.deg+(aim.flip?((off+360)%360)-180:off);
+          const step=(j.speed||720)*dt;aim.deg+=Math.max(-step,Math.min(step,to-aim.deg));}
+        values[j.id]=aim.deg;}}
     if(wheels.length&&kin.P){const K=Kin(),turned=rigged.userData.wheelTurns||(rigged.userData.wheelTurns={});
-      for(const j of wheels){const c=K.math.apply(kin.P,j.origin),a=K.math.unit(K.math.applyDir(kin.P,j.axis)),v=[f-omega*c[1],left+omega*c[0],0],r=(j.radius||1)*(kin.model.unit||1);
+      for(const j of wheels){const c=K.math.apply(kin.P,j.origin),a=K.math.unit(K.math.applyDir(kin.P,j.axis)),v=[f-omega*c[1],left+omega*c[0],0],r=(j.radius||1)*(kin.model.unit||1),aim=j.parent&&aims[j.parent];
         // Rolling: the rim speed matches the floor's along the way the wheel rolls. A mecanum wheel's rollers turn sideways
-        // motion into rolling too: one diagonal pair forward, the other back (rollers in an X seen from above).
-        const along=K.math.dot(K.math.cross([0,0,-1],a),v),side=j.roll==='mecanum'?-Math.sign(c[0]*c[1])*K.math.dot(a,v):0,spin=(along+side)/Math.max(.1,r);turned[j.id]=((turned[j.id]||0)+spin*dt*180/Math.PI)%360;values[j.id]=turned[j.id];}}
+        // motion into rolling too: one diagonal pair forward, the other back (rollers in an X seen from above). A swerve
+        // wheel rolls with its module, forward or (flipped) back.
+        const along=K.math.dot(K.math.cross([0,0,-1],a),v),side=j.roll==='mecanum'?-Math.sign(c[0]*c[1])*K.math.dot(a,v):0,spin=aim?(aim.flip?-1:1)*aim.speed/Math.max(.1,r):(along+side)/Math.max(.1,r);turned[j.id]=((turned[j.id]||0)+spin*dt*180/Math.PI)%360;values[j.id]=turned[j.id];}}
     pose(rigged,values);
   }
   // Top-down picture of the placed body for the 2D field, with its extent in robot inches. A `previous` picture of

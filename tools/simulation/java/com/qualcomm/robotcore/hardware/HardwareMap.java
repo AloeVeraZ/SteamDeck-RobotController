@@ -23,6 +23,14 @@ public class HardwareMap implements Iterable<HardwareDevice> {
     }
     private final Map<String, HardwareDevice> devices = new LinkedHashMap<>();
     public final DeviceMapping<DcMotor> dcMotor = new DeviceMapping<>(DcMotor.class);
+    public final DeviceMapping<Servo> servo = new DeviceMapping<>(Servo.class);
+    public final DeviceMapping<CRServo> crservo = new DeviceMapping<>(CRServo.class);
+    public final DeviceMapping<AnalogInput> analogInput = new DeviceMapping<>(AnalogInput.class);
+    public final DeviceMapping<DigitalChannel> digitalChannel = new DeviceMapping<>(DigitalChannel.class);
+    public final DeviceMapping<OpticalDistanceSensor> opticalDistanceSensor = new DeviceMapping<>(OpticalDistanceSensor.class);
+    public final DeviceMapping<TouchSensor> touchSensor = new DeviceMapping<>(TouchSensor.class);
+    public final DeviceMapping<ColorSensor> colorSensor = new DeviceMapping<>(ColorSensor.class);
+    public final DeviceMapping<LightSensor> lightSensor = new DeviceMapping<>(LightSensor.class);
     public final DeviceMapping<VoltageSensor> voltageSensor = new DeviceMapping<>(VoltageSensor.class);
 
     // On a robot the SDK builds the map from the configuration; the virtual hub subclasses it.

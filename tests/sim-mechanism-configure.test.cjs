@@ -63,11 +63,20 @@ test('the game’s intakes and shooters take the CAD’s named assemblies and ke
   // The team added a ramp intake (on the left) and one fixed pollen shooter with its own motor names.
   const team=Mech.sanitize({enabled:true,intakes:[{kind:'ramp',sides:['left'],servo:'ramp',downPos:.1,upPos:.9}],shooters:[{type:'fixed',pieces:'pollen',mount:'center',motor:'launcher'}]});
   const {mechanisms:m,matched,extra}=Mech.adoptCad(team,cad);
-  assert.equal(m.intakes.length,1);assert.equal(m.intakes[0].kind,'ramp','its kind stays');assert.deepEqual(m.intakes[0].sides,['front'],'its side from the CAD');assert.equal(m.intakes[0].reach,6.5);
+  assert.equal(m.intakes.length,2,'the CAD’s rear intake is added on its free edge');assert.equal(m.intakes[0].kind,'ramp','its kind stays');
+  assert.deepEqual([m.intakes[1].kind,m.intakes[1].sides,m.intakes[1].parts],['sweeper',['back'],['rear intake']]);assert.deepEqual(m.intakes[0].sides,['front'],'its side from the CAD');assert.equal(m.intakes[0].reach,6.5);
   assert.deepEqual(m.intakes[0].parts,['intake v4','FRONT RAMP']);assert.equal(m.intakes[0].servo,'ramp');assert.equal(m.intakes[0].downPos,.1);
-  assert.equal(m.shooters.length,1);assert.equal(m.shooters[0].type,'fixed','fixed stays fixed');assert.equal(m.shooters[0].mount,'back','the pollen shooter’s spot');assert.equal(m.shooters[0].motor,'launcher');
+  assert.equal(m.shooters.length,2,'the CAD’s second turret is added: two shooters at most');assert.equal(m.shooters[0].type,'fixed','fixed stays fixed');
+  assert.deepEqual([m.shooters[1].type,m.shooters[1].pieces,m.shooters[1].parts],['turret','nectar',['NECTAR V2','turret final']]);assert.equal(m.shooters[0].mount,'back','the pollen shooter’s spot');assert.equal(m.shooters[0].motor,'launcher');
   assert.deepEqual(m.shooters[0].parts,['POLLEN V2','turret final']);
-  assert.equal(matched.length,2);assert.equal(extra.length,2,'the rear intake and the nectar turret are listed, not added');assert.ok(extra.some(x=>/rear intake/.test(x))&&extra.some(x=>/NECTAR/.test(x)),extra.join());
+  assert.equal(matched.length,4,matched.join(' | '));assert.ok(matched.some(x=>/^Intake 2 → “rear intake” \(added from your CAD\)$/.test(x))&&matched.some(x=>/^Shooter 2 → “NECTAR V2” \+ “turret final” \(added from your CAD\)$/.test(x)),matched.join(' | '));
+  assert.deepEqual(extra,[],'nothing in the CAD is left out');
+  // Only what the robot has no room for is listed: a third shooter, an intake on an edge already taken.
+  const full=Mech.adoptCad(Mech.sanitize({enabled:true,intakes:[{kind:'sweeper',sides:['front']},{kind:'sweeper',sides:['back']}],shooters:[{type:'turret'},{type:'turret',pieces:'nectar'}]}),{...cad,intakes:[...cad.intakes,{kind:'sweeper',sides:['front'],reach:1,width:4,height:2,from:'Spare',parts:['Spare']}],shooters:[...cad.shooters,{type:'fixed',pieces:'pollen',mount:'left',from:'Spare launcher',parts:['Spare launcher']}]});
+  assert.equal(full.mechanisms.shooters.length,2);assert.deepEqual(full.extra,['intake “Spare” (front)','shooter “Spare launcher” (pollen)']);
+  // A plain sweeper the team added becomes the deployable ramp its CAD assembly is.
+  const swept=Mech.adoptCad(Mech.sanitize({enabled:true,intakes:[{kind:'sweeper',sides:['front']}],shooters:[]}),{intakes:[{...cad.intakes[0],kind:'ramp'}],shooters:[]});
+  assert.equal(swept.mechanisms.intakes[0].kind,'ramp');assert.match(swept.matched[0],/now a deployable ramp/);
   // With nothing added, the CAD's are used.
   const all=Mech.adoptCad(Mech.sanitize({}),cad).mechanisms;assert.equal(all.enabled,true);assert.equal(all.intakes.length,2);assert.equal(all.shooters.length,2);
   // An intake the CAD has nothing for keeps a free side.

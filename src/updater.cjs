@@ -11,15 +11,23 @@ function compare(a,b){const x=a.split('.').map(Number),y=b.split('.').map(Number
 function assetName(version,platform,arch){const suffix=platform==='linux'&&arch==='x64'?'SteamDeck.tar.gz':platform==='win32'&&arch==='x64'?'Windows.zip':platform==='darwin'&&arch==='arm64'?'macOS-arm64.zip':null;if(!suffix)throw Error('Updates support Steam Deck x64, Windows x64, and Apple Silicon.');return `DeckDriverStation-${version}-${suffix}`;}
 // A release's App package holds only app/; it fits installs built on the same runtime base.
 function appAssetName(version,base){return /^[a-f0-9]{12}$/.test(String(base||''))?`DeckDriverStation-${version}-App-${base}.tar.gz`:null;}
+// Each platform's full download and the device name the update dialog uses for it.
+const DEVICES=[['SteamDeck.tar.gz','Steam Deck / Linux'],['Windows.zip','Windows'],['macOS-arm64.zip','Apple Silicon Mac']];
 function selectRelease(releases,{version,channel,installedChannel=channel,platform,arch,base}){
   const pattern=channel==='testing'?/^testing-v(\d+\.\d+\.\d+)$/:/^v(\d+\.\d+\.\d+)$/;
   const candidates=releases.filter(r=>!r.draft&&!!r.prerelease===(channel==='testing')&&pattern.test(r.tag_name)).map(r=>({...r,version:r.tag_name.match(pattern)[1]})).sort((a,b)=>compare(b.version,a.version));
   if(!candidates.length)return {status:'unpublished',message:`No ${channel} releases have been published yet.`};
   const r=candidates[0];if(channel===installedChannel&&compare(r.version,version)<=0)return {status:'current',latest:r.version,message:`You’re up to date. Latest ${channel} release: ${r.version}.`};
-  const name=assetName(r.version,platform,arch),uploaded=n=>n&&r.assets?.find(a=>a.name===n&&a.state==='uploaded'),full=uploaded(name),small=uploaded(appAssetName(r.version,base));
-  if(!full&&!small)throw Error(`Release ${r.version} has no ${name} download yet.`);
-  const asset=small||full,kind=small?'app':'full';
-  return {status:'available',latest:r.version,tag:r.tag_name,asset,kind,fullSize:full?.size||0,notes:String(r.body||'').slice(0,8000),message:channel!==installedChannel?`Switch to ${channel} by installing version ${r.version}. Your saved robots and Wi-Fi settings are kept.`:`Version ${r.version} is available.`};
+  // A release can be built for only some devices (testing builds). It reaches this device only with
+  // this device's full download; its App package fits every platform, so it counts only beside that.
+  // Otherwise the newest earlier release with the download is offered while it is still an update.
+  const uploaded=(c,n)=>n&&c.assets?.find(a=>a.name===n&&a.state==='uploaded');let hit=null;
+  for(const c of candidates){if(channel===installedChannel&&compare(c.version,version)<=0)break;const full=uploaded(c,assetName(c.version,platform,arch));if(full){hit={c,full,small:uploaded(c,appAssetName(c.version,base))};break;}}
+  const here=DEVICES.find(([s])=>assetName(r.version,platform,arch).endsWith('-'+s))[1],built=DEVICES.filter(([s])=>uploaded(r,`DeckDriverStation-${r.version}-${s}`)).map(([,d])=>d);
+  const skipped=`${channel==='testing'?'Testing':'Main'} ${r.version} has no download for ${here} yet${built.length?` (it was built for ${built.join(' and ')} only)`:''}.`;
+  if(!hit)return {status:'unavailable',latest:r.version,message:`${skipped} Nothing was downloaded; you’re still on ${version}.`};
+  const {c,full,small}=hit,asset=small||full,kind=small?'app':'full';
+  return {status:'available',latest:c.version,tag:c.tag_name,asset,kind,fullSize:full.size||0,notes:String(c.body||'').slice(0,8000),message:(channel!==installedChannel?`Switch to ${channel} by installing version ${c.version}. Your saved robots and Wi-Fi settings are kept.`:`Version ${c.version} is available.`)+(c===r?'':` ${skipped}`)};
 }
 class Updater{
   constructor({directory,version,repo,channel='testing',platform=process.platform,arch=process.arch,base='',fetcher=fetch,onProgress=()=>{}}){Object.assign(this,{directory,version,channel,installedChannel:channel,platform,arch,base,fetcher,onProgress});this.file=path.join(directory,'update-settings.json');this.repo=repository(repo);try{const saved=JSON.parse(fs.readFileSync(this.file));if(['main','testing'].includes(saved.channel))this.channel=saved.channel;}catch{}this.release=null;this.busy=false;}
@@ -95,8 +103,21 @@ async function assembleAppUpdate(download,{destination,stage,platform}){
   for(const name of platform==='win32'?['DeckDriverStation.exe']:['launch.sh'])if(fs.existsSync(path.join(destination,name)))fs.copyFileSync(path.join(destination,name),path.join(source,name));
   return source;
 }
+// Field and robot CAD whose terms forbid redistribution is left out of every release package, so a laptop that
+// installed it locally (tools/simulation/install-local.ps1) would lose it on update and fall back to outline fields.
+const LOCAL_CAD=[/^ui[\\/]vendor[\\/]models[\\/]/,/^ui[\\/]assets[\\/](fields|robots)[\\/][^\\/]+\.glb\.gz$/];
+function keepLocalCad(source,destination,platform){
+  const inner=platform==='darwin'?path.join('Contents','Resources','app'):'app',from=path.join(destination,inner),to=path.join(source,inner);let kept=0;
+  if(!fs.existsSync(path.join(from,'ui')))return 0;
+  for(const rel of fs.readdirSync(path.join(from,'ui'),{recursive:true}).map(r=>path.join('ui',r))){
+    if(!LOCAL_CAD.some(r=>r.test(rel))||fs.existsSync(path.join(to,rel))||!fs.statSync(path.join(from,rel)).isFile())continue;
+    fs.mkdirSync(path.dirname(path.join(to,rel)),{recursive:true});fs.copyFileSync(path.join(from,rel),path.join(to,rel));kept++;
+  }
+  return kept;
+}
 function finishPrepare(download,{source,destination,pid,platform}){
   const meta=JSON.parse(fs.readFileSync(path.join(source,platform==='darwin'?'Contents/Resources/app/package.json':'app/package.json')));if(meta.version!==download.version||meta.name!=='deck-driver-station')throw Error('The extracted update is not the expected application version.');
+  keepLocalCad(source,destination,platform);
   const bin=path.join(source,platform==='darwin'?'Contents/MacOS/Electron':platform==='win32'?'runtime/electron.exe':'runtime/electron');if(!fs.statSync(bin).isFile())throw Error('The update runtime is missing.');
   const plan={source,destination,pid,platform,stage:download.folder};const planPath=path.join(download.folder,'install-plan.json');fs.writeFileSync(planPath,JSON.stringify(plan),{mode:0o600});
   const script=path.join(download.folder,platform==='win32'?'install.ps1':'install.sh');fs.copyFileSync(path.join(__dirname,platform==='win32'?'update-install.ps1':'update-install.sh'),script);return {plan,planPath,script};
@@ -108,4 +129,4 @@ async function launchInstall(prepared){const {plan,script,planPath}=prepared;con
     await run('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'update-launch.ps1'),script,planPath,logPath],{windowsHide:true,timeout:15000});return;
   }
   const log=fs.openSync(logPath,'a');const child=spawn('/bin/bash',[script,plan.source,plan.destination,String(plan.pid),plan.platform,plan.stage],{detached:true,stdio:['ignore',log,log]});fs.closeSync(log);child.unref();await new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});}
-module.exports={Updater,repository,selectRelease,compare,assetName,installRoot,prepareInstall,launchInstall};
+module.exports={Updater,repository,selectRelease,compare,assetName,installRoot,prepareInstall,launchInstall,keepLocalCad};

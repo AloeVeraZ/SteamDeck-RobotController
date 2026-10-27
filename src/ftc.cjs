@@ -46,4 +46,27 @@ async function findFtc(hosts=FTC_ADDRESSES,{timeout=1500}={}){
     const timer=setInterval(ping,300),limit=setTimeout(()=>finish(null),timeout);
   });
 }
-module.exports={FtcSocket,probeFtc,findFtc,FTC_ADDRESSES};
+// The same Driver Station link over the USB cable: Robocol packets go over a TCP connection that ADB forwards to the
+// Deck USB link on the hub (src/onbot/DeckUsbLink.java), which passes them to the Robot Controller there. Each packet
+// is a 2-byte length and the packet. connect: () => Promise<{port}> sets up the ADB forward to the hub's port 20885.
+class UsbFtcSocket extends FtcSocket {
+  constructor(connect,{label='Control Hub on USB',grace}={}){super('usb');this.connect=connect;this.grace=grace;this.host='usb';this.address=label;this.listeners=new Set();this.socket=null;this.buffer=Buffer.alloc(0);}
+  async open(){
+    const {port}=await this.connect(),net=require('node:net');
+    const socket=await new Promise((ok,fail)=>{const s=net.connect({host:'127.0.0.1',port},()=>{s.off('error',fail);ok(s);});s.once('error',e=>fail(Error(`Could not reach the Deck USB link on the hub (${e.code||e.message}). Send to robot over USB installs it; then restart the robot.`)));});
+    socket.setNoDelay(true);socket.on('error',()=>{});
+    // ADB takes the connection on this computer whatever the hub has, and hangs up at once when nothing listens there.
+    if(await new Promise(r=>{const t=setTimeout(()=>{socket.off('close',c);r(false);},this.grace??500),c=()=>{clearTimeout(t);r(true);};socket.once('close',c);}))
+      throw Error('The Deck USB link is not on this Control Hub yet. In Simulate, Send to robot over USB installs it; then the Driver Station opens over the cable.');
+    socket.on('data',chunk=>{this.buffer=Buffer.concat([this.buffer,chunk]);
+      while(this.buffer.length>=2){const n=this.buffer.readUInt16BE(0);if(this.buffer.length<2+n)break;const msg=this.buffer.subarray(2,2+n);this.buffer=this.buffer.subarray(2+n);
+        for(const fn of this.listeners)fn(new Uint8Array(msg.buffer,msg.byteOffset,msg.length));}});
+    socket.on('close',()=>{if(this.socket===socket){this.socket=null;for(const fn of this.closers||[])fn();}});
+    this.socket=socket;return this;
+  }
+  onPacket(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn);}
+  onClose(fn){(this.closers??=new Set()).add(fn);return()=>this.closers.delete(fn);}
+  send(bytes){if(!this.socket||!(bytes instanceof Uint8Array)||bytes.length<5||bytes.length>65507)return;const head=Buffer.alloc(2);head.writeUInt16BE(bytes.length);this.socket.write(Buffer.concat([head,Buffer.from(bytes.buffer,bytes.byteOffset,bytes.length)]));}
+  async close(){const s=this.socket;this.socket=null;this.listeners.clear();if(s)await new Promise(r=>{s.once('close',r);s.end();setTimeout(r,500);});}
+}
+module.exports={FtcSocket,UsbFtcSocket,probeFtc,findFtc,FTC_ADDRESSES};

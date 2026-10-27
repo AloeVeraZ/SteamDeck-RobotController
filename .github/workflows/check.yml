@@ -1,7 +1,17 @@
 name: Check and package desktop apps
-on: [push, pull_request, workflow_dispatch]
+# Branch pushes only: a release tag is checked by its own publish run, and checking it here
+# as well queues a second full matrix ahead of that release's builds.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+# A newer push to the same branch supersedes the older check.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest

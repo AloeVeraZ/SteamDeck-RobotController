@@ -75,9 +75,13 @@
   }
   // Every odometry value for a robot, with the defaults filled in.
   function odometryOf(r){const o=odometry(r?.odometry);return {pods:Object.fromEntries(Object.entries(ODOMETRY.pods).map(([k,d])=>[k,{...d,reversed:false,...o.pods?.[k]}])),pinpoint:{...ODOMETRY.pinpoint,...o.pinpoint},otos:{...ODOMETRY.otos,...o.otos}};}
-  function robot(raw={},controller){const own=devices(raw.devices),odo=odometry(raw.odometry);return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
+  // Which hub and port each device and sensor is plugged into, as the team set it (DeckHardware.sanitizeWiring; null when
+  // nothing is set). Without the catalogue loaded the wiring is kept as it came, so a save never loses it.
+  function wiring(raw){const H=globalThis.DeckHardware||(typeof require==='function'?require('./sim-hardware.js'):null);
+    if(H)return H.sanitizeWiring(raw);try{return raw&&typeof raw==='object'?JSON.parse(JSON.stringify(raw)):null;}catch{return null;}}
+  function robot(raw={},controller){const own=devices(raw.devices),odo=odometry(raw.odometry),wire=wiring(raw.wiring);return {drivetrain:Object.hasOwn(drives,raw.drivetrain)?raw.drivetrain:'mecanum',intakeIn:intake(raw),
     length:positive(raw.length,17.56),width:positive(raw.width,17.79),heightIn:positive(raw.heightIn,12),massLb:positive(raw.massLb,9.41),driveRpm:positive(raw.driveRpm,312),wheelDiameterMm:positive(raw.wheelDiameterMm,104),driveAmps:current(raw.driveAmps,controller),driveStyle:raw.driveStyle==='field'?'field':'robot',...hubMounting(raw),
-    appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer',...(Object.keys(own).length?{devices:own}:{}),...(Object.keys(odo).length?{odometry:odo}:{})};}
+    appearance:['strafer','swechanum','plain','custom'].includes(raw.appearance)?raw.appearance:raw.drivetrain==='swerve'?'swechanum':'strafer',...(Object.keys(own).length?{devices:own}:{}),...(Object.keys(odo).length?{odometry:odo}:{}),...(wire?{wiring:wire}:{})};}
   // A robot imported from CAD (appearance custom) collides as its chassis only: length × width.
   const chassisHitbox=r=>r?.appearance==='custom';
   function footprint(raw){const r=robot(raw);return {front:r.length/2+(chassisHitbox(r)?0:r.intakeIn),rear:r.length/2,half:r.width/2};}
@@ -85,5 +89,5 @@
     return {x0:0,y0:0,x1:positive(layout.width,144),y1:positive(layout.height,144)};}
   const sensorChoices=controller=>controller==='motionmodule'?['gyro','odometry','odometry3','optical']:['encoders','odometry','odometry3','fused','optical','gyro'];
   const localization=(controller,mode)=>sensorChoices(controller).includes(mode)?mode:controller==='motionmodule'?'gyro':'encoders';
-  return {HUB,hubMounting,DEVICE_KEYS,devices,deviceName,ODOMETRY,POD_TYPES,OTOS_SCALARS,odometry,odometryOf,drives,sensors,sensorChoices,localization,electrical,current,robot,intake,chassisHitbox,footprint,bounds,finite};
+  return {HUB,hubMounting,DEVICE_KEYS,devices,deviceName,wiring,ODOMETRY,POD_TYPES,OTOS_SCALARS,odometry,odometryOf,drives,sensors,sensorChoices,localization,electrical,current,robot,intake,chassisHitbox,footprint,bounds,finite};
 });

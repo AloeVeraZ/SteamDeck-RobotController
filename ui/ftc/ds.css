@@ -159,3 +159,90 @@ dialog pre { margin: 0; max-height: 50vh; overflow: auto; white-space: pre-wrap;
   .opbar { min-height: 56px; } .stage { min-height: 150px; } .side { gap: 10px; }
 }
 @media (min-width: 1800px) { .grid { padding: 24px; gap: 24px; } .left .tile { height: 128px; } .lines, .status p { font-size: 16px; } .stage { gap: 48px; } .go { width: 192px; } }
+/* Settings, Configure Robot and Self Inspect: full-screen pages over the station, as on a Driver Hub. */
+.ds-page { position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; background: var(--bg); }
+.page-head { flex-shrink: 0; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 16px; background: var(--well); border-bottom: 1px solid var(--line); }
+.page-back { font-size: 28px; line-height: 1; min-width: 44px; min-height: 44px; border-radius: 5px; }
+.page-back:hover { background: var(--raised); }
+.page-head h2 { margin: 0; flex: 1; min-width: 0; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.page-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.page-status { margin: 0; padding: 10px 16px; font-size: 13px; background: var(--raised); border-bottom: 1px solid var(--line); }
+.page-status.error { background: var(--danger-bg); color: var(--danger); } .page-status.warning { background: var(--warning-bg); color: var(--warning); }
+.page-body { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; max-width: 920px; width: 100%; margin: 0 auto; box-sizing: border-box; user-select: text; -webkit-user-select: text; }
+.cfg-btn { min-height: 44px; padding: 10px 18px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--raised); font-weight: 600; }
+.cfg-btn:hover:not(:disabled) { background: #2c3643; } .cfg-btn.danger { color: var(--danger); }
+.ds-page button:disabled, #page-ask button:disabled { opacity: .45; cursor: default; }
+.cfg-active { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-active span { color: var(--muted); } .cfg-active b { font-size: 16px; }
+.cfg-list { display: flex; flex-direction: column; gap: 8px; }
+.cfg-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-row.active { border-color: #35594b; background: var(--connected-bg); }
+.cfg-name { flex: 1; min-width: 160px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; } .cfg-name b { font-size: 15px; overflow-wrap: anywhere; }
+.cfg-name small { font-size: 11px; font-weight: 600; color: #85e5bd; text-transform: uppercase; letter-spacing: .5px; } .cfg-name small.muted { color: var(--muted); }
+.cfg-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.cfg-empty, .cfg-none { color: var(--muted); margin: 0; } .cfg-empty { padding: 24px 4px; }
+.cfg-trail { margin: 0 0 4px; color: var(--muted); font-size: 12px; }
+.cfg-heading { margin: 8px 0 0; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.cfg-entry { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; min-height: 56px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-entry:hover { background: var(--raised); }
+.cfg-entry-text { flex: 1; min-width: 0; display: flex; flex-direction: column; } .cfg-entry b { font-size: 15px; font-weight: 600; }
+.cfg-entry small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cfg-chevron { font-style: normal; font-size: 24px; color: var(--muted); }
+.cfg-ports { display: flex; flex-direction: column; gap: 8px; }
+.cfg-port { display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cfg-port.used { border-color: var(--line-strong); }
+.cfg-port-no { font-weight: 600; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cfg-type, .cfg-device-name, #page-ask input, .set-row select { min-height: 40px; min-width: 0; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--well); color: var(--text); font: inherit; }
+.cfg-device-name.bad { border-color: var(--danger); outline: 1px solid var(--danger); }
+.cfg-add { align-self: flex-start; margin-top: 4px; }
+#page-ask input { width: 100%; box-sizing: border-box; margin-top: 12px; }
+#page-ask p { margin: 0; line-height: 1.5; } .page-ask-error { color: var(--danger); min-height: 1.5em; margin-top: 6px !important; }
+#page-ask .dialog-actions { gap: 8px; }
+.set-list { display: flex; flex-direction: column; gap: 8px; }
+.set-group { margin: 12px 0 0; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.set-row { display: flex; align-items: center; gap: 16px; padding: 12px 16px; min-height: 48px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.set-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .set-text b { font-size: 14px; font-weight: 600; } .set-text small { color: var(--muted); font-size: 12px; }
+.inspect { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.inspect .cfg-section { padding: 12px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.inspect h3 { margin: 0 0 8px; font-size: 15px; }
+.inspect-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.inspect-list dt { color: var(--muted); } .inspect-list dd { margin: 0; overflow-wrap: anywhere; }
+.inspect-list dd.good { color: #85e5bd; } .inspect-list dd.bad { color: var(--danger); } .inspect-list i { font-style: normal; }
+/* Device pictures: the product photo sits on white, a drawing on the card's well. */
+/* The picture fills the box itself, so a tall or wide photo is letterboxed, never cropped. */
+.dev-fig { position: relative; display: block; flex-shrink: 0; border-radius: 6px; background: #eef1f5; overflow: hidden; }
+.dev-fig svg, .dev-fig img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
+.dev-fig.photo img { inset: 4%; width: 92%; height: 92%; }
+.dev-fig.photo { background: #fff; } .dev-fig.empty { background: var(--well); border: 1px dashed var(--line-strong); }
+.dev-fig.small { width: 56px; height: 42px; } .dev-fig.big { width: 100%; aspect-ratio: 4 / 3; max-height: 260px; border-radius: 10px; }
+.dev-pick { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 4px 10px 4px 4px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--well); text-align: left; }
+.dev-pick:hover { border-color: var(--accent); } .dev-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dev-pick-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .dev-caret { font-style: normal; color: var(--muted); }
+.dev-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(4, 8, 14, .45); }
+.dev-menu { position: fixed; z-index: 21; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; user-select: none; -webkit-user-select: none; }
+.dev-head { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line); } .dev-head b { flex: 1; font-size: 15px; }
+.dev-close { min-height: 40px; padding: 6px 14px; }
+.dev-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+.dev-list { overflow: auto; padding: 6px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.dev-group { margin: 10px 8px 4px; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); } .dev-group:first-child { margin-top: 4px; }
+.dev-option { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 8px 4px 4px; border-radius: 7px; text-align: left; }
+.dev-option:hover, .dev-option:focus-visible { background: #2c3643; outline: none; } .dev-option.chosen { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.dev-option-text { min-width: 0; display: flex; flex-direction: column; } .dev-option-text b { font-weight: 600; } .dev-option-text small { color: var(--muted); font-size: 11.5px; }
+.dev-view { overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; user-select: text; -webkit-user-select: text; }
+.dev-view h3 { margin: 8px 0 0; font-size: 17px; } .dev-maker { color: var(--accent-text); font-weight: 600; } .dev-view p { margin: 4px 0; line-height: 1.5; }
+.dev-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 6px 0 0; font-size: 12px; } .dev-facts dt { color: var(--muted); } .dev-facts dd { margin: 0; }
+.cfg-motor-details { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 2px 0 0 74px; }
+.cfg-detail { display: flex; align-items: center; gap: 10px; color: var(--muted); } .cfg-detail span { white-space: nowrap; }
+/* The pinout page uses the whole width for the diagram. */
+.ds-page.wide .page-body { max-width: none; }
+.pin-note { margin: 0; padding: 8px 12px; border-radius: 6px; background: var(--raised); color: var(--muted); } .pin-note.bad { background: var(--danger-bg); color: var(--danger); }
+.pin-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .pin-tools .cfg-btn { min-width: 48px; padding: 8px 14px; } .pin-zoom-label { color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.pin-view { flex: 1; min-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; } .pin-view:focus-visible { outline: 2px solid var(--accent); }
+.pin-sheet { display: block; max-width: none; height: auto; }
+@media (max-width: 720px) {
+  .page-body { padding: 12px; } .inspect { grid-template-columns: 1fr; }
+  .dev-panes { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .dev-view { order: -1; flex-direction: row; flex-wrap: wrap; border-bottom: 1px solid var(--line); max-height: 40vh; }
+  .dev-view .dev-fig.big { width: 140px; } .cfg-motor-details { padding-left: 0; }
+  .cfg-port { grid-template-columns: 56px minmax(0, 1fr); } .cfg-port > :nth-child(n+3) { grid-column: 1 / -1; }
+  .set-row { flex-wrap: wrap; }
+}

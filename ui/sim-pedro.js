@@ -173,6 +173,7 @@ import com.pedropathing.algorithm.Foresight;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.math.Pose;
 import com.pedropathing.paths.Path;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -208,6 +209,8 @@ public class ${o.opMode} extends LinearOpMode {
         }
         actions = new RobotActions();
         actions.init(hardwareMap, telemetry);
+        // Each hub reads all its inputs in one go per loop (bulk caching), so sensors and encoders cost no extra time.
+        for (LynxModule hub : hardwareMap.getAll(LynxModule.class)) hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         Path[] legs = ${R}.legs();
         follower.setPose(${R}.START);
         while (opModeInInit()) {
@@ -368,6 +371,7 @@ public class ${o.opMode} extends LinearOpMode {
     }
 
     private void report(int leg, int legs, String phase) {
+        actions.update();
         Pose p = follower.pose();
         telemetry.addData("Leg", (leg + 1) + " of " + legs);
         telemetry.addData("Phase", phase);
@@ -393,22 +397,24 @@ public class ${o.opMode} extends LinearOpMode {
       {status:'physical',label:'Real-world test',detail:'Drive it on a practice field at low speed first. Simulation and compilation do not prove the robot will follow the path.'}
     ];
   }
-  function files({route,layout,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',mechanisms=null,target=null,robot={},defaultPower,constants=QUICKSTART_CONSTANTS,hardware=null,tuning=null,exporter=globalThis.DeckSimExport||require('./sim-export.js'),ftc=globalThis.DeckSimFtc||require('./sim-ftc.js')}){
+  function files({route,layout,setupName,packageName='org.firstinspires.ftc.teamcode',className='PlannedRoute',mechanisms=null,kinematics=null,localization='encoders',target=null,robot={},defaultPower,constants=QUICKSTART_CONSTANTS,hardware=null,tuning=null,exporter=globalThis.DeckSimExport||require('./sim-export.js'),ftc=globalThis.DeckSimFtc||require('./sim-ftc.js')}){
     if(!route?.segments?.length)throw Error('Plan a route first.');
     if(route.nonholonomic)throw Error('Pedro Pathing 3 drives mecanum and swerve robots. Use the OnBot Java or TeamCode export for this drivetrain.');
     if(!layout?.start)throw Error('Set a starting pose first.');
     const nm=names(className,packageName),mech=mechanisms?.enabled?mechanisms:null,legs=legsOf(route,exporter),list=exporter.actions(route),dir=packageName.replace(/\./g,'/');
     const startH=finite(layout.start.heading)?layout.start.heading:route.heading||0,through=throughs(legs,startH),check=checklist({mechanisms:mech,actions:list,drivetrain:robot?.drivetrain||'mecanum'});
     const o={route,layout,legs,through,exporter,packageName,className,paths:nm.paths,opMode:nm.opMode,mechanisms:mech,constants,checklist:check,defaultPower};
-    const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,sequences:exporter.sequences?.(route)||[],poseImport:'com.pedropathing.math.Pose'};
+    const {parts,sensorSpecs}=ftc.exportParts?ftc.exportParts({robot,localization,mechanisms,kinematics}):{parts:{list:[]},sensorSpecs:[]};
+    const shared={packageName,className,layoutName:layout.name,setupName,exporter,mechanisms:mech,kinematics,parts,sensorSpecs,sequences:exporter.sequences?.(route)||[],poseImport:'com.pedropathing.math.Pose'};
     const out={[`${dir}/${nm.paths}.java`]:pathsFile(o),[`${dir}/${nm.opMode}.java`]:opModeFile(o),[`${dir}/RouteActions.java`]:ftc.routeActions(shared,list),[`${dir}/RobotActions.java`]:ftc.robotActions(shared,list)};
-    if(mech)out[`${dir}/Mechanisms.java`]=ftc.mechanismsSource(shared,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width});
+    if(mech)out[`${dir}/Mechanisms.java`]=ftc.mechanismsSource(shared,mech,target||{x:72,y:72},{length:robot?.length,width:robot?.width,wiring:robot?.wiring});
+    if(parts.list.length)out[`${dir}/Parts.java`]=ftc.partsSource(shared,parts.list,sensorSpecs);
     // The check TeleOp tests the drive motors Deck knows (none for swerve) and every mechanism device on the robot.
     out[`${dir}/${className}Check.java`]=ftc.checkOpMode({...shared,checkName:className+'Check'},hardware,mech);
     // Starting values for the team's pedro/Constants.java, next to it in the Quickstart's pedro package.
     let starter=null;if(hardware&&tuning&&constants===QUICKSTART_CONSTANTS){try{starter=starterConstants({hardware,tuning});}catch{}}
     if(starter)out['org/firstinspires/ftc/teamcode/pedro/DeckStarterConstants.java']=starter;
-    return {files:out,keep:[`${dir}/RobotActions.java`],opMode:`${packageName}.${nm.opMode}`,checklist:check,legs:legs.length,actions:list,starter:!!starter};
+    return {files:out,keep:[`${dir}/RobotActions.java`],retire:{[`${dir}/RobotActions.java`]:list.filter(a=>ftc.mechanismAction(a.name,mech,parts)).map(a=>a.slot)},opMode:`${packageName}.${nm.opMode}`,checklist:check,legs:legs.length,actions:list,starter:!!starter};
   }
   // A Pedro Pathing Follower for the robot set up in Deck: Pedro's own REV hub Mecanum drivetrain and
   // Pinpoint or OTOS localizer, and a Foresight config filled from the simulated robot's measured
