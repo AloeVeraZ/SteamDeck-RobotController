@@ -67,6 +67,8 @@ async function newConfiguration(){
   await run(`Scanning the robot for hubs…`,async()=>{
     const serials=C.lynxSerials(await ask('CMD_SCAN','',20000)),portals=[];
     for(const serial of serials){const p=C.lynxModules(await ask('CMD_DISCOVER_LYNX_MODULES',serial,20000));if(p.modules.length)portals.push(p);}
+    // The robot has its Control Hub open, so the scan leaves that IMU UNKNOWN; its web server says which one it is.
+    if(C.unknownImus(portals)&&ctx.host.rcHubs){try{portals.splice(0,portals.length,...C.withImus(portals,await ctx.host.rcHubs()));}catch{}}
     if(!portals.length)throw Error('The scan found no Control Hub or Expansion Hub. Check the hubs are powered and connected, then try again.');
     const imus=[];for(const p of portals){const parent=p.modules.find(m=>m.parent),tag=parent&&C.IMU_TAGS[parent.imu];if(tag&&p.serial==='(embedded)')imus.push({name:'imu',tag,device:'imu',port:0,bus:0,module:{portal:p.serial,address:parent.address,name:'Control Hub'}});}
     status(`Saving “${name}”…`);await save(name,C.newConfiguration(portals,imus));await readList();changed=true;

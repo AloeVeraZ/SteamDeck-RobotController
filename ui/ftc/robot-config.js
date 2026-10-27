@@ -299,6 +299,13 @@
   // CMD_DISCOVER_LYNX_MODULES (LynxModuleMetaList: {serialNumber, modules: [{moduleAddress, isParent, imuType}]}).
   const lynxSerials=scan=>{const v=JSON.parse(scan);return (Array.isArray(v?.map)?v.map:[]).filter(e=>e?.value==='LYNX_USB_DEVICE'&&typeof e.key==='string').map(e=>e.key);};
   function lynxModules(list){const v=JSON.parse(list);return {serial:String(v?.serialNumber??''),modules:(Array.isArray(v?.modules)?v.modules:[]).filter(m=>Number.isInteger(m?.moduleAddress)).map(m=>({address:m.moduleAddress,parent:!!m.isParent,imu:typeof m.imuType==='string'?m.imuType:'UNKNOWN'}))};}
+  // While the robot has a hub open (it always has a Control Hub's own board), FTC SDK 12.0's scan answers its IMU as
+  // UNKNOWN. The Robot Controller's web server knows it: /js/rcInfo.json revHubNamesAndVersions, [{parentSerial,
+  // moduleAddress, imuType: BHI260AP, BNO055 or NONE}]. withImus fills the scan's UNKNOWN IMUs from that list.
+  const imuOf=t=>/^BHI260/i.test(t)?'BHI260':/^BNO055/i.test(t)?'BNO055':/^NONE$/i.test(t)?'NONE':null;
+  const withImus=(portals,hubs)=>portals.map(p=>({...p,modules:p.modules.map(m=>{if(m.imu!=='UNKNOWN')return m;
+    const h=(Array.isArray(hubs)?hubs:[]).find(h=>h?.parentSerial===p.serial&&h.moduleAddress===m.address),imu=imuOf(String(h?.imuType||''));return imu?{...m,imu}:m;})}));
+  const unknownImus=portals=>portals.some(p=>p.modules.some(m=>m.imu==='UNKNOWN'));
   // ---- a configured device in Java, as Blocks lists it: its SDK type, the import and the hardwareMap.get line ----------
   const JAVA={motor:['DcMotorEx','com.qualcomm.robotcore.hardware.DcMotorEx'],servo:['Servo','com.qualcomm.robotcore.hardware.Servo'],crservo:['CRServo','com.qualcomm.robotcore.hardware.CRServo'],
     imu:['IMU','com.qualcomm.robotcore.hardware.IMU'],pinpoint:['GoBildaPinpointDriver','com.qualcomm.hardware.gobilda.GoBildaPinpointDriver'],otos:['SparkFunOTOS','com.qualcomm.hardware.sparkfun.SparkFunOTOS'],
@@ -350,5 +357,5 @@
     if(!Object.keys(keep).length)return clean;const json=JSON.stringify(keep).replace(/-/g,'\\u002d').replace(/[<>&;]/g,c=>'\\u00'+c.charCodeAt(0).toString(16));
     return clean.replace(/(<Robot\b[^>]*>)[ \t]*\r?\n?/,(m,tag)=>`${tag}\n    <!-- Deck wiring: ${json} -->\n`);}
   return {notesOf,cleanNotes,withNotes,EDIT_TYPES,PORT_COUNT,familyOfTag,rebuild,javaFor,javaOf,variableOf,parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
-    addDevices,newConfiguration,configurationFor,modulesOf,modulesFromScan,configurationName,validName,lynxSerials,lynxModules,deviceXml};
+    addDevices,newConfiguration,configurationFor,modulesOf,modulesFromScan,configurationName,validName,lynxSerials,lynxModules,withImus,unknownImus,deviceXml};
 });

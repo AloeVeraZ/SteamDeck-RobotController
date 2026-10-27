@@ -68,3 +68,22 @@ test('the Driver Station over the USB cable: Robocol packets framed over TCP rea
   finally{await socket.close();}
   assert.ok(socket instanceof require('../src/ftc.cjs').FtcSocket,'Drive treats it as a Driver Station link');
 });
+
+test('a Control Hub without the Deck USB link: ADB takes the connection and hangs up, and opening says to install the link',async t=>{
+  const net=require('node:net'),{UsbFtcSocket}=require('../src/ftc.cjs');
+  const hangUp=net.createServer(s=>s.destroy());await new Promise(r=>hangUp.listen(0,'127.0.0.1',r));t.after(()=>hangUp.close());
+  await assert.rejects(new UsbFtcSocket(async()=>({port:hangUp.address().port})).open(),/Deck USB link is not on this Control Hub yet.*Send to robot over USB/);
+  const keep=net.createServer(()=>{});await new Promise(r=>keep.listen(0,'127.0.0.1',r));t.after(()=>keep.close());
+  const socket=await new UsbFtcSocket(async()=>({port:keep.address().port}),{grace:100}).open();assert.ok(socket.socket,'a link that stays connected opens');await socket.close();
+});
+
+test('the scan leaves an open Control Hub\'s IMU UNKNOWN (FTC SDK 12.0); the Robot Controller\'s hub list says which one it is',()=>{
+  // As a Control Hub v1.0 with a BHI260AP answered over USB, with nothing plugged into it.
+  const scan=R.lynxModules('{"modules":[{"imuType":"UNKNOWN","isParent":true,"moduleAddress":173,"revProductNumber":3215698}],"serialNumber":"(embedded)"}');
+  const hubs=[{firmwareVersion:'1.8.2',imuType:'BHI260AP',moduleAddress:173,name:'Control Hub',parentSerial:'(embedded)',revProductNumber:3215698}];
+  assert.ok(R.unknownImus([scan]));const [filled]=R.withImus([scan],hubs);
+  assert.equal(filled.modules[0].imu,'BHI260');assert.equal(R.IMU_TAGS[filled.modules[0].imu],'ControlHubImuBHI260AP');assert.equal(R.unknownImus([filled]),false);
+  assert.equal(R.withImus([scan],[{...hubs[0],imuType:'BNO055'}])[0].modules[0].imu,'BNO055','an older Control Hub keeps its BNO055');
+  assert.equal(R.withImus([scan],[])[0].modules[0].imu,'UNKNOWN','no list: still UNKNOWN, and no IMU is guessed');
+  assert.equal(R.withImus([scan],[{...hubs[0],moduleAddress:2}])[0].modules[0].imu,'UNKNOWN','only the same hub answers');
+});

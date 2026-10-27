@@ -13,5 +13,6 @@ contextBridge.exposeInMainWorld('ftcHost',{
   devicePhoto:tag=>ipcRenderer.invoke('ftc-device-photo',tag),
   devicePhotos:()=>ipcRenderer.invoke('ftc-device-photos'),
   saveFile:file=>ipcRenderer.invoke('ftc-save-file',file),
-  wiringNotes:request=>ipcRenderer.invoke('ftc-wiring-notes',request)
+  wiringNotes:request=>ipcRenderer.invoke('ftc-wiring-notes',request),
+  rcHubs:()=>ipcRenderer.invoke('ftc-rc-hubs')
 });

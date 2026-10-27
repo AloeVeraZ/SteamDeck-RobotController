@@ -49,10 +49,18 @@ async function configurations({ask,until},timeout){
   return {files,active};
 }
 // The robot's hubs: each hub portal's serial number ("(embedded)" for a Control Hub's own board) and the hubs behind it.
-async function scanHubs(ask){
+// IMUs the scan answers UNKNOWN come from the robot's web server (RobotConfig.withImus).
+async function scanHubs(ask,host){
   const serials=RobotConfig.lynxSerials(await ask('CMD_SCAN','',20000)),portals=[];
   for(const serial of serials)portals.push(RobotConfig.lynxModules(await ask('CMD_DISCOVER_LYNX_MODULES',serial,20000)));
-  return portals.filter(p=>p.modules.length);
+  const found=portals.filter(p=>p.modules.length);
+  return RobotConfig.unknownImus(found)?RobotConfig.withImus(found,await rcHubs(host)):found;
+}
+// The hubs the Robot Controller's web server lists (/js/rcInfo.json revHubNamesAndVersions); none when it cannot be read.
+async function rcHubs(host){
+  try{const at=host==='usb'?{host:'127.0.0.1',port:(await usbForward()).port}:{host:checkHost(host),port:8080};
+    const r=await request(at.host,'GET','/js/rcInfo.json',undefined,{port:at.port,timeout:4000}),hubs=r.status===200?JSON.parse(r.text).revHubNamesAndVersions:null;
+    return Array.isArray(hubs)?hubs:[];}catch{return [];}
 }
 
 // ---- the robot configuration
@@ -61,7 +69,7 @@ async function scanHubs(ask){
 async function readRobot(host,{timeout=8000,socket=null,scan=false}={}){
   return session(host,async link=>{
     const {ask,ds}=link,{files,active:activeName}=await configurations(link,timeout),active=files.find(c=>c.name===activeName)||null,names=files.map(c=>c.name);
-    const portals=scan?await scanHubs(ask):undefined,extra=portals?{portals}:{};
+    const portals=scan?await scanHubs(ask,host):undefined,extra=portals?{portals}:{};
     if(!active)return {robot:ds.state.robot,configurations:names,active:null,devices:[],hubs:[],opModes:ds.state.opModes,...extra};
     const xml=await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(active)),parsed=RobotConfig.parse(xml);
     return {robot:ds.state.robot,configurations:names,active:{name:active.name,dirty:!!active.isDirty},xml,...parsed,opModes:ds.state.opModes,...extra};
@@ -144,8 +152,9 @@ const formEncode=s=>encodeURIComponent(s).replace(/[!'()*]/g,c=>'%'+c.charCodeAt
 function request(host,method,route,body,{timeout=15000,port=8080}={}){
   return new Promise((resolve,reject)=>{
     const data=body===undefined?null:Buffer.from(body,'utf8');
-    // One request a connection: the robot's server (and an ADB forward to it) hangs up on a kept-alive one.
-    const req=http.request({host,port,method,path:route,headers:{Connection:'close',...(data?{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8','Content-Length':data.length}:{})}},res=>{
+    // One request a connection: the robot's server (and an ADB forward to it) hangs up on a kept-alive one. It also hangs
+    // up on a request without a User-Agent for some pages (/js/rcInfo.json).
+    const req=http.request({host,port,method,path:route,headers:{Connection:'close','User-Agent':'Deck Driver Station',...(data?{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8','Content-Length':data.length}:{})}},res=>{
       const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve({status:res.statusCode,text:Buffer.concat(chunks).toString('utf8')}));});
     req.setTimeout(timeout,()=>req.destroy(Object.assign(Error('timed out'),{code:'ETIMEDOUT'})));
     req.on('error',e=>reject(Object.assign(Error(`Could not reach the robot's OnBot Java at http://${host}:${port} (${e.code||e.message}). Join the robot's Wi-Fi, and check the Robot Controller app is running.`),{code:e.code})));
@@ -251,4 +260,4 @@ async function usbForward({run}={}){
   await adb(['-s',serial,'forward',`tcp:${port+2}`,'tcp:20885'],{run});usbPorts={serial,port,link:port+2};return usbPorts;}
 // The Deck USB link's source, which Send to robot over USB installs beside the code (OnBot Java builds it with the rest).
 const USB_LINK_FILE='org/firstinspires/ftc/teamcode/DeckUsbLink.java',usbLinkSource=()=>fs.readFileSync(path.join(__dirname,'onbot','DeckUsbLink.java'),'utf8');
-module.exports={usbForward,usbLinkSource,USB_LINK_FILE,readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};
+module.exports={rcHubs,usbForward,usbLinkSource,USB_LINK_FILE,readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};

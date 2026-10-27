@@ -288,6 +288,8 @@ ipcMain.handle('ftc-settings',async e=>{if(!robotView||e.sender!==robotView.webC
 const fromDs=e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');};
 ipcMain.handle('ftc-device-photo',async(e,tag)=>{fromDs(e);return photos().photo(String(tag||''));});
 ipcMain.handle('ftc-device-photos',async e=>{fromDs(e);return photos().prefetch();});
+// The hubs the open robot's web server lists, with each one's IMU (Configure Robot's New: the scan leaves it UNKNOWN).
+ipcMain.handle('ftc-rc-hubs',async e=>{fromDs(e);if(!(bridge instanceof FtcSocket))return [];return robotLink.rcHubs(bridge instanceof UsbFtcSocket?'usb':bridge.host);});
 // Configure Robot's wiring notes (a motor's gearbox, whether its encoder cable is in) by robot and configuration: the robot
 // sends configurations without them. notes: set (an empty object removes); omitted: read.
 ipcMain.handle('ftc-wiring-notes',async(e,{robot,name,notes}={})=>{fromDs(e);const file=path.join(app.getPath('userData'),'wiring-notes.json'),key=`${String(robot||'').slice(0,80)}\n${String(name||'').slice(0,80)}`;
