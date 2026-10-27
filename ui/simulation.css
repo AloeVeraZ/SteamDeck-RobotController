@@ -490,3 +490,10 @@
 .sim-wire-grid{margin:10px 0}.sim-wire-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 12px}.sim-wire-slot label{display:block;font-size:12px;margin:0 0 2px}
 .sim-robot-read{margin:8px 0 14px}.sim-robot-table code{font:12px var(--mono);white-space:nowrap}.sim-robot-table td:last-child{white-space:nowrap}
 .sim-robot-table input,.sim-robot-table select{min-width:0;width:100%}.sim-robot-save{margin:10px 0}
+
+/* Set up from the Control Hub, and a preset's chassis (Mechanisms) */
+.sim-hub-setup{margin:4px 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.sim-hub-setup[hidden],.sim-chassis[hidden]{display:none}.sim-hub-setup .hint{margin:6px 0 0}
+.sim-hub-result{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:3px;font-size:13px}.sim-hub-result li{padding-left:16px;position:relative}.sim-hub-result li::before{content:'';position:absolute;left:2px;top:.5em;width:7px;height:7px;border-radius:50%;background:var(--muted)}
+.sim-hub-result .sim-hub-ok::before{background:#49cbb3}.sim-hub-result .sim-hub-guess::before{background:#f2d14b}.sim-hub-result .sim-hub-missing::before{background:#f2994a}.sim-hub-result .sim-hub-unused{color:var(--muted)}
+.sim-chassis-check{flex:1 1 100%;font-size:13px}.sim-chassis{display:grid;gap:10px;margin:0 0 10px}.sim-chassis-row{display:grid;gap:4px}.sim-chassis-row input{max-width:320px}
+.sim-setup-page[data-chassis] :is(#mech-intakes,#mech-shooters,#mech-parts,#mech-timing,#mech-preloads,#mech-cad,#mech-count,#mech-empty,#mech-cad-note,#mech-field-note){display:none!important}
