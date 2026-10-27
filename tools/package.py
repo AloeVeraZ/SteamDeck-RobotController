@@ -149,7 +149,7 @@ def windows():
         z.write(ROOT/'docs'/'UPDATES.md',name+'/UPDATES.md')
     finish(file)
     setup=OUT/f'DeckDriverStation-{VERSION}-Windows-Setup.exe'
-    compile_nsis('Setup.nsi',OUTPUT=setup,ICON=ROOT/'ui/icon.ico',VERSION=VERSION,PAYLOAD=payload)
+    compile_nsis('Setup.nsi',OUTPUT=setup,ICON=ROOT/'ui/icon.ico',SETUP_ICON=ROOT/'packaging/installer.ico',SIDEBAR=ROOT/'packaging/installer-sidebar.bmp',VERSION=VERSION,PAYLOAD=payload)
     finish(setup);latest(setup)
 def mac(arch):
     archive=runtime_archive('darwin-'+arch);bundle='Deck Driver Station.app';file=OUT/f'DeckDriverStation-{VERSION}-macOS-{arch}.zip'

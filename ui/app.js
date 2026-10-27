@@ -56,7 +56,7 @@ function cancelAuth(){if(pendingAuth)void api.auth({id:pendingAuth.id,cancel:tru
 const controllerMonitor=window.DeckControllerMonitor.create({api,hardware:()=>hardware,robot:()=>state.robot,syncOverlay,toast});
 async function controllers(){try{if(api.controllerInfo)controllerMonitor.render(await api.controllerInfo());else{const pads=window.DeckControllers.orderedPads(navigator.getGamepads?.()||[],hardware).slice(0,2);controllerMonitor.render({count:state.robot?.controllerCount||1,slots:pads,readings:pads});}}catch{}}
 new ResizeObserver(()=>void bounds()).observe($('#robot-mount'));window.addEventListener('resize',()=>void bounds());api.onState(render);api.onNetwork(network);
-void task(async()=>{const data=await api.bootstrap();hardware=data.hardware;$('.version').textContent=data.app?data.app.version+' · '+data.app.channel:'';$('#device').textContent=hardware.model;render(data.state);if(!data.state.network?.connected&&!data.state.robots?.length)showPage('settings');void controllers();setInterval(controllers,1000);});
+void task(async()=>{const data=await api.bootstrap();hardware=data.hardware;$('.version').textContent=data.app?data.app.version+' · '+data.app.channel:'';$('#menu-version').textContent=menuVersion(data.app);$('#device').textContent=hardware.model;render(data.state);if(!data.state.network?.connected&&!data.state.robots?.length)showPage('settings');void controllers();setInterval(controllers,1000);});
 
 function syncOverlay(){void api.overlay(!$('#menu').hidden||[...document.querySelectorAll('dialog')].some(d=>d.open)).catch(()=>{});}
 let updateBusy=false;
@@ -72,6 +72,8 @@ api.onUpdateProgress?.(p=>{if(p.phase==='installing'){$('#update-progress').remo
 // Asset sizes come from the GitHub release; small code-only updates read in kilobytes.
 function megabytes(bytes){if(bytes<1048576)return `${Math.max(1,Math.round(bytes/1024))} KB`;const mb=bytes/1048576;return `${mb<10?mb.toFixed(1):Math.round(mb)} MB`;}
 let selectedChannel='testing';
+// The three-dot menu says which build this is: Testing builds are GitHub pre-releases, Main builds the stable releases.
+function menuVersion(app){if(!app)return '';return app.channel==='testing'?`App version ${app.version} · Testing (pre-release, experimental)`:`App version ${app.version} · Main (stable release)`;}
 function renderUpdateInfo(info){selectedChannel=info.channel;for(const channel of ['main','testing'])$('#update-'+channel).setAttribute('aria-pressed',String(channel===info.channel));$('#update-version').textContent=`Installed ${info.version} · ${info.installedChannel||info.channel}`;$('#channel-note').textContent=info.channel==='testing'?'Following experimental Testing releases.':'Following stable Main releases.';}
 async function switchChannel(channel,confirmed=false){updateButtons(true);resetUpdateResult();try{renderUpdateInfo(await api.updateChannel(channel,confirmed));$('#testing-warning').hidden=true;$('#update-status').textContent='Channel saved. Check for a published '+channel+' release.';}catch(e){$('#update-status').textContent=e.message;}finally{updateButtons(false);}}
 $('#update-main').onclick=()=>{if(selectedChannel!=='main')void switchChannel('main');else{$('#testing-warning').hidden=true;$('#update-check').disabled=false;}};

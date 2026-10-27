@@ -61,6 +61,7 @@ body.driver-station > header { height: 60px; margin: 0; top: 0; padding: 0 16px;
 .driver-station .controller small { font-size: 11px; color: var(--quiet); }
 .driver-station .more { color: var(--muted); }
 .driver-station .menu { top: 56px; right: 12px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-panel); box-shadow: var(--shadow); }
+.driver-station .menu-version { margin: 0; padding: 6px 10px 8px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); max-width: 260px; }
 .driver-station .menu button { font-size: 13px; font-weight: 500; border-radius: var(--radius-detail); }
 .driver-station .menu button:hover { background: var(--raised); }
 .driver-station .menu button:last-child { border-top: 0; margin-top: 0; border-radius: var(--radius-detail); }
