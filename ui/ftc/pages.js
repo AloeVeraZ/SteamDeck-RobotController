@@ -7,7 +7,7 @@
 //    restarts the robot, as the Driver Hub does, so the hardware map is built from the active configuration.
 //  - Self Inspect: CMD_REQUEST_INSPECTION_REPORT, beside this Driver Station's own report.
 (()=>{
-const $=s=>document.querySelector(s),C=window.DeckRobotConfig;
+const $=s=>document.querySelector(s),C=window.DeckRobotConfig,A=window.DeckDeviceArt,P=window.DeckPinout;
 let ctx=null,onBack=null;
 function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
 function button(text,cls,fn){const b=el('button',cls,text);b.type='button';b.onclick=fn;return b;}
@@ -37,7 +37,7 @@ function ask2({title,text='',input=null,ok='OK',check=()=>''}){
 
 // ---- Configure Robot ----------------------------------------------------------------------------------------------------
 let files=[],changed=false,edit=null,working=false;
-async function configure(){changed=false;edit=null;open('Configure Robot',leaveConfigure);await loadList();}
+async function configure(){changed=false;edit=null;open('Configure Robot',leaveConfigure);void Promise.resolve(ctx.host.devicePhotos?.()).catch(()=>{});await loadList();}
 function leaveConfigure(){close();if(changed&&connected()){ctx.session.restartRobot();ctx.toast('Restarting Robot');}changed=false;}
 // Runs one robot action with the page's buttons held, showing what it is doing and any error.
 async function run(doing,task){if(working)return;working=true;status(doing);for(const b of document.querySelectorAll('#ds-page button:not(#page-back)'))b.disabled=true;
@@ -55,9 +55,9 @@ function renderList(){
   if(!files.length)list.append(el('p','cfg-empty',connected()?'This robot has no saved configurations. Press New to scan the robot’s hubs and make one.':'Not connected to the robot.'));
   for(const f of files){const row=el('div','cfg-row'+(f.name===active?' active':''));row.setAttribute('role','listitem');const name=el('div','cfg-name');name.append(el('b','',f.name));if(f.name===active)name.append(el('small','','Active'));
     const fixed=f.location&&f.location!=='LOCAL_STORAGE';if(fixed)name.append(el('small','muted','Built into the robot app'));
-    const buttons=el('div','cfg-buttons'),e=button('Edit','cfg-btn',()=>void openEditor(f)),a=button('Activate','cfg-btn',()=>void activate(f)),d=button('Delete','cfg-btn danger',()=>void remove(f));
-    for(const b of [e,a,d])b.dataset.needsRobot='';a.dataset.active=f.name===active?'1':'0';if(fixed){e.disabled=d.disabled=true;delete e.dataset.needsRobot;delete d.dataset.needsRobot;}
-    buttons.append(e,a,d);row.append(name,buttons);list.append(row);}
+    const buttons=el('div','cfg-buttons'),e=button('Edit','cfg-btn',()=>void openEditor(f)),a=button('Activate','cfg-btn',()=>void activate(f)),d=button('Delete','cfg-btn danger',()=>void remove(f)),g=button('Get pinout','cfg-btn pinout',()=>void pinoutOf(f));
+    for(const b of [e,a,d,g])b.dataset.needsRobot='';a.dataset.active=f.name===active?'1':'0';if(fixed){e.disabled=d.disabled=true;delete e.dataset.needsRobot;delete d.dataset.needsRobot;}
+    buttons.append(e,a,d,g);row.append(name,buttons);list.append(row);}
   $('#page-body').replaceChildren(head,list);refreshButtons();
 }
 const nameCheck=v=>!C.validName(v)?'Use letters, digits, spaces, - and _ (up to 40), starting with a letter or digit.':files.some(f=>f.name.toLowerCase()===v.toLowerCase())?`The robot already has a configuration named “${v}”.`:'';
@@ -108,18 +108,77 @@ const familyOf=tag=>{for(const [f,list] of Object.entries(TYPES))if(list.some(([
 const TITLES={motor:'Motors',servo:'Servos',digital:'Digital Devices',analog:'Analog Input Devices'},SINGULAR={motor:'motor',servo:'servo',digital:'digital device',analog:'analog input'};
 const sameHub=(d,h)=>d.module&&d.module.portal===h.portal&&d.module.address===h.address&&!!d.module.servoHub===(h.tag==='ServoHub');
 const portalName=serial=>serial==='(embedded)'?'Control Hub Portal':`Expansion Hub Portal (${serial})`;
+// Wiring notes for a configuration: the ones in its file when the robot sends them, else the ones this computer keeps
+// for this robot (the Robot Controller sends configurations without comments).
+let robotId=null;const robotKey=async()=>robotId||=await robotName()||null;
+async function notesFor(name,xml){const own=C.notesOf(xml);if(Object.keys(own).length||!ctx.host.wiringNotes)return own;try{const robot=await robotKey();return robot?C.cleanNotes(await ctx.host.wiringNotes({robot,name})):{};}catch{return {};}}
+async function keepNotes(name,notes){try{const robot=await robotKey();if(robot)await ctx.host.wiringNotes?.({robot,name,notes});}catch{}}
 async function openEditor(f){
-  let xml='';await run(`Reading “${f.name}”…`,async()=>{xml=await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(f));C.parse(xml);});if(!xml)return;
+  let xml='',notes={};await run(`Reading “${f.name}”…`,async()=>{xml=await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(f));C.parse(xml);notes=await notesFor(f.name,xml);});if(!xml)return;
   const {devices,hubs}=C.parse(xml),lynx=hubs.filter(h=>Number.isFinite(h.address)&&(h.tag==='LynxModule'||h.tag==='ServoHub'));
-  edit={file:f,xml,hubs:lynx,portals:[...new Set(lynx.map(h=>h.portal))],view:[],dirty:false,devices:devices.filter(d=>d.module).map(d=>({...d,family:familyOf(d.tag)})),other:devices.filter(d=>!d.module)};
+  edit={file:f,xml,hubs:lynx,portals:[...new Set(lynx.map(h=>h.portal))],view:[],dirty:false,devices:devices.filter(d=>d.module).map(d=>({...d,...(notes[d.name]||{}),family:familyOf(d.tag)})),other:devices.filter(d=>!d.module)};
   $('#page-back').onclick=()=>editBack();renderEditor();
 }
 function editBack(){if(edit.view.length){edit.view.pop();status('');renderEditor();}else void leaveEditor();}
 function go(step){edit.view.push(step);status('');renderEditor();$('#page-body').scrollTop=0;}
 async function leaveEditor(){if(edit?.dirty&&!await ask2({title:'Discard changes?',text:`Your changes to “${edit.file.name}” are not saved.`,ok:'Discard'}))return;
   edit=null;$('#page-back').onclick=()=>{if(onBack)onBack();else close();};status('');renderList();}
-function typeSelect(family,tag,label,onPick,{nothing=true}={}){const s=el('select','cfg-type');s.setAttribute('aria-label',label);
-  if(nothing)s.append(new Option('Nothing',''));const list=[...TYPES[family]];if(tag&&!list.some(([t])=>t===tag))list.push([tag,tag]);for(const [t,l] of list)s.append(new Option(l,t));s.value=tag||'';s.onchange=()=>onPick(s.value);return s;}
+// ---- device pictures: the product photo from the maker's listing (fetched by the app while online and kept on this
+// computer), with Deck's drawing until it arrives or when there is none --------------------------------------------------
+const photoCache=new Map();
+function photo(tag){if(!tag||!A.photoOf(tag)||!ctx.host.devicePhoto)return Promise.resolve(null);
+  if(!photoCache.has(tag))photoCache.set(tag,Promise.resolve(ctx.host.devicePhoto(tag)).then(url=>url?shrink(url):null).catch(()=>null).then(v=>{if(!v)photoCache.delete(tag);return v;}));
+  return photoCache.get(tag);}
+// A photo at most 480 px on its long side, on white, as a JPEG: small enough to go into an exported pinout.
+function shrink(url){return new Promise(done=>{const img=new Image();img.onload=()=>{const s=Math.min(1,480/Math.max(img.naturalWidth,img.naturalHeight)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.naturalWidth*s));c.height=Math.max(1,Math.round(img.naturalHeight*s));
+  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);try{done(c.toDataURL('image/jpeg',.9));}catch{done(url);}};img.onerror=()=>done(null);img.src=url;});}
+// A device's picture: its drawing at once, its product photo when that arrives.
+function figure(tag,cls=''){const f=el('span',`dev-fig ${cls}`);if(!tag){f.classList.add('empty');return f;}f.innerHTML=A.svg(tag,{title:false});
+  void photo(tag).then(url=>{if(!url)return;const img=el('img');img.alt='';img.src=url;f.replaceChildren(img);f.classList.add('photo');});return f;}
+// ---- the device picker: a list of every type a port takes, grouped by maker, with a large picture and what the type is
+// for the one under the pointer or focus. Replaces a plain <select> so a team can see what it is choosing. -------------
+const PLUGS={motor:'A motor port (JST-VH 2-pin) for power, and the encoder port beside it (JST-PH 4-pin) for its encoder cable.',servo:'A servo port: 3-pin 0.1″ header (ground, +5 V, signal).',
+  digital:'A digital port: JST-PH 4-pin, two channels per connector.',analog:'An analog port: JST-PH 4-pin, two channels per connector.',i2c:'An I2C port: JST-PH 4-pin. Each port is its own bus.'};
+const nameOf=(family,tag)=>(TYPES[family]?.find(([t])=>t===tag)||[tag,A.info(tag).name])[1];
+let menu=null;
+function closeMenu(){if(!menu)return false;const m=menu;menu=null;m.backdrop.remove();m.remove();m.anchor?.isConnected&&m.anchor.focus();return true;}
+function typeSelect(family,tag,label,onPick,{nothing=true}={}){
+  const b=button('','dev-pick',()=>openMenu(b,family,tag,onPick,nothing));b.setAttribute('aria-label',`${label}: ${tag?nameOf(family,tag):'Nothing'}`);b.setAttribute('aria-haspopup','dialog');
+  b.append(figure(tag,'small'),el('span','dev-pick-name',tag?nameOf(family,tag):'Nothing'),el('i','dev-caret','▾'));return b;}
+function openMenu(anchor,family,tag,onPick,nothing){
+  closeMenu();const m=el('div','dev-menu'),backdrop=el('div','dev-backdrop'),list=el('div','dev-list'),view=el('div','dev-view');
+  m.setAttribute('role','dialog');m.setAttribute('aria-label',`Choose what is on this ${SINGULAR[family]||'I2C'} port`);list.setAttribute('role','listbox');
+  const show=t=>{const i=A.info(t),p=A.photoOf(t),facts=el('dl','dev-facts');
+    if(!t){view.replaceChildren(figure('','big'),el('h3','','Nothing'),el('p','','Leave this port empty.'));return;}
+    const fact=(k,v)=>{if(v)facts.append(el('dt','',k),el('dd','',v));};
+    fact('Plugs into',i.builtIn?'Nothing: it is built into the hub, on I2C bus 0.':PLUGS[family]);if(i.addr!==undefined)fact('I2C address',A.hex(i.addr));
+    if(A.GEARING[t])fact('Gearing','Choose its gear ratio on the port after picking it.');fact('Picture',p?`${p.caption} · ${p.site}`:'Drawing (no store listing)');
+    view.replaceChildren(figure(t,'big'),el('h3','',nameOf(family,t)),el('small','dev-maker',i.maker),el('p','',i.what),facts);};
+  const options=[],add=(t,l)=>{const o=button('','dev-option'+(t===(tag||'')?' chosen':''),()=>{closeMenu();if(t!==(tag||''))onPick(t);});o.setAttribute('role','option');o.setAttribute('aria-selected',String(t===(tag||'')));
+    const words=el('span','dev-option-text');words.append(el('b','',l),el('small','',t?A.info(t).maker:'Port left empty'));o.append(figure(t,'small'),words);o.onpointerenter=()=>show(t);o.onfocus=()=>show(t);options.push(o);return o;};
+  if(nothing)list.append(add('','Nothing'));
+  const types=[...TYPES[family]];if(tag&&!types.some(([t])=>t===tag))types.push([tag,tag]);const groups=new Map();
+  for(const [t,l] of types){const g=A.info(t).maker||'Other';if(!groups.has(g))groups.set(g,[]);groups.get(g).push([t,l]);}
+  for(const [g,items] of groups){list.append(el('h4','dev-group',g));for(const [t,l] of items)list.append(add(t,l));}
+  const head=el('div','dev-head');head.append(el('b','',family==='i2c'?'Choose an I2C device':`Choose a ${SINGULAR[family]}`),button('Close','cfg-btn dev-close',()=>closeMenu()));
+  const panes=el('div','dev-panes');panes.append(list,view);m.append(head,panes);
+  m.onkeydown=e=>{const i=options.indexOf(document.activeElement);
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();options[Math.max(0,Math.min(options.length-1,(i<0?0:i)+(e.key==='ArrowDown'?1:-1)))].focus();}
+    else if(e.key==='Home'||e.key==='End'){e.preventDefault();options[e.key==='Home'?0:options.length-1].focus();}
+    else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeMenu();}};
+  backdrop.onpointerdown=()=>closeMenu();document.body.append(backdrop,m);menu=m;m.anchor=anchor;m.backdrop=backdrop;
+  // Below the button when it fits, else above; never off screen.
+  const r=anchor.getBoundingClientRect(),vw=innerWidth,vh=innerHeight,w=Math.min(780,vw-24),below=vh-r.bottom-12,above=r.top-12,h=Math.min(560,Math.max(below,above));
+  m.style.width=w+'px';m.style.maxHeight=h+'px';m.style.left=Math.max(12,Math.min(r.left,vw-w-12))+'px';if(below>=Math.min(420,h)||below>=above)m.style.top=(r.bottom+6)+'px';else m.style.bottom=(vh-r.top+6)+'px';
+  show(tag||'');(options.find(o=>o.classList.contains('chosen'))||options[0])?.focus();options.find(o=>o.classList.contains('chosen'))?.scrollIntoView({block:'nearest'});
+}
+// A motor's gear ratio and whether its encoder cable is plugged in, as Deck's wiring notes in the configuration.
+function motorDetails(d){
+  const box=el('div','cfg-motor-details'),gears=A.GEARING[d.tag];
+  if(gears){const s=el('select','cfg-type');s.setAttribute('aria-label',`${d.name||'Motor'} gear ratio`);s.append(new Option('Gear ratio: not set',''));for(const g of gears)s.append(new Option(g.label,g.id));
+    s.value=gears.some(g=>g.id===d.gear)?d.gear:'';s.onchange=()=>{d.gear=s.value||undefined;edit.dirty=true;};const l=el('label','cfg-detail');l.append(el('span','','Gearbox'),s);box.append(l);}
+  const sw=el('label','switch'),i=el('input');i.type='checkbox';i.checked=d.encoder!==false;i.setAttribute('aria-label',`${d.name||'Motor'} encoder cable plugged in`);i.onchange=()=>{d.encoder=i.checked;edit.dirty=true;};sw.append(i,el('i'));
+  const enc=el('label','cfg-detail');enc.append(el('span','','Encoder cable plugged in'),sw);box.append(enc);return box;}
 function nameInput(d,label){const i=el('input','cfg-device-name');i.value=d.name||'';i.placeholder='Device name';i.maxLength=40;i.spellcheck=false;i.setAttribute('aria-label',label);
   i.oninput=()=>{d.name=i.value.trim();edit.dirty=true;i.classList.remove('bad');};return i;}
 // A row that opens the next level: its title and what is in it.
@@ -127,7 +186,7 @@ function entry(title,detail,fn){const b=button('','cfg-entry',fn);const t=el('sp
 const count=(n,word)=>`${n} ${word}${n===1?'':'s'}`;
 function renderEditor(){
   const e=edit,v=e.view.at(-1)||{},hub=v.hub!==undefined?e.hubs[v.hub]:null,on=d=>hub&&sameHub(d,hub);
-  const saveBtn=button('Save','ok',()=>void saveEdit());saveBtn.dataset.needsRobot='';actions(button('Cancel','cfg-btn',()=>void leaveEditor()),saveBtn);if(!connected())saveBtn.disabled=true;
+  const saveBtn=button('Save','ok',()=>void saveEdit());saveBtn.dataset.needsRobot='';actions(button('Pinout','cfg-btn',()=>void showPinout(e.file.name,editedConfig(),{unsaved:e.dirty})),button('Cancel','cfg-btn',()=>void leaveEditor()),saveBtn);if(!connected())saveBtn.disabled=true;
   const crumbs=[e.file.name,...e.view.map(s=>s.family?(s.family==='i2c'?`I2C Bus ${s.bus}`:TITLES[s.family]):s.hub!==undefined?e.hubs[s.hub].name:portalName(s.portal))];
   $('#page-title').textContent=crumbs.at(-1);const body=[el('p','cfg-trail',crumbs.join('  ›  '))];
   if(!e.view.length){body.push(el('h3','cfg-heading','USB Devices in configuration'));
@@ -147,7 +206,7 @@ function renderEditor(){
       const row=el('div','cfg-port'+(d?' used':''));row.append(el('span','cfg-port-no',`Port ${port}`),typeSelect(f,d?.tag,`${label} type`,tag=>{
         if(!tag)e.devices.splice(e.devices.indexOf(d),1);else if(d)d.tag=tag;else e.devices.push({name:'',tag,port,family:f,module:{portal:hub.portal,address:hub.address,...(hub.tag==='ServoHub'?{servoHub:true}:{})}});
         e.dirty=true;renderEditor();if(tag&&!d)document.querySelectorAll('.cfg-port')[port]?.querySelector('input')?.focus();}));
-      row.append(d?nameInput(d,`${label} name`):el('span','cfg-none','NO DEVICE ATTACHED'));box.append(row);}
+      row.append(d?nameInput(d,`${label} name`):el('span','cfg-none','NO DEVICE ATTACHED'));if(d&&f==='motor')row.append(motorDetails(d));box.append(row);}
     if(f==='digital')body.push(el('p','cfg-none','A REV Touch Sensor reads on the odd channel of each digital connector (1, 3, 5, 7).'));
     body.push(box);}
   else{const bus=v.bus,list=e.devices.filter(d=>on(d)&&d.family==='i2c'&&d.bus===bus).sort((a,b)=>a.port-b.port),box=el('div','cfg-ports');
@@ -157,6 +216,10 @@ function renderEditor(){
     body.push(box,button('Add','cfg-btn cfg-add',()=>{e.devices.push({name:'',tag:'RevColorSensorV3',port:list.length?Math.max(...list.map(x=>x.port))+1:0,bus,family:'i2c',module:{portal:hub.portal,address:hub.address}});e.dirty=true;renderEditor();[...document.querySelectorAll('.cfg-device-name')].at(-1)?.focus();}));}
   $('#page-body').replaceChildren(...body);
 }
+// The wiring notes of the motors being edited, by name.
+const notesFrom=devices=>Object.fromEntries(devices.filter(d=>d.family==='motor'&&d.name&&(d.gear||d.encoder===false)).map(d=>[d.name,{...(A.gearOf(d.tag,d.gear)?{gear:d.gear}:{}),...(d.encoder===false?{encoder:false}:{})}]));
+// The configuration as edited so far, for the pinout.
+function editedConfig(){const e=edit;return {hubs:e.hubs,devices:e.devices.map(d=>({...d,name:d.name||'(no name)'})),other:e.other,notes:notesFrom(e.devices)};}
 async function saveEdit(){
   const e=edit,blank=e.devices.find(d=>!d.name);
   if(blank){const hub=e.hubs.findIndex(h=>sameHub(blank,h)),portal=blank.module.portal,where=blank.family==='i2c'?`I2C Bus ${blank.bus}`:`${TITLES[blank.family]} port ${blank.port}`;
@@ -165,10 +228,60 @@ async function saveEdit(){
   let xml;try{
     // An I2C device's port is its place on its bus.
     const out=[];for(const h of e.hubs)for(let bus=0;bus<4;bus++)e.devices.filter(d=>sameHub(d,h)&&d.family==='i2c'&&d.bus===bus).sort((a,b)=>a.port-b.port).forEach((d,i)=>out.push({...d,port:i}));
-    xml=C.rebuild(e.xml,[...e.devices.filter(d=>d.family!=='i2c'),...out].map(({name,tag,port,bus,module})=>({name,tag,port,...(bus!==undefined?{bus}:{}),module})));
+    xml=C.withNotes(C.rebuild(e.xml,[...e.devices.filter(d=>d.family!=='i2c'),...out].map(({name,tag,port,bus,module})=>({name,tag,port,...(bus!==undefined?{bus}:{}),module}))),notesFrom(e.devices));
   }catch(err){status(err.message,'error');return;}
-  let ok=false;await run(`Saving “${e.file.name}”…`,async()=>{await save(e.file.name,xml);ok=true;});
+  let ok=false;await run(`Saving “${e.file.name}”…`,async()=>{await save(e.file.name,xml);await keepNotes(e.file.name,notesFrom(e.devices));ok=true;});
   if(ok){changed=true;e.dirty=false;ctx.toast(`Saved “${e.file.name}”. It is the active configuration; the robot restarts when you leave Configure Robot.`,4500);edit=null;$('#page-back').onclick=()=>{if(onBack)onBack();else close();};await loadList();}
+}
+
+// ---- Pinout: a configuration as a wiring diagram (pinout.js), with the product photos of what is in it, to read here
+// or save as a PNG or SVG to print or share --------------------------------------------------------------------------
+// The robot's name: from its inspection report when it says (a Control Hub's does not), else the name Deck has it saved
+// under, else ####-RC for a Driver Station named ####-DS.
+async function robotName(){try{const r=JSON.parse(await ask('CMD_REQUEST_INSPECTION_REPORT','',4000));if(r?.deviceName)return String(r.deviceName);}catch{}
+  try{const i=await ctx.host.info?.();if(i?.name)return String(i.name);}catch{}const n=ctx.dsName();return /-DS$/.test(n)?n.replace(/-DS$/,'-RC'):'';}
+async function pinoutOf(f){
+  let xml='',notes={};await run(`Reading “${f.name}”…`,async()=>{xml=await ask('CMD_REQUEST_PARTICULAR_CONFIGURATION',JSON.stringify(f));C.parse(xml);notes=await notesFor(f.name,xml);});if(!xml)return;
+  const {devices,hubs}=C.parse(xml);await showPinout(f.name,{hubs,devices:devices.filter(d=>d.module).map(d=>({...d,family:familyOf(d.tag)})),other:devices.filter(d=>!d.module),notes});}
+let pin=null,pinBusy=false;
+async function showPinout(name,config,{unsaved=false}={}){
+  if(pinBusy)return;pinBusy=true;
+  try{
+    const tags=[...new Set([...config.devices,...(config.other||[])].map(d=>d.tag))],photos={};status('Drawing the pinout…');
+    const hubs=(config.hubs||[]).map(h=>h.tag==='ServoHub'?'#ServoHub':h.parent?'#ControlHub':'#ExpansionHub');
+    await Promise.all([...tags,...new Set(hubs)].map(async t=>{const u=await photo(t);if(u)photos[t]=u;}));
+    const sheet=P.build({...config,name,robot:connected()?await robotName():'',photos,java:d=>C.javaFor({...d,kind:C.kindOf(d.tag)}).type});
+    if(pin?.url)URL.revokeObjectURL(pin.url);
+    pin={name,sheet,url:URL.createObjectURL(new Blob([sheet.svg],{type:'image/svg+xml'})),zoom:0,from:edit?'editor':'list',missing:tags.filter(t=>!photos[t])};
+    status('');renderPinout(unsaved);
+  }catch(e){status(e.message,'error');}finally{pinBusy=false;}
+}
+function leavePinout(){if(!pin)return;if(pin.url)URL.revokeObjectURL(pin.url);const from=pin.from;pin=null;$('#ds-page').classList.remove('wide');status('');
+  if(from==='editor'&&edit){$('#page-back').onclick=()=>editBack();renderEditor();}else{$('#page-back').onclick=()=>{if(onBack)onBack();else close();};renderList();}}
+function renderPinout(unsaved){
+  const p=pin,s=p.sheet;$('#ds-page').classList.add('wide');$('#page-title').textContent=`Pinout · ${p.name}`;$('#page-back').onclick=()=>leavePinout();
+  actions(button('Save PNG','ok',()=>void savePinout('png')),button('Save SVG','cfg-btn',()=>void savePinout('svg')));
+  const notes=[];if(unsaved)notes.push(el('p','pin-note','This shows your changes before they are saved to the robot.'));
+  for(const w of s.warnings)notes.push(el('p','pin-note bad','⚠ '+w));
+  if(p.missing.length&&ctx.host.devicePhoto){const n=p.missing.filter(t=>A.photoOf(t)).length;if(n)notes.push(el('p','pin-note',`${n} product photo${n===1?' is':'s are'} not on this computer yet, so ${n===1?'its':'their'} drawing${n===1?' is':'s are'} shown. Deck saves them the next time this computer is online.`));}
+  const img=el('img','pin-sheet');img.src=p.url;img.alt=`Wiring diagram of ${p.name}: ${s.rows.length} connections`;
+  const view=el('div','pin-view');view.tabIndex=0;view.setAttribute('aria-label','Wiring diagram. Scroll to move around.');view.append(img);
+  const label=el('span','pin-zoom-label');
+  const zoom=z=>{const fitZ=Math.max(.1,(view.clientWidth-20)/s.width);p.zoom=z===0?0:Math.max(.1,Math.min(3,z));const now=p.zoom||fitZ;img.style.width=Math.round(s.width*now)+'px';label.textContent=p.zoom?`${Math.round(now*100)}%`:`Fit · ${Math.round(now*100)}%`;};
+  const tools=el('div','pin-tools');tools.append(button('Fit','cfg-btn',()=>zoom(0)),button('−','cfg-btn',()=>zoom((p.zoom||view.clientWidth/s.width)/1.25)),button('+','cfg-btn',()=>zoom((p.zoom||view.clientWidth/s.width)*1.25)),button('100%','cfg-btn',()=>zoom(1)),label);
+  for(const b of tools.querySelectorAll('button'))b.setAttribute('aria-label',{'−':'Zoom out','+':'Zoom in'}[b.textContent]||b.textContent);
+  $('#page-body').replaceChildren(...notes,tools,view);requestAnimationFrame(()=>zoom(p.zoom));
+}
+const toBase64=blob=>new Promise((done,fail)=>{const r=new FileReader();r.onload=()=>done(String(r.result).split(',')[1]);r.onerror=()=>fail(r.error);r.readAsDataURL(blob);});
+async function savePinout(kind){
+  const p=pin;if(!p)return;const file=`${p.name} pinout`;
+  try{let blob;
+    if(kind==='svg')blob=new Blob([p.sheet.svg],{type:'image/svg+xml'});
+    else{const img=new Image();img.src=p.url;await img.decode();const scale=Math.min(2,8000/Math.max(p.sheet.width,p.sheet.height)),c=document.createElement('canvas');c.width=Math.round(p.sheet.width*scale);c.height=Math.round(p.sheet.height*scale);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);blob=await new Promise(done=>c.toBlob(done,'image/png'));if(!blob)throw Error('The picture is too large to save as a PNG. Save it as an SVG.');}
+    if(ctx.host.saveFile){const where=await ctx.host.saveFile({name:file,kind,data:kind==='svg'?p.sheet.svg:await toBase64(blob)});if(where)ctx.toast(`Saved ${where}`,4500);return;}
+    const a=el('a');a.href=URL.createObjectURL(blob);a.download=`${file}.${kind}`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  }catch(e){ctx.toast(e.message,4500);}
 }
 
 // ---- Settings -----------------------------------------------------------------------------------------------------------
@@ -233,5 +346,5 @@ async function driverStation(){
 }
 
 window.DeckDsPages={init(c){ctx=c;ctx.session.on('state',()=>{if(!$('#ds-page').hidden&&!edit&&!working)refreshButtons();});},configure:()=>void configure(),settings,inspect,
-  open:()=>!$('#ds-page').hidden,back:()=>{if($('#page-ask').open)return;$('#page-back').click();}};
+  open:()=>!$('#ds-page').hidden,back:()=>{if(closeMenu()||$('#page-ask').open)return;$('#page-back').click();}};
 })();

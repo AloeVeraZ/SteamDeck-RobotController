@@ -1,0 +1,36 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<Robot type="FirstInspires-FTC">
+    <!-- Deck wiring: {"frontRight":{"gear":"13.7:1"},"backLeft":{"gear":"13.7:1"},"frontLeft":{"gear":"13.7:1"},"backRight":{"gear":"13.7:1"}} -->
+    <LynxUsbDevice name="Control Hub Portal" serialNumber="(embedded)" parentModuleAddress="173">
+        <LynxModule name="Control Hub" port="173">
+            <goBILDA5202SeriesMotor name="frontRight" port="0" />
+            <goBILDA5202SeriesMotor name="backLeft" port="1" />
+            <goBILDA5202SeriesMotor name="frontLeft" port="2" />
+            <goBILDA5202SeriesMotor name="backRight" port="3" />
+            <Servo name="claw" port="0" />
+            <ServoFullRange name="wrist" port="1" />
+            <ContinuousRotationServo name="intakeRoller" port="2" />
+            <Servo name="armLeft" port="3" />
+            <Servo name="armRight" port="4" />
+            <RevBlinkinLedDriver name="lights" port="5" />
+            <AnalogInput name="armAngle" port="0" />
+            <AnalogInput name="wristAngle" port="1" />
+            <AnalogInput name="turretAngle" port="2" />
+            <OpticalDistanceSensor name="floorLine" port="3" />
+            <Led name="statusLed" port="0" />
+            <RevTouchSensor name="liftHome" port="1" />
+            <DigitalDevice name="beamBreak" port="2" />
+            <RevTouchSensor name="armHome" port="3" />
+            <DigitalDevice name="slideLimit" port="4" />
+            <RevTouchSensor name="clawTouch" port="5" />
+            <DigitalDevice name="turretLimit" port="6" />
+            <RevTouchSensor name="bumper" port="7" />
+            <ControlHubImuBHI260AP name="imu" port="0" bus="0" />
+            <goBILDAPinpoint name="pinpoint" port="0" bus="1" />
+            <REV_VL53L0X_RANGE_SENSOR name="frontDistance" port="0" bus="2" />
+            <RevColorSensorV3 name="intakeColor" port="0" bus="3" />
+            <REV_VL53L0X_RANGE_SENSOR name="intakeDistance" port="1" bus="3" />
+            <QWIIC_LED_STICK name="ledStick" port="2" bus="3" />
+        </LynxModule>
+    </LynxUsbDevice>
+</Robot>

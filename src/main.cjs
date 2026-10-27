@@ -21,6 +21,7 @@ let suspended=false,interruption=null,connectionEpoch=0,pageEpoch=0;const recove
 const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
 app.setName('Deck Driver Station');
 // Offline simulator: a utility process started by the Simulation view, never connected to a robot.
+const {DevicePhotos}=require('./device-photos.cjs');let devicePhotos=null;const photos=()=>devicePhotos||=new DevicePhotos(path.join(app.getPath('userData'),'device-photos'));
 const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;const robotLink=require('./robot-link.cjs');
 if(process.env.DECK_DATA_DIR){fs.mkdirSync(process.env.DECK_DATA_DIR,{recursive:true});app.setPath('userData',process.env.DECK_DATA_DIR);}
 // UI checks on GPU-less CI displays: Chromium's software WebGL, which it no longer falls back to on its own.
@@ -282,6 +283,19 @@ ipcMain.handle('ftc-controller-capture',(e,slot)=>{if(e.sender!==robotView?.webC
 ipcMain.handle('ftc-manage',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');return openManager();});
 // The Driver Station's Settings > Pair with Robot Controller: Deck's Settings, with the robot kept connected.
 ipcMain.handle('ftc-settings',async e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');await setPage('settings');return true;});
+// Configure Robot's product photos (read from the makers' listings while online and kept here) and saving a pinout.
+const fromDs=e=>{if(!robotView||e.sender!==robotView.webContents)throw Error('No FTC robot is open.');};
+ipcMain.handle('ftc-device-photo',async(e,tag)=>{fromDs(e);return photos().photo(String(tag||''));});
+ipcMain.handle('ftc-device-photos',async e=>{fromDs(e);return photos().prefetch();});
+// Configure Robot's wiring notes (a motor's gearbox, whether its encoder cable is in) by robot and configuration: the robot
+// sends configurations without them. notes: set (an empty object removes); omitted: read.
+ipcMain.handle('ftc-wiring-notes',async(e,{robot,name,notes}={})=>{fromDs(e);const file=path.join(app.getPath('userData'),'wiring-notes.json'),key=`${String(robot||'').slice(0,80)}\n${String(name||'').slice(0,80)}`;
+  let all={};try{all=JSON.parse(fs.readFileSync(file,'utf8'));}catch{}if(!all||typeof all!=='object'||Array.isArray(all))all={};
+  if(notes!==undefined){const json=JSON.stringify(notes??{});if(json.length>20000)throw Error('Too many notes.');if(json==='{}')delete all[key];else all[key]=JSON.parse(json);fs.writeFileSync(file+'.tmp',JSON.stringify(all));fs.renameSync(file+'.tmp',file);}
+  return all[key]||null;});
+ipcMain.handle('ftc-save-file',async(e,{name,data,kind})=>{fromDs(e);const types={png:['PNG image','png'],svg:['SVG drawing','svg']},t=types[kind];if(!t||typeof data!=='string')throw Error('Choose PNG or SVG.');
+  const safe=String(name||'pinout').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)||'pinout',r=await dialog.showSaveDialog(win,{title:'Save pinout',defaultPath:path.join(app.getPath('documents'),`${safe}.${t[1]}`),filters:[{name:t[0],extensions:[t[1]]}]});
+  if(r.canceled||!r.filePath)return null;fs.writeFileSync(r.filePath,kind==='png'?Buffer.from(data,'base64'):data);return r.filePath;});
 handle('manager-close',closeManager);
 // An FTC robot makes its own Wi-Fi network. Once a robot is saved as FTC, joining that network opens Drive and
 // its Driver Station as soon as the Robot Controller answers. Retries every poll (the hub's Wi-Fi starts before

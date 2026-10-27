@@ -132,7 +132,7 @@
   const moduleKey=m=>`${m.portal??''}#${m.address}`;
   // The port family of a device Deck adds (device: motor, crservo, servo, imu, pinpoint, otos, analog, touch, digital,
   // color, distance, octoquad). A sensor read on a motor port's encoder input is a motor there.
-  const FAMILY={servo:'servo',crservo:'servo',linear:'servo',imu:'i2c',pinpoint:'i2c',otos:'i2c',color:'i2c',distance:'i2c',octoquad:'i2c',huskylens:'i2c',analog:'analog',touch:'digital',digital:'digital'};
+  const FAMILY={i2c:'i2c',servo:'servo',crservo:'servo',linear:'servo',imu:'i2c',pinpoint:'i2c',otos:'i2c',color:'i2c',distance:'i2c',octoquad:'i2c',huskylens:'i2c',analog:'analog',touch:'digital',digital:'digital'};
   const portFamily=device=>FAMILY[device]||'motor';
   // A port on a hub: motor 0-3, servo 0-5, analog 0-3, digital 0-7, or the first device on I2C bus 0-3.
   const portKey=(module,family,port,bus=0)=>`${moduleKey(module)}:${family}:${family==='i2c'?bus+'.':''}${port}`;
@@ -323,7 +323,8 @@
     analog:[['AnalogInput','Analog input'],['OpticalDistanceSensor','Optical distance sensor']],digital:[['DigitalDevice','Digital device'],['RevTouchSensor','REV Touch Sensor'],['Led','LED']],
     i2c:[['RevColorSensorV3','REV Color Sensor V3'],['REV_VL53L0X_RANGE_SENSOR','REV 2m Distance Sensor'],['goBILDAPinpoint','goBILDA Pinpoint'],['SparkFunOTOS','SparkFun OTOS'],['OctoQuadFTC','OctoQuad'],['HuskyLens','HuskyLens'],['ControlHubImuBHI260AP','Control Hub IMU (BHI260AP)'],['LynxEmbeddedIMU','Hub IMU (BNO055)']]};
   const PORT_COUNT={motor:4,servo:6,analog:4,digital:8,i2c:4};
-  const familyOfTag=tag=>{for(const [f,list] of Object.entries(EDIT_TYPES))if(list.some(([t])=>t===tag))return f;return portFamily(kindOf(tag));};
+  // An LED is on the port family of its type: a digital LED, a Blinkin on a servo port, a Qwiic LED Stick on I2C.
+  const familyOfTag=tag=>{for(const [f,list] of Object.entries(EDIT_TYPES))if(list.some(([t])=>t===tag))return f;return tag==='QWIIC_LED_STICK'?'i2c':portFamily(kindOf(tag));};
   // The configuration with its devices replaced by `devices` ({name, tag, port, bus?, module: {portal, address,
   // servoHub?}}), hubs and anything outside a hub (a webcam, a Limelight) kept as they were.
   function rebuild(xml,devices){
@@ -331,9 +332,23 @@
       if(h.tag==='ServoHub')p.servoHubs.push({address:h.address,name:h.name});else p.modules.push({address:h.address,parent:h.parent});}
     for(const d of devices||[])if(!validName(d.name))throw Error(`“${d.name}” cannot be a device name: use letters, digits, spaces, - and _.`);
     const names=new Set();for(const d of devices||[]){if(names.has(d.name.toLowerCase()))throw Error(`Two devices are named “${d.name}”.`);names.add(d.name.toLowerCase());}
-    const out=newConfiguration(portals,(devices||[]).map(d=>({...d,device:kindOf(d.tag)})));
+    const out=newConfiguration(portals,(devices||[]).map(d=>({...d,device:d.bus!==undefined?'i2c':familyOfTag(d.tag)})));
     const outside=elements(xml).filter(e=>!e.close&&e.attrs.name&&!CONTAINERS.has(e.tag)&&!within(e,HUBS)).map(e=>'    '+xml.slice(e.start,xml.indexOf('>',e.start)+1).replace(/\s*>$/,'').replace(/\/$/,'').trim()+' />');
     return outside.length?out.replace(/(<Robot[^>]*>)/,'$1\n'+outside.join('\n')):out;}
-  return {EDIT_TYPES,PORT_COUNT,familyOfTag,rebuild,javaFor,javaOf,variableOf,parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
+  // ---- Deck's wiring notes: what a configuration cannot say (a motor's gearbox, whether its encoder cable is plugged in),
+  // kept in the configuration as one XML comment the SDK skips: <!-- Deck wiring: {"frontLeft":{"gear":"13.7:1","encoder":false}} -->.
+  // A "-" is written \u002d so the comment never holds "--"; a Driver Hub that saves the configuration drops it.
+  // The Robot Controller keeps the comment in its file but sends a Driver Station each configuration written afresh,
+  // without it, so Deck's Driver Station also keeps the notes on the computer (cleanNotes checks them either way).
+  const NOTES=/[ \t]*<!--\s*Deck wiring:\s*([\s\S]*?)-->[ \t]*\r?\n?/;
+  function notesOf(xml){const m=NOTES.exec(String(xml||''));if(!m)return {};let v;try{v=JSON.parse(m[1]);}catch{return {};}return cleanNotes(v);}
+  function cleanNotes(v){const out={};
+    if(v&&typeof v==='object'&&!Array.isArray(v))for(const [name,n] of Object.entries(v)){if(!n||typeof n!=='object')continue;const keep={};if(typeof n.gear==='string'&&n.gear.length<24)keep.gear=n.gear;if(typeof n.encoder==='boolean')keep.encoder=n.encoder;if(Object.keys(keep).length)out[name]=keep;}
+    return out;}
+  function withNotes(xml,notes){const clean=String(xml).replace(NOTES,''),keep={};
+    for(const [name,n] of Object.entries(notes||{})){const k={};if(typeof n?.gear==='string'&&n.gear)k.gear=n.gear;if(typeof n?.encoder==='boolean')k.encoder=n.encoder;if(Object.keys(k).length)keep[name]=k;}
+    if(!Object.keys(keep).length)return clean;const json=JSON.stringify(keep).replace(/-/g,'\\u002d').replace(/[<>&;]/g,c=>'\\u00'+c.charCodeAt(0).toString(16));
+    return clean.replace(/(<Robot\b[^>]*>)[ \t]*\r?\n?/,(m,tag)=>`${tag}\n    <!-- Deck wiring: ${json} -->\n`);}
+  return {notesOf,cleanNotes,withNotes,EDIT_TYPES,PORT_COUNT,familyOfTag,rebuild,javaFor,javaOf,variableOf,parse,kindOf,check,explain,fits,tokens,KINDS,PORTS,MOTOR_TYPES,IMU_TAGS,missingDevices,planPorts,portChoices,movePort,withType,portLabel,portFamily,portKeyOf:keyOf,portsTaken,tagFor,hubFor,
     addDevices,newConfiguration,configurationFor,modulesOf,modulesFromScan,configurationName,validName,lynxSerials,lynxModules,deviceXml};
 });

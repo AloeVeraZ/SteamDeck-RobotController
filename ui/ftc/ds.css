@@ -208,8 +208,39 @@ dialog pre { margin: 0; max-height: 50vh; overflow: auto; white-space: pre-wrap;
 .inspect-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
 .inspect-list dt { color: var(--muted); } .inspect-list dd { margin: 0; overflow-wrap: anywhere; }
 .inspect-list dd.good { color: #85e5bd; } .inspect-list dd.bad { color: var(--danger); } .inspect-list i { font-style: normal; }
+/* Device pictures: the product photo sits on white, a drawing on the card's well. */
+.dev-fig { flex-shrink: 0; display: grid; place-items: center; border-radius: 6px; background: #eef1f5; overflow: hidden; }
+.dev-fig svg, .dev-fig img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.dev-fig.photo { background: #fff; } .dev-fig.empty { background: var(--well); border: 1px dashed var(--line-strong); }
+.dev-fig.small { width: 56px; height: 42px; } .dev-fig.big { width: 100%; aspect-ratio: 4 / 3; max-height: 260px; border-radius: 10px; }
+.dev-pick { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 52px; padding: 4px 10px 4px 4px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--well); text-align: left; }
+.dev-pick:hover { border-color: var(--accent); } .dev-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dev-pick-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .dev-caret { font-style: normal; color: var(--muted); }
+.dev-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(4, 8, 14, .45); }
+.dev-menu { position: fixed; z-index: 21; display: flex; flex-direction: column; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; user-select: none; -webkit-user-select: none; }
+.dev-head { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--line); } .dev-head b { flex: 1; font-size: 15px; }
+.dev-close { min-height: 40px; padding: 6px 14px; }
+.dev-panes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+.dev-list { overflow: auto; padding: 6px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.dev-group { margin: 10px 8px 4px; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); } .dev-group:first-child { margin-top: 4px; }
+.dev-option { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 4px 8px 4px 4px; border-radius: 7px; text-align: left; }
+.dev-option:hover, .dev-option:focus-visible { background: #2c3643; outline: none; } .dev-option.chosen { background: var(--accent-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.dev-option-text { min-width: 0; display: flex; flex-direction: column; } .dev-option-text b { font-weight: 600; } .dev-option-text small { color: var(--muted); font-size: 11.5px; }
+.dev-view { overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; user-select: text; -webkit-user-select: text; }
+.dev-view h3 { margin: 8px 0 0; font-size: 17px; } .dev-maker { color: var(--accent-text); font-weight: 600; } .dev-view p { margin: 4px 0; line-height: 1.5; }
+.dev-facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 6px 0 0; font-size: 12px; } .dev-facts dt { color: var(--muted); } .dev-facts dd { margin: 0; }
+.cfg-motor-details { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; padding: 2px 0 0 74px; }
+.cfg-detail { display: flex; align-items: center; gap: 10px; color: var(--muted); } .cfg-detail span { white-space: nowrap; }
+/* The pinout page uses the whole width for the diagram. */
+.ds-page.wide .page-body { max-width: none; }
+.pin-note { margin: 0; padding: 8px 12px; border-radius: 6px; background: var(--raised); color: var(--muted); } .pin-note.bad { background: var(--danger-bg); color: var(--danger); }
+.pin-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .pin-tools .cfg-btn { min-width: 48px; padding: 8px 14px; } .pin-zoom-label { color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.pin-view { flex: 1; min-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; } .pin-view:focus-visible { outline: 2px solid var(--accent); }
+.pin-sheet { display: block; max-width: none; height: auto; }
 @media (max-width: 720px) {
   .page-body { padding: 12px; } .inspect { grid-template-columns: 1fr; }
+  .dev-panes { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .dev-view { order: -1; flex-direction: row; flex-wrap: wrap; border-bottom: 1px solid var(--line); max-height: 40vh; }
+  .dev-view .dev-fig.big { width: 140px; } .cfg-motor-details { padding-left: 0; }
   .cfg-port { grid-template-columns: 56px minmax(0, 1fr); } .cfg-port > :nth-child(n+3) { grid-column: 1 / -1; }
   .set-row { flex-wrap: wrap; }
 }
