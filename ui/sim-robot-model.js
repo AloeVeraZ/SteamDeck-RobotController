@@ -344,12 +344,21 @@
     });
     if(!rigged)return;const kin=rigged.userData.kin,values={...gameValues(kin.model,frame.mechanisms),...(frame.joints||{})};
     // CAD drive wheels turn with the chassis speed where they touch the floor (robot frame, through the placement).
-    const wheels=kin.model.joints.filter(j=>j.drive?.signal==='wheel');
+    const wheels=kin.model.joints.filter(j=>j.drive?.signal==='wheel'),steers=kin.model.joints.filter(j=>j.drive?.signal==='steer');
+    // Swerve modules point their wheels the way the floor moves under them, turning the short way at the joint's speed:
+    // a module more than 90° off flips and rolls its wheel backwards; a module standing still keeps its angle.
+    const aims=rigged.userData.steerAims||(rigged.userData.steerAims={});
+    if(steers.length&&kin.P){const K=Kin(),x=K.math.applyDir(kin.P,[1,0,0]),offset=Math.atan2(x[1],x[0])*180/Math.PI;
+      for(const j of steers){const c=K.math.apply(kin.P,j.origin),v=[f-omega*c[1],left+omega*c[0]],sign=K.math.applyDir(kin.P,j.axis)[2]<0?-1:1,aim=aims[j.id]||(aims[j.id]={deg:0,flip:false,speed:0});
+        aim.speed=Math.hypot(v[0],v[1]);if(aim.speed>.5){let to=sign*(Math.atan2(v[1],v[0])*180/Math.PI-offset);const off=((to-aim.deg)%360+540)%360-180;aim.flip=Math.abs(off)>90;to=aim.deg+(aim.flip?((off+360)%360)-180:off);
+          const step=(j.speed||720)*dt;aim.deg+=Math.max(-step,Math.min(step,to-aim.deg));}
+        values[j.id]=aim.deg;}}
     if(wheels.length&&kin.P){const K=Kin(),turned=rigged.userData.wheelTurns||(rigged.userData.wheelTurns={});
-      for(const j of wheels){const c=K.math.apply(kin.P,j.origin),a=K.math.unit(K.math.applyDir(kin.P,j.axis)),v=[f-omega*c[1],left+omega*c[0],0],r=(j.radius||1)*(kin.model.unit||1);
+      for(const j of wheels){const c=K.math.apply(kin.P,j.origin),a=K.math.unit(K.math.applyDir(kin.P,j.axis)),v=[f-omega*c[1],left+omega*c[0],0],r=(j.radius||1)*(kin.model.unit||1),aim=j.parent&&aims[j.parent];
         // Rolling: the rim speed matches the floor's along the way the wheel rolls. A mecanum wheel's rollers turn sideways
-        // motion into rolling too: one diagonal pair forward, the other back (rollers in an X seen from above).
-        const along=K.math.dot(K.math.cross([0,0,-1],a),v),side=j.roll==='mecanum'?-Math.sign(c[0]*c[1])*K.math.dot(a,v):0,spin=(along+side)/Math.max(.1,r);turned[j.id]=((turned[j.id]||0)+spin*dt*180/Math.PI)%360;values[j.id]=turned[j.id];}}
+        // motion into rolling too: one diagonal pair forward, the other back (rollers in an X seen from above). A swerve
+        // wheel rolls with its module, forward or (flipped) back.
+        const along=K.math.dot(K.math.cross([0,0,-1],a),v),side=j.roll==='mecanum'?-Math.sign(c[0]*c[1])*K.math.dot(a,v):0,spin=aim?(aim.flip?-1:1)*aim.speed/Math.max(.1,r):(along+side)/Math.max(.1,r);turned[j.id]=((turned[j.id]||0)+spin*dt*180/Math.PI)%360;values[j.id]=turned[j.id];}}
     pose(rigged,values);
   }
   // Top-down picture of the placed body for the 2D field, with its extent in robot inches. A `previous` picture of

@@ -93,6 +93,8 @@ class SimulationHost{
     // The Test setup's robot, generated from FTC parts (ui/sim-test-robot.js, original geometry, in every build) and shaped
     // like a STEP import by the import's own functions, so the window stores, discovers and rigs it as a team's own CAD.
     if(action==='test-robot')return require('../ui/sim-test-robot.js').result(require('./sim-model.cjs'));
+    // A preset robot's CAD (ui/sim-preset-robots.js), made the same way.
+    if(action==='preset-robot'){const P=require('../ui/sim-preset-robots.js');if(!P.has(data))throw Error('Unknown preset robot.');return P.result(data,require('./sim-model.cjs'));}
     const models=path.join(this.dataDir,'simulation','models');
     const open=async(title,filters,limit)=>{const r=await dialog.showOpenDialog(win,{title,properties:['openFile'],filters});if(r.canceled||!r.filePaths[0])return null;const file=r.filePaths[0];if(fs.statSync(file).size>limit)throw Error(`${path.basename(file)} is larger than ${Math.round(limit/1048576)} MB.`);return file;};
     if(action==='project-save'){

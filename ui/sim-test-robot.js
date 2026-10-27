@@ -77,10 +77,13 @@
       const m=(a+b)/2,inn=vec(f,-Math.cos(m),-Math.sin(m),0);g.face([i0,i1,j1,j0],inn);}
   }
   // ---- parts ------------------------------------------------------------------------------------------------------------
-  const out=[];
+  const out=[];let root=ROOT;
   // One part: its assembly path (from the robot's own name down), its name and colour, and what draws it.
   function part(path,name,color,draw){const g=Geo();draw(g);if(!g.I.length)return;
-    out.push({path:[ROOT,...path],name,position:new Float32Array(g.P),normal:new Float32Array(g.N),index:new Uint32Array(g.I),color:color.slice()});}
+    out.push({path:[root,...path],name,position:new Float32Array(g.P),normal:new Float32Array(g.N),index:new Uint32Array(g.I),color:color.slice()});}
+  // Another robot's parts (the preset robots, ui/sim-preset-robots.js): draw() calls part() and the builders below, its
+  // paths starting from `name`.
+  function build(name,draw){const keep=root;root=name;out.length=0;try{draw();return out.slice();}finally{out.length=0;root=keep;}}
   // goBILDA's hole pattern (a 14 mm hole with four 4 mm holes on a 16 mm square), every 24 mm along a line, as decals
   // on a face: f's u runs along the line, w out of the face.
   function holes(g,f,count,{small=true}={}){const p=24/25.4,s=8/25.4;for(let k=0;k<count;k++){const x=(k-(count-1)/2)*p;
@@ -112,6 +115,32 @@
     part(path,'Servo label',C.yellow,g=>prism(g,f,[[.15,-Wd/2-EPS],[L-.6,-Wd/2-EPS],[L-.6,-Wd/2],[.15,-Wd/2]],-1.1,-.6));
     part(path,'Servo horn',C.gear,g=>cylinder(g,f,.32,-.12,0,16));
   }
+  // A 104 mm mecanum wheel at c (axle along y): ten 45° rollers in an X seen from above (FL and BR one hand, FR and BL the
+  // other; sx, sy the corner's signs), and its spacer on the axle out from the rail face at y = sy·outY.
+  const MECANUM_HALF=.76;
+  function mecanumWheel(path,c,sx,sy,outY){
+    const R=WHEEL_R,N=10,Lr=1.45,Rc=1.62,rr=s=>R-Math.hypot(Rc,s*Math.SQRT1_2),plate=.12,half=MECANUM_HALF,wy=Math.abs(c[1]),hand=-Math.sign(sx*sy),f=frame(c,Y,X);
+    part(path,'Wheel hub',C.yellow,g=>{tube(g,f,.2,.78,-.62,.62,24);for(const z of [half-plate,-half])lathe(g,f,[[.2,z],[1.66,z],[1.66,z+plate],[.2,z+plate],[.2,z]],{seg:40});});
+    part(path,'Hex bore',C.steel,g=>tube(g,f,.12,.2,-.66,.66,6));
+    part(path,'Roller',C.rubber,g=>{for(let i=0;i<N;i++){const t=(-90+360*i/N)*RAD,rad=[Math.cos(t),0,Math.sin(t)],tan=[-Math.sin(t),0,Math.cos(t)];
+      const a=unit(add(mul(tan,Math.SQRT1_2),mul(Y,hand*Math.SQRT1_2))),fr=frame(add(c,mul(rad,Rc)),a,rad),prof=[];
+      for(let j=0;j<=6;j++){const s=-Lr/2+Lr*j/6;prof.push([rr(s),s]);}
+      lathe(g,fr,[[0,-Lr/2],...prof,[0,Lr/2]],{seg:10,smooth:true});}});
+    // Its spacer on the axle between the rail and the wheel.
+    part(path,'Spacer',C.alu,g=>cylinder(g,frame([c[0],sy*outY,R],Y,X),.3,0,sy*(wy-half-outY),16));
+  }
+  // A goBILDA 4-bar odometry pod (35 mm omni wheel) at (cx, cy) rolling across `ax`, hung from a deck whose underside is at z deck.
+  function odometryPod(path,cx,cy,ax,deck){
+    const r=35/25.4/2,c=[cx,cy,r+.01],f=frame(c,ax),side=ax===Y?X:Y;
+    // Two arms either side of the wheel up to a block under the deck.
+    part(path,'Pod arms',C.black,g=>{const ext=(a,s)=>[Math.abs(ax[0])*a+Math.abs(side[0])*s,Math.abs(ax[1])*a+Math.abs(side[1])*s];
+      for(const k of [-1,1]){const [ex,ey]=ext(.05,.35),[ox,oy]=[ax[0]*k*.42,ax[1]*k*.42];box(g,[cx+ox-ex,cy+oy-ey,r-.35],[cx+ox+ex,cy+oy+ey,deck-.25]);}
+      const [bx,by]=ext(.5,.55);box(g,[cx-bx,cy-by,deck-.25],[cx+bx,cy+by,deck]);});
+    part(path,'Omni wheel',C.yellow,g=>cylinder(g,f,.45,-.3,.3,20));
+    part(path,'Omni rollers',C.rubber,g=>{for(let i=0;i<8;i++)for(const s of [-1,1]){const t=(i+(s>0?.5:0))/8*2*Math.PI,rad=add(mul(f.u,Math.cos(t)),mul(f.v,Math.sin(t))),tan=cross(f.w,rad);
+      lathe(g,frame(add(add(c,mul(rad,r-.13)),mul(f.w,s*.15)),tan,rad),[[0,-.17],[.11,-.17],[.13,0],[.11,.17],[0,.17]],{seg:8,smooth:true});}});
+    part(path,'Pod encoder',C.black,g=>cylinder(g,frame(add(c,mul(ax,.5)),ax),.32,0,.45,14));
+  }
   // ---- Chassis ------------------------------------------------------------------------------------------------------------
   function chassis(){
     const R=WHEEL_R,railY=5.67,railW=48/25.4,inY=railY-railW/2,outY=railY+railW/2,end=HALF-.012;
@@ -120,19 +149,9 @@
     // Grid plate deck (goBILDA 1203) on the frame, its 14 mm holes on a 24 mm grid.
     part([CHASSIS,'Grid plate'],'Grid plate',C.alu,g=>box(g,[-8.3,-5.4,DECK_Z],[8.3,5.4,PLATE_Z]));
     part([CHASSIS,'Grid plate'],'Hole pattern',C.hole,g=>{for(let r=-5;r<=5;r++)holes(g,frame([0,r*24/25.4,PLATE_Z+EPS],Z,X),17,{small:Math.abs(r)<5});});
-    // Mecanum wheels: 104 mm, ten 45° rollers in an X seen from above (FL and BR one hand, FR and BL the other).
-    const N=10,Lr=1.45,Rc=1.62,rr=s=>R-Math.hypot(Rc,s*Math.SQRT1_2),plate=.12,half=.76,wy=HALF-half;
-    for(const [k,sx,sy] of [['FL',1,1],['FR',1,-1],['BL',-1,1],['BR',-1,-1]]){
-      const path=[CHASSIS,'Mecanum wheel '+k],c=[sx*WHEEL_X,sy*wy,R],hand=-Math.sign(sx*sy),f=frame(c,Y,X);
-      part(path,'Wheel hub',C.yellow,g=>{tube(g,f,.2,.78,-.62,.62,24);for(const z of [half-plate,-half])lathe(g,f,[[.2,z],[1.66,z],[1.66,z+plate],[.2,z+plate],[.2,z]],{seg:40});});
-      part(path,'Hex bore',C.steel,g=>tube(g,f,.12,.2,-.66,.66,6));
-      part(path,'Roller',C.rubber,g=>{for(let i=0;i<N;i++){const t=(-90+360*i/N)*RAD,rad=[Math.cos(t),0,Math.sin(t)],tan=[-Math.sin(t),0,Math.cos(t)];
-        const a=unit(add(mul(tan,Math.SQRT1_2),mul(Y,hand*Math.SQRT1_2))),fr=frame(add(c,mul(rad,Rc)),a,rad),prof=[];
-        for(let j=0;j<=6;j++){const s=-Lr/2+Lr*j/6;prof.push([rr(s),s]);}
-        lathe(g,fr,[[0,-Lr/2],...prof,[0,Lr/2]],{seg:10,smooth:true});}});
-      // Its spacer on the axle between the rail and the wheel.
-      part(path,'Spacer',C.alu,g=>cylinder(g,frame([c[0],sy*outY,R],Y,X),.3,0,sy*(wy-half-outY),16));
-    }
+    // Mecanum wheels outboard of the side rails.
+    const wy=HALF-MECANUM_HALF;
+    for(const [k,sx,sy] of [['FL',1,1],['FR',1,-1],['BL',-1,1],['BR',-1,-1]])mecanumWheel([CHASSIS,'Mecanum wheel '+k],[sx*WHEEL_X,sy*wy,R],sx,sy,outY);
     // Drive motors inboard of the side rails, on the wheel axles.
     for(const [k,sx,sy] of [['FL',1,1],['FR',1,-1],['BL',-1,1],['BR',-1,-1]])motor([CHASSIS,'Drive motor '+k],[sx*WHEEL_X,sy*inY,R],[0,-sy,0],{shaft:outY-inY+.3});
     // REV Control Hub standing on the left at the back (grey case, orange band, black port rows), battery on the right.
@@ -151,17 +170,7 @@
     const pin=[CHASSIS,'Pinpoint'];
     part(pin,'goBILDA Pinpoint',C.black,g=>box(g,[-.6,-.6,DECK_Z-.36],[.6,.6,DECK_Z]));
     part(pin,'Pinpoint label',C.yellow,g=>box(g,[-.35,-.35,DECK_Z-.36-EPS],[.35,.35,DECK_Z-.36]));
-    for(const [k,cx,cy,ax] of [['X',0,4,Y],['Y',-3,0,X]]){
-      const path=[CHASSIS,'Odometry pod '+k],r=35/25.4/2,c=[cx,cy,r+.01],f=frame(c,ax),side=ax===Y?X:Y;
-      // Two arms either side of the wheel up to a block under the deck.
-      part(path,'Pod arms',C.black,g=>{const ext=(a,s)=>[Math.abs(ax[0])*a+Math.abs(side[0])*s,Math.abs(ax[1])*a+Math.abs(side[1])*s];
-        for(const k of [-1,1]){const [ex,ey]=ext(.05,.35),[ox,oy]=[ax[0]*k*.42,ax[1]*k*.42];box(g,[cx+ox-ex,cy+oy-ey,r-.35],[cx+ox+ex,cy+oy+ey,DECK_Z-.25]);}
-        const [bx,by]=ext(.5,.55);box(g,[cx-bx,cy-by,DECK_Z-.25],[cx+bx,cy+by,DECK_Z]);});
-      part(path,'Omni wheel',C.yellow,g=>cylinder(g,f,.45,-.3,.3,20));
-      part(path,'Omni rollers',C.rubber,g=>{for(let i=0;i<8;i++)for(const s of [-1,1]){const t=(i+(s>0?.5:0))/8*2*Math.PI,rad=add(mul(f.u,Math.cos(t)),mul(f.v,Math.sin(t))),tan=cross(f.w,rad);
-        lathe(g,frame(add(add(c,mul(rad,r-.13)),mul(f.w,s*.15)),tan,rad),[[0,-.17],[.11,-.17],[.13,0],[.11,.17],[0,.17]],{seg:8,smooth:true});}});
-      part(path,'Pod encoder',C.black,g=>cylinder(g,frame(add(c,mul(ax,.5)),ax),.32,0,.45,14));
-    }
+    for(const [k,cx,cy,ax] of [['X',0,4,Y],['Y',-3,0,X]])odometryPod([CHASSIS,'Odometry pod '+k],cx,cy,ax,DECK_Z);
     // Transfer chute: a polycarbonate floor with side guides from the intake back to the turret.
     part([CHASSIS,'Transfer chute'],'Chute floor',C.poly,g=>{const f=frame([0,0,0],Y,X);prism(g,f,[[7.9,4.0],[-.95,3.72],[-.95,3.82],[7.9,4.1]].map(([x,z])=>[x,-z]),-2.1,2.1);});
     part([CHASSIS,'Transfer chute'],'Chute guides',C.alu,g=>{for(const s of [1,-1])box(g,[-1.0,s>0?2.1:-2.2,3.72],[7.6,s>0?2.2:-2.1,5.3]);
@@ -324,5 +333,7 @@
         turret:{speed:240,min:-170,max:170,kind:'motor',ticksPerDegree:4.005},target:null},
       kinematics:kinematics(),layouts:[layout,empty],active:layout.id};
   }
-  return {NAME,VERSION,MODEL,KEY,meshes,result,metaParts,kinematics,pins,setup,RAMP_DOWN};
+  // The builders, for the preset robots.
+  const kit={C,lin,frame,pt,vec,unit,add,sub,mul,dot,cross,RAD,X,Y,Z,EPS,WHEEL_R,MECANUM_HALF,prism,box,obox,lathe,cylinder,tube,band,disc,gear,part,holes,channel,motor,servo,mecanumWheel,odometryPod};
+  return {NAME,VERSION,MODEL,KEY,meshes,result,metaParts,kinematics,pins,setup,RAMP_DOWN,kit,build};
 });

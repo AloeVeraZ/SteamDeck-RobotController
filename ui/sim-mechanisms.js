@@ -168,15 +168,16 @@
   // The name of a "Turret to" action, e.g. "Turret to 30°" (turret: null for every turret, or 0 or 1).
   const turretAction=(degrees,turret=null)=>`Turret${turret===null?'':' '+(turret+1)} to ${+clamp(degrees,-180,180).toFixed(1)}°`;
   // A fixed shooter fires along its facing: Shoot pins that set no heading of their own turn the robot
-  // so that side faces the target, and shooting paths of a front-firing shooter track it.
-  function prepare(pins,m,target){
-    const fixed=m?.enabled&&m.shooters.find(s=>s.type==='fixed');if(!fixed||!target)return pins;
-    const offset=FACING[fixed.facing];
+  // so that side faces the target, and shooting paths of a front-firing shooter track it. A pin or path aimed at the
+  // hive's other cell (cell 'other') faces that cell, mirrored across the pivot as target() does.
+  function prepare(pins,m,start){
+    const fixed=m?.enabled&&m.shooters.find(s=>s.type==='fixed');if(!fixed||!start)return pins;
+    const offset=FACING[fixed.facing],aim=cell=>cell==='other'?{x:start.x,y:+(144-start.y).toFixed(2)}:start;
     // A pin or path with several steps shoots when one of its steps does.
     const shoots=s=>Array.isArray(s?.steps)&&s.steps.length>1?s.steps.some(x=>action(x.action).kind==='shoot'):action(s?.action).kind==='shoot';
-    return pins.map(p=>{const q={...p};
+    return pins.map(p=>{const q={...p},target=aim(q.cell);
       if(shoots(q)&&!finite(q.turn)){if(offset===0){q.turn=0;q.turnMode='track';q.target={...target};}else{q.turn=+(((Math.atan2(target.y-q.y,target.x-q.x)*DEG-offset)%360+540)%360-180).toFixed(2);q.turnMode='absolute';}}
-      if(offset===0&&q.path?.kind==='action'&&shoots(q.path)&&(!q.path.rotate||q.path.rotate==='keep'))q.path={...q.path,rotate:'track',target:{...target}};return q;});
+      if(offset===0&&q.path?.kind==='action'&&shoots(q.path)&&(!q.path.rotate||q.path.rotate==='keep'))q.path={...q.path,rotate:'track',target:{...aim(q.path.cell)}};return q;});
   }
   const actions=m=>m.enabled?[...(m.intakes.length?['Intake']:[]),...(hasRamp(m)?['Ramp down','Ramp up']:[]),...(m.shooters.length?['Spin up',...(hasTurret(m)?['Aim']:[]),'Shoot']:[])]:[];
   const wrap=d=>((d%360)+540)%360-180,DEG=180/Math.PI;
@@ -515,10 +516,10 @@
   // ---- preset robots ----------------------------------------------------------------------------
   // Ready-made robots: chassis and mechanisms, set together and not changed (Custom robot is for that). Three starter
   // robots: a mecanum kit bot that drives on odometry and pushes pieces, the NYC FIRST A301 swerve as the fastest push
-  // bot, and a tank with one fixed shooter that takes pollen and nectar and cycles quickest. sensors: where the robot
-  // gets its position (a localization choice), used when the controller offers it.
+  // bot, and a tank with one fixed shooter that takes pollen and nectar and cycles quickest. Their CAD, joints, wiring,
+  // sensors and demo routes are in ui/sim-preset-robots.js.
   const PRESETS={
-    startermecanum:{name:'Starter Mecanum',blurb:'Kit bot: drives on odometry, pushes pieces',robot:{drivetrain:'mecanum',length:17.56,width:17.79,massLb:22,driveRpm:800},sensors:{localization:'odometry'}},
+    startermecanum:{name:'Starter Mecanum',blurb:'Kit bot: drives on odometry, pushes pieces',robot:{drivetrain:'mecanum',length:17.56,width:17.79,massLb:22,driveRpm:800}},
     a301swerve:{name:'A301 Swerve',blurb:'NYC FIRST A301 push bot: the fastest',robot:{drivetrain:'swerve',length:17,width:17,massLb:28,driveRpm:1150}},
     startertank:{name:'Starter Tank',blurb:'One fixed shooter for pollen and nectar: the quickest shots',robot:{drivetrain:'tank6',length:15,width:16,massLb:21,driveRpm:435},
       mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:2}],shooters:[{type:'fixed',pieces:'both',mount:'center',facing:'front'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.5},indexer:{seconds:.15},shooter:{spinUp:.4}}}};

@@ -267,6 +267,10 @@
 .sim-mech-cad{margin:8px 0 0}.sim-mech-cad[hidden]{display:none}.sim-mech-cad .hint{margin:4px 0 0}
 /* Robot presets: DSIM-style cards; a preset sets the mechanism parts (shown, not editable). */
 .sim-presets{margin:8px 0}.sim-presets[hidden],#sim-robot-custom[hidden],.sim-mech-preset[hidden]{display:none}
+/* A preset robot: its settings shown but locked (inert), the CAD preview without its editing controls. */
+.sim-mech-preset p{flex:1 1 320px}.sim-preset-actions{display:flex;gap:8px;flex-wrap:wrap}
+#sim-robot-custom[data-locked] :is(.sim-side-assignments,#sim-units-box,#sim-model-help,#sim-orientation-summary,#sim-part-pick,#sim-model-remove){display:none!important}
+#sim-robot-custom .sim-robot-specs[inert],.sim-setup-page .sim-setup-cols[inert]{opacity:.72}
 .sim-mech-preset{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}.sim-mech-preset p{margin:0;font-size:13px}
 /* Sensors list */
 .sim-sensor-list{list-style:none;margin:8px 0;padding:0;display:grid;gap:6px}.sim-sensor-list li{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:4px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
