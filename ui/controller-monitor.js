@@ -79,5 +79,6 @@ window.DeckControllerMonitor={create({api,hardware,robot,syncOverlay,toast}){
   $('#controller-cancel').onclick=()=>task(close);$('#controller-done').onclick=()=>task(close);dialog.addEventListener('cancel',event=>{event.preventDefault();task(close);});
   $('#input-notice-test').onclick=()=>show(1);
   api.onControllerState?.(render);api.onControllerCapture?.(next=>{slot=next.capture?.slot||slot;show(slot);render(next);});
-  return {render};
+  // Calibrate's Gamepads card opens the Calibration view of a controller.
+  return {render,calibrate:selected=>{show(selected);$('#controller-calibration-tab').click();}};
 }};

@@ -98,3 +98,14 @@ test('2D recordings edit with the top-down view, which cuts and survives a saved
   assert.equal(E.sanitize(JSON.parse(JSON.stringify(ed.doc))).clips.find(c=>c.start===5).camera,'top');
   assert.equal(E.videoClip({camera:'nowhere'}).camera,'main','an unknown camera falls back to the main one');
 });
+
+test('a contact replay holds the picture at each contact, zooms in and out, and survives a saved project',()=>{
+  const doc=fresh(),ids=E.addCrashes(doc,[{at:7,x:30,y:40,label:'a field structure'},{at:3,x:1,y:2,label:'the field wall'}]);assert.equal(ids.length,2);
+  const replays=v1(doc).filter(c=>c.focus);assert.deepEqual(replays.map(c=>[+c.start.toFixed(3),c.in,c.focus.label]),[[3,3,'the field wall'],[7+E.CRASH_HOLD,7,'a field structure']]);
+  assert.ok(near(E.duration(doc),20+2*E.CRASH_HOLD),'each replay adds its hold');
+  assert.equal(E.resolve(doc,7+2*E.CRASH_HOLD+.5).layers[0].source.toFixed(2),'7.50','the run carries on after the replay');
+  const c=replays[0];assert.equal(E.crashZoom(c,c.start),0);assert.equal(E.crashZoom(c,c.start+E.CRASH_HOLD/2),1);assert.ok(E.crashZoom(c,E.end(c)-.01)<.01);
+  assert.equal(doc.markers.filter(m=>m.color===E.CRASH_COLOR).length,2);
+  assert.equal(E.sanitize(JSON.parse(JSON.stringify(doc))).clips.filter(x=>x.focus).length,2);
+  assert.equal(E.addCrashes(fresh(),[{at:99,x:0,y:0}]).length,0,'a contact outside the recording is left out');
+});

@@ -1,4 +1,4 @@
-# Install and use Deck Driver Station 2
+# Install and use Torque 2
 
 Download the **Main** installer directly from the [GitHub README](../README.md#%EF%B8%8F-download),
 or paste one line into a terminal:
@@ -18,7 +18,7 @@ releases. Close the app before running an installer again; saved data is kept se
 1. Download `DeckDriverStation-2.4.2-SteamDeck.run` onto the Deck.
 2. In Desktop Mode, open a terminal in your Downloads folder.
 3. Run `bash DeckDriverStation-2.4.2-SteamDeck.run`. It verifies its payload and creates desktop and application-menu shortcuts. The tar archive remains available for portable use.
-4. Launch **Deck Driver Station**. To use Gaming Mode, add it through Steam's
+4. Launch **Torque**. To use Gaming Mode, add it through Steam's
    **Games → Add a Non-Steam Game**. If needed, browse to
    `~/.local/share/deck-driver-station/launch.sh`.
 5. Select a **Gamepad** template with both sticks set to joysticks and leave Proton disabled.
@@ -62,7 +62,7 @@ Local-network access may require macOS's normal permission prompt.
 
 ## Daily workflow
 
-**Settings → Wi-Fi → robot address → Open robot.** Enter an IP such as
+**⋮ → Settings → Wi-Fi → robot address → Open robot.** Enter an IP such as
 `192.168.4.1`, a hostname such as `pushbot.local`, or a full URL including a port
 or path. No robot protocol or type is selected: an FTC Control Hub (usually
 `192.168.43.1`) is recognized and opens the [FTC Driver Station](FTC.md); any other
@@ -93,6 +93,16 @@ For website authentication, ordinary login forms appear within the robot page.
 HTTP authentication challenges open a username/password prompt. Robot passwords
 are not saved in the address list. The browser's robot-specific cookie storage
 can retain website sessions; HTTP authentication may ask again after reopening.
+
+### Calibrate
+
+**Calibrate** has the saved-setup bar on top (pick, make, open and save setups there too) and two tabs.
+**Electronics** reads the Control Hub (Set up from the Control Hub over USB-C), shows every motor, servo and
+sensor with its model and port, and has **Live debug**: put Deck Debug on the robot once, start it, and every
+port reads live while motors and continuous servos run only while you hold their slider. **Mechanisms** unlocks
+once the hub is read and walks each mechanism through the steps its sensors allow (confirm it, its direction,
+units, zero, range, feedforward, feedback, sensor thresholds, commit). Put the robot on blocks first.
+See [CALIBRATION.md](CALIBRATION.md).
 
 ## Drive view and controllers
 
@@ -126,7 +136,7 @@ from GitHub. **Download update** verifies the package, automatically installs it
 the app. Saved robot data is retained. No update is available until a
 release is published. [Release setup](UPDATES.md).
 
-Desktop settings normally live in Electron's **Deck Driver Station** user-data
+Desktop settings normally live in Electron's **Torque** user-data
 directory: `~/.config` on Linux, `%APPDATA%` on Windows, and
 `~/Library/Application Support` on Mac. `robots.json` stores bookmarks and SSIDs,
 not passwords.
@@ -139,7 +149,7 @@ also want to discard the saved robot library.
 ## Windows: reinstalling over a sandboxed copy
 
 If the desktop shortcut shows a blank page icon, the app was installed by a sandboxed program
-(for example an AI coding app) into that program's private folder. Close Deck Driver Station,
+(for example an AI coding app) into that program's private folder. Close Torque,
 then double-click **DeckDriverStation-<version>-Windows-Setup.exe** in File Explorer. It installs
 to the normal location and replaces the shortcuts; on first start the app brings over the robot
 list saved by the sandboxed copy.

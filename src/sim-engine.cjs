@@ -302,10 +302,11 @@ class SimEngine{
   // A route action that names a moving part's action, or a part and one of its positions, starts it once each time the
   // route reaches it; a pin holds while it moves.
   routeJoints(act){const key=act?(act.moving?'path'+(act.path??act.leg):'pin'+act.leg)+':'+act.name:'';if(key!==this.kinKey){this.kinKey=key;if(act?.name)this.kin.start(act.name);}return !!(act&&!act.moving&&this.kin.busy(act.name));}
-  // Joint values for this tick from the mechanism model's signals (turrets, flywheels, intakes, ramps, feeders).
+  // Joint values for this tick from the mechanism model's signals (turrets, flywheels, intakes, ramps, feeders). The hood
+  // follows the flywheel's speed now through the calibrated hood angles (the fixed hood angle without them).
   jointTick(dt=this.dsim.SIM_DT){
     if(!this.kin)return;const m=this.mech,c=this.mechCmd||{},on=this.config.mechanisms.enabled;
-    this.kin.tick(dt,on?{turrets:m.turrets,flywheel:m.flywheel,kick:m.kick,lift:m.lift,intake:!!c.intake,spin:!!c.spin,aim:!!c.aim,feed:!!c.feed,rpm:this.config.mechanisms.shooter.rpm,hood:this.config.mechanisms.shooter.hood}:{});
+    this.kin.tick(dt,on?{turrets:m.turrets,flywheel:m.flywheel,kick:m.kick,lift:m.lift,intake:!!c.intake,spin:!!c.spin,aim:!!c.aim,feed:!!c.feed,rpm:this.config.mechanisms.shooter.rpm,hood:m.hood()}:{});
   }
   // Where shooters aim: the cell the route's action names (the hive cell up at the start, or the other one);
   // in teleop, whichever cell faces up right now, as a driver would.

@@ -18,8 +18,14 @@ const run=promisify(execFile);let win,library,robotView=null,bridge=null,auth=nu
 let managerView=null,managerProxy=null;
 let robotExitView=null,robotExitReady=null,robotFullscreenPrevious=false;
 let suspended=false,interruption=null,connectionEpoch=0,pageEpoch=0;const recoveryControllers=new Set();
+// Simulate and Calibrate work offline from a robot's Driver Station: both close it and share the simulation process.
+const offlinePage=page=>page==='simulation'||page==='calibrate';
 const state={page:'drive',loading:false,url:'',title:'',error:'',robot:null,kind:'',manager:false,robotFullscreen:false,recovering:false};const network=new Network();let overlay=false;
-app.setName('Deck Driver Station');
+app.setName('Torque');
+// Torque was Deck Driver Station: a computer that has that app's data (saved setups, robots, CAD, settings) keeps using
+// its folder, so nothing is moved or lost.
+const LEGACY_NAME='Deck Driver Station';
+if(!process.env.DECK_DATA_DIR){const legacy=path.join(app.getPath('appData'),LEGACY_NAME);if(fs.existsSync(legacy)&&!fs.existsSync(path.join(app.getPath('appData'),'Torque')))app.setPath('userData',legacy);}
 // Offline simulator: a utility process started by the Simulation view, never connected to a robot.
 const {DevicePhotos}=require('./device-photos.cjs');let devicePhotos=null;const photos=()=>devicePhotos||=new DevicePhotos(path.join(app.getPath('userData'),'device-photos'));
 const {SimulationHost}=require('./sim-bridge.cjs');let simulation=null;const robotLink=require('./robot-link.cjs');
@@ -98,8 +104,8 @@ ipcMain.on('controller-input',(e,pads)=>{
   if(suspended||state.recovering)blockHeldControllers();sendControllers();
   // The simulation process accepts Controller 1 only during an explicitly started TELEOP
   // practice phase. Autonomous and transition always reject it; robot output stays paused.
-  // A guided check running from the Send panel takes Controller 1's face buttons and D-pad as its answers.
-  if((simulation?.running||robotCheck)&&state.page==='simulation'){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture||keyboardSource&&shellKeyboardEditing;
+  // A guided check running from Calibrate takes Controller 1's face buttons and D-pad as its answers.
+  if((simulation?.running||robotCheck)&&offlinePage(state.page)){const padState=controllerState(),blocked=suspended||state.recovering||overlay||auth||managerView||robotKeyboard?.visible||padState.capture||keyboardSource&&shellKeyboardEditing;
     const pad=blocked?null:controllerOutput({...padState,paused:false})[0];if(simulation?.running)simulation.practiceInput(pad);robotCheck?.pad(pad);}
 });
 function captureController(slot){controllerHub.begin(slot);win.webContents.focus();sendControllers(true);emit('controller-capture',controllerState());return controllerState();}
@@ -306,25 +312,27 @@ handle('manager-close',closeManager);
 const auto={ssid:null,dismissed:false,busy:false};
 async function autoOpenFtc(){
   const ssid=currentNetwork?.ssid||'';if(auto.ssid!==ssid)Object.assign(auto,{ssid,dismissed:false});
-  if(state.page==='simulation'||suspended||state.recovering||auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
+  if(offlinePage(state.page)||suspended||state.recovering||auto.busy||auto.dismissed||robotView||opening||finding||updater?.busy||network.busy||!library||!ssid)return;
   const saved=library.list(ssid).filter(r=>r.ssid===ssid&&r.kind==='ftc');if(!saved.length)return;
   auto.busy=true;
   try{
     const host=await findFtc([...new Set(saved.map(r=>new URL(r.url).hostname))]);const robot=saved.find(r=>new URL(r.url).hostname===host);
-    if(robot&&state.page!=='simulation'&&!suspended&&!state.recovering&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
+    if(robot&&!offlinePage(state.page)&&!suspended&&!state.recovering&&!robotView&&!opening&&!auto.dismissed&&(currentNetwork?.ssid||'')===ssid){auto.busy=false;await openRobot({id:robot.id});}
   }catch(e){emit('notice',e.message);}finally{auto.busy=false;}
 }
 handle('bootstrap',async()=>{await refreshNetwork();setTimeout(()=>void autoOpenFtc(),300);return {state:snapshot(),hardware:hardware(),app:{version:meta.version,channel:meta.updateChannel}};});handle('open',openRobot);handle('close',async()=>{auto.dismissed=true;await closeRobot();});
 // The open robot stays connected while Settings is shown; it is hidden, not closed.
 async function setPage(page){
-  if(!['drive','settings','simulation'].includes(page))throw Error('Unknown app view.');
+  if(!['drive','settings','simulation','calibrate'].includes(page))throw Error('Unknown app view.');
   pageEpoch++;releaseKeys();
   if(page!=='drive'){robotKeyboard?.hide({focus:false});await setRobotFullscreen(false);}
   update({page});fitView();
-  // Simulation is offline. Close the live robot, including its active FTC op mode.
-  if(page==='simulation'){finding?.abort();await closeRobot();}
-  // Leaving Simulation ends its processes, including any running Java program, and a guided check running on a robot.
+  // Simulation and Calibrate are offline. Close the live robot, including its active FTC op mode.
+  if(offlinePage(page)){finding?.abort();await closeRobot();}
+  // Leaving them ends the simulation's processes, including any running Java program, and a guided check running on a robot.
   else {simulation?.stop();robotCheck?.stop();}
+  // Live debug drives the robot's outputs: it only runs while Calibrate shows.
+  if(page!=='calibrate')robotDebug?.stop();
   return snapshot();
 }
 handle('page',setPage);
@@ -348,7 +356,7 @@ handle('cursor',(x,y)=>{
   return false;
 });
 app.on('will-quit',()=>{try{cursorHelper?.kill();}catch{}});
-handle('sim',async(method,args)=>{if(state.page!=='simulation')throw Error('Open the Simulation view first.');return simulation.call(method,args);});
+handle('sim',async(method,args)=>{if(!offlinePage(state.page))throw Error('Open the Simulation view first.');return simulation.call(method,args);});
 handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
 // Send to robot (Simulation → Run & review → Export): reads a Control Hub's configuration (and scans its hubs to add
 // devices), saves a new configuration with the devices it lacks, and uploads and builds the exported OnBot Java over its
@@ -356,18 +364,35 @@ handle('sim-file',(action,data)=>simulation.file(dialog,win,action,data));
 // select: the autonomous just built, which Drive selects when that robot is next opened (within the hour).
 // check-start / check-press / check-stop: the guided check TeleOp, run from the Send panel; its telemetry arrives as
 // robot-link-check events, then one {ended} (or {error}) when it stops.
-let sentOpMode=null,robotCheck=null;
+// debug-install / debug-start / debug-send / debug-stop: Deck Debug (Calibrate → Electronics → Live debug). Its device
+// list and readings arrive as robot-link-debug events ({manifest}, {frame}), then one {ended} (or {error}).
+let sentOpMode=null,robotCheck=null,robotDebug=null;
 handle('robot-link',async(action,data)=>{
   if(action==='robots')return library.list().filter(r=>r.kind==='ftc').map(r=>{let host='';try{host=new URL(r.url).hostname;}catch{}return {name:r.name,host};}).filter(r=>r.host);
   if(action==='select'){const name=typeof data?.opMode==='string'?data.opMode:'';if(!name||name.length>200)throw Error('No op mode to select.');sentOpMode={host:robotLink.checkHost(data?.host),name,at:Date.now()};return true;}
+  // Which ways Send to robot can reach a robot now: a Control Hub on the USB cable, and the robot whose Wi-Fi this
+  // computer is on (a saved FTC robot on this network, or a Control Hub or Robot Controller phone network by its name).
+  // Its address: the robot saved for this network, else one saved for any network, else the usual Control Hub address.
+  if(action==='detect'){const ssid=currentNetwork?.ssid||'',ftc=library.list(ssid).filter(r=>r.kind==='ftc'),saved=ftc.find(r=>ssid&&r.ssid===ssid)||ftc.find(r=>!r.ssid),phone=/^DIRECT-/i.test(ssid);let host='';try{host=saved?new URL(saved.url).hostname:'';}catch{}
+    const usb=await robotLink.usbStatus().catch(e=>({found:false,message:e.message}));
+    return {usb,wifi:{ssid,robot:!!saved&&!!ssid&&saved.ssid===ssid||/^FTC-|-RC$|^DIRECT-/i.test(ssid),host:host||(phone?'192.168.49.1':'192.168.43.1'),name:saved?.name||''}};}
   if(action==='check-press')return !!robotCheck?.press(String(data?.button||''));
+  if(action==='debug-send')return !!robotDebug?.send(String(data?.line||''));
+  if(action==='debug-stop'){const debug=robotDebug;if(debug){debug.stop();await Promise.race([debug.ended.catch(()=>{}),delay(5000)]);}return true;}
+  if(robotDebug)throw Error('Live debug is still running. Stop it first.');
   // Resolves once the robot has stopped the check and the connection is free (5 s at most).
   if(action==='check-stop'){const check=robotCheck;if(check){check.stop();await Promise.race([check.ended.catch(()=>{}),delay(5000)]);}return true;}
   if(robotCheck)throw Error('The guided check is still running. Stop it first.');
+  if(action==='debug-install')return robotLink.send(data?.host,{[robotLink.DEBUG_FILE]:robotLink.debugSource()},{backupDir:path.join(app.getPath('userData'),'robot-backups'),onProgress:(stage,file)=>emit('robot-link-progress',{stage,file})});
   if(bridge instanceof FtcSocket)throw Error('Close the robot in Drive first: its Driver Station is using the robot connection.');
   if(action==='check-start'){
     const check=robotLink.runCheck(data?.host,data?.opMode,{onUpdate:update=>emit('robot-link-check',update)});robotCheck=check;
     check.ended.then(why=>emit('robot-link-check',{ended:why}),e=>emit('robot-link-check',{error:e.message})).finally(()=>{if(robotCheck===check)robotCheck=null;});
+    return true;}
+  if(action==='debug-start'){
+    const host=data?.host==='usb'?'usb':robotLink.checkHost(data?.host),socket=host==='usb'?await new UsbFtcSocket(()=>robotLink.usbForward().then(f=>({port:f.link}))).open():null;
+    const debug=robotLink.runDebug(host,{socket,onManifest:manifest=>emit('robot-link-debug',{manifest}),onFrame:frame=>emit('robot-link-debug',{frame})});robotDebug=debug;
+    debug.ended.then(why=>emit('robot-link-debug',{ended:why}),e=>emit('robot-link-debug',{error:e.message})).finally(()=>{if(robotDebug===debug)robotDebug=null;if(socket)void socket.close();});
     return true;}
   if(action==='read')return robotLink.readRobot(data?.host,{scan:data?.scan===true});
   if(action==='read-usb')return robotLink.readUsb();
@@ -416,7 +441,7 @@ function recoverSandboxedLibrary(dir){
   if(process.platform!=='win32'||process.env.DECK_DATA_DIR||fs.existsSync(path.join(dir,'robots.json'))||!process.env.LOCALAPPDATA)return;
   try{
     const packages=path.join(process.env.LOCALAPPDATA,'Packages');let best=null;
-    for(const name of fs.readdirSync(packages)){const folder=path.join(packages,name,'LocalCache','Roaming',app.getName());try{const t=fs.statSync(path.join(folder,'robots.json')).mtimeMs;if(!best||t>best.t)best={folder,t};}catch{}}
+    for(const name of fs.readdirSync(packages)){for(const folder of [path.join(packages,name,'LocalCache','Roaming',app.getName()),path.join(packages,name,'LocalCache','Roaming',LEGACY_NAME)])try{const t=fs.statSync(path.join(folder,'robots.json')).mtimeMs;if(!best||t>best.t)best={folder,t};}catch{}}
     if(!best)return;fs.mkdirSync(dir,{recursive:true});
     for(const file of ['robots.json','update-settings.json'])if(fs.existsSync(path.join(best.folder,file))&&!fs.existsSync(path.join(dir,file)))fs.copyFileSync(path.join(best.folder,file),path.join(dir,file));
   }catch{}
@@ -434,7 +459,7 @@ app.whenReady().then(async()=>{
   updater=new Updater({directory:app.getPath('userData'),version:meta.version,repo:meta.repository.url,channel:meta.updateChannel,base:build.electron===process.versions.electron?build.base:'',onProgress:p=>emit('update-progress',p)});
   try{library=new Library(path.join(app.getPath('userData'),'robots.json'));}catch(e){state.error=`Saved library could not be read: ${e.message}`;library=new Library(path.join(app.getPath('userData'),`robots-recovered-${Date.now()}.json`));}
   const d=screen.getPrimaryDisplay().workAreaSize;
-  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Deck Driver Station',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+  win=new BrowserWindow({show:process.env.DECK_HEADLESS!=='1',width:Math.min(1280,d.width),height:Math.min(800,d.height),minWidth:360,minHeight:480,title:'Torque',icon:path.join(__dirname,'../ui/icon.png'),backgroundColor:'#080808',autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),additionalArguments:[...controllerArguments,'--deck-controller-shell'],partition:'persist:launcher',sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
   robotKeyboard=new RobotKeyboard({WebContentsView,ipcMain,window:()=>win,robot:()=>managerView||robotView,allowed:()=>touchKeyboard&&!!win&&!win.isDestroyed()&&state.page==='drive'&&!overlay&&!auth&&!state.error,changed:()=>fitView(),released:()=>{for(const pad of controllerHub.state().slots)if(pad)controllerHub.blocked.add(`${pad.index}:${pad.id}`);}});
   controllerSession(win.webContents.session);const controllerTimer=setInterval(()=>{if(lastControllerInput&&performance.now()-lastControllerInput>500)ingestPads([]);sendControllers();},100);controllerTimer.unref();
   win.webContents.on('render-process-gone',()=>{lastControllerInput=0;ingestPads([]);sendControllers(true);simulation.stop();});
@@ -458,4 +483,4 @@ app.whenReady().then(async()=>{
     robotKeyboard?.close();});win.on('closed',()=>{robotExitView?.webContents.close();robotExitView=null;});
   pollTimer=setInterval(()=>{if(!network.busy)void refreshNetwork().then(()=>autoOpenFtc());},5000);pollTimer.unref();
 });
-let closing=false;app.on('before-quit',e=>{simulation?.stop();robotCheck?.stop();if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());
+let closing=false;app.on('before-quit',e=>{simulation?.stop();robotCheck?.stop();robotDebug?.stop();if(closing)return;e.preventDefault();closing=true;clearInterval(pollTimer);void closeRobot().finally(()=>app.quit());});app.on('window-all-closed',()=>app.quit());

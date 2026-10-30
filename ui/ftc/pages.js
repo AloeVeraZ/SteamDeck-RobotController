@@ -355,7 +355,7 @@ async function readInspection(){
   fill('inspect-rc',rows.length?rows:[['Report','The robot sent no inspection details.']]);
 }
 async function driverStation(){
-  const s=ctx.session,name=ctx.dsName(),rows=[['Name',name,NAME.test(name)],['App',`Deck Driver Station`],['Operating system',navigator.userAgentData?.platform||navigator.platform||'—'],['Robocol',String(s.identity.version)]];
+  const s=ctx.session,name=ctx.dsName(),rows=[['Name',name,NAME.test(name)],['App',`Torque`],['Operating system',navigator.userAgentData?.platform||navigator.platform||'—'],['Robocol',String(s.identity.version)]];
   try{const b=await navigator.getBattery?.();if(b)rows.push(['Battery',percent(b.level),b.level>=.3||b.charging]);}catch{}
   const pads=Array.from(navigator.getGamepads?.()||[]).filter(Boolean);rows.push(['Controllers',pads.length?pads.map(p=>p.id.replace(/\s*\(.*$/,'')).join(', '):'None found',pads.length>0]);
   rows.push(['Robot connection',s.state.connection==='connected'?`Connected · ${s.state.ping??'—'} ms`:'Not connected',s.state.connection==='connected']);

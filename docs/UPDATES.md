@@ -88,7 +88,7 @@ After the user authorizes publication:
    `package.json` `testingReleaseTargets` and main those in `mainReleaseTargets`
    (`steamdeck`, `windows`, `macos-arm64`; every platform when the key is missing), both
    currently `["windows"]`. A partial release is titled, for example,
-   *Deck Driver Station testing-v2.4.23 (Windows x64 only)*, its notes say which devices it
+   *Torque testing-v2.4.23 (Windows x64 only)*, its notes say which devices it
    is for, and it has no App package. Before publishing, `tools/release-targets.cjs` checks
    that each built platform has its download and checksum and that no other platform's files
    are there. It never runs on a normal branch push; pushing the tag `testing-v<version>`

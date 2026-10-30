@@ -24,9 +24,9 @@ function targets(branch,meta){
 }
 const partial=list=>check(list).length<ALL.length;
 function describe(tag,list){
-  list=check(list);if(!partial(list))return {title:`Deck Driver Station ${tag}`,notes:''};
+  list=check(list);if(!partial(list))return {title:`Torque ${tag}`,notes:''};
   const names=l=>l.map(t=>LABEL[t]).join(' and '),only=names(list),rest=ALL.filter(t=>!list.includes(t));
-  return {title:`Deck Driver Station ${tag} (${only} only)`,notes:`This build is for ${only} only. ${names(rest)} ${rest.length>1?'stay on their':'stays on its'} current version until a later release includes ${rest.length>1?'them':'it'}.`};
+  return {title:`Torque ${tag} (${only} only)`,notes:`This build is for ${only} only. ${names(rest)} ${rest.length>1?'stay on their':'stays on its'} current version until a later release includes ${rest.length>1?'them':'it'}.`};
 }
 // Checks the built files before anything is published. Each target needs its update download and
 // checksum, and no other platform's file may be there. The App package (app code only) fits every

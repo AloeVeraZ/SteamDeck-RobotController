@@ -65,7 +65,7 @@ async function targets(){return (await fetch('http://127.0.0.1:9333/json/list'))
     await D.eval(`document.querySelector('#main-action').click()`);await until(()=>robot.sim.opState==='running',5000,'robot running');
     await wait(500);if(process.env.DECK_FTC_SCREENSHOTS==='1'){await D.shot(path.join(out,'ds-running.png'));await L.shot(path.join(out,'launcher-running.png'));}
     // Settings keeps the robot connected and running; Drive shows it again.
-    await L.eval(`document.querySelector('#settings-tab').click()`);await wait(2600);
+    await L.eval(`document.querySelector('#menu-settings').click()`);await wait(2600);
     if(robot.sim.opState!=='running'||!robot.sim.peer)throw Error('Settings disconnected or stopped the robot');
     console.log('after settings 2.6s: sim',robot.sim.opState,'peer',robot.sim.peer,'| launcher url',await L.eval('state.url'),'| DS active input',await D.eval('document.querySelector("#link-text").textContent'));
     await L.eval(`document.querySelector('#drive-tab').click()`);await wait(300);

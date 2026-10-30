@@ -81,7 +81,7 @@ async function autonomous(settings,truth){
 test('the check TeleOp: every step, its question, and the results it reports',()=>{
   const m=Mech.sanitize({enabled:true,intakes:[{kind:'kicker',sides:['front'],servo:'kicker'}],shooters:[{type:'turret',indexerKind:'pusher',indexer:'pusher'}],shooter:{control:'power'},turret:{kind:'servo'}});
   const java=F.files({route:P.plan({start,zones:[],pins:[{x:40,y:30}],clearance:2},{front:8.5,rear:8.5,half:8.5}),layout,tuning:{},robot:C.robot(base),localization:'fused',mechanisms:m,target,setupName:'Guided',routeJava:'class R {}'}).files['org/firstinspires/ftc/teamcode/PlannedRouteCheck.java'];
-  assert.match(java,/@TeleOp\(name = "Guided check \(Deck\)", group = "Deck Driver Station"\)/);
+  assert.match(java,/@TeleOp\(name = "Guided check \(Deck\)", group = "Torque"\)/);
   assert.match(java,/private static final int STEPS = 10;/,'IMU, four wheels, kicker, flywheel, pusher, turret, Pinpoint');
   assert.match(java,/Did the front left wheel turn so the robot would drive FORWARD\?/);assert.match(java,/position\(kicker1, Mechanisms\.KICKER_1_DOWN, "Move the kicker DOWN/);
   assert.match(java,/result\("shooters\.0\.restPos", number\(rest\)\)/);assert.match(java,/result\("turret\.servoCenter", number\(center\)\)/);

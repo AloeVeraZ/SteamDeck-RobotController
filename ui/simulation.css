@@ -96,6 +96,14 @@
 .sim-tabs button[aria-selected=true] span{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 /* A stage's state is its number's ring: green done, amber needs changing, red still missing (the reason is the tab's tooltip and description). */
 .sim-tabs button[data-state] span{--ring:var(--line-strong)}
+/* A Setup step with something to change: amber or red, as the stage ring, and the line under the tabs says what. */
+.driver-station .sim-setup-steps button[data-state=attention]{border-color:var(--warning);box-shadow:inset 0 0 0 1px var(--warning),0 0 8px color-mix(in srgb,var(--warning) 45%,transparent)}
+.driver-station .sim-setup-steps button[data-state=incomplete]{border-color:var(--danger);box-shadow:inset 0 0 0 1px var(--danger),0 0 8px color-mix(in srgb,var(--danger) 45%,transparent)}
+.driver-station .sim-setup-steps button[data-state=attention]::after,.driver-station .sim-setup-steps button[data-state=incomplete]::after{content:'';display:inline-block;width:8px;height:8px;margin-left:8px;border-radius:50%;background:var(--warning);vertical-align:middle}
+.driver-station .sim-setup-steps button[data-state=incomplete]::after{background:var(--danger)}
+.sim-setup-flags{display:flex;flex-direction:column;gap:4px;margin:-12px 0 16px;max-width:1360px}.sim-setup-flags[hidden]{display:none}
+.driver-station .sim-setup-flag{display:block;width:100%;min-height:0;text-align:left;padding:6px 10px;font-size:13px;font-weight:400;background:var(--well);border:1px solid var(--warning);border-left-width:4px;border-radius:var(--radius);color:var(--text)}
+.driver-station .sim-setup-flag.incomplete{border-color:var(--danger)}
 .sim-tabs button[data-state=done] span{--ring:var(--connected)}.sim-tabs button[data-state=attention] span{--ring:var(--warning)}.sim-tabs button[data-state=incomplete] span{--ring:var(--danger)}
 .sim-tabs button[data-state]:not([data-state='']) span{border:2px solid var(--ring);box-shadow:0 0 6px color-mix(in srgb,var(--ring) 55%,transparent)}
 .sim-tabs button[aria-selected=true][data-state]:not([data-state='']) span{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--ring)}
@@ -165,7 +173,8 @@
 .sim-grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
 @media(max-width:700px){.sim-popover{max-height:calc(100dvh - 8px)}}
 /* Setup runs in three steps like Path planning: field, robot controller with its sensing, robot. */
-.sim-setup-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0 0 20px;max-width:1360px}
+.sim-setup-steps{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:6px;margin:0 0 20px;max-width:1360px}.sim-setup-steps button[hidden]{display:none}
+#sim-controller-note:empty,#sim-imu-note:empty{display:none}
 .driver-station .sim-setup-steps button{min-width:0;min-height:40px;font-size:13px;padding:6px 8px}
 .driver-station .sim-setup-steps [aria-selected=true]{background:var(--accent);color:var(--bg)}
 .sim-setup-page{max-width:1360px}.sim-setup-page[data-setup-page=mechanisms]{max-width:760px}.sim-setup-page[hidden]{display:none!important}
@@ -207,13 +216,12 @@
 .sim-robot-layout{display:flex;flex-direction:column}.sim-robot-cad,.sim-robot-specs{min-width:0}
 .sim-robot-layout h3{margin:24px 0 10px;padding-top:16px;border-top:1px solid var(--line);font-size:14px}.sim-robot-cad>h3:first-child{margin-top:8px}
 .sim-robot-specs .sim-part-list{max-height:none;overflow:visible}
-.sim-robot-layout:not(:has(#sim-model-box:not([hidden]))) .sim-robot-cad{display:none}
 @media(min-width:1000px){
   .sim-robot-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,1fr);gap:0 28px;align-items:start}
   .sim-robot-cad{position:sticky;top:76px;display:flex;flex-direction:column;max-height:calc(100dvh - 92px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
   .sim-robot-cad:has(#sim-model-box:not([hidden])){height:calc(100dvh - 92px)}
   /* No model yet: the settings take the whole width instead of sitting beside an empty column. */
-  .sim-robot-layout:not(:has(#sim-model-box:not([hidden]))){display:flex;align-items:stretch}
+  .sim-robot-layout:not(:has(#sim-model-box:not([hidden]))){display:flex;flex-direction:column}.sim-robot-layout:not(:has(#sim-model-box:not([hidden]))) .sim-robot-cad{position:static;max-height:none;overflow:visible}
   .sim-robot-cad #sim-model-box:not([hidden]){display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
   .sim-robot-cad #sim-model-box>*{flex:none}
   .sim-robot-cad #sim-model-box>.sim-model-preview{flex:1 1 auto;height:auto;min-height:150px}
@@ -266,6 +274,14 @@
 #field-robot circle.sim-glyph-shooter.nectar{fill:#e5484d;stroke:#e5484d}#field-robot circle.sim-glyph-shooter.both{fill:#f2994a;stroke:#f2994a}
 .sim-mech-cad{margin:8px 0 0}.sim-mech-cad[hidden]{display:none}.sim-mech-cad .hint{margin:4px 0 0}
 /* Robot presets: DSIM-style cards; a preset sets the mechanism parts (shown, not editable). */
+/* A demo setup: read-only, with a note; the Starter Mecanum demo's Robot controller shows only its motor ports, I2C buses
+   and the Pinpoint switch. */
+.sim-demo-note{margin:0 0 10px;padding:8px 10px;border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--well);font-size:13px}.sim-demo-note[hidden],.sim-pinpoint-on[hidden]{display:none}
+.sim-demo-locked{pointer-events:none;opacity:.5}
+[data-demo] #sim-start-step,[data-demo] #sim-obstacle-step,[data-demo] #sim-route-step,[data-setup-page=field] .sim-setup-cols[inert]{opacity:.7}
+[data-setup-page=controller][data-demo] :is(.sim-ctl-choice,#sim-sensor-list,#sim-sensor-add,label[for=sim-imu-source],#sim-imu-source,#sim-imu-note,#sim-sensor-note,#sim-hub-mount,#sim-odometry,.sim-wire-hubs,.sim-wire-grid[data-hub=expansion],.sim-wire-grid[data-hub=servoHub],.sim-wire-slot[data-fam=servo],#sim-wiring-summary,#sim-ctl-ports .button-row,#sim-ctl-ports details,#sim-config-summary,#sim-timed-settings,#ctl-preset){display:none!important}
+.sim-preset-about{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:10px 0 4px;font-size:13px}.sim-preset-about[hidden]{display:none}.sim-preset-about dt{font-weight:600}.sim-preset-about dd{margin:0}
+.driver-station .sim-pause{min-width:48px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center}.sim-pause .ui-icon{width:20px;height:20px;fill:currentColor;stroke:none}
 .sim-presets{margin:8px 0}.sim-presets[hidden],#sim-robot-custom[hidden],.sim-mech-preset[hidden]{display:none}
 /* A preset robot: its settings shown but locked (inert), the CAD preview without its editing controls. */
 .sim-mech-preset p{flex:1 1 320px}.sim-preset-actions{display:flex;gap:8px;flex-wrap:wrap}
@@ -282,7 +298,7 @@
 .sim-setup-page[data-locked] #mech-intakes,.sim-setup-page[data-locked] #mech-shooters,.sim-setup-page[data-locked] #mech-timing,.sim-setup-page[data-locked] #mech-preloads,.sim-setup-page[data-locked] #mech-cad{pointer-events:none;opacity:.6}.sim-setup-page[data-locked] .sim-mech-add{display:none!important}
 /* CAD import progress and errors, shown where the file was dropped. */
 .sim-import-status{margin:8px 0 0;font-size:12px;color:var(--text)}.sim-import-status:empty{display:none}
-.sim-drop.busy{border-color:var(--accent);opacity:.9}.sim-drop.busy #sim-model-open{pointer-events:none;opacity:.5}
+.sim-drop.busy{border-color:var(--accent);opacity:.9}.sim-robot-cad:has(.sim-drop.busy) #sim-model-open{pointer-events:none;opacity:.5}
 /* CAD import: detail choice, the parts list (click a part, say what it is) and the settings a person enters. */
 .sim-parts{margin-top:10px}.sim-parts h4{margin:0 0 4px}.sim-part-list{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;max-height:220px;overflow:auto}
 .sim-part-item{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:6px 8px;border-radius:6px;border:1px solid var(--line,#3334);background:transparent;color:inherit;cursor:pointer}
@@ -417,7 +433,7 @@
 /* The Mechanisms list (sim-mechanism-list.js): + Add mechanism and Configure from CAD, the picker, and each moving
    mechanism's card with its named positions and its actuator. */
 .sim-mech-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 6px}.driver-station .sim-mech-toolbar button{min-height:40px}
-.sim-mech-status:empty,#mech-cad-note:empty,.sim-mech-count:empty{display:none}.sim-mech-status{color:var(--text)}
+.sim-mech-status:empty,#mech-cad-note:empty,.sim-mech-count:empty{display:none}.sim-mech-count.over{color:var(--danger);font-weight:600}.sim-mech-status{color:var(--text)}
 #mech-picker[hidden],.sim-mech-empty[hidden]{display:none}
 .sim-mech-types-head{display:flex;gap:6px;align-items:center}.sim-mech-types-head input[type=search]{flex:1;min-width:0}
 .sim-mech-type em{font-style:normal;font-size:10px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
@@ -479,7 +495,7 @@
 .sim-wire-row.amber,.sim-wire-sensor.amber{border-color:var(--warning)}
 .sim-wire-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.sim-wire-head code{font:12px var(--mono);color:var(--muted)}.sim-wire-head .icon-button{margin-left:auto}
 .sim-wire-explain{margin:6px 0 0;font-size:13px}.sim-wire-fixed{margin:4px 0 0;font-size:13px}.sim-wire-why{margin:4px 0 0}
-.sim-wire-problem{margin:6px 0 0;font-size:13px}.sim-wire-problem.red{color:var(--danger)}.sim-wire-problem.amber{color:var(--warning)}
+.sim-wire-problem{margin:6px 0 0;font-size:13px}.sim-wire-problem.red,.sim-wire-problem.limit{color:var(--danger)}.sim-wire-problem.limit{font-weight:600}.sim-wire-problem.amber{color:var(--warning)}
 .sim-wire-sensors ul{list-style:none;margin:0;padding:0}.sim-wire-sensor{border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;margin:6px 0}
 .sim-wire-table{width:100%;border-collapse:collapse;font-size:13px}.sim-wire-table th,.sim-wire-table td{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line)}.sim-wire-table tr.red td{color:var(--danger)}
 #sim-wiring-open.sim-bad-input{border-color:var(--danger)!important;box-shadow:0 0 0 1px var(--danger),0 0 10px color-mix(in srgb,var(--danger) 45%,transparent)}
@@ -497,3 +513,119 @@
 .sim-hub-result .sim-hub-ok::before{background:#49cbb3}.sim-hub-result .sim-hub-guess::before{background:#f2d14b}.sim-hub-result .sim-hub-missing::before{background:#f2994a}.sim-hub-result .sim-hub-unused{color:var(--muted)}
 .sim-chassis-check{flex:1 1 100%;font-size:13px}.sim-chassis{display:grid;gap:10px;margin:0 0 10px}.sim-chassis-row{display:grid;gap:4px}.sim-chassis-row input{max-width:320px}
 .sim-setup-page[data-chassis] :is(#mech-intakes,#mech-shooters,#mech-parts,#mech-timing,#mech-preloads,#mech-cad,#mech-count,#mech-empty,#mech-cad-note,#mech-field-note){display:none!important}
+/* Setup, made plain to read: what can be pressed looks pressable, and what is on looks on. */
+#sim-panel-setup .segmented>button{color:var(--text)}#sim-panel-setup .segmented>button:hover:not([aria-pressed=true]){background:var(--surface)}
+#sim-panel-setup .segmented>button[aria-pressed=true]{background:var(--accent);color:var(--bg);box-shadow:none}
+.sim-big-toggle{margin:4px 0 14px}.driver-station .sim-big-toggle .segmented>button{min-height:52px;font-size:15px}
+#sim-panel-setup .secondary{box-shadow:inset 0 0 0 1px var(--line-strong)}#sim-panel-setup .secondary:hover:not(:disabled){box-shadow:inset 0 0 0 1px var(--text)}
+.driver-station .sim-choice:hover{border-color:var(--text)}.sim-choice[aria-pressed=true] strong::after{content:' ✓';color:var(--accent)}
+.sim-presets{margin-bottom:12px}#sim-preset-lock #sim-preset-note{margin:6px 0 0}
+/* A preset robot is its card alone; the adjustable one (Starter Mecanum) also shows its size, weight, wheels and power. */
+[data-setup-page=robot][data-preset=fixed] #sim-robot-custom{display:none}
+[data-setup-page=robot][data-preset=adjust] :is(.sim-robot-cad,#sim-parts,.sim-drive-group,#sim-mesh-size,.sim-robot-save){display:none!important}
+[data-setup-page=robot][data-preset=adjust] .sim-robot-layout{display:block}
+/* Custom robot: Import CAD sits on the model's own heading. */
+.sim-cad-head{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;margin:8px 0 10px}
+.sim-robot-layout .sim-cad-head h3{margin:0;padding:0;border:0}.sim-cad-head .button-row{margin:0;flex-wrap:wrap}
+.sim-drop.compact:has(.sim-import-status:empty){display:none}
+/* Robot controller: the Control Hub over USB first, then the same settings by hand. */
+.sim-ctl-choice .sim-setup-sub{margin-top:0}
+.sim-ctl-card{margin:18px 0 0;padding:14px 16px;border:1px solid var(--accent);border-radius:var(--radius);background:var(--well)}.sim-ctl-card[hidden],.sim-ctl-section[hidden]{display:none}
+.sim-ctl-card h3{margin:0 0 8px;font-size:14px}.sim-ctl-steps{margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.45}.sim-ctl-steps li+li{margin-top:4px}.sim-ctl-or{margin:10px 0 0}
+.sim-ctl-section>h3{margin:24px 0 10px;padding-top:16px;border-top:1px solid var(--line);font-size:14px}
+/* Robot controller on a Control Hub: the ports are their own column, set apart by a rule and scrolled on their own. */
+@media(min-width:1000px){
+  .sim-ctl-split>.sim-ctl-ports-col{position:sticky;top:76px;max-height:calc(100vh - 92px);overflow-y:auto;overscroll-behavior:contain;border-left:2px solid var(--line-strong);padding:0 4px 16px 28px;margin-left:-4px}
+  .sim-ctl-split>.sim-ctl-ports-col>#sim-ctl-ports>h3{position:sticky;top:0;z-index:1;margin-top:0;padding:4px 0 8px;border-top:0;background:var(--bg)}
+  #sim-ctl-cols.sim-ctl-split>.sim-setup-col:first-child>.sim-advanced,#sim-ctl-cols.sim-ctl-split>.sim-setup-col:first-child>#sim-timed-settings{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}
+}
+[data-setup-page=controller] [inert]{opacity:.72}
+/* A preset's note reads top to bottom: what it is, its numbers, then what to do. */
+#sim-preset-lock{flex-direction:column;align-items:stretch}#sim-preset-lock p{flex:none}#sim-preset-lock .sim-preset-actions{justify-content:flex-end}
+[data-setup-page=controller] #sim-sensor-list[inert] .icon-button,[data-setup-page=controller] #sim-sensor-add[inert]{display:none}
+
+/* Send to robot: the USB cable or the robot's Wi-Fi, each saying what was found, then one Send button. */
+.sim-send-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.sim-send-head h3{margin:0}
+.sim-send-head .text-button{min-height:0;padding:2px 4px;font-size:11px;color:var(--muted)}
+.sim-link{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:8px}
+.driver-station .sim-link>button{position:relative;display:flex;align-items:center;gap:8px;min-width:0;min-height:52px;padding:8px 10px;text-align:left;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer}
+.driver-station .sim-link>button:hover{border-color:var(--line-strong)}
+.driver-station .sim-link>button[aria-checked=true]{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.sim-link .ui-icon{flex:none;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;color:var(--muted)}
+.sim-link>button[aria-checked=true] .ui-icon{color:var(--text)}
+.sim-link span{display:grid;min-width:0}.sim-link strong{font-size:12px;font-weight:650}.sim-link small{font-size:10.5px;line-height:1.3;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sim-link-dot{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--line-strong)}
+.sim-link>button[data-found=true] .sim-link-dot{background:var(--connected);box-shadow:0 0 6px var(--connected)}
+.driver-station .sim-send-go{width:100%;min-height:40px}
+
+/* Diagnostics: a card for each view with its count, then the view picked. */
+.sim-diag-pick{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:10px}
+.driver-station .sim-diag-card{display:grid;gap:2px;justify-items:start;min-width:0;min-height:54px;padding:8px 10px;text-align:left;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);cursor:pointer}
+.driver-station .sim-diag-card[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);box-shadow:0 0 0 1px var(--accent)}
+.sim-diag-title{font-size:11px;color:var(--muted)}.sim-diag-value{font-size:14px;font-weight:650}
+.sim-diag-card[data-state=ok] .sim-diag-value{color:var(--connected)}.sim-diag-card[data-state=warn] .sim-diag-value{color:var(--warning)}
+#sim-run-diagnostics ul{margin:0}#sim-run-diagnostics li.sim-clear{padding:10px 12px;border:1px solid color-mix(in srgb,var(--connected) 50%,transparent);border-radius:8px;background:color-mix(in srgb,var(--connected) 10%,transparent);color:var(--text)}
+#sim-run-diagnostics li.sim-clear::before{content:'✓  ';color:var(--connected);font-weight:700}
+#sim-panel-run .sim-log{margin-top:0}#sim-panel-run .sim-log pre{margin:0;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--well);line-height:1.5}
+
+/* Calibrate: the saved-setup bar on top, then Electronics (the hub's ports and devices, the send and guided check) and
+   Mechanisms (each mechanism's settings) tabs. */
+.driver-station #calibrate-view{padding:24px 24px 40px;max-width:1200px;margin:0 auto;box-sizing:border-box}
+.cal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:12px}.cal-setup-slot{flex:1;min-width:0}.cal-setup-slot .sim-setup-bar{margin-bottom:0}.cal-setup-slot .sim-setup-label{font-size:13px;font-weight:650;color:var(--text)}
+.cal-tabs{display:flex;gap:4px;margin:0 0 16px;border-bottom:1px solid var(--line)}
+.driver-station .cal-tabs>button{min-height:44px;padding:0 18px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--muted);font-weight:600;margin-bottom:-1px}
+.driver-station .cal-tabs>button[aria-selected=true]{color:var(--text);border-bottom-color:var(--accent)}.driver-station .cal-tabs>button:hover{color:var(--text)}
+.cal-group-title{margin:14px 0 6px;font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}.cal-card>.cal-group-title:first-of-type,.cal-devices>.cal-group-title:first-child{margin-top:4px}
+.cal-devices{display:grid;gap:8px}.cal-devices>.cal-group-title{margin-bottom:0}
+.cal-mech-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start}
+.cal-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 12px}
+.cal-field{display:grid;gap:4px;align-content:start;min-width:0}.cal-field>label{font-size:12px;font-weight:600}.cal-field>label>span{font-weight:400;color:var(--muted)}.cal-field>input{width:100%;min-height:40px;box-sizing:border-box;margin:0}.cal-field>small{font-size:11px;color:var(--muted)}
+.cal-fact{margin:0 0 12px;font-size:13px}
+#calibrate-view label.check{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin:8px 0 4px;font-size:14px}#calibrate-view label.check input{width:18px;height:18px;min-height:0;margin:0;flex:none}
+.cal-table{width:100%;border-collapse:collapse;font-size:13px;margin:4px 0 8px}.cal-table th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--line)}
+.cal-table td{padding:4px 6px;border-bottom:1px solid var(--line)}.cal-table input{width:100%;min-height:36px;box-sizing:border-box;margin:0}.cal-table td:last-child{width:40px}.cal-shots td{font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Live debug: the hub's ports with live readings; outputs hold-to-run. */
+.cal-debug{margin-bottom:16px}.cal-debug-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.cal-debug-head h2{margin:0 0 6px;font-size:15px}.cal-debug-head .hint{margin:0 0 10px;max-width:70ch}
+.cal-debug-state{display:flex;align-items:center;gap:8px;font-size:13px;white-space:nowrap}.cal-debug-actions{margin-bottom:6px}.cal-debug-stats{margin:4px 0 10px;font-variant-numeric:tabular-nums}
+.cal-debug-hubs{display:grid;gap:14px}.cal-hub>h3{margin:4px 0 8px;font-size:14px}.cal-port-group>h4{margin:10px 0 6px;font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.cal-ports{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.cal-port{display:grid;gap:4px;align-content:start;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-width:0}.cal-port.missing{opacity:.55;border-style:dashed}
+.cal-port-head{display:flex;justify-content:space-between;gap:6px;align-items:baseline;min-width:0}.cal-port-head b{font-size:12px}.cal-port-head code{font:11px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cal-port>small{font-size:11px;color:var(--muted)}
+.cal-port input[type=range]{width:100%;margin:2px 0}.cal-port dl{display:grid;grid-template-columns:auto 1fr;gap:1px 8px;margin:0;font-size:12px}.cal-port dt{color:var(--muted)}.cal-port dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer;border-radius:4px}
+.cal-port dd.plotted,.cal-lamp.plotted{outline:2px solid var(--accent);outline-offset:1px}.cal-port meter{width:100%}.cal-port-flag{font-size:11px;color:var(--danger)}.cal-port .check{font-size:12px;margin:0}
+.cal-lamp{padding:6px 8px;border-radius:8px;border:1px solid var(--line-strong);font-size:12px;font-weight:600;text-align:center;cursor:pointer}.cal-lamp[data-on=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast,#fff)}
+.cal-debug-tools{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;margin-top:14px}.cal-debug-tools canvas{width:100%;height:160px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.cal-debug-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;margin-top:4px}.cal-debug-legend i{display:inline-block;width:14px;border-top:2px solid var(--c);vertical-align:middle;margin-right:4px}
+.cal-debug-pulse{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px;font-size:12px}.cal-debug-pulse li.cal-bound{font-weight:600}
+/* Mechanisms: the Control Hub gate, then a row of gate chips per mechanism and the open gate's panel. */
+.cal-gates{display:grid;gap:12px}.cal-g0[data-state=pass]{border-color:var(--accent)}.cal-g0[data-state=stale]{border-color:var(--warning)}.cal-gates-hint{margin:0}
+.cal-mech{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--raised)}.cal-mech.done{border-color:var(--accent)}
+.cal-mech-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.cal-mech-head h3{margin:0 0 2px;font-size:14px}.cal-mech-head small{font-size:12px;color:var(--muted)}
+.cal-chips{display:flex;flex-wrap:wrap;gap:4px}.driver-station .cal-chip{min-height:32px;padding:0 10px;border-radius:16px;border:1px solid var(--line-strong);background:var(--surface);font-size:12px;font-weight:600}
+.driver-station .cal-chip[data-state=pass]{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast,#fff)}.driver-station .cal-chip[data-state=stale]{border-color:var(--warning);color:var(--warning)}.driver-station .cal-chip[data-state=locked]{opacity:.45}.driver-station .cal-chip[aria-pressed=true]{outline:2px solid var(--text);outline-offset:1px}
+.cal-badge{font-size:11px;font-weight:600;padding:1px 6px;border-radius:6px;border:1px solid}.cal-badge.danger{color:var(--danger)}
+.cal-gate{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}.cal-gate h4{margin:0 0 4px;font-size:13px}.cal-gate>.hint{margin:0 0 8px}.cal-gate p{margin:6px 0;font-size:13px}.cal-live{font-variant-numeric:tabular-nums}
+.cal-plot{width:100%;height:140px;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:8px}.cal-plot-band{fill:var(--accent);opacity:.12}.cal-plot-target{stroke:var(--muted);stroke-dasharray:4 3;fill:none;vector-effect:non-scaling-stroke}
+.cal-plot-sim{stroke:var(--accent);stroke-width:1.5;fill:none;vector-effect:non-scaling-stroke}.cal-plot-robot{stroke:var(--text);stroke-width:2;fill:none;vector-effect:non-scaling-stroke}
+.cal-summary{margin:6px 0;padding-left:18px;font-size:13px}.cal-java{max-height:260px;overflow:auto;font:11px var(--mono);padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.cal-sim-settings>summary{cursor:pointer;font-weight:600;font-size:14px}.cal-sim-settings[open]>summary{margin-bottom:12px}
+@media (max-width:860px){.cal-debug-tools{grid-template-columns:minmax(0,1fr)}.cal-debug-head{flex-direction:column}}.cal-head h1{margin:0 0 4px;font-size:22px}.cal-head .hint{margin:0}
+.cal-note{margin:0 0 14px;padding:10px 12px;border:1px solid var(--warning);border-radius:8px;background:var(--warning-bg);font-size:13px}
+.cal-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:16px;align-items:start}.cal-flow,.cal-side{display:grid;gap:16px;min-width:0}
+.cal-card{padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--raised);min-width:0}.cal-card h2{margin:0 0 6px;font-size:15px}.cal-card>.hint,.cal-body>.hint{margin:0 0 10px}
+.cal-step{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px}.cal-body{min-width:0}
+.cal-num{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;border:1.5px solid var(--accent);color:var(--accent-text,var(--text));font-weight:700;font-size:13px}
+.cal-card .sim-send{margin:0;padding:0;border:0}.cal-card .sim-send-head h3{display:none}.cal-card .sim-send-head{justify-content:flex-end;margin-bottom:4px}
+.cal-card .sim-check{margin:0;padding:0;border:0}
+.cal-measures{list-style:none;margin:6px 0 0;padding:0;display:grid}
+.cal-measures li{display:grid;gap:1px;padding:7px 2px;border-bottom:1px solid var(--line);font-size:12px}.cal-measures li:last-child{border-bottom:0}
+.cal-measures li>div{display:flex;align-items:baseline;gap:8px;min-width:0}.cal-measures li strong{font-size:13px;font-weight:600}
+.cal-measures li code{font:11px var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cal-measures li>span{color:var(--muted)}
+.cal-measures li.cal-group{margin-top:10px;padding:0 2px 4px;border-bottom:1px solid var(--line-strong);font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}.cal-measures li.cal-group:first-child{margin-top:0}
+.cal-measures li.hint{border:0}
+#sim-send-home .sim-send{margin:0;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--raised)}
+.driver-station .cal-card .button-row>button.secondary,.driver-station .cal-gate .button-row>button.secondary{min-height:40px;border:1px solid var(--line-strong);border-radius:8px;background:var(--surface)}
+.cal-gate .button-row{display:flex;gap:8px;flex-wrap:wrap}.cal-gate .button-row>button{flex:0 1 auto;padding:0 14px}
+#cal-checklist .sim-more{margin:0}#cal-checklist .sim-more>summary{display:none}#cal-checklist .sim-more>.hint{padding:0;border:0}
+.cal-card .button-row{display:flex;gap:8px;flex-wrap:wrap}.cal-card .button-row>button{flex:1 1 120px}
+@media (max-width:860px){.cal-grid{grid-template-columns:minmax(0,1fr)}.driver-station #calibrate-view{padding:16px 12px 32px}.cal-head{flex-wrap:wrap}}

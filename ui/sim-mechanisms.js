@@ -36,7 +36,7 @@
     pusher:'A servo swings to its feed position to push each piece into the flywheel, then back to rest while the next piece drops in.',gate:'A servo opens to its feed position while the robot shoots, letting pieces through, and closes after.'};
   const ROLLERS={motor:'DC motor',crservo:'Continuous servo'};
   const FLYWHEELS={velocity:'Velocity control (encoder)',power:'Set power (no encoder)'};
-  const TURRETS={motor:'Motor with encoder',servo:'Servo'};
+  const TURRETS={motor:'Motor with encoder',servo:'Servo',crservo:'Continuous servo + its feedback wire'};
   const servoFeeder=kind=>kind==='pusher'||kind==='gate';
   // BIOBUZZ robots hold at most 4 pieces (pollen and nectar together) and start with up to 4 pollen.
   const STORAGE_MAX=4,FIRE_RECOVERY=.25,MAX_SHOOTERS=2;
@@ -49,9 +49,24 @@
     transfer:{seconds:1},indexer:{seconds:.35,power:1,pushSeconds:.15},
     // control: velocity (an encoder on the flywheel, at speed within tolerance) or power (no encoder, timed spin-up).
     shooter:{hood:75,rpm:3000,ticksPerRev:28,spinUp:.8,control:'velocity',power:1,tolerance:.05},
-    // kind: a motor with an encoder (ticksPerDegree) or a servo (servoCenter faces the front; servoDegrees from position 0 to 1).
+    // kind: a motor with an encoder (ticksPerDegree), a servo (servoCenter faces the front; servoDegrees from position 0 to 1)
+    // or a continuous servo steered by its feedback wire (an Axon in continuous mode).
     turret:{speed:240,min:-170,max:170,ticksPerDegree:4.6,kind:'motor',servoCenter:.5,servoDegrees:300},
     target:null};
+  // Calibrated hood angles by flywheel speed (Calibrate → Mechanisms): each point is an RPM, the hood angle (degrees,
+  // within the game's 70-85) that lands a shot at that speed and optionally the hood servo's position there. Sorted by
+  // RPM, one point per RPM, 8 at most; null without a point.
+  const hoodMap=v=>{if(!Array.isArray(v))return null;const seen=new Set(),out=[];
+    for(const p of v){if(!p||!finite(p.rpm)||!finite(p.deg))continue;const rpm=Math.round(clamp(p.rpm,100,6000));if(seen.has(rpm))continue;seen.add(rpm);out.push({rpm,deg:+clamp(p.deg,70,85).toFixed(2),...(finite(p.pos)?{pos:+clamp(p.pos,0,1).toFixed(4)}:{})});}
+    out.sort((a,b)=>a.rpm-b.rpm);return out.length?out.slice(0,8):null;};
+  // The hood angle (and servo position, when the points have one) for a flywheel speed: between two points it is
+  // interpolated, past the ends it holds the end point. Without points it is the fixed hood angle.
+  function hoodAt(m,rpm){const s=m.shooter,map=s.hoodMap;if(!map)return {deg:s.hood,pos:null};const r=finite(rpm)?rpm:s.rpm;
+    const lo=[...map].reverse().find(p=>p.rpm<=r)||map[0],hi=map.find(p=>p.rpm>=r)||map[map.length-1],f=hi.rpm>lo.rpm?(r-lo.rpm)/(hi.rpm-lo.rpm):0,mix=(a,b)=>a+(b-a)*f;
+    return {deg:+mix(lo.deg,hi.deg).toFixed(2),pos:finite(lo.pos)&&finite(hi.pos)?+mix(lo.pos,hi.pos).toFixed(4):null};}
+  // How far below its target speed (0..1 of it) the flywheel may be and still fire: within the tolerance, or with a
+  // calibrated hood down to the slowest speed it has a point for (the hood makes up for the lower speed).
+  const readyAt=m=>{const s=m.shooter,floor=1-(s.tolerance??.05);return s.hoodMap&&s.hoodMap.length>1?Math.min(floor,s.hoodMap[0].rpm/s.rpm):floor;};
   // Velocity PIDF for the flywheel motors, or null for the SDK's own defaults.
   const pidf=v=>v&&typeof v==='object'&&['p','i','d','f'].every(k=>finite(v[k])&&v[k]>=0&&v[k]<=1000)?{p:v.p,i:v.i,d:v.d,f:v.f}:null;
   // Optional hardware fields are stored only when they differ from the plain setup, so older saves stay as they were.
@@ -116,6 +131,8 @@
       indexer:{seconds:num(x.seconds,DEFAULTS.indexer.seconds,0,5),power:num(x.power,1,.05,1),kind:first?.indexerKind||'motor',name:first?.indexer||'indexer',pushSeconds:num(x.pushSeconds,DEFAULTS.indexer.pushSeconds,.05,2)},
       shooter:{hood:num(s.hood,DEFAULTS.shooter.hood,70,85),rpm:num(s.rpm,DEFAULTS.shooter.rpm,100,6000),ticksPerRev:num(s.ticksPerRev,28,1,10000),spinUp:num(s.spinUp,DEFAULTS.shooter.spinUp,0,10),
         control:pick(s.control,FLYWHEELS,'velocity'),power:num(s.power,1,.05,1),tolerance:num(s.tolerance,DEFAULTS.shooter.tolerance,.01,.5),...(pidf(s.pidf)?{pidf:pidf(s.pidf)}:{}),
+        // Speed lost with each shot (0..0.6 of the target: the piece takes the flywheel's energy) and the calibrated hood.
+        ...(finite(s.dropPerShot)&&s.dropPerShot>0?{dropPerShot:+clamp(s.dropPerShot,0,.6).toFixed(3)}:{}),...(hoodMap(s.hoodMap)?{hoodMap:hoodMap(s.hoodMap)}:{}),
         // The first shooter, for code that describes one.
         type:first?.type||'none',mount:first?.mount||'center',motor:first?.motor||'shooter'},
       turret:{speed:num(t.speed,DEFAULTS.turret.speed,5,2000),min:num(t.min,DEFAULTS.turret.min,-180,0),max:num(t.max,DEFAULTS.turret.max,0,180),ticksPerDegree:num(t.ticksPerDegree,DEFAULTS.turret.ticksPerDegree,.01,10000),
@@ -218,7 +235,7 @@
       this.settles=pusherOnly(m);}
     tick(dt,cmd,{pose,target,held}){
       const m=this.m,s=m.shooter,t=m.turret;this.time+=dt;
-      if(held<this.held){const gone=this.held-held;if(this.pending){this.shots+=gone;this.pending=false;this.sinceShot=0;}this.queue.splice(0,gone);
+      if(held<this.held){const gone=this.held-held;if(this.pending){this.shots+=gone;this.pending=false;this.sinceShot=0;if(s.dropPerShot)this.flywheel=Math.max(0,this.flywheel-s.dropPerShot*gone);}this.queue.splice(0,gone);
         // The next piece moves up into the shooter: it needs the indexing time.
         if(this.queue[0])this.queue[0].index=Math.max(this.queue[0].index,m.indexer.seconds);}
       // A kicker goes down while the intake runs and back up when it stops; it picks up only once all the way down.
@@ -245,8 +262,9 @@
       // A shooter on the first one's turret points wherever that turret does.
       if(m.shooters[1]?.sharesTurret)this.turrets[1]=this.turrets[0];
       const first=m.shooters.findIndex(sh=>sh.type==='turret');if(first>=0)this.turret=this.turrets[first];
-      // At speed within the shooter's tolerance (5% unless set), as the robot code decides.
-      this.aligned=aligned;this.ready=this.flywheel>=1-(s.tolerance??.05);
+      // At speed within the shooter's tolerance (5% unless set), as the robot code decides; with a calibrated hood, down
+      // to the slowest speed it has a hood angle for.
+      this.aligned=aligned;this.ready=this.flywheel>=readyAt(m)-1e-9;
       // The front piece moves up into the shooter while the indexer runs (behind a pusher, while it is back at rest).
       const front=this.queue[0];if(front&&(cmd.feed||this.settles)&&front.arrives<=this.time)front.index=Math.max(0,front.index-dt);
       let fire=false;
@@ -262,9 +280,12 @@
       const going=ramps.filter(([i])=>sentDown(i));
       return going.length?{down:true,eta:Math.min(...going.map(([i,v])=>(1-v)*i.down))}:{down:false,eta:Math.max(...ramps.map(([i,v])=>v*i.up))};
     }
+    // The flywheel's speed now (RPM) and the hood angle the calibration gives for it.
+    rpm(){return this.flywheel*this.m.shooter.rpm;}
+    hood(){return hoodAt(this.m,this.rpm()).deg;}
     // Where shooter n points, in degrees from the robot's front.
     aim(n){const s=this.m.shooters[n];return !s?0:s.type==='turret'?this.turrets[n]:FACING[s.facing];}
-    state(){const q=this.queue,front=q[0];return {flywheel:this.flywheel,turret:this.turret,turrets:this.turrets.slice(),aligned:!!this.aligned,ready:!!this.ready,shots:this.shots,held:this.held,
+    state(){const q=this.queue,front=q[0];return {flywheel:this.flywheel,rpm:this.rpm(),hood:this.hood(),turret:this.turret,turrets:this.turrets.slice(),aligned:!!this.aligned,ready:!!this.ready,shots:this.shots,held:this.held,
       deploy:this.kick.slice(),lift:this.lift.slice(),kickers:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='kicker'),ramps:this.kick.filter((v,k)=>v!==null&&this.m.intakes[k].kind==='ramp'),moving:q.filter(p=>p.arrives>this.time).length,staged:!!front&&front.arrives<=this.time&&front.index<=1e-9};}
   }
   // Runs route actions the way the generated robot code does, with no piece sensor. At a pin the action
@@ -361,9 +382,15 @@
   const CARRIED={shooter:[/fly ?wheel/i,/\bhood\b/i,/shoot|launch|cannon/i],intake:[/ramp|deploy|flap|kicker|scoop/i,/roller|\bwheels?\b|gecko|compliant|sweeper|brush/i]};
   const PART_WORDS=/\b(shaft|axle|motor|servo|plate|spacer|bearing|bushing|collar|pulley|belt|gear|bolt|screw|nut|washer|standoff|bracket|mount|encoder|sensor|cable|hub)s?\b/i;
   const bareName=n=>String(n||'').replace(/\s*<\d+>$/,'').trim();
+  // An assembly whose own name says nothing is known by what is in it. A hood or a flywheel makes it a shooter, and so does
+  // a fast motor (6000 rpm, bare or 1:1) beside wheels 60 mm or bigger, whatever a vendor's part name says: goBILDA's
+  // "Intake Roller Wheel" feeding a flywheel does not make a shooter an intake.
+  const SHOOTS_INSIDE=/\bhood\b|fly ?wheel|shoot|launch|cannon/i,FAST_MOTOR=/(5[5-9]\d\d|6000) ?rpm|bare (rex|motor)|\b1:1\b/i;
+  const bigWheel=n=>/wheel|rhino|compliant/i.test(n)&&[...String(n).matchAll(/(\d{2,3})\s*mm\s*(?:diameter|dia\b|od\b|wheel)/gi)].some(m=>+m[1]>=60);
+  const shooterInside=inner=>inner.some(n=>SHOOTS_INSIDE.test(n))||inner.some(n=>FAST_MOTOR.test(n))&&inner.some(bigWheel);
   function partRole(name,inner=[]){
     const find=text=>ROLE_WORDS.find(([,re])=>re.test(text))?.[0]||null,text=String(name||''),all=[text,...inner].join(' ');
-    const nectar=/nectar/i.test(all),pollen=/pollen/i.test(all),role=find(text)||find(inner.join(' '))||(nectar||pollen?'shooter':'other');
+    const nectar=/nectar/i.test(all),pollen=/pollen/i.test(all),role=find(text)||(shooterInside(inner)?'shooter':null)||find(inner.join(' '))||(nectar||pollen?'shooter':'other');
     const carries=[...new Set((CARRIED[role]||[]).map(re=>inner.find(n=>re.test(n)&&!PART_WORDS.test(n))).filter(Boolean).map(bareName))];
     const rollers=role==='intake'&&(/roller|sweeper/i.test(text)||inner.some(n=>CARRIED.intake[1].test(n)));
     return {role,pieces:nectar&&pollen?'both':nectar?'nectar':pollen?'pollen':null,type:role==='shooter'?(/turret/i.test(all)?'turret':'fixed'):null,
@@ -515,18 +542,19 @@
   }
   // ---- preset robots ----------------------------------------------------------------------------
   // Ready-made robots: chassis and mechanisms, set together and not changed (Custom robot is for that). Three starter
-  // robots: a mecanum kit bot that drives on odometry and pushes pieces, the NYC FIRST A301 swerve as the fastest push
+  // robots: a mecanum kit bot that pushes pieces, on its Control Hub's IMU and drive motor encoders (adjustable: a team's own kit, so its size,
+  // weight, wheels, power and wiring can be set to match), the NYC FIRST A301 swerve as the fastest push
   // bot, and REV's DUO FTC Starter Bot: a two-motor six-wheel tank whose one fixed launcher fires pollen and nectar out
   // of its back (drive: the card's drivetrain words, where the drivetrain's own name says less). Their CAD, joints, wiring,
   // sensors and demo routes are in ui/sim-preset-robots.js.
   const PRESETS={
-    startermecanum:{name:'Starter Mecanum',blurb:'Kit bot: drives on odometry, pushes pieces',robot:{drivetrain:'mecanum',length:17.56,width:17.79,massLb:22,driveRpm:800}},
+    startermecanum:{name:'Starter Mecanum',blurb:'goBILDA Strafer-style kit bot: Control Hub IMU and motor encoders, pushes pieces. Set its size and wiring to match yours',adjustable:true,robot:{drivetrain:'mecanum',length:17.56,width:17.79,massLb:22,driveRpm:800}},
     a301swerve:{name:'A301 Swerve',blurb:'NYC FIRST A301 push bot: the fastest',robot:{drivetrain:'swerve',length:17,width:17,massLb:28,driveRpm:1150}},
     startertank:{name:'Starter Tank',blurb:'REV DUO FTC Starter Bot: flap intake, flywheel launcher firing out the back, pollen pusher',drive:'Tank · 6 wheels, 2 motors',robot:{drivetrain:'tank2',length:16.66,width:16.54,massLb:22,driveRpm:317},
-      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:1.5}],shooters:[{type:'fixed',pieces:'both',mount:'center',facing:'back',indexerKind:'crservo'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.5},indexer:{seconds:.15},shooter:{spinUp:.4}}}};
+      mechanisms:{intakes:[{kind:'sweeper',sides:['front'],reach:1.5,width:12.1}],shooters:[{type:'fixed',pieces:'both',mount:'center',facing:'back',indexerKind:'crservo'}],capacity:{pollen:4,nectar:4},transfer:{seconds:.5},indexer:{seconds:.15},shooter:{spinUp:.4}}}};
   // A preset's mechanisms, ready to use (on, 4 pollen preloaded, its own timing); a push bot's are off.
   const presetMechanisms=(id,base={})=>{if(!PRESETS[id])return null;const p=PRESETS[id].mechanisms;if(!p)return sanitize({...base,enabled:false});
     return sanitize({...base,...p,enabled:true,capacity:p.capacity||{pollen:4,nectar:0},preload:{pollen:4},transfer:p.transfer||base.transfer,indexer:{...base.indexer,...p.indexer},shooter:{...base.shooter,...p.shooter},target:null});};
   return {liftSeconds,PRESETS,presetMechanisms,mountOffset,bearingFrom,partRole,copies,copyBase,fromCad,adoptCad,reoriented,drivetrainFromNames,DEFAULTS,INTAKES,INTAKE_NOTES,SIDES,SIDE_EDGES,SHOOTERS,SHOOTER_NOTES,PIECES,MOUNTS,MOUNT_AT,FACING,EDGES,INDEXERS,INDEXER_NOTES,ROLLERS,FLYWHEELS,TURRETS,STORAGE_MAX,MAX_SHOOTERS,FIRE_RECOVERY,
-    sanitize,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,turretAction,hasRamp,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};
+    sanitize,hoodAt,readyAt,engineSpec,flowerKind,deploys,servoFeeder,pusherOnly,feedCycle,engineIntakeMount,target,action,actions,turretAction,hasRamp,prepare,summary,hasTurret,locate,mountOf,adjacent,PARTNER,travel,shootSeconds,FIRE_MARGIN,Model,Runner};
 });

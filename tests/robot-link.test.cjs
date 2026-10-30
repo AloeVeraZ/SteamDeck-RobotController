@@ -234,7 +234,7 @@ test('Send to robot scans the hubs and saves a new configuration as the active o
 
 test('the guided check runs from Deck: INIT and START, answers pressed on gamepad 1, the results read back, then STOP',async t=>{
   // The simulated hub runs a stand-in for any op mode named "... check (Deck)": a wheel question, then a servo to move.
-  let robot2;try{robot2=await startUdpRobot({address:ROBOT,opModes:[...OP_MODES,{flavor:'TELEOP',group:'Deck Driver Station',name:'Test check (Deck)',source:'ONBOTJAVA'}]});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
+  let robot2;try{robot2=await startUdpRobot({address:ROBOT,opModes:[...OP_MODES,{flavor:'TELEOP',group:'Torque',name:'Test check (Deck)',source:'ONBOTJAVA'}]});}catch(e){t.skip(ROBOT+' loopback is unavailable: '+e.message);return;}
   t.after(()=>robot2.close());const socket=await station(),updates=[];
   try{
     const check=runCheck(ROBOT,'Test check (Deck)',{socket,onUpdate:u=>updates.push(u)});

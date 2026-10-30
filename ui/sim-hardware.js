@@ -134,6 +134,7 @@
       const devices=raw.devices&&typeof raw.devices==='object'?raw.devices:{};
       for(const key of Object.keys(devices).slice(0,160)){const v=devices[key],k=parseKey(key);if(!v||typeof v!=='object'||!k||k.sensor)continue;
         const e={};if(typeof v.model==='string'&&Object.hasOwn(MODELS,v.model))e.model=v.model;
+        if(typeof v.from==='string'&&v.from.trim())e.from=v.from.trim().slice(0,160);
         const family=keyFamily(key,e.model),at=placement(v,family,out.hubs);
         if(at)Object.assign(e,at);
         if(Object.keys(e).length)out.devices[key]=e;}
@@ -161,7 +162,7 @@
   function prune(wiring,keep){const w=sanitizeWiring(wiring);if(!w)return null;
     return sanitizeWiring({...w,devices:Object.fromEntries(Object.entries(w.devices).filter(([k])=>keep(k))),sensors:w.sensors.filter(s=>keep(s.for))});}
   // ---- the devices a robot needs ----------------------------------------------------------------------------------------
-  const hubName=(hub,w)=>hub==='control'?'Control Hub':hub==='expansion'?`Expansion Hub ${w?.hubs?.expansion?.address??2}`:hub==='servoHub'?`Servo Hub ${w?.hubs?.servoHub?.address??3}`:'';
+  const hubName=(hub,w)=>hub==='control'?'Control Hub':hub==='expansion'?'Expansion Hub':hub==='servoHub'?`Servo Hub ${w?.hubs?.servoHub?.address??3}`:'';
   const portLabel=(p,family,w)=>!p?.hub?'':`${hubName(p.hub,w)} ${family==='i2c'?`I2C bus ${p.bus}`:`${FAMILIES[family]||'port'} ${p.port}`}${p.channel!==undefined?`, channel ${p.channel}`:''}`;
   const SIGNALS={roller:['roller'],ramp:['deploy'],kicker:['deploy'],flywheel:['flywheel'],feeder:['feeder'],turret:['turret'],hood:['hood']};
   const kindOfDevice=d=>d==='motor'?'dcmotor':d==='servo'||d==='crservo'||d==='linear'?d:d==='imu'||d==='pinpoint'||d==='otos'?d:null;
@@ -198,7 +199,7 @@
       const encoder=role==='pod'||role==='flywheel'||(role==='turret'&&kind==='dcmotor'||role==='kin-motor')&&!outside||role==='drive'&&localization==='encoders'||w.sensors.some(s=>s.for===key&&s.model==='motor-encoder');
       const list=k.list?mech?.[k.list]?.[k.index]:null,parts=Array.isArray(list?.parts)?list.parts:[],moved=k.kin?(act?.joint?[act.joint]:[]):jointsOf(role,n.setting);
       const row={key,label:n.label,role,family,kind,device:role==='pod'?'motor':n.device||kind,need:n.need||(n.device==='linear'?'servo':n.device),name:n.name,model,xmlType:role==='pod'?'Motor':xmlTypeOf(model,kind),...(n.setting?{setting:n.setting}:{}),
-        ...(e.hub?{hub:e.hub,...(e.bus!==undefined?{bus:e.bus}:{port:e.port})}:{}),wired:!!e.hub,encoder,sensors:[],...(moved.length?{joints:moved}:{}),...(parts.length?{parts}:{}),...extra};
+        ...(e.hub?{hub:e.hub,...(e.bus!==undefined?{bus:e.bus}:{port:e.port})}:{}),wired:!!e.hub,encoder,sensors:[],...(e.from?{from:e.from}:{}),...(moved.length?{joints:moved}:{}),...(parts.length?{parts}:{}),...extra};
       out.push(row);byKey.set(key,row);};
     for(const n of needs||[])add(n);
     if(!out.some(r=>r.role==='drive')){const slots=DRIVE_SLOTS[robot.drivetrain||'mecanum']||DRIVE_SLOTS.mecanum;
@@ -225,8 +226,11 @@
     const s=String(raw||'').toLowerCase().replace(/[_]+/g,' ');if(!s)return null;let m;
     const gb=MOTORS.filter(x=>/^gobilda-5203-/.test(x.id)),rpmOf=/(\d{2,4}(?:\.\d+)?)\s*rpm/.exec(s),ratioOf=/(\d{1,3}(?:\.\d+)?)\s*:\s*1\b/.exec(s);
     if((m=/520[23]-\d{4}-(\d{4})/.exec(s))&&GB_RATIO[m[1]])return {kind:'dcmotor',model:'gobilda-5203-'+GB_RATIO[m[1]]};
-    if(/yellow ?jacket|520[23][- ]series|\b520[23]\b|gobilda.*motor/.test(s)){if(rpmOf)return {kind:'dcmotor',model:nearest(+rpmOf[1],gb).id};
+    // goBILDA's own CAD names its motors "6000rpm Motor - Bare REX (GB)", "312rpm Motor (GB)".
+    if(/yellow ?jacket|520[23][- ]series|\b520[23]\b|gobilda.*motor|\bmotor\b.*\(gb\)|\(gb\).*\bmotor\b/.test(s)&&!/motor (mount|bracket|plate|pinion|spacer|shaft|gear|pulley|sleeve)/.test(s)){if(rpmOf)return {kind:'dcmotor',model:nearest(+rpmOf[1],gb).id};
       if(ratioOf){const r=+ratioOf[1];return {kind:'dcmotor',model:gb.reduce((a,b)=>Math.abs(6000/b.rpm-r)<Math.abs(6000/a.rpm-r)?b:a).id};}return {kind:'dcmotor',model:null};}
+    // A motor's bracket, plate, pinion or cartridge is not the motor ("UltraPlanetary Outside Mounting Bracket").
+    if(/\b(bracket|plate|pinion|cartridge|bushing|endcap)\b|mounting/.test(s))return null;
     if(/rev-?41-?1300|core ?hex/.test(s))return {kind:'dcmotor',model:'rev-core-hex'};
     if(/rev-?41-?1301|hd ?hex|ultraplanetary|rev-?41-?1600/.test(s)){const r=ratioOf?+ratioOf[1]:null,ultra=MOTORS.filter(x=>/^rev-ultra-|^rev-hd-hex/.test(x.id));
       return {kind:'dcmotor',model:rpmOf?nearest(+rpmOf[1],ultra).id:r?ultra.reduce((a,b)=>Math.abs(6000/b.rpm-r)<Math.abs(6000/a.rpm-r)?b:a).id:/ultraplanetary|1600/.test(s)?'rev-ultra-20':'rev-hd-hex'};}
@@ -237,19 +241,38 @@
     if(/2000-0025-0004|super ?speed/.test(s))return pick('gobilda-superspeed','gobilda-superspeed-cr');
     if(/2000-0025-0003|speed servo|dual mode.*speed/.test(s))return pick('gobilda-speed','gobilda-speed-cr');
     if(/2000-0025-0503|5[- ]turn/.test(s))return {kind:'servo',model:'gobilda-5turn'};
-    if((m=/axon\s*(max|mini|micro)/.exec(s)))return pick('axon-'+m[1],'axon-'+m[1]+'-cr');
+    if((m=/axon\s*(max|mini|micro)/.exec(s)||/\b(max|mini|micro)\b[^()]*servo.*axon/.exec(s)))return pick('axon-'+m[1],'axon-'+m[1]+'-cr');
     if(/rev-?41-?3336|ultraspeed/.test(s))return {kind:'servo',model:'rev-smart-ultra'};
     if(/rev-?41-?1097|smart robot servo/.test(s))return pick('rev-smart','rev-smart-cr');
     if(/75007|200 fast/.test(s))return {kind:'servo',model:'studica-multimode-fast'};if(/75002|multi-?mode/.test(s))return pick('studica-multimode','studica-multimode-cr');
     if((m=/sr-servo-0([1-5])/.exec(s)))return {kind:'servo',model:'swyft-'+['speed','balance','torque','slim','nano'][+m[1]-1]};
+    if(/swyft/.test(s)&&/\bservo\b/.test(s)&&(m=/\b(speed|balance|torque|slim|nano)\b/.exec(s)))return {kind:'servo',model:'swyft-'+m[1]};
     if(/plex-09-0017-0001/.test(s))return {kind:'servo',model:'plex-speed'};if(/plex-09-0017-0002/.test(s))return {kind:'servo',model:'plex-torque'};
     if((m=/torctex\s*(max|pro|micro)/.exec(s)))return {kind:'servo',model:'torctex-'+m[1]};
     if(/l16/.test(s)&&/actuonix|linear/.test(s))return {kind:'linear',model:/140/.test(s)?'actuonix-l16-140':/100/.test(s)?'actuonix-l16-100':'actuonix-l16-50'};
     if(/hls12/.test(s))return {kind:'linear',model:'hitec-hls12'};if(/hs-?485/.test(s))return {kind:'servo',model:'hitec-485'};
     // A part simply called a motor or a servo: its kind, its model left to the team.
-    if(/\bservo\b/.test(s)&&!/servo (hub|horn|block|mount|bracket|shaft|plate|spline)|hub shaft/.test(s))return {kind:cr?'crservo':'servo',model:null};
+    if(/\bservo\b/.test(s)&&!/servo (hub|horn|block|mount|bracket|shaft|plate|spline|gear|pulley|sprocket|arm|coupler|adapter|extension|cable|power)|hub shaft|\d+t servo/.test(s))return {kind:cr?'crservo':'servo',model:null};
     if(/\bmotor\b/.test(s)&&!/motor (mount|bracket|plate|pinion|spacer|shaft|gear|pulley)/.test(s))return {kind:'dcmotor',model:null};
     return null;}
+  // The hubs and sensors a CAD shows by their part names: goBILDA's "GB Pinpoint Computer", REV's "Expansion Hub" and
+  // "REV-11-1855" (the Servo Hub; goBILDA's "Servo Hub (GB)" is a servo horn), "IR Break Beam Sensor", "Absolute Encoder".
+  // parts: [{name, path (its assembly names, outermost first)}]. Returns {expansion, servoHub, localization (fused,
+  // optical, odometry or null), sensors: [{name, what, model (a SENSORS id, or null when Setup has none like it), path}]}.
+  const CAD_SENSORS=[[/break ?beam|beam ?break/,'Break-beam sensor',null],[/color sensor|colou?r v3|rev-?31-?1557/,'Color sensor','rev-color-v3'],[/2m distance|rev-?31-?1505|time.of.flight|\btof\b/,'Distance sensor','rev-2m-distance'],
+    [/through ?bore|rev-?11-?1271/,'Through Bore encoder','rev-through-bore'],[/absolute encoder|\bmag ?encoder|\bma3\b/,'Absolute encoder','analog-absolute'],[/touch sensor|rev-?31-?1425/,'Touch sensor','rev-touch'],
+    [/magnetic limit|rev-?31-?1462/,'Magnetic limit switch','rev-magnetic-limit'],[/limit switch|micro ?switch|3103-0001/,'Limit switch','limit-switch'],[/potentiometer|rev-?31-?1155/,'Potentiometer','rev-potentiometer']];
+  function cadSensors(parts){
+    const out={expansion:false,servoHub:false,localization:null,sensors:[]},seen=new Set();let pods=0;
+    for(const p of parts||[]){const s=String(p.name||'').toLowerCase();if(!s)continue;
+      if(/expansion hub|rev-?31-?1153/.test(s))out.expansion=true;
+      if(/rev-?11-?1855|rev servo hub/.test(s))out.servoHub=true;
+      if(/pinpoint/.test(s))out.localization='fused';else if(/\botos\b|optical (tracking )?odometry/.test(s)&&out.localization!=='fused')out.localization='optical';
+      else if(/odometry pod|odo pod|swingarm odometry|dead ?wheel|3110-0001/.test(s))pods++;
+      const hit=CAD_SENSORS.find(([re])=>re.test(s));if(!hit)continue;const key=hit[1]+'|'+(p.path||[]).slice(0,2).join('/');if(seen.has(key))continue;seen.add(key);
+      out.sensors.push({name:String(p.name).replace(/\s*<\d+>$/,''),what:hit[1],model:hit[2],path:p.path||[]});}
+    if(!out.localization&&pods)out.localization=pods>=3?'odometry3':'odometry';
+    return out;}
   // Which device each actuator found in a CAD drives. parts: [{name, path (its assembly names, outermost first), kind,
   // model}]; devices: rows {key, role, family, scope: CAD refs of its mechanism, own: refs of what it moves}; key of each
   // part: its CAD ref. A part goes to a device of its family in whose mechanism it sits, preferring words in its path that
@@ -261,17 +284,80 @@
   function assignCad(parts,devices){
     const within=(ref,refs)=>refs.some(r=>ref===r||ref.startsWith(r+'/')),pairs=[];
     for(const d of devices){const kinds=FAMILY_KINDS[d.family]||[];if(!kinds.length)continue;
-      for(const p of parts){if(!kinds.includes(p.kind)||(d.family==='motor'&&p.kind==='crservo'&&!['roller','feeder','steer'].includes(d.role)))continue;
-        // Its own name and the assemblies around it say what it drives ("Turret motor" on the chassis still turns the turret).
-        const words=ROLE_WORDS[d.role],named=!!words&&words.test(p.name.toLowerCase()),inside=d.scope.length?within(p.key,d.scope):d.role==='drive';if(!inside&&!named)continue;
-        let score=(inside?1:0)+(named?4:words&&words.test(p.path.join('/').toLowerCase())?3:0)+(d.own.length&&within(p.key,d.own)?2:0)-(d.scope.length?0:.5);
-        if(d.role==='flywheel'||d.role==='turret'){const rpm=MODELS[p.model]?.rpm||0;score+=d.role==='flywheel'?rpm/10000:-rpm/10000;}
-        pairs.push({d,p,score});}}
-    pairs.sort((a,b)=>b.score-a.score);const used=new Set(),done=new Set(),out=[];
-    for(const {d,p} of pairs){if(done.has(d.key)||used.has(p.key))continue;
+      // A turret also turns on a servo (an Axon under its turntable), whatever Setup has it on now.
+      for(const p of parts){if(!(kinds.includes(p.kind)||d.role==='turret'&&FAMILY_KINDS.servo.includes(p.kind))||(d.family==='motor'&&p.kind==='crservo'&&!['roller','feeder','steer','turret'].includes(d.role)))continue;
+        // Its own name and the assemblies around it say what it drives ("Turret motor" on the chassis still turns the turret,
+        // a servo in the "Indexer" assembly feeds the shooter).
+        const words=ROLE_WORDS[d.role],named=!!words&&words.test(p.name.toLowerCase()),around=!!words&&words.test(p.path.join('/').toLowerCase()),inside=d.scope.length?within(p.key,d.scope):d.role==='drive';if(!inside&&!named&&!around)continue;
+        let score=(inside?1:0)+(named?4:around?3:0)+(d.own.length&&within(p.key,d.own)?2:0)-(d.scope.length?0:.5);
+        // A turret carries its flywheel's motor, so the motor's speed decides: a 6000 rpm motor spins the flywheel.
+        if(d.role==='flywheel'||d.role==='turret'){const rpm=MODELS[p.model]?.rpm||0;score+=d.role==='flywheel'?rpm/2000:-rpm/2000;}
+        pairs.push({d,p,score,named:named||around});}}
+    // A CAD lists the copies of a part once ("Mini Servo" under the "Turret" assembly turns both turrets), so a part named
+    // for what it does serves every device of that role.
+    pairs.sort((a,b)=>b.score-a.score);const used=new Map(),done=new Set(),out=[];
+    for(const {d,p,named} of pairs){if(done.has(d.key)||used.has(p.key)&&!(named&&used.get(p.key)===d.role))continue;
       // Drive motors: one CAD part each, but four of one kind usually: every drive motor takes the model found.
-      done.add(d.key);used.add(p.key);out.push({key:d.key,part:p.name,kind:p.kind,model:p.model});}
+      done.add(d.key);used.set(p.key,d.role);out.push({key:d.key,part:p.name,ref:p.key,kind:p.kind,model:p.model});}
     return out;}
+  // ---- belts, chains and gears in a CAD -------------------------------------------------------------------------------
+  // What drives a mechanism with no motor of its own: its pulleys, sprockets and gears are followed through the belts and
+  // chains they touch, the shafts they share and the gears they mesh with, to the motor or servo at the other end ("Motor
+  // Part" in the chassis → 15T pulley → belt → 25T pulley → belt → the intake's 31T pulley). parts: every leaf of the CAD,
+  // [{ref ('#leaf'), key (its node's key), name, box [x0,y0,z0,x1,y1,z1]}]. Returns {actuators, from(refs)}: the motors
+  // and servos (a motor modelled in several pieces is one), and for the leaves under refs the nearest actuator that is not
+  // a drive motor (one geared to a mecanum, omni or traction wheel) as {actuator, belts, hops}, or null.
+  const TRANSMISSION=[['belt',/\bbelt\b|\bchain\b(?!.*(tensioner|guard))/],['wheel',/mecanum|\bomni\b|traction wheel|grip ?force|drive wheel/],
+    ['gear',/pulley|sprocket|\bgear\b|pinion|\d+ ?(t|tooth|teeth)\b/],['shaft',/\bshaft\b|\baxle\b|coupler|hub mount|servo hub \(gb\)|sonic hub|\bhex hub\b/]];
+  function transmissionOf(name){const s=String(name||'').toLowerCase();if(!s)return null;
+    const a=fromCadName(s);if(a&&!/pulley|sprocket|gear|pinion|\bbelt\b|\bhub\b|shaft/.test(s))return {type:'actuator',...a};
+    const hit=TRANSMISSION.find(([,re])=>re.test(s));return hit?{type:hit[0]}:null;}
+  function driveTrain(parts){
+    const list=(parts||[]).filter(p=>Array.isArray(p.box)&&p.box.length===6&&p.box.every(finite)).map(p=>({...p,...transmissionOf(p.name)})).filter(p=>p.type);
+    if(!list.length)return {actuators:[],from:()=>null};
+    // Lengths relative to the drive train's size (about the robot's): touching within 0.2% of it, one shaft carrying two
+    // pulleys up to 6% of it apart (an inch on an FTC robot).
+    let size=0;for(let a=0;a<3;a++)size=Math.max(size,Math.max(...list.map(p=>p.box[a+3]))-Math.min(...list.map(p=>p.box[a])));
+    const tol=size*.002,reach=size*.06;
+    const touch=(a,b,t=tol)=>[0,1,2].every(k=>a[k]-t<=b[k+3]&&b[k]-t<=a[k+3]);
+    // A round part's axis: the side unlike the other two (its two equal sides are its diameter); a motor's: its longest.
+    const dims=b=>[0,1,2].map(k=>b[k+3]-b[k]),center=b=>[0,1,2].map(k=>(b[k]+b[k+3])/2);
+    const axisOf=(b,long)=>{const d=dims(b);if(long)return d.indexOf(Math.max(...d));let best=0,gap=Infinity;for(const k of [0,1,2]){const [u,v]=[0,1,2].filter(x=>x!==k),g=Math.abs(d[u]-d[v])/Math.max(d[u],d[v],1e-9);if(g<gap){gap=g;best=k;}}return best;};
+    // Two parts on one axis line (a shaft through both, a pulley on a motor's output): the same axis, centred on each
+    // other across it, and close along it.
+    const coaxial=(a,b,ax,bx)=>{if(ax!==bx)return false;const ca=center(a.box),cb=center(b.box),across=[0,1,2].filter(k=>k!==ax),r=Math.min(...across.map(k=>Math.min(a.box[k+3]-a.box[k],b.box[k+3]-b.box[k])))/2;
+      if(!across.every(k=>Math.abs(ca[k]-cb[k])<=Math.max(r*.35,tol)))return false;return Math.max(a.box[ax],b.box[ax])-Math.min(a.box[ax+3],b.box[ax+3])<=reach;};
+    // A motor modelled in pieces ("Motor Part", "Motor Sleeve", a gearbox) is one actuator: actuator pieces that touch.
+    const acts=list.filter(p=>p.type==='actuator'),group=acts.map((_,i)=>i),find=i=>group[i]===i?i:group[i]=find(group[i]);
+    for(let i=0;i<acts.length;i++)for(let j=i+1;j<acts.length;j++)if(touch(acts[i].box,acts[j].box,-tol)&&(acts[i].kind==='dcmotor')===(acts[j].kind==='dcmotor'))group[find(i)]=find(j);
+    const byRoot=new Map();acts.forEach((p,i)=>{const r=find(i);if(!byRoot.has(r))byRoot.set(r,[]);byRoot.get(r).push(p);});
+    const actuators=[...byRoot.values()].map((pieces,n)=>{const box=[0,1,2].map(k=>Math.min(...pieces.map(p=>p.box[k]))).concat([0,1,2].map(k=>Math.max(...pieces.map(p=>p.box[k+3]))));
+      const named=pieces.find(p=>p.model)||pieces.find(p=>!/sleeve|cover|body|part/i.test(p.name))||pieces[0];
+      return {id:n,name:named.name,key:named.key,kind:named.kind,model:named.model||null,box,refs:pieces.map(p=>p.ref),type:'actuator'};});
+    const nodes=[...list.filter(p=>p.type!=='actuator'),...actuators],axes=nodes.map(p=>axisOf(p.box,p.type==='actuator'||p.type==='shaft'));
+    const links=nodes.map(()=>[]);
+    for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i],b=nodes[j],types=[a.type,b.type].sort().join('+');
+      let on=false;
+      if(types==='belt+gear')on=touch(a.box,b.box);
+      else if(types==='gear+gear')on=touch(a.box,b.box)||coaxial(a,b,axes[i],axes[j]);
+      else if(types==='gear+shaft'||types==='shaft+shaft')on=touch(a.box,b.box);
+      // A wheel turns with what is on its own axle, not with a pulley that sits beside it.
+      else if(types==='gear+wheel'||types==='shaft+wheel')on=coaxial(a,b,axes[i],axes[j]);
+      else if(types==='actuator+gear'||types==='actuator+shaft')on=touch(a.box,b.box)||coaxial(a,b,axes[i],axes[j]);
+      if(on){links[i].push(j);links[j].push(i);}}
+    // Breadth first through belts, gears and shafts (never through another motor or a wheel) from the given nodes.
+    const walk=start=>{const seen=new Map(start.map(i=>[i,{hops:0,belts:0}])),queue=[...start],hit=[];
+      while(queue.length){const i=queue.shift(),at=seen.get(i);for(const j of links[i]){if(seen.has(j))continue;const step={hops:at.hops+1,belts:at.belts+(nodes[j].type==='belt'?1:0)};seen.set(j,step);
+        if(nodes[j].type==='actuator'||nodes[j].type==='wheel')hit.push({node:nodes[j],...step});else queue.push(j);}}
+      return hit;};
+    const index=new Map(nodes.map((n,i)=>[n,i]));
+    for(const a of actuators)a.drive=walk([index.get(a)]).some(h=>h.node.type==='wheel');
+    const within=(p,refs)=>refs.some(r=>p.ref===r||p.key===r||String(p.key||'').startsWith(r+'/'));
+    function from(refs,{skip}={}){const list=(refs||[]).filter(Boolean);if(!list.length)return null;
+      const start=nodes.map((n,i)=>n.type!=='actuator'&&n.type!=='wheel'&&within(n,list)?i:-1).filter(i=>i>=0);if(!start.length)return null;
+      const hit=walk(start).filter(h=>h.node.type==='actuator'&&!h.node.drive&&h.belts>0&&!skip?.(h.node)).sort((a,b)=>a.hops-b.hops)[0];
+      return hit?{actuator:hit.node,belts:hit.belts,hops:hit.hops}:null;}
+    return {actuators,from};}
   // ---- an offline port plan -------------------------------------------------------------------------------------------
   const problem=(level,keys,text)=>({level,keys,text});
   // Ports to try, in order, for one row on one hub: touch sensors on odd digital channels and REV potentiometers on even
@@ -357,9 +443,10 @@
       const needs=role?.needs?.[r.kind];if(needs&&!list.some(s=>s.for===r.key&&needs.includes(s.kind))&&!w.sensors.some(s=>s.for===r.key&&needs.includes(SENSOR_MODELS[s.model]?.kind)))
         out.push(problem('amber',[r.key],`${r.label} turns on a continuous servo: give it a sensor that tells where it is (an Axon’s feedback wire or an absolute encoder), or it can only run for set times.`));}
     for(const s of w.sensors)if(!keys.has(`sensor.${s.id}`)&&SENSOR_MODELS[s.model]?.kind!=='motorEncoder'&&!list.some(r=>r.key===s.for)&&list.length)out.push(problem('amber',[`sensor.${s.id}`],`Sensor "${s.id}" measures a device this robot no longer has.`));
-    // BIOBUZZ R503: 8 motors and 8 servos at most.
-    const motors=list.filter(r=>r.family==='motor'&&r.role!=='pod'&&r.role!=='sensor'),servos=list.filter(r=>r.family==='servo');
-    if(motors.length>8)out.push(problem('amber',motors.map(r=>r.key),`The robot has ${motors.length} motors; the game allows 8 (R503).`));if(servos.length>8)out.push(problem('amber',servos.map(r=>r.key),`The robot has ${servos.length} servos; the game allows 8 (R503).`));
+    // BIOBUZZ R503: 8 motors and 8 servos at most; one belted to two mechanisms (one name) counts once. Over the limit is
+    // red (level 'limit') so the team changes the robot, but the simulation still runs it.
+    const motors=list.filter(r=>r.family==='motor'&&r.role!=='pod'&&r.role!=='sensor'),servos=list.filter(r=>r.family==='servo'),units=rs=>new Set(rs.map(r=>r.name||r.key)).size;
+    if(units(motors)>8)out.push(problem('limit',motors.map(r=>r.key),`The robot has ${units(motors)} motors; the game allows 8 (R503). Take ${units(motors)-8} off, or belt two mechanisms to one motor.`));if(units(servos)>8)out.push(problem('limit',servos.map(r=>r.key),`The robot has ${units(servos)} servos; the game allows 8 (R503). Take ${units(servos)-8} off.`));
     const seen=new Set(out.map(p=>p.text));for(const p of plan(list,w).problems)if(!seen.has(p.text)){seen.add(p.text);out.push(p);}
     return out;
   }
@@ -383,8 +470,9 @@
     const thing=row.role==='pod'?'Odometry pod':md?.short||{dcmotor:'Motor',servo:'Servo',crservo:'Continuous servo',linear:'Linear servo',pinpoint:'goBILDA Pinpoint',otos:'SparkFun OTOS'}[row.kind]||'Device';
     const tells=(row.sensors||[]).filter(s=>SENSOR_MODELS[s.model]).map(s=>{const k=SENSOR_MODELS[s.model],how=(TELLS[s.use]||TELLS.position)(lower(row.label)),on=!s.hub?'':s.hub===row.hub&&k.family!=='i2c'?` on ${FAMILIES[k.family]} ${s.port}`:` on ${portLabel(s,k.family,w)}`;
       return k.kind==='motorEncoder'?`its encoder tells ${how}`:k.kind==='axonFeedback'?`its feedback wire${on} tells ${how}`:`a ${lower(k.short)}${on} tells ${how}`;});
-    return `${thing} "${row.name}"${at}${tells.length?'; '+tells.join('; '):''}.${ROLES[row.role]?.explain&&!row.hub&&!tells.length?' '+ROLES[row.role].explain:''}`;
+    const from=row.from?` Your CAD shows it driven by ${row.from}.`:'';
+    return `${thing} "${row.name}"${at}${tells.length?'; '+tells.join('; '):''}.${from}${ROLES[row.role]?.explain&&!row.hub&&!tells.length&&!from?' '+ROLES[row.role].explain:''}`;
   }
   return {HUBS,FAMILIES,MODELS,ACTUATORS,MOTORS,SERVOS,CRSERVOS,LINEARS,SENSORS,SENSOR_MODELS,ROLES,USES,DEVICE_KEYS,DRIVE_SLOTS,modelsFor,sensorsFor,xmlTypeOf,familyOfKind,
-    fromCadName,assignCad,settingKey,parseKey,sanitizeWiring,wiringOf,reindex,prune,hubName,portLabel,rows,plan,placed,conflicts,wire,needs,explain};
+    fromCadName,assignCad,cadSensors,driveTrain,transmissionOf,settingKey,parseKey,sanitizeWiring,wiringOf,reindex,prune,hubName,portLabel,rows,plan,placed,conflicts,wire,needs,explain};
 });

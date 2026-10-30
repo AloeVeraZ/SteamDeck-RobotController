@@ -146,6 +146,48 @@ function runCheck(host,opMode,{onUpdate=()=>{},limit=20*60e3,timeout=8000,socket
 }
 const PAD=[[0,'a'],[1,'b'],[2,'x'],[3,'y'],[12,'dpad_up'],[13,'dpad_down'],[14,'dpad_left'],[15,'dpad_right']];
 
+// ---- live debug (Calibrate → Electronics), run from Deck
+// Deck Debug (src/onbot/DeckDebug.java, put on the robot with send()) is the same op mode for every robot. runDebug runs
+// it as a Driver Station does, then connects to the op mode's own port (20886: through ADB on the USB cable, or at the
+// robot's address on its Wi-Fi) and keeps a heartbeat going every 100 ms, which the op mode's watchdog needs to keep any
+// output on. onManifest gets its device list once, onFrame each line of readings. send(line) passes one command (see
+// DeckDebug.apply); stop() stops the outputs and the op mode. ended resolves with why: stopped, ended, time or lost.
+const DEBUG_OP_MODE='Deck Debug',DEBUG_PORT=20886,DEBUG_FILE='org/firstinspires/ftc/teamcode/DeckDebug.java',debugSource=()=>fs.readFileSync(path.join(__dirname,'onbot','DeckDebug.java'),'utf8');
+function connectRetry({host,port},ms){
+  const began=Date.now();
+  return new Promise((ok,fail)=>{const attempt=()=>{const s=net.connect({host,port},()=>{s.off('error',retry);ok(s);});const retry=e=>{s.destroy();if(Date.now()-began>ms)fail(Error(`Deck Debug did not open its port on the robot (${e.code||e.message}).`));else setTimeout(attempt,250);};s.once('error',retry);};attempt();});}
+function runDebug(host,{onManifest=()=>{},onFrame=()=>{},limit=60*60e3,timeout=8000,socket=null,connect=null}={}){
+  let finish=()=>{},stopping=false,sock=null;const done=new Promise(r=>{finish=why=>{stopping=true;r(why);};});
+  const ended=session(host,async({ds,until})=>{
+    await until(s=>s.opModes.length,timeout,'The robot did not list its op modes.').catch(()=>{});
+    if(!ds.state.opModes.some(m=>m.name===DEBUG_OP_MODE))throw Error('The robot has no Deck Debug op mode yet. Put Deck Debug on the robot first.');
+    if(ds.state.opModeState!=='stopped'&&ds.state.activeOpMode!==DEBUG_OP_MODE)throw Error(`“${ds.state.activeOpMode}” is running on the robot. Stop it first.`);
+    if(ds.state.opModeState==='stopped'){ds.initOpMode(DEBUG_OP_MODE);await until(s=>s.activeOpMode===DEBUG_OP_MODE&&s.opModeState==='init',10000,'The robot did not INIT Deck Debug.');}
+    if(!stopping&&ds.state.opModeState!=='running'){ds.startOpMode(DEBUG_OP_MODE);await until(s=>s.opModeState==='running',10000,'The robot did not START Deck Debug.');}
+    let ping=null,timer=null,offState=()=>{};
+    try{
+      if(!stopping){
+        sock=await connectRetry(connect||(host==='usb'?{host:'127.0.0.1',port:(await usbForward()).debug}:{host:checkHost(host),port:DEBUG_PORT}),6000);sock.setNoDelay(true);
+        let buffer='',first=true;
+        sock.on('data',chunk=>{buffer+=chunk.toString('utf8');for(let i;(i=buffer.indexOf('\n'))>=0;){const line=buffer.slice(0,i);buffer=buffer.slice(i+1);if(!line)continue;let value;try{value=JSON.parse(line);}catch{continue;}
+          if(first){first=false;onManifest(value);}else onFrame(value);}if(buffer.length>1e6)buffer='';});
+        sock.on('close',()=>finish('lost'));sock.on('error',()=>{});
+        ping=setInterval(()=>{if(!sock.destroyed)sock.write('P\n');},100);
+        offState=ds.on('state',s=>{if(s.connection!=='connected')finish('lost');else if(s.opModeState==='stopped')finish('ended');});
+        timer=setTimeout(()=>finish('time'),limit);}
+      return await done;
+    }finally{
+      clearInterval(ping);clearTimeout(timer);offState();
+      if(sock&&!sock.destroyed){try{sock.write('X\n');}catch{}sock.end();setTimeout(()=>sock.destroy(),300);}
+      if(ds.connected()&&ds.state.opModeState!=='stopped'){ds.stopOpMode();await until(s=>s.opModeState==='stopped',3000,'').catch(()=>{});}
+    }
+  },{timeout,socket});
+  ended.catch(()=>{});
+  return {ended,
+    send(line){if(!sock||sock.destroyed||typeof line!=='string'||!line||line.length>400||/[\r\n]/.test(line))return false;sock.write(line+'\n');return true;},
+    stop(){finish('stopped');}};
+}
+
 // ---- OnBot Java, over HTTP on port 8080
 // The OnBot Java editor's own form encoding (encodeURIComponent, plus ! ' ( ) *).
 const formEncode=s=>encodeURIComponent(s).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16));
@@ -248,8 +290,12 @@ async function readUsb({run}={}){
     try{blocks=blocksHardware(await getLocal(port,'/hardware',10000));}catch{}}catch{}finally{adb(['-s',serial,'forward','--remove',`tcp:${port}`],{run}).catch(()=>{});}
   const name=active&&out[active]?active:names[0],parsed=RobotConfig.parse(out[name]);
   return {source:'usb',serial,configurations:names,active:{name,...(active&&out[active]?{}:{guessed:true})},xml:out[name],...parsed,blocks,files:out};}
-// The robot's web server (8080: OnBot Java, Blocks, Program & Manage), its WebSocket (8081, the port after it) and the
-// Deck USB link (20885, src/onbot/DeckUsbLink.java: the Driver Station over the cable) on three ports of this computer, kept while the hub stays plugged in: Send to robot uploads and
+// Whether a Control Hub is on the USB cable and has allowed this computer, without touching it: Send to robot's USB choice.
+async function usbStatus({run}={}){
+  const listed=(await adb(['devices'],{run,timeout:5000})).split(/\r?\n/).slice(1).map(l=>l.trim().split(/\s+/)).filter(x=>x[0]),ready=listed.find(x=>x[1]==='device');
+  return ready?{found:true,serial:ready[0]}:{found:false,message:listed.length?(listed[0][1]==='unauthorized'?'Allow this computer in the REV Hardware Client.':`The Control Hub on USB is ${listed[0][1]}.`):'Not plugged in.'};}
+// The robot's web server (8080: OnBot Java, Blocks, Program & Manage), its WebSocket (8081, the port after it), the
+// Deck USB link (20885, src/onbot/DeckUsbLink.java: the Driver Station over the cable) and Deck Debug's port (20886) on four ports of this computer, kept while the hub stays plugged in: Send to robot uploads and
 // builds over it, and the robot's own dashboard opens on it, with this computer on any Wi-Fi.
 let usbPorts=null;
 async function usbForward({run}={}){
@@ -257,7 +303,7 @@ async function usbForward({run}={}){
   if(!ready)throw Error(listed.length?(listed[0][1]==='unauthorized'?'The Control Hub is on USB but has not allowed this computer yet: look for the prompt in the REV Hardware Client.':`The Control Hub on USB is ${listed[0][1]}.`):'No Control Hub on USB. Plug its USB-C port into this computer with a data cable (some cables only charge).');
   const serial=ready[0];if(usbPorts?.serial===serial){try{const r=await request('127.0.0.1','GET','/java/build/status',undefined,{port:usbPorts.port,timeout:4000});if(r.status===200)return usbPorts;}catch{}}
   const port=18000+3*Math.floor(Math.random()*600);await adb(['-s',serial,'forward',`tcp:${port}`,'tcp:8080'],{run});await adb(['-s',serial,'forward',`tcp:${port+1}`,'tcp:8081'],{run});
-  await adb(['-s',serial,'forward',`tcp:${port+2}`,'tcp:20885'],{run});usbPorts={serial,port,link:port+2};return usbPorts;}
+  await adb(['-s',serial,'forward',`tcp:${port+2}`,'tcp:20885'],{run});await adb(['-s',serial,'forward',`tcp:${port+3}`,`tcp:${DEBUG_PORT}`],{run});usbPorts={serial,port,link:port+2,debug:port+3};return usbPorts;}
 // The Deck USB link's source, which Send to robot over USB installs beside the code (OnBot Java builds it with the rest).
 const USB_LINK_FILE='org/firstinspires/ftc/teamcode/DeckUsbLink.java',usbLinkSource=()=>fs.readFileSync(path.join(__dirname,'onbot','DeckUsbLink.java'),'utf8');
-module.exports={rcHubs,usbForward,usbLinkSource,USB_LINK_FILE,readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};
+module.exports={runDebug,DEBUG_FILE,DEBUG_OP_MODE,debugSource,rcHubs,usbForward,usbStatus,usbLinkSource,USB_LINK_FILE,readConfigurations,activateConfiguration,readUsb,adbPath,blocksHardware,readRobot,writeConfiguration,runCheck,session,OnBotJava,send,buildErrors,formEncode,checkHost};

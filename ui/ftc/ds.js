@@ -203,7 +203,7 @@ document.addEventListener('keydown',e=>{
 });
 
 async function boot(){
-  if(!host){$('#link-text').textContent='Driver Station Unavailable';$('#link-banner').className='banner bad';$('#status-line').textContent='Status : Open this robot from Deck Driver Station Settings.';return;}
+  if(!host){$('#link-text').textContent='Driver Station Unavailable';$('#link-banner').className='banner bad';$('#status-line').textContent='Status : Open this robot from Torque Settings.';return;}
   try{info={...info,...await host.info()};}catch{}
   window.deckControllerAssignments=()=>Array.from(navigator.getGamepads?.()||[]).slice(0,2).map(p=>p?{id:p.id,index:p.index,mapping:p.mapping,connected:true}:null);
   $('#pad-1').title='Click, then press a button to assign controller 1';

@@ -1,6 +1,6 @@
 # Credits and third-party notices
 
-Deck Driver Station's own code is MIT licensed (see [LICENSE](LICENSE)). It stands on the
+Torque's own code is MIT licensed (see [LICENSE](LICENSE)). It stands on the
 work of the people and projects below. Thank you to every one of them for publishing their
 work openly so FIRST teams can learn from it and build on it.
 
@@ -27,7 +27,7 @@ and `app/licenses/`, and Electron's runtime notices are in `runtime/LICENSE` and
 
 **DSIM's Required Notice:** Copyright 2026 Dohun Kim (https://github.com/genius0412).
 DSIM is not open source. Its license lets anyone use, study, change and share it for
-noncommercial purposes; commercial use needs the author's permission. Deck Driver Station
+noncommercial purposes; commercial use needs the author's permission. Torque
 is free and noncommercial. The simulator changes DSIM at build time (see
 `tools/simulation/build.cjs`): field outlines for custom footprints, drive current and
 braking models, coasting with `FLOAT` motors, and static friction. Those changes are
@@ -77,7 +77,7 @@ import your own STEP robot model, which stays on your computer.
 
 ## Trademarks
 
-Deck Driver Station is an independent, free project. It is not affiliated with, endorsed by or
+Torque is an independent, free project. It is not affiliated with, endorsed by or
 sponsored by FIRST, FIRST Tech Challenge, RTX, Valve, goBILDA (Servocity), REV Robotics,
 Qualcomm, Google, the Pedro Pathing team or Dohun Kim. FIRST®, FIRST® Tech Challenge, FTC®,
 DECODE™ and the FIRST logo are trademarks of FIRST (For Inspiration and Recognition of Science

@@ -1,4 +1,4 @@
-# Deck Driver Station 2
+# Torque 2
 
 ## ⬇️ Download
 
@@ -22,8 +22,9 @@ Direct downloads are on the [Main release page](https://github.com/AloeVeraZ/Ste
 ---
 
 An app for driving your robots from Steam Deck, Linux, Windows, and Mac.
-The robot icon is preserved. There are two main views: **Drive** (the robot's
-controls) and **Settings** (Wi-Fi and saved addresses).
+The robot icon is preserved. There are three main views: **Drive** (the robot's
+controls), **Simulate** and **Calibrate** ([live hardware debug and gated mechanism calibration](docs/CALIBRATION.md)).
+**Settings** (Wi-Fi and saved addresses), updates, saved robots, the on-screen keyboard, fullscreen and exit are in the ⋮ menu.
 The shared theme follows MotionModule: warm near-black surfaces, locally bundled
 Inter/Barlow Condensed fonts, steel-blue actions and distinct connection, warning
 and stop states. See the [design audit and scope](docs/DESIGN.md).
@@ -150,7 +151,7 @@ See [the simulator guide](docs/SIMULATION.md).
 
 ## License and credits
 
-Deck Driver Station's own code is [MIT licensed](LICENSE). It builds on Electron, Pedro Pathing,
+Torque's own code is [MIT licensed](LICENSE). It builds on Electron, Pedro Pathing,
 DSIM, Rapier, three.js, OpenJDK and more; see [credits and third-party notices](THIRD-PARTY-NOTICES.md),
 also in the app under Settings → Preferences → Licenses and credits. The simulator's physics come
 from [DSIM](https://github.com/genius0412/dsim) by Dohun Kim, which is licensed for noncommercial

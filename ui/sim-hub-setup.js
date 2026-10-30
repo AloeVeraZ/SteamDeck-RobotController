@@ -13,6 +13,8 @@
   // What a role may run on, as RobotConfig kinds: a roller on a motor or a continuous servo, a feeder also on a servo...
   const ROLE_KINDS={roller:['motor','crservo'],feeder:['motor','crservo','servo'],turret:['motor','servo','crservo'],steer:['crservo','servo','motor']};
   const SENSOR_KINDS=new Set(['touch','digital','analog','color','distance']);
+  // The words (as RobotConfig.tokens gives them: "flywheel" reads "shooter") that name a mechanism device's job.
+  const ROLE_SAYS={flywheel:/^(shooter|flywheel|fly|launcher|launch|shoot)$/,feeder:/^(feed|feeder|indexer|index|kicker|kick|transfer|push|pusher|gate)$/,turret:/^(turret|turntable)$/,hood:/^hood$/,roller:/^(intake|roller|sweeper)$/};
   const words=name=>g('DeckRobotConfig').tokens(name);
   const dirsOf=t=>t.filter(w=>DIRS.has(w)).map(w=>w==='centre'?'center':w).sort().join(' ');
   // Which hub of Setup ('control', 'expansion' or 'servoHub') a configured device is on, from the configuration's hubs.
@@ -27,10 +29,12 @@
   // How well a robot device fits one of Setup's rows: 0 is no match. A drive motor matches on its direction words alone
   // (frontLeft, FL, left_front_drive); anything else on the words its name shares with the row's name and label, never
   // across sides (leftLift is not rightLift).
-  function score(row,dev){
+  // hint: more words for a mechanism's device, from its CAD (the assemblies it is in, "POLLEN V2") and the pieces a
+  // shooter takes, so pollenFlywheel goes to the pollen shooter's flywheel, not the nectar one's.
+  function score(row,dev,hint=[]){
     if(!kindsFor(row).includes(dev.kind)&&!(row.role==='sensor'&&g('DeckRobotConfig').fits(row.need,dev.kind)))return 0;
     if(dev.name===row.name)return 100;if(dev.name.toLowerCase()===row.name.toLowerCase())return 95;
-    const dt=words(dev.name),rt=[...new Set([...words(row.name),...(row.role==='drive'||row.role==='steer'?[]:words(row.label))])];
+    const dt=words(dev.name),rt=[...new Set([...words(row.name),...(row.role==='drive'||row.role==='steer'?[]:[...words(row.label),...hint])])];
     if(row.role==='drive'||row.role==='steer'){const want=dirsOf(words(row.key.slice(6))),have=dirsOf(dt);if(!want||want!==have)return 0;
       const steerish=dt.some(w=>/^(steer|turn|swerve|azimuth|angle|rot)/.test(w));if(steerish!==(row.role==='steer'))return 0;
       // Any other word says it is something else (leftLift, frontIntake), unless it is one teams put on drive motors.
@@ -38,7 +42,8 @@
     if(['imu','pinpoint','otos'].includes(row.role))return 70;
     const a=dirsOf(dt),b=dirsOf(rt);if(a&&b&&a!==b)return 0;
     const base=row.role==='sensor'?dt.filter(w=>!SENSOR_WORDS.has(w)):dt,shared=base.filter(w=>rt.includes(w)).length;if(!shared)return 0;
-    return 20+Math.round(40*shared/new Set([...base,...rt]).size);}
+    // A name that says what the device does picks that device of a mechanism (pollenFlywheel is the flywheel, not the feeder).
+    return 20+Math.round(40*shared/new Set([...base,...rt]).size)+(ROLE_SAYS[row.role]&&dt.some(w=>ROLE_SAYS[row.role].test(w))?10:0);}
   // A sensor the robot has that Setup does not: put it on the device its name is about, as the model its type says.
   function sensorFor(dev,rows){
     const H=g('DeckHardware'),dt=words(dev.name).filter(w=>!SENSOR_WORDS.has(w)),n=dev.name.toLowerCase();
@@ -54,7 +59,13 @@
   // The model a configured motor or servo type names, when it names only one (goBILDA5202SeriesMotor is every Yellow
   // Jacket ratio, so that keeps Setup's model).
   function modelOf(row,dev){const H=g('DeckHardware'),now=H.MODELS[row.model];if(now&&now.xmlType===dev.tag)return null;
+    const twin=now&&(now.cr?H.MODELS[now.cr]:H.ACTUATORS.find(m=>m.cr===now.id));if(twin&&twin.xmlType===dev.tag)return twin.id;
     const list=H.ACTUATORS.filter(m=>m.xmlType===dev.tag&&(H.ROLES[row.role]?.kinds||[]).includes(m.kind));return list.length===1?list[0].id:null;}
+  // What the robot's configuration says is plugged in, device by device, whether Setup uses it or not: kept with the read so
+  // Calibrate can show the hub's own answer. hubName only for a device on a hub Setup does not wire.
+  function readout(config){const hubs=hubsOf(config||{});
+    return (config?.devices||[]).filter(d=>d.module||d.kind==='imu').map(d=>{const at=placeOf(d,hubs);
+      return {name:d.name,kind:d.kind,tag:d.tag,...(at||{hubName:d.hub||'',...(d.bus!==undefined?{bus:d.bus}:{}),...(Number.isInteger(d.port)?{port:d.port}:{})})};});}
   const LOCALIZATION={pinpoint:'fused',otos:'optical'};
   // project: Setup's project; config: {devices, hubs} (RobotConfig.parse of the active configuration).
   // only: 'chassis' matches the drivetrain and the IMU alone (a preset robot, whose mechanisms are its own).
@@ -62,17 +73,22 @@
     const W=g('DeckWiring'),devices=(config?.devices||[]).filter(d=>d.module||d.kind==='imu'),hubs=hubsOf(config||{}),chassis=only==='chassis',out={localization:null,assign:[],sensors:[],missing:[],unused:[],notes:[],hubs:{}};
     // The position sensor first: it decides which rows Setup has.
     let p=project;const loc=['pinpoint','otos'].map(k=>devices.some(d=>d.kind===k)?LOCALIZATION[k]:null).find(Boolean);
+    out.sensing={localization:loc||project.sensors?.localization||null,hubImu:devices.some(d=>d.kind==='imu')};
     if(!chassis&&loc&&project.controller==='ftc'&&project.sensors?.localization!==loc){out.localization=loc;p={...project,sensors:{...project.sensors,localization:loc}};}
     const rows=W.state(p).rows.filter(r=>r.role!=='pod'&&(!chassis||W.stepOf(r.key)==='robot'&&!['pinpoint','otos'].includes(r.role)));
     out.hubs.expansion=hubs.expansion?{address:hubs.expansion.address}:false;if(hubs.servoHub)out.hubs.servoHub={address:hubs.servoHub.address};
     if(hubs.extra.length)out.notes.push(`Setup wires one Expansion Hub; ${hubs.extra.map(h=>h.name).join(', ')} ${hubs.extra.length===1?'is':'are'} left out.`);
     // Every fitting pair, best first; each row and each device is used once.
-    const pairs=[];for(const row of rows)for(const dev of devices){const s=score(row,dev);if(s>0)pairs.push({row,dev,s});}
+    const hintOf=row=>{const k=g('DeckHardware').parseKey(row.key),part=k?.list?p.mechanisms?.[k.list]?.[k.index]:null;
+      return [...(row.parts||[]),['pollen','nectar'].includes(part?.pieces)?part.pieces:''].flatMap(n=>words(String(n).replace(/\s*<\d+>$/,''))).filter(w=>w.length>2&&!DIRS.has(w)&&!/\d/.test(w));};
+    const pairs=[];for(const row of rows){const hint=hintOf(row);for(const dev of devices){const s=score(row,dev,hint);if(s>0)pairs.push({row,dev,s});}}
     pairs.sort((a,b)=>b.s-a.s||a.row.key.localeCompare(b.row.key)||a.dev.name.localeCompare(b.dev.name));
     const doneRow=new Set(),doneDev=new Set();
-    for(const {row,dev,s} of pairs){if(doneRow.has(row.key)||doneDev.has(dev))continue;doneRow.add(row.key);doneDev.add(dev);
-      const at=row.role==='imu'?null:placeOf(dev,hubs),model=row.role==='sensor'?null:modelOf(row,dev),kind=kindsFor(row).includes(dev.kind)&&!(ACT_KINDS[row.need]||[row.need]).includes(dev.kind)?dev.kind:null;
-      out.assign.push({key:row.key,label:row.label,name:dev.name,was:row.name,family:row.family,tag:dev.tag,exact:s>=95,...(at||{}),...(model?{model}:{}),...(kind?{kind}:{}),...(row.role==='sensor'?{sensor:row.id}:{})});}
+    for(const {row:first,dev,s} of pairs){if(doneRow.has(first.key)||doneDev.has(dev))continue;doneDev.add(dev);
+      const mates=['sensor','pod','imu'].includes(first.role)?[]:rows.filter(r=>r!==first&&!doneRow.has(r.key)&&r.name===first.name&&r.family===first.family&&kindsFor(r).includes(dev.kind));
+      for(const row of [first,...mates]){doneRow.add(row.key);
+        const at=row.role==='imu'?null:placeOf(dev,hubs),model=row.role==='sensor'?null:modelOf(row,dev),kind=kindsFor(row).includes(dev.kind)&&!(ACT_KINDS[row.need]||[row.need]).includes(dev.kind)?dev.kind:null;
+        out.assign.push({key:row.key,label:row.label,name:dev.name,was:row.name,family:row.family,tag:dev.tag,exact:s>=95,...(row===first?{}:{shared:first.label}),...(at||{}),...(model?{model}:{}),...(kind?{kind}:{}),...(row.role==='sensor'?{sensor:row.id}:{})});}}
     for(const row of rows)if(!doneRow.has(row.key)&&row.role!=='imu')out.missing.push({key:row.key,label:row.label,name:row.name});
     // Chassis only: the robot's mechanism devices are none of Setup's business, so only a leftover drive-like motor is listed.
     for(const dev of devices){if(doneDev.has(dev)||!['motor','servo','crservo',...SENSOR_KINDS].includes(dev.kind)||chassis&&!(dev.kind==='motor'&&dirsOf(words(dev.name))))continue;
@@ -93,7 +109,7 @@
       else if(k.list){const part=p.mechanisms[k.list]?.[k.index];if(part){part[k.field]=a.name;
         if(a.kind&&k.list==='intakes'&&/^motor2?$/.test(k.field))part.device=a.kind==='crservo'?'crservo':'motor';
         if(a.kind&&k.field==='indexer')part.indexerKind={motor:'motor',crservo:'crservo',servo:'pusher'}[a.kind];
-        if(a.kind&&k.field==='turretMotor')p.mechanisms.turret.kind=a.kind==='servo'?'servo':'motor';}}
+        if(a.kind&&k.field==='turretMotor')p.mechanisms.turret.kind=a.kind==='servo'?'servo':a.kind==='crservo'?'crservo':'motor';}}
       else if(k.kin){const second=/-2$/.test(k.kin),act=p.kinematics.actuators.find(x=>x.id===k.kin||second&&x.id+'-2'===k.kin);if(act){if(second&&act.id!==k.kin)act.device2=a.name;else act.device=a.name;}}
       if(a.hub&&a.family)w=W.setPort(w,a.key,a.family==='i2c'?`${a.hub}:${a.bus}`:`${a.hub}:${a.port}`,a.family);
       if(a.model)w=W.setModel(w,a.key,a.model);}
@@ -107,11 +123,12 @@
   function summary(result){const n=result.assign.length+result.sensors.length;
     return n?`Set up from the Control Hub: ${n} device${n===1?'':'s'} matched${result.missing.length?`, ${result.missing.length} Setup device${result.missing.length===1?'':'s'} not on the robot`:''}${result.unused.length?`, ${result.unused.length} on the robot Setup has nothing for`:''}.`:'Nothing on the Control Hub matches what this setup has. Name its devices as the robot does (frontLeft, lift, claw…), or add the mechanisms first.';}
   function lines(result){const where=a=>a.hub?` · ${a.hub==='control'?'Control Hub':a.hub==='expansion'?'Expansion Hub':'Servo Hub'} ${a.bus!==undefined?`I2C bus ${a.bus}`:`port ${a.port}`}`:'';
-    return [...result.assign.map(a=>({level:a.exact?'ok':'guess',text:`${a.label} → “${a.name}”${where(a)}${a.was!==a.name?` (was “${a.was}”)`:''}`})),
+    const s=result.sensing,sensing=s?.localization==='fused'?`Sensing: the Pinpoint reads its 2 goBILDA odometry pods and turns with its own IMU${s.hubImu?'; the Control Hub’s IMU is used too, as the heading backup if the Pinpoint stops answering':''}`:s?.localization==='optical'?`Sensing: the OTOS tracks position with its own IMU${s.hubImu?'; the Control Hub’s IMU is on the robot too':''}`:s?.hubImu?'Sensing: the Control Hub’s built-in IMU measures turning':'';
+    return [...(sensing?[{level:'ok',text:sensing}]:[]),...result.assign.map(a=>({level:a.exact?'ok':'guess',text:`${a.label} → “${a.name}”${where(a)}${a.shared?` (the same motor as ${a.shared.toLowerCase()}: belted together)`:a.was!==a.name?` (was “${a.was}”)`:''}`})),
       ...result.sensors.map(s=>({level:'ok',text:`New sensor on ${s.forLabel} → “${s.name}”${where(s)}`})),
       ...(result.localization?[{level:'ok',text:`Position sensor: ${result.localization==='fused'?'goBILDA Pinpoint':'SparkFun OTOS'} (the robot has one)`}]:[]),
       ...result.missing.map(m=>({level:'missing',text:`${m.label} (“${m.name}”) is not on the robot: Send to robot can add it`})),
       ...result.unused.map(u=>({level:'unused',text:`“${u.name}” (${u.kind}${u.where?', '+u.where:''}) is on the robot; nothing in Setup uses it`})),
       ...result.notes.map(t=>({level:'missing',text:t}))];}
-  return {plan,apply,summary,lines,score,hubsOf};
+  return {plan,apply,summary,lines,score,hubsOf,readout};
 });

@@ -22,7 +22,7 @@ import java.net.Socket;
 import java.util.Collections;
 
 /**
- * Deck Driver Station over the USB cable. Deck installs this file with OnBot Java; it is team code, started by the
+ * Torque over the USB cable. Deck installs this file with OnBot Java; it is team code, started by the
  * SDK's @OnCreateEventLoop hook as FTC Dashboard is. It listens on this hub's loopback, TCP port 20885, which Deck
  * reaches through ADB on the USB cable, and passes the Driver Station's Robocol packets to the Robot Controller on this
  * hub and its answers back. Over TCP each packet is a 2-byte length and the packet.

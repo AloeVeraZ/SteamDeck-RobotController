@@ -15,7 +15,7 @@ class SimulationHost{
   start(){
     if(this.proc)return this.proc;
     const work=path.join(this.dataDir,'simulation','work');fs.mkdirSync(work,{recursive:true});
-    const proc=this.utilityProcess.fork(path.join(__dirname,'sim-host.cjs'),[work],{serviceName:'Deck Driver Station simulation',stdio:'pipe'});
+    const proc=this.utilityProcess.fork(path.join(__dirname,'sim-host.cjs'),[work],{serviceName:'Torque simulation',stdio:'pipe'});
     let stderr='';proc.stderr?.on('data',d=>{stderr=(stderr+d).slice(-4000);});proc.stdout?.on('data',()=>{});
     proc.on('message',message=>{
       if(proc!==this.proc)return;
@@ -36,7 +36,7 @@ class SimulationHost{
   // Bounded at 20 minutes.
   convertStep(file){
     return new Promise((resolve,reject)=>{
-      const proc=this.utilityProcess.fork(path.join(__dirname,'sim-model-host.cjs'),[],{serviceName:'Deck Driver Station CAD import',stdio:'pipe'});let stderr='',settled=false;
+      const proc=this.utilityProcess.fork(path.join(__dirname,'sim-model-host.cjs'),[],{serviceName:'Torque CAD import',stdio:'pipe'});let stderr='',settled=false;
       const done=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);try{proc.kill();}catch{}fn(value);};
       const timer=setTimeout(()=>done(reject,Error('Reading the CAD took longer than 20 minutes. Export a smaller STEP (or a GLB/STL mesh).')),1200000);
       proc.stderr?.on('data',d=>{stderr=(stderr+d).slice(-2000);});proc.stdout?.on('data',()=>{});

@@ -145,6 +145,6 @@ jobs:
             {schema:1,channel:$channel,releases:([.[0]|slim]+[(.[1]|if type=="array" then .[] else empty end)|select(.tag_name!=$tag and (.draft|not) and (.tag_name|test($pattern)))|slim][:5])}' "$RUNNER_TEMP/newest.json" "$RUNNER_TEMP/recent.json" > channel.json
           jq -e --arg tag "$TAG" '.releases[0].tag_name==$tag and (.releases[0].assets|length)>0 and all(.releases[0].assets[];.digest!=null and .size>0)' channel.json
           if ! gh release view "$channel-channel" >/dev/null 2>&1; then
-            gh release create "$channel-channel" --prerelease --latest=false --target "$GITHUB_SHA" --title "Deck Driver Station $channel channel (updater manifest)" --notes "Used by the in-app updater. Install from the versioned releases."
+            gh release create "$channel-channel" --prerelease --latest=false --target "$GITHUB_SHA" --title "Torque $channel channel (updater manifest)" --notes "Used by the in-app updater. Install from the versioned releases."
           fi
           gh release upload "$channel-channel" channel.json --clobber

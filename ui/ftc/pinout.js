@@ -243,7 +243,7 @@
     // Title block and legend at the top.
     const head=[r(0,0,width,height,'#ffffff'),r(0,0,width,6,'#f2683a'),t(M,62,config.name||'Robot configuration',{size:30,weight:800}),
       t(M,90,`Wiring diagram${config.robot?` · ${config.robot}`:''} · ${order.length?order.map(h=>h.name).join(' + '):'no hubs'} · ${devices.length} device${devices.length===1?'':'s'}`,{size:14,fill:'#475467'}),
-      t(width-M,62,date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),{size:13,fill:'#475467',anchor:'end'}),t(width-M,82,'Deck Driver Station · FTC SDK 12.0 configuration',{size:11,fill:'#98a2b3',anchor:'end'})];
+      t(width-M,62,date.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}),{size:13,fill:'#475467',anchor:'end'}),t(width-M,82,'Torque · FTC SDK 12.0 configuration',{size:11,fill:'#98a2b3',anchor:'end'})];
     let lx=M;const legend=[['Motor power','motor'],['Encoder','encoder'],['Servo','servo'],['Digital','digital'],['Analog','analog'],['I2C','i2c'],['RS485','rs485'],['USB','usb']];
     for(const [label,k] of legend){const s=STRANDS[k];s.forEach((c,i)=>head.push(r(lx,114+i*3.2-(s.length-1)*1.6,22,2.6,c,1)));head.push(t(lx+28,119,label,{size:11.5,fill:'#344054'}));lx+=28+label.length*6.6+22;}
     head.push(r(lx,108,22,12,'none',2,' stroke="#0d9488" stroke-width="2" stroke-dasharray="4 3"'),t(lx+28,119,'Built into the hub',{size:11.5,fill:'#344054'}));

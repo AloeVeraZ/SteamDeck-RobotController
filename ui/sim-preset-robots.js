@@ -9,7 +9,7 @@
   const TR=globalThis.DeckTestRobot||(typeof require==='function'?require('./sim-test-robot.js'):null);
   const Mech=()=>globalThis.DeckMechanisms||(typeof require==='function'?require('./sim-mechanisms.js'):null);
   const Kin=()=>globalThis.DeckKinematics||(typeof require==='function'?require('./sim-kinematics.js'):null);
-  const {C,lin,frame,pt,add,mul,RAD,X,Y,Z,EPS,WHEEL_R,MECANUM_HALF,box,obox,prism,lathe,cylinder,tube,band,disc,gear,part,holes,channel,motor,servo,mecanumWheel,odometryPod}=TR.kit;
+  const {C,lin,frame,pt,add,mul,RAD,X,Y,Z,EPS,WHEEL_R,MECANUM_HALF,box,obox,prism,lathe,cylinder,tube,band,disc,gear,part,holes,channel,motor,servo,mecanumWheel}=TR.kit;
   const K={...C,tire:lin(0x1f2022),blue:lin(0x2b6cd4),tube:lin(0xb8bec6),bumper:lin(0xc8282d)};
   const VERSION=1,CHASSIS='Chassis',ELECTRONICS='Electronics',DECK_Z=2.99,PLATE_Z=3.09,src='metadata';
   const CORNERS=[['FL',1,1],['FR',1,-1],['BL',-1,1],['BR',-1,-1]];
@@ -43,19 +43,16 @@
     part(path,'Hex bore',C.steel,g=>tube(g,f,.12,.2,-w,w,6));
   }
   // ---- Starter Mecanum: a goBILDA Strafer-style kit bot ----------------------------------------------------------------
-  // U-channel frame, grid plate deck, four 104 mm mecanum wheels on Yellow Jackets, a Control Hub and battery, a goBILDA
-  // Pinpoint with its two pods where the app's defaults put them (X pod 4 in left, Y pod 3 in back) and a polycarbonate
-  // push plate. The side rails are 16.9 in (18 holes), inside the 17.56 in length.
+  // U-channel frame, grid plate deck, four 104 mm mecanum wheels on Yellow Jackets, a Control Hub and battery: its
+  // IMU and the drive motors' own encoders are the only sensors, as on a kit robot straight out of the box,, and a polycarbonate push plate. The side rails are 16.9 in (18 holes), inside the 17.56 in length.
   const MECANUM={id:'startermecanum',name:'Starter Mecanum',L:17.56,W:17.79};
   function starterMecanum(){
-    const HX=MECANUM.L/2,HY=MECANUM.W/2,R=WHEEL_R,wy=HY-MECANUM_HALF,outY=wy-MECANUM_HALF-.365,railW=48/25.4,inY=outY-railW,end=HX-.012,WX=HX-2.9,pin=[CHASSIS,'Pinpoint'];
+    const HX=MECANUM.L/2,HY=MECANUM.W/2,R=WHEEL_R,wy=HY-MECANUM_HALF,outY=wy-MECANUM_HALF-.365,railW=48/25.4,inY=outY-railW,end=HX-.012,WX=HX-2.9;
     for(const s of [1,-1]){const side=s>0?'left':'right';channel([CHASSIS,`U-Channel 1120 ${side}`],'U-Channel 1120 432mm','x',-8.45,8.45,s*outY,s);}
     // The front channel sits back by the push plate's thickness.
     channel([CHASSIS,'U-Channel 1120 front'],'U-Channel 1120 288mm','y',-inY,inY,HX-.14,1);channel([CHASSIS,'U-Channel 1120 back'],'U-Channel 1120 288mm','y',-inY,inY,-end,-1);
     gridPlate([CHASSIS,'Grid plate'],HX-.3,outY-railW/2-.3);
     for(const [k,sx,sy] of CORNERS){mecanumWheel([CHASSIS,'Mecanum wheel '+k],[sx*WX,sy*wy,R],sx,sy,outY);motor([CHASSIS,'Drive motor '+k],[sx*WX,sy*inY,R],[0,-sy,0],{shaft:outY-inY+.3});}
-    part(pin,'goBILDA Pinpoint',K.black,g=>box(g,[-.6,-.6,DECK_Z-.36],[.6,.6,DECK_Z]));part(pin,'Pinpoint label',K.yellow,g=>box(g,[-.35,-.35,DECK_Z-.36-EPS],[.35,.35,DECK_Z-.36]));
-    odometryPod([CHASSIS,'Odometry pod X'],0,4,Y,DECK_Z);odometryPod([CHASSIS,'Odometry pod Y'],-3,0,X,DECK_Z);
     // Push plate: clear polycarbonate across the front, below the deck so it pushes pieces on the floor.
     part([CHASSIS,'Push plate'],'Push plate',K.poly,g=>box(g,[HX-.125,-outY+.1,.55],[HX,outY-.1,4.2]));
     part([CHASSIS,'Push plate'],'Hole pattern',C.hole,g=>holes(g,frame([HX+EPS,0,3.6],X,Y),11,{small:false}));
@@ -212,9 +209,9 @@
   // CAD the app shows in its place where the build has it (ui/assets/robots, personal local builds only); asset: a
   // prepared vendor CAD (with joints of its own, `variant`) used in place of the generated model where the build has it.
   const ROBOTS={
-    startermecanum:{...MECANUM,cad:'strafer',draw:starterMecanum,joints:mecanumJoints,heightIn:7.25,wheelDiameterMm:104,localization:'fused',imuSource:'device',
+    startermecanum:{...MECANUM,cad:'strafer',draw:starterMecanum,joints:mecanumJoints,heightIn:7.25,wheelDiameterMm:104,localization:'encoders',imuSource:'hub',
       wiring:{devices:{'robot.frontLeft':{model:'gobilda-5203-1150',hub:'control',port:0},'robot.frontRight':{model:'gobilda-5203-1150',hub:'control',port:1},
-        'robot.backLeft':{model:'gobilda-5203-1150',hub:'control',port:2},'robot.backRight':{model:'gobilda-5203-1150',hub:'control',port:3},'robot.imu':{hub:'control',bus:0},'robot.pinpoint':{hub:'control',bus:1}}}},
+        'robot.backLeft':{model:'gobilda-5203-1150',hub:'control',port:2},'robot.backRight':{model:'gobilda-5203-1150',hub:'control',port:3},'robot.imu':{hub:'control',bus:0}}}},
     a301swerve:{...SWERVE,cad:'swechanum',draw:a301Swerve,joints:swerveJoints,heightIn:9.25,wheelDiameterMm:76,localization:'optical',imuSource:'device',
       wiring:{devices:{'robot.frontLeft':{model:'gobilda-5203-1150',hub:'control',port:0},'robot.frontRight':{model:'gobilda-5203-1150',hub:'control',port:1},
         'robot.backLeft':{model:'gobilda-5203-1150',hub:'control',port:2},'robot.backRight':{model:'gobilda-5203-1150',hub:'control',port:3},
@@ -234,27 +231,37 @@
   const P=(x,y,action,note,path,extra={})=>({x,y,wait:extra.wait||0,action,...(extra.turn!==undefined?{turn:extra.turn,turnMode:'absolute'}:{}),...(extra.actionSeconds!==undefined?{actionSeconds:extra.actionSeconds}:{}),...(extra.cell?{cell:extra.cell}:{}),...(note?{note}:{}),path});
   const plain=note=>({style:'sharp',note}),turn=(h,note,style='spline')=>({style,note,rotate:'turn',heading:h}),spin=note=>({kind:'action',action:'Spin up',style:'sharp',note}),take=note=>({kind:'action',action:'Intake',style:'sharp',note});
   const ROUTES={
-    // Push bot: leave the wall, strafe up the field without turning, then turn at the loading zone and park in it.
+    // The kit push bot drives square, as teams first test one: forward off the wall, a 90° turn, straight up the field to
+    // (24, 120), turned around, straight back down to (24, 24), then up to park in the loading zone.
     startermecanum:{start:{x:10.11,y:27,heading:0},pins:[
-      P(30,27,'','LEAVE: off the starting wall',plain('Drive forward off the wall')),
-      P(30,96,'','',plain('Strafe up the field without turning: mecanum wheels drive sideways')),
-      P(21,107,'','PARK: partly in the red LOADING ZONE, facing it',plain('Into the loading zone, pushing its pollen into the corner'),{turn:-180})]},
-    // The fastest: sideways up the field at full speed (each module steers to point the way), then turn and park.
+      P(24,27,'','LEAVE: forward off the wall, then a 90° turn',plain('Drive forward'),{turn:90}),
+      P(24,120,'','Up the field, then turned around',plain('Straight up the field'),{turn:-90}),
+      P(24,24,'','Back down the field',plain('Straight back down')),
+      P(21,107,'','PARK: partly in the red LOADING ZONE, facing it',plain('Up into the loading zone, pushing its pollen into the corner'),{turn:-180})]},
+    // Swerve showing off: curves that spin the robot a whole turn while it drives, face the hive while it circles, spin
+    // back the other way and face where it drives, then sweep the loading zone's pollen into the corner as it parks.
     a301swerve:{start:{x:9.83,y:27,heading:0},pins:[
-      P(34,22,'','LEAVE: off the starting wall',plain('Off the wall')),
-      P(34,120,'','',plain('Full speed sideways up the field: the modules steer to point the way it drives')),
-      P(20.5,107,'','PARK: partly in the red LOADING ZONE, facing it',plain('Into the loading zone, pushing its pollen into the corner'),{turn:-180})]},
-    // REV's Starter Bot (its launcher fires out of the back): the 4 preloaded pollen into the up cell, the garden pollen
-    // straight off the audience wall (a tank turns only where it has room), back up to the hive launcher first for the
-    // other cell, and park with the pollen pusher out.
+      P(34,27,'','LEAVE: off the starting wall',plain('Off the wall')),
+      P(62,28,'','',{style:'spline',note:'A full spin while it drives',rotate:'spin',spins:1}),
+      P(30,54,'','',{style:'spline',note:'Facing the hive while it circles',rotate:'track',target:{x:72,y:72}}),
+      P(32,86,'','',{style:'spline',note:'Spinning back the other way',rotate:'spin',spins:-1}),
+      P(30,124,'','',{style:'spline',note:'Facing where it drives',rotate:'tangent'}),
+      P(20.5,107,'','PARK: partly in the red LOADING ZONE, facing it',{style:'spline',note:'Into the loading zone, pushing its pollen into the corner'},{turn:-180})]},
+    // REV's Starter Bot (its launcher fires out of the back; its flap rollers take pieces only across their 12.1 in), every
+    // red pollen it can reach: the 4 preloaded into the up cell (tipping it); the garden pollen on the red tape by the start,
+    // in at an angle down the left wall (a tank turns only where it has room, so the one pressed into the corner stays);
+    // all the way up the left side to the hive, launcher first, for the other cell; then a quarter turn and into the
+    // barrier for the 4 loading zone pollen lined up along it, shot last, and park with the pollen pusher out.
     startertank:{start:{x:9.67,y:27,heading:0},pins:[
       P(24,30,'Shoot','Back to the hive: the 4 preloaded pollen into the up (south) cell, tipping it',spin('Off the wall, flywheel spinning up')),
-      P(15,27,'','Face the audience wall',plain('Over to the garden'),{turn:-90}),
-      P(15,10.2,'Intake','Last garden pollen sweeps in',take('Straight at the wall: the flap rollers take the garden pollen'),{actionSeconds:.6,wait:.2}),
-      P(15,27,'','',plain('Back straight out')),
-      P(17.7,110.1,'','',spin('Up the left side, spinning up')),
-      P(28,104,'Shoot','The garden pollen into the north cell, up after the tip',plain('Reverse to the hive, launcher first'),{cell:'other'}),
-      P(17.7,110.1,'Pollen pusher out','PARK: partly in the red LOADING ZONE, the pollen pusher out',plain('Forward into the loading zone'))]}};
+      P(13.6,30,'','',plain('Over to the left wall')),
+      P(11.3,11,'Intake','The garden pollen sweep in',take('Down the wall at an angle: the flap rollers take the garden pollen on the red tape'),{actionSeconds:.6,wait:.2}),
+      P(13.6,30,'','',plain('Back straight out')),
+      P(28,104,'Shoot','The garden pollen into the north cell',spin('All the way up the left side, launcher first, spinning up'),{cell:'other'}),
+      P(24,107.3,'','A quarter turn to face the barrier',plain('Back out of the hive'),{turn:-180}),
+      P(11.5,107.3,'Intake','Against the barrier: the 4 pollen along it sweep in',take('Into the barrier, rollers on'),{actionSeconds:.6,wait:.2}),
+      P(28,104,'Shoot','Last: the barrier pollen into the north cell',spin('Back to the hive, spinning up'),{cell:'other'}),
+      P(18,109,'Pollen pusher out','PARK: partly in the red LOADING ZONE, the pollen pusher out',plain('Forward into the loading zone'))]}};
   // The demo route as a field of its own (the app gives it its id).
   function layout(id){const r=ROUTES[id];return {name:`${Mech().PRESETS[id].name} demo`,field:'biobuzz',alliance:'red',width:144,height:144,elements:true,start:{...r.start},zones:[],pins:JSON.parse(JSON.stringify(r.pins)),
     clearance:.25,style:'spline',rotate:false,route:null,tested:null};}

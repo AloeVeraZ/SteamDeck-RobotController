@@ -192,7 +192,48 @@ function startOnBotJava({address='127.0.0.2',port=8080,compile=()=>[],buildMs=15
 }
 // A robot whose op mode list includes what OnBot Java last built, announced to a connected station as the SDK does.
 function listBuilt(sim){const base=sim.opModes.filter(m=>m.source!=='ONBOTJAVA');return files=>{sim.opModes=[...base,...opModesIn(files)];if(sim.peer)sim.command('CMD_NOTIFY_OP_MODE_LIST',JSON.stringify(sim.opModes));};}
-module.exports={SimController,CheckScript,startUdpRobot,startOnBotJava,opModesIn,listBuilt,OP_MODES,CONFIG_XML,SENSOR_CONFIG_XML,HUBS};
+// Deck Debug (src/onbot/DeckDebug.java) as the robot runs it, for tests: while the simulated robot runs its "Deck Debug"
+// op mode, port 20886 answers with the devices of a configuration (one JSON line) and then readings every 20 ms, and
+// takes Deck's commands (M, C, S, E, L, R, Q, T, X, P) with the same 300 ms watchdog (a motor power lasts 300 ms unless sent again). Motors turn at 2800 ticks/s at
+// full power; a switch named …home or …limit is pressed (active-low, reads 0) while the first mechanism motor is below
+// 100 ticks; a colour sensor sees a piece while a motor named intake runs; an analog input follows the first servo.
+// commands lists every line Deck sent, for tests to check.
+function startDebugServer({address='127.0.0.2',sim,xml=CONFIG_XML,port=20886}={}){
+  const net=require('node:net'),RobotConfig=require('../ui/ftc/robot-config.js'),devices=RobotConfig.parse(xml).devices;
+  const of=(fam,test=()=>true)=>devices.filter(d=>RobotConfig.familyOfTag(d.tag)===fam&&test(d)).map(d=>d.name);
+  const I2C={RevColorSensorV3:'color',REV_VL53L0X_RANGE_SENSOR:'distance',goBILDAPinpoint:'pinpoint',SparkFunOTOS:'otos',ControlHubImuBHI260AP:'imu',LynxEmbeddedIMU:'imu'};
+  const m={deck:'debug',version:1,motors:of('motor'),servos:of('servo',d=>d.tag!=='ContinuousRotationServo'),crservos:of('servo',d=>d.tag==='ContinuousRotationServo'),digital:of('digital',d=>d.tag!=='RevTouchSensor'),touch:of('digital',d=>d.tag==='RevTouchSensor'),
+    analog:of('analog').map(n=>({n,max:3.3})),i2c:devices.filter(d=>I2C[d.tag]).map(d=>({n:d.name,k:I2C[d.tag]})),hubs:[{n:'Control Hub',address:173,parent:true}]};
+  const pos=m.motors.map(()=>0),power=m.motors.map(()=>0),at=m.motors.map(()=>0),cr=m.crservos.map(()=>0),servo=m.servos.map(()=>null),on=m.servos.map(()=>false),latched=m.servos.map(()=>false),commands=[];
+  let client=null,heard=0,loop=null,t0=Date.now(),timer=null;const running=()=>sim.opMode==='Deck Debug'&&sim.opState==='running';
+  const mech=Math.max(0,m.motors.findIndex(n=>!/front|back|left|right/.test(n)));
+  const apply=line=>{commands.push(line);const f=line.split('\t'),i=k=>m[k].indexOf(f[1]);
+    if(f[0]==='M'&&i('motors')>=0){power[i('motors')]=Math.max(-1,Math.min(1,+f[2]||0));at[i('motors')]=Date.now();if(loop?.index===i('motors'))loop=null;}
+    else if(f[0]==='C'&&i('crservos')>=0)cr[i('crservos')]=Math.max(-1,Math.min(1,+f[2]||0));
+    else if(f[0]==='S'&&i('servos')>=0){servo[i('servos')]=Math.max(0,Math.min(1,+f[2]||0));on[i('servos')]=true;}
+    else if(f[0]==='E'&&i('servos')>=0)on[i('servos')]=f[2]==='1'&&servo[i('servos')]!==null;
+    else if(f[0]==='L'&&i('servos')>=0)latched[i('servos')]=f[2]==='1';
+    else if(f[0]==='R'&&i('motors')>=0)pos[i('motors')]=0;
+    else if(f[0]==='Q'){const index=m.motors.indexOf(f[1]);if(index>=0)loop={index,target:+f[4],kP:+f[5],kI:+f[6],kD:+f[7],kS:+f[9],kG:+f[10],tol:+f[11],integral:0,last:null};}
+    else if(f[0]==='T'&&loop)loop.target=+f[1];
+    else if(f[0]==='X')stopAll();};
+  const stopAll=()=>{loop=null;power.fill(0);cr.fill(0);m.servos.forEach((_,k)=>{if(!latched[k])on[k]=false;});};
+  const tick=()=>{if(!running()){if(client){client.destroy();client=null;}stopAll();return;}
+    if(!client||Date.now()-heard>300)stopAll();
+    power.forEach((p,k)=>{if(Date.now()-at[k]>300&&loop?.index!==k)power[k]=0;});
+    if(loop){const e=loop.target-pos[loop.index],d=loop.last===null?0:(e-loop.last)/.02;loop.last=e;loop.integral+=e*.02;power[loop.index]=Math.max(-1,Math.min(1,loop.kP*e+loop.kI*loop.integral+loop.kD*d+loop.kG+(Math.abs(e)>loop.tol?loop.kS*Math.sign(e):0)));}
+    power.forEach((p,k)=>{pos[k]+=Math.sign(p)*Math.max(0,Math.abs(p)-.04)*2800*.02;});
+    if(!client)return;const intake=m.motors.findIndex(n=>/intake/i.test(n)),piece=intake>=0&&Math.abs(power[intake])>.2,home=pos[mech]<100;
+    const frame={t:Date.now()-t0,loop:6.2,v:12.6,m:m.motors.map((n,k)=>[Math.round(pos[k]),Math.round(Math.sign(power[k])*Math.max(0,Math.abs(power[k])-.04)*2800/20)*20,power[k],Math.abs(power[k])*2,0]),
+      s:m.servos.map((n,k)=>[servo[k],on[k]?1:0,latched[k]?1:0]),c:cr,d:m.digital.map(n=>/home|limit/i.test(n)?(home?0:1):1),touch:m.touch.map(()=>0),a:m.analog.map(()=>servo[0]!==null&&on[0]?+(servo[0]*3.3).toFixed(4):1.65),
+      i:m.i2c.map(d=>({age:10,v:d.k==='color'?{r:.1,g:.1,b:.1,a:piece?.6:.05,d:piece?2:8}:d.k==='distance'?{d:piece?3:20}:d.k==='pinpoint'?{x:0,y:0,h:0,ex:0,ey:0,status:'READY'}:d.k==='otos'?{x:0,y:0,h:0}:{yaw:0,pitch:0,roll:0,wz:0}}))};
+    client.write(JSON.stringify(frame)+'\n');};
+  const server=net.createServer(s=>{if(!running()){s.destroy();return;}if(client)client.destroy();client=s;heard=Date.now();t0=Date.now();s.setNoDelay(true);s.write(JSON.stringify(m)+'\n');
+    let buffer='';s.on('data',c=>{heard=Date.now();buffer+=c;for(let k;(k=buffer.indexOf('\n'))>=0;){const line=buffer.slice(0,k);buffer=buffer.slice(k+1);if(line)apply(line);}});
+    s.on('close',()=>{if(client===s){client=null;stopAll();}});s.on('error',()=>{});});
+  return new Promise((ok,fail)=>{server.once('error',fail);server.listen(port,address,()=>{timer=setInterval(tick,20);ok({manifest:m,commands,positions:pos,close:()=>{clearInterval(timer);client?.destroy();return new Promise(r=>server.close(()=>r()));}});});});
+}
+module.exports={SimController,CheckScript,startUdpRobot,startOnBotJava,opModesIn,listBuilt,startDebugServer,OP_MODES,CONFIG_XML,SENSOR_CONFIG_XML,HUBS};
 if(require.main===module){const address=process.argv.slice(2).find(a=>!a.startsWith('--'))||'127.0.0.2';
   // --empty starts a robot with no configuration; --onbot also serves OnBot Java on port 8080. Together they try the
   // whole of Send to robot without a robot.

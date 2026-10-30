@@ -45,3 +45,13 @@ test('sides never cross: leftLift is not the right lift, and a lift motor is not
   assert.equal(HS.score(row('robot.left','left_drive','drive'),{name:'leftLift',kind:'motor'})<HS.score(row('kin.l','lift','kin-motor','Lift'),{name:'leftLift',kind:'motor'}),true);
   assert.equal(HS.score(row('robot.frontLeft','front_left','drive'),{name:'frontLeft',kind:'servo'}),0,'a servo is not a drive motor');
 });
+
+test('Calibrate shows ports only as the Control Hub reported them: its read-out, and each device’s port from it',()=>{
+  const cfg=hub('<goBILDA5202SeriesMotor name="frontLeft" port="2" /><Servo name="mystery" port="4" />'),p0=testSetup(),p=HS.apply(p0,HS.plan(p0,cfg)),read=HS.readout(cfg),st=W.state(p);
+  assert.deepEqual(read.find(d=>d.name==='frontLeft'),{name:'frontLeft',kind:'motor',tag:'goBILDA5202SeriesMotor',hub:'control',port:2});
+  const table=W.readoutHtml(read,st);assert.match(table,/<tr data-read-row="frontLeft"><td>Motor port 2<\/td>/);assert.match(table,/<tr data-read-row="mystery"><td>Servo port 4<\/td>/);
+  const row=k=>st.rows.find(r=>r.key===k),on=W.deviceHtml(row('robot.frontLeft'),st,{sensors:true,read});
+  assert.match(on,/data-wire-read="on">Control Hub motor port 2</);assert.doesNotMatch(on,/data-wire-port|Deck picks/);
+  const off=W.deviceHtml(row('robot.frontRight'),st,{sensors:true,read});
+  assert.match(off,/data-wire-read="off">Not on the Control Hub</);assert.doesNotMatch(off,/data-wire-port|Deck picks|motor port \d/);
+});

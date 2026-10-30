@@ -82,7 +82,7 @@ for(const id of IDS)test(`${id}: its demo route runs headlessly inside the 30 s 
   try{
     const info=await e.load({mechanisms:s.mechanisms,alliance:l.alliance,field:l.field,width:l.width,height:l.height,elements:true,start:l.start,zones:l.zones,robot:s.robot,controller:s.controller,sensors:s.sensors,timing:{...s.timing,power:1},tuning:s.tuning,kinematics:s.kinematics});
     const route=DS.planRoute({...s,layouts:[l],active:l.id},l,info);assert.ok(route.segments.length>0);assert.equal((await e.run({kind:'route',route})).ok,true);
-    const moved={};for(let i=0;i<4200&&['program','timed'].includes(e.mode);i++){await e.programTick();for(const [k,v] of Object.entries(e.frame().joints||{}))moved[k]=(moved[k]||0)+Math.abs(v);}
+    const moved={};for(let i=0;i<4200&&['program','timed'].includes(e.mode);i++){if(e.mode==='timed')e.timedTick();else await e.programTick();for(const [k,v] of Object.entries(e.frame().joints||{}))moved[k]=(moved[k]||0)+Math.abs(v);}
     assert.ok(e.result,e.lastError||'the route finished');const end=l.pins.at(-1),st=e.mechanismState();
     t.diagnostic(`${e.result.time.toFixed(2)} s${st?`, picked ${st.pickedUp}, shot ${st.shots}, landed ${st.landed}, ${st.tips} tips`:''}`);
     assert.equal(e.result.violations.length,0,'no zone touches');assert.ok(Math.hypot(e.result.truth.x-end.x,e.result.truth.y-end.y)<1.5,'ends within 1.5 in of the last pin (as the app checks)');assert.ok(e.result.time<30,`${e.result.time} s`);
